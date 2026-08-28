@@ -1102,10 +1102,10 @@ serve(async (req) => {
       emailTitle = 'Propuesta y Servicios Fulfillment 360';
 
       const customIntroMessage = payload.customMessage || payload.notes || '';
-      const fulfillmentDocUrl = payload.fulfillmentUrl || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
-      const despachosDocUrl = payload.despachosUrl || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
+      const fulfillmentDocUrl = payload.fulfillmentUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
+      const despachosDocUrl = payload.despachosUrl || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
       const courierFolderUrl = payload.courierFolderUrl || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
-      const cotizadorUrl = payload.cotizadorUrl || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+      const cotizadorUrl = payload.cotizadorUrl || 'https://wms.stocka.cl/cotizaciones.html';
       const meetingUrl = payload.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
 
       htmlBody = `
@@ -2125,48 +2125,9 @@ serve(async (req) => {
       }
     }
 
-    // Si es lead_info_fulfillment / lead_info_presentation, consultar y adjuntar las presentaciones oficiales en PDF
+    // Para lead_info_fulfillment / lead_info_presentation, los documentos se entregan vía enlaces directos optimizados
     if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
-      try {
-        const fulfillmentUrl = payload.fulfillmentUrl || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
-        const despachosUrl = payload.despachosUrl || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
-
-        const docsToAttach = [
-          { url: fulfillmentUrl, name: 'Presentacion_Fulfillment_360_Stocka.pdf' },
-          { url: despachosUrl, name: 'Presentacion_Despachos_RM_Stocka.pdf' }
-        ];
-
-        for (const item of docsToAttach) {
-          try {
-            console.log(`[send-billing-email] Descargando presentación para adjuntar: ${item.name} desde ${item.url}`);
-            const fileRes = await fetch(item.url);
-            if (fileRes.ok) {
-              const arrayBuffer = await fileRes.arrayBuffer();
-              const sizeInMB = arrayBuffer.byteLength / (1024 * 1024);
-              if (sizeInMB < 5.0) {
-                const uint8 = new Uint8Array(arrayBuffer);
-                const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
-                if (!brevoPayload.attachment) {
-                  brevoPayload.attachment = [];
-                }
-                brevoPayload.attachment.push({
-                  content: base64Content,
-                  name: item.name
-                });
-                console.log(`[send-billing-email] Presentación ${item.name} adjuntada exitosamente (${sizeInMB.toFixed(2)} MB).`);
-              } else {
-                console.log(`[send-billing-email] Presentación ${item.name} supera límite de 5MB, disponible por enlace directo.`);
-              }
-            } else {
-              console.warn(`[send-billing-email] Aviso: No se pudo descargar presentación ${item.name}: HTTP ${fileRes.status}`);
-            }
-          } catch (itemErr) {
-            console.warn(`[send-billing-email] Error descargando adjunto ${item.name}:`, itemErr);
-          }
-        }
-      } catch (presErr) {
-        console.error('[send-billing-email] Error procesando adjuntos de presentación:', presErr);
-      }
+      console.log(`[send-billing-email] Correo de información comercial preparado con enlaces directos.`);
     }
 
     const brevoRes = await fetch("https://api.brevo.com/v3/smtp/email", {

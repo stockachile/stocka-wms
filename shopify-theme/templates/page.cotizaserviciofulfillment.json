@@ -1,0 +1,46 @@
+{
+  "sections": {
+    "cotizador_hero": {
+      "type": "stocka-cotizador-hero",
+      "settings": {
+        "badge_text": "SIMULADOR EN VIVO • TARIFAS OFICIALES",
+        "title_prefix": "Cotiza tu Servicio de ",
+        "title_highlight": "Fulfillment 360 en Tiempo Real",
+        "subtitle": "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. Sin costos fijos ocultos ni contratos forzosos.",
+        "btn_primary_text": "Comenzar Simulación Online 👇",
+        "bg_color": "#f8fafc"
+      }
+    },
+    "cotizador_app": {
+      "type": "stocka-cotizador-app",
+      "settings": {
+        "bg_color": "#ffffff"
+      }
+    },
+    "cotizador_channels": {
+      "type": "stocka-contact-channels",
+      "settings": {
+        "bg_color": "#f8fafc"
+      }
+    },
+    "cotizador_faq": {
+      "type": "stocka-cotizador-faq",
+      "settings": {
+        "bg_color": "#ffffff"
+      }
+    },
+    "cotizador_meeting": {
+      "type": "stocka-contact-meeting",
+      "settings": {
+        "bg_color": "#f8fafc"
+      }
+    }
+  },
+  "order": [
+    "cotizador_hero",
+    "cotizador_app",
+    "cotizador_channels",
+    "cotizador_faq",
+    "cotizador_meeting"
+  ]
+}

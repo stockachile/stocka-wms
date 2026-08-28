@@ -1,0 +1,246 @@
+{%- assign section_id = 'cont-hero-snip' -%}
+
+<style>
+  .stocka-ch-section-{{ section_id }} {
+    background-color: #f8fafc;
+    padding: 3.5rem 1rem;
+    position: relative;
+    overflow: hidden;
+  }
+  @media (min-width: 1024px) {
+    .stocka-ch-section-{{ section_id }} {
+      padding: 5rem 2rem;
+    }
+  }
+
+  .stocka-ch-container-{{ section_id }} {
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .stocka-ch-container-{{ section_id }} {
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 4rem;
+    }
+  }
+
+  .stocka-ch-badge-{{ section_id }} {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(92, 36, 255, 0.15);
+  }
+
+  .stocka-ch-title-{{ section_id }} {
+    font-size: 2.35rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #0f172a;
+    margin-bottom: 1.25rem;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-ch-title-{{ section_id }} {
+      font-size: 3.25rem;
+    }
+  }
+
+  .stocka-ch-gradient-text {
+    background: linear-gradient(135deg, #5c24ff 0%, #a855f7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .stocka-ch-subtitle-{{ section_id }} {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    color: #475569;
+    margin-bottom: 2rem;
+    max-width: 580px;
+  }
+
+  .stocka-ch-bullets-{{ section_id }} {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 2.25rem;
+  }
+  .stocka-ch-bullet-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .stocka-ch-bullet-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    color: #10b981;
+    font-size: 0.85rem;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .stocka-ch-actions-{{ section_id }} {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+  }
+  .stocka-ch-btn-primary-{{ section_id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #5c24ff;
+    color: #ffffff !important;
+    padding: 0.9rem 2rem;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none !important;
+    transition: all 0.25s ease;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.4);
+  }
+  .stocka-ch-btn-primary-{{ section_id }}:hover {
+    background: #4a15e6;
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(92, 36, 255, 0.5);
+  }
+
+  .stocka-ch-btn-secondary-{{ section_id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    color: #0f172a !important;
+    border: 1.5px solid #cbd5e1;
+    padding: 0.85rem 1.75rem;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none !important;
+    transition: all 0.2s ease;
+  }
+  .stocka-ch-btn-secondary-{{ section_id }}:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    transform: translateY(-2px);
+  }
+
+  .stocka-ch-image-wrapper-{{ section_id }} {
+    position: relative;
+    border-radius: 28px;
+  }
+  .stocka-ch-image-container-{{ section_id }} {
+    position: relative;
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
+    background: #ffffff;
+  }
+  .stocka-ch-img-{{ section_id }} {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+    aspect-ratio: 4 / 3;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-ch-image-container-{{ section_id }}:hover .stocka-ch-img-{{ section_id }} {
+    transform: scale(1.03);
+  }
+
+  .stocka-ch-float-badge {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    padding: 0.75rem 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0,0,0,0.05);
+    z-index: 10;
+    animation: floatAnimation 4s ease-in-out infinite;
+  }
+  .stocka-ch-float-1 { top: -15px; left: -15px; animation-delay: 0s; }
+  .stocka-ch-float-2 { bottom: -15px; right: -15px; animation-delay: 2s; }
+  @keyframes floatAnimation { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  @media (max-width: 640px) { .stocka-ch-float-badge { display: none; } }
+</style>
+
+<section class="stocka-ch-section-{{ section_id }}">
+  <div class="stocka-ch-container-{{ section_id }}">
+    <div>
+      <div class="stocka-ch-badge-{{ section_id }}">
+        <span>✨</span> PARTNER LOGÍSTICO PARA TU ECOMMERCE
+      </div>
+
+      <h1 class="stocka-ch-title-{{ section_id }}">
+        Conversemos y llevemos tu <span class="stocka-ch-gradient-text">Logística al Siguiente Nivel</span>
+      </h1>
+
+      <p class="stocka-ch-subtitle-{{ section_id }}">
+        En Stocka somos tu partner estratégico para externalizar tu bodega, automatizar el armado de pedidos (Pick & Pack) y entregar el mismo día en Santiago y a todo Chile.
+      </p>
+
+      <div class="stocka-ch-bullets-{{ section_id }}">
+        <div class="stocka-ch-bullet-item"><div class="stocka-ch-bullet-icon">✓</div><span>Envío inmediato de propuesta y tarifarios oficiales en PDF</span></div>
+        <div class="stocka-ch-bullet-item"><div class="stocka-ch-bullet-icon">✓</div><span>Agendamiento 1 a 1 directo con nuestro equipo comercial</span></div>
+        <div class="stocka-ch-bullet-item"><div class="stocka-ch-bullet-icon">✓</div><span>Sin contratos forzosos ni comisiones ocultas por venta</span></div>
+      </div>
+
+      <div class="stocka-ch-actions-{{ section_id }}">
+        <a href="#stocka-contact-form" class="stocka-ch-btn-primary-{{ section_id }}">
+          Cotizar Servicio Online 🚀
+        </a>
+        <a href="#stocka-meeting-section" class="stocka-ch-btn-secondary-{{ section_id }}">
+          📹 Agendar Reunión Meet
+        </a>
+      </div>
+    </div>
+
+    <div class="stocka-ch-image-wrapper-{{ section_id }}">
+      <div class="stocka-ch-float-badge stocka-ch-float-1">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #eef2ff; color: #5c24ff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">📦</div>
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Fulfillment 360</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Almacena, Arma y Despacha</div>
+        </div>
+      </div>
+
+      <div class="stocka-ch-image-container-{{ section_id }}">
+        <img src="{{ 'stocka-bot-packing.jpg' | asset_url }}" alt="Stocka Bot Packing" class="stocka-ch-img-{{ section_id }}" loading="eager">
+      </div>
+
+      <div class="stocka-ch-float-badge stocka-ch-float-2">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">⚡</div>
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Same Day Santiago</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Entregas ultra rápidas en RM</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

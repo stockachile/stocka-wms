@@ -1,0 +1,1670 @@
+{%- assign settings_bg_color = "#ffffff" -%}
+
+<style>
+  .stocka-cot-app-sec {
+    background-color: #ffffff;
+    padding: 3rem 1rem 5rem 1rem;
+    font-family: inherit;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cot-app-sec {
+      padding: 4.5rem 2rem 6rem 2rem;
+    }
+  }
+
+  .stocka-cot-container {
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+
+  .stocka-cot-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: stretch;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cot-grid {
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 3.5rem;
+    }
+  }
+
+  .stocka-cot-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+    position: relative;
+  }
+  @media (max-width: 767px) {
+    .stocka-cot-card {
+      padding: 1.5rem 1.25rem;
+      border-radius: 18px;
+    }
+  }
+
+  .stocka-cot-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .stocka-cot-step-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .stocka-cot-step-subtitle {
+    font-size: 0.88rem;
+    color: #64748b;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+
+  .stocka-cot-badge {
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.35rem 0.85rem;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border: 1px solid rgba(92, 36, 255, 0.15);
+  }
+
+  .stocka-cot-slider-wrap {
+    margin: 1.5rem 0;
+  }
+  .stocka-cot-slider-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .stocka-cot-slider-label {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  .stocka-cot-value-box {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.4rem 0.85rem;
+  }
+  .stocka-cot-num-input {
+    width: 75px;
+    border: none;
+    background: transparent;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #5c24ff;
+    text-align: right;
+    outline: none;
+  }
+  .stocka-cot-unit {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+
+  .stocka-cot-range {
+    width: 100%;
+    height: 8px;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+  .stocka-cot-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #5c24ff;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(92, 36, 255, 0.4);
+    transition: transform 0.15s ease;
+  }
+  .stocka-cot-range::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  .stocka-cot-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    align-items: center;
+  }
+  .stocka-cot-preset-btn {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .stocka-cot-preset-btn:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+  .stocka-cot-preset-btn.active {
+    background: #5c24ff;
+    border-color: #5c24ff;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);
+  }
+
+  .stocka-cot-tier-banner {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0 1rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-cot-tier-banner {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+  }
+  .stocka-cot-tier-info strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #0f172a;
+  }
+  .stocka-cot-tier-info span {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+  .stocka-cot-tier-rates {
+    display: flex;
+    gap: 1.25rem;
+  }
+  .stocka-cot-rate-badge {
+    text-align: right;
+  }
+  .stocka-cot-rate-badge .lbl {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+  }
+  .stocka-cot-rate-badge .val {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #5c24ff;
+  }
+
+  .stocka-cot-next-tier {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e40af;
+    border-radius: 12px;
+    padding: 0.65rem 1rem;
+    font-size: 0.84rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .stocka-cot-channels {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+  .stocka-cot-channel-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #334155;
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+  .stocka-cot-channel-item:hover {
+    border-color: #cbd5e1;
+  }
+  .stocka-cot-channel-item.active {
+    background: #f5f3ff;
+    border-color: #5c24ff;
+    color: #5c24ff;
+  }
+
+  .stocka-cot-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .stocka-cot-switch-row:hover {
+    border-color: #cbd5e1;
+  }
+  .stocka-cot-switch-row.active {
+    background: #f5f3ff;
+    border-color: #5c24ff;
+  }
+  .stocka-cot-switch-info h4 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 0.2rem 0;
+  }
+  .stocka-cot-switch-info p {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 0;
+  }
+  .stocka-cot-switch-price {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #5c24ff;
+    white-space: nowrap;
+  }
+
+  .stocka-cot-summary-col {
+    position: relative;
+    height: 100%;
+    min-height: 100%;
+  }
+  .stocka-cot-summary-card {
+    background: #0f172a;
+    color: #ffffff;
+    border-radius: 28px;
+    padding: 2.25rem 2rem;
+    position: relative;
+    z-index: 25;
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+    will-change: transform;
+    transition: transform 0.04s ease-out;
+  }
+  @media (max-width: 1023px) {
+    .stocka-cot-summary-card {
+      position: static;
+      transform: none !important;
+      padding: 1.75rem 1.25rem;
+      border-radius: 20px;
+    }
+  }
+  @media (max-width: 767px) {
+    .stocka-cot-summary-card {
+      padding: 1.75rem 1.25rem;
+      border-radius: 20px;
+      position: static;
+    }
+  }
+
+  .stocka-cot-sum-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    padding-bottom: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .stocka-cot-sum-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+  .stocka-cot-sum-desc {
+    font-size: 0.8rem;
+    color: #94a3b8;
+  }
+
+  .stocka-cot-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.88rem;
+    padding: 0.6rem 0;
+    color: #cbd5e1;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .stocka-cot-breakdown-row strong {
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  .stocka-cot-total-box {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 18px;
+    padding: 1.5rem;
+    margin: 1.75rem 0 1.5rem 0;
+    text-align: center;
+  }
+  .stocka-cot-total-lbl {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #38bdf8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.35rem;
+  }
+  .stocka-cot-total-clp {
+    font-size: 2.2rem;
+    font-weight: 900;
+    color: #ffffff;
+    line-height: 1.1;
+  }
+  .stocka-cot-total-uf {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-top: 0.35rem;
+  }
+
+  .stocka-cot-btn-cta {
+    background: linear-gradient(135deg, #5c24ff 0%, #a855f7 100%);
+    color: #ffffff !important;
+    font-weight: 800;
+    font-size: 1.05rem;
+    padding: 1.1rem 1.75rem;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    transition: all 0.25s ease;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.5);
+    text-decoration: none !important;
+  }
+  .stocka-cot-btn-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(92, 36, 255, 0.6);
+    background: linear-gradient(135deg, #6d3bff 0%, #b865ff 100%);
+  }
+
+  /* ========================================================
+     MODAL POPUP STYLES (SaaS High-Conversion Design)
+     ======================================================== */
+  .stocka-cot-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    animation: stockaModalFadeIn 0.25s ease-out forwards;
+  }
+  @keyframes stockaModalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes stockaModalSlideUp {
+    from { opacity: 0; transform: translateY(24px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .stocka-cot-modal-card {
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 2.25rem 2rem;
+    max-width: 620px;
+    width: 100%;
+    position: relative;
+    max-height: 92vh;
+    overflow-y: auto;
+    box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(226, 232, 240, 0.8);
+    animation: stockaModalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @media (max-width: 767px) {
+    .stocka-cot-modal-card {
+      padding: 1.5rem 1.25rem;
+      border-radius: 20px;
+    }
+  }
+  .stocka-cot-modal-close {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    transition: all 0.2s ease;
+    z-index: 10;
+    padding: 0;
+  }
+  .stocka-cot-modal-close:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    transform: rotate(90deg);
+  }
+  .stocka-cot-modal-close svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2.25;
+    fill: none;
+  }
+
+  /* Header Badge & Typography */
+  .stocka-modal-header {
+    text-align: center;
+    margin-bottom: 1.25rem;
+  }
+  .stocka-modal-icon-badge {
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 0.75rem auto;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(92, 36, 255, 0.12) 0%, rgba(129, 140, 248, 0.18) 100%);
+    border: 1.5px solid rgba(92, 36, 255, 0.25);
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 16px -4px rgba(92, 36, 255, 0.15);
+  }
+  .stocka-modal-icon-badge svg {
+    width: 28px;
+    height: 28px;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    fill: none;
+  }
+  .stocka-modal-title {
+    font-size: 1.45rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.35rem 0;
+    line-height: 1.25;
+  }
+  .stocka-modal-subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin: 0 auto;
+    max-width: 480px;
+    line-height: 1.5;
+  }
+
+  /* Live Simulation Summary Box */
+  .stocka-modal-summary-box {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.35rem;
+  }
+  .stocka-modal-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.55rem;
+    margin-bottom: 0.55rem;
+    border-bottom: 1px dashed #cbd5e1;
+  }
+  .stocka-modal-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #5c24ff;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stocka-modal-summary-badge svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .stocka-modal-summary-tier {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+  }
+  .stocka-modal-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.25fr;
+    gap: 0.5rem;
+    text-align: center;
+  }
+  .stocka-modal-sum-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .stocka-modal-sum-label {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .stocka-modal-sum-val {
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .stocka-modal-sum-val.highlight {
+    color: #5c24ff;
+  }
+
+  /* Form Grid & Inputs */
+  .stocka-modal-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+  @media (max-width: 580px) {
+    .stocka-modal-grid-2 {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+  }
+  .stocka-modal-field {
+    margin-bottom: 0.85rem;
+  }
+  .stocka-modal-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.35rem;
+  }
+  .stocka-modal-label span.req {
+    color: #ef4444;
+  }
+  .stocka-modal-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  .stocka-modal-input-icon {
+    position: absolute;
+    left: 0.9rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
+    pointer-events: none;
+    transition: color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+  }
+  .stocka-modal-input-icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    fill: none;
+  }
+  .stocka-modal-input {
+    width: 100% !important;
+    padding: 0.75rem 0.9rem 0.75rem 2.85rem !important;
+    font-size: 0.88rem !important;
+    line-height: 1.4 !important;
+    height: auto !important;
+    color: #0f172a !important;
+    background: #f8fafc !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    font-family: inherit !important;
+    box-sizing: border-box !important;
+  }
+  .stocka-modal-input:hover {
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+  }
+  .stocka-modal-input:focus {
+    background: #ffffff !important;
+    border-color: #5c24ff !important;
+    outline: none !important;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12) !important;
+  }
+  .stocka-modal-input-wrap:focus-within .stocka-modal-input-icon {
+    color: #5c24ff;
+  }
+  .stocka-modal-input::placeholder {
+    color: #94a3b8 !important;
+    font-size: 0.85rem !important;
+    opacity: 1 !important;
+  }
+
+  .stocka-modal-input-wrap.textarea-wrap {
+    align-items: stretch;
+  }
+  .stocka-modal-input-wrap.textarea-wrap .stocka-modal-input-icon {
+    top: 0.9rem;
+    transform: none;
+  }
+  .stocka-modal-textarea {
+    width: 100% !important;
+    padding: 0.75rem 0.9rem 0.75rem 2.85rem !important;
+    font-size: 0.88rem !important;
+    line-height: 1.4 !important;
+    color: #0f172a !important;
+    background: #f8fafc !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    font-family: inherit !important;
+    resize: vertical !important;
+    min-height: 60px !important;
+    box-sizing: border-box !important;
+  }
+  .stocka-modal-textarea:hover {
+    border-color: #cbd5e1 !important;
+    background: #ffffff !important;
+  }
+  .stocka-modal-textarea:focus {
+    background: #ffffff !important;
+    border-color: #5c24ff !important;
+    outline: none !important;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12) !important;
+  }
+  .stocka-modal-textarea::placeholder {
+    color: #94a3b8 !important;
+    font-size: 0.85rem !important;
+    opacity: 1 !important;
+  }
+
+  /* Submit Button */
+  .stocka-modal-btn-submit {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%);
+    color: #ffffff !important;
+    border: none;
+    border-radius: 14px;
+    padding: 0.95rem 1.75rem;
+    font-size: 0.98rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.4);
+    margin-top: 0.5rem;
+    text-decoration: none !important;
+  }
+  .stocka-modal-btn-submit:hover {
+    background: linear-gradient(135deg, #6d3aff 0%, #4f46e5 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 28px -4px rgba(92, 36, 255, 0.5);
+  }
+  .stocka-modal-btn-submit:active {
+    transform: translateY(0);
+  }
+  .stocka-modal-btn-submit:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  .stocka-modal-btn-submit svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    fill: none;
+  }
+
+  /* Trust Strip */
+  .stocka-modal-trust-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .stocka-modal-trust-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .stocka-modal-trust-item svg {
+    width: 14px;
+    height: 14px;
+    stroke: #10b981;
+    stroke-width: 2.25;
+    fill: none;
+  }
+</style>
+
+<section id="stocka-simulator-app" class="stocka-cot-app-sec">
+  <div class="stocka-cot-container">
+    
+    <div class="stocka-cot-grid">
+      
+      <!-- LEFT COLUMN: CONTROLS -->
+      <div class="stocka-cot-controls-col">
+        
+        <!-- STEP 1: PEDIDOS / VENTAS MENSUALES -->
+        <div class="stocka-cot-card">
+          <div class="stocka-cot-card-header">
+            <div class="stocka-cot-step-title">
+              <span>🛒</span>
+              <span>1. Ventas y Pedidos Mensuales</span>
+            </div>
+            <span id="stocka-tier-badge" class="stocka-cot-badge">Rango 2 (26 a 100 pedidos)</span>
+          </div>
+          <p class="stocka-cot-step-subtitle">
+            Tu volumen mensual define tu tarifa base de preparación (Pick & Pack) y el valor de almacenamiento.
+          </p>
+
+          <div class="stocka-cot-slider-wrap">
+            <div class="stocka-cot-slider-top">
+              <span class="stocka-cot-slider-label">Pedidos promedio por mes:</span>
+              <div class="stocka-cot-value-box">
+                <input type="number" id="cot-orders-num" class="stocka-cot-num-input" value="60" min="0" max="10000">
+                <span class="stocka-cot-unit">pedidos/mes</span>
+              </div>
+            </div>
+            <input type="range" id="cot-orders-slider" class="stocka-cot-range" min="0" max="3000" value="60" step="1">
+            
+            <div class="stocka-cot-presets">
+              <span style="font-size: 0.75rem; color: #64748b; margin-right: 0.25rem;">Rápido:</span>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="20">20 (Inicio)</button>
+              <button type="button" class="stocka-cot-preset-btn active" data-orders="60">60 (Crecimiento)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="150">150 (Medio)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="350">350 (Escala)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="800">800 (Líder)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-orders="2600">+2.500 (Enterprise)</button>
+            </div>
+          </div>
+
+          <!-- Tier Info Banner -->
+          <div class="stocka-cot-tier-banner">
+            <div class="stocka-cot-tier-info">
+              <strong id="cot-tier-name">Rango 2: 26 a 100 pedidos/mes</strong>
+              <span>Tarifa aplicada de forma automática por escala</span>
+            </div>
+            <div class="stocka-cot-tier-rates">
+              <div class="stocka-cot-rate-badge">
+                <div class="lbl">Pick & Pack</div>
+                <div class="val" id="cot-tier-pickpack">$1.200</div>
+              </div>
+              <div class="stocka-cot-rate-badge">
+                <div class="lbl">Bodega / m³</div>
+                <div class="val" id="cot-tier-storage">$43.500</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Next Tier Progress Info -->
+          <div class="stocka-cot-next-tier" id="cot-next-tier-bar">
+            <span>📈</span>
+            <span id="cot-next-tier-text">¡Agrega <strong>41 pedidos</strong> más para desbloquear el Rango 3 y pagar <strong>$1.150</strong> por pedido!</span>
+          </div>
+
+          <!-- Sales Channels -->
+          <div style="margin-top: 1.5rem;">
+            <label style="font-size: 0.85rem; font-weight: 700; color: #1e293b; display: block; margin-bottom: 0.5rem;">
+              🏪 Canales de venta donde operas o planeas vender:
+            </label>
+            <div class="stocka-cot-channels" id="cot-channels-group">
+              <div class="stocka-cot-channel-item active" data-channel="Shopify"><span>🛍️</span> Shopify</div>
+              <div class="stocka-cot-channel-item active" data-channel="Mercado Libre"><span>💛</span> Mercado Libre</div>
+              <div class="stocka-cot-channel-item" data-channel="WooCommerce"><span>🟣</span> WooCommerce</div>
+              <div class="stocka-cot-channel-item" data-channel="Falabella"><span>🟢</span> Falabella</div>
+              <div class="stocka-cot-channel-item" data-channel="Ripley"><span>🔴</span> Ripley</div>
+              <div class="stocka-cot-channel-item" data-channel="Jumpseller"><span>🟠</span> Jumpseller</div>
+              <div class="stocka-cot-channel-item" data-channel="B2B"><span>🏢</span> Mayorista B2B</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: ALMACENAMIENTO (m³) -->
+        <div class="stocka-cot-card">
+          <div class="stocka-cot-card-header">
+            <div class="stocka-cot-step-title">
+              <span>📦</span>
+              <span>2. Espacio de Almacenamiento (m³)</span>
+            </div>
+            <span id="stocka-storage-discount-badge" class="stocka-cot-badge" style="background: #ecfdf5; color: #065f46; border-color: #a7f3d0; display: none;">Descuento por volumen</span>
+          </div>
+          <p class="stocka-cot-step-subtitle">
+            Pagas únicamente por los metros cúbicos que ocupas. 1 m³ equivale aproximadamente a 1 pallet estándar (1x1x1 mts).
+          </p>
+
+          <div class="stocka-cot-slider-wrap">
+            <div class="stocka-cot-slider-top">
+              <span class="stocka-cot-slider-label">Volumen estimado a almacenar:</span>
+              <div class="stocka-cot-value-box">
+                <input type="number" id="cot-vol-num" class="stocka-cot-num-input" value="2.0" step="0.5" min="0" max="500">
+                <span class="stocka-cot-unit">m³</span>
+              </div>
+            </div>
+            <input type="range" id="cot-vol-slider" class="stocka-cot-range" min="0.5" max="30" value="2.0" step="0.5">
+            
+            <div class="stocka-cot-presets">
+              <span style="font-size: 0.75rem; color: #64748b; margin-right: 0.25rem;">Volumen:</span>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="1.0">1 m³ (~1 pallet)</button>
+              <button type="button" class="stocka-cot-preset-btn active" data-vol="2.0">2 m³ (Estándar)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="5.0">5 m³ (~5 pallets)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="12.0">12 m³ (18% dto)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-vol="25.0">25 m³ (24% dto)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: DESPACHOS Y SERVICIOS SUCURSAL -->
+        <div class="stocka-cot-card">
+          <div class="stocka-cot-card-header">
+            <div class="stocka-cot-step-title">
+              <span>🚚</span>
+              <span>3. Despachos y Servicios Adicionales</span>
+            </div>
+          </div>
+          <p class="stocka-cot-step-subtitle">
+            Selecciona las opciones de entrega y servicios presenciales que necesitas.
+          </p>
+
+          <div class="stocka-cot-switch-row active" id="cot-switch-sameday">
+            <div class="stocka-cot-switch-info">
+              <h4>⚡ Despachos Same Day Santiago (RM)</h4>
+              <p>Entregas el mismo día en 36 comunas de Santiago y Mercado Libre Flex.</p>
+            </div>
+            <div class="stocka-cot-switch-price">$3.200 + IVA / paquete</div>
+          </div>
+
+          <!-- Slider de Cobertura RM vs Regiones -->
+          <div id="cot-rm-slider-container" style="margin: 0.85rem 0 1.25rem 0; padding: 1.15rem; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <label for="cot-rm-slider" style="font-size: 0.85rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.35rem;">
+                <span>📍</span> % de pedidos entregados en Santiago (RM):
+              </label>
+              <div style="background: #5c24ff; color: #ffffff; padding: 0.2rem 0.65rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 800;" id="cot-rm-pct-badge">
+                75% RM
+              </div>
+            </div>
+
+            <input type="range" id="cot-rm-slider" class="stocka-cot-range" min="0" max="100" value="75" step="5">
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.75rem;">
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.65rem 0.85rem;">
+                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: block; text-transform: uppercase;">⚡ Santiago (Same Day RM)</span>
+                <strong style="font-size: 1.05rem; color: #5c24ff;" id="cot-rm-orders-text">45 pedidos</strong>
+                <span style="font-size: 0.7rem; color: #94a3b8; display: block;">$3.200 + IVA c/u</span>
+              </div>
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.65rem 0.85rem;">
+                <span style="font-size: 0.7rem; color: #64748b; font-weight: 700; display: block; text-transform: uppercase;">🚛 Envíos a Regiones</span>
+                <strong style="font-size: 1.05rem; color: #0f172a;" id="cot-reg-orders-text">15 pedidos</strong>
+                <span style="font-size: 0.7rem; color: #94a3b8; display: block;">Vía couriers integrados</span>
+              </div>
+            </div>
+
+            <div class="stocka-cot-presets" style="margin-top: 0.65rem;">
+              <span style="font-size: 0.72rem; color: #64748b; margin-right: 0.25rem;">Rápido:</span>
+              <button type="button" class="stocka-cot-preset-btn" data-rm="50">50% RM</button>
+              <button type="button" class="stocka-cot-preset-btn active" data-rm="75">75% RM (Promedio)</button>
+              <button type="button" class="stocka-cot-preset-btn" data-rm="90">90% RM</button>
+              <button type="button" class="stocka-cot-preset-btn" data-rm="100">100% Solo RM</button>
+            </div>
+          </div>
+
+          <!-- Caja de Envíos a Regiones con Couriers Integrados -->
+          <div class="stocka-cot-regional-card" style="margin-bottom: 1.25rem; padding: 1.15rem; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1.1rem;">🇨🇱</span>
+                <h4 style="font-size: 0.92rem; font-weight: 800; color: #0f172a; margin: 0;">Envíos a Regiones (Couriers Integrados)</h4>
+              </div>
+              <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
+                <span style="font-size: 0.7rem; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 0.15rem 0.5rem; border-radius: 6px;">Blue Express</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: #fef3c7; color: #b45309; padding: 0.15rem 0.5rem; border-radius: 6px;">Starken</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 0.15rem 0.5rem; border-radius: 6px;">Chilexpress</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: #f1f5f9; color: #475569; padding: 0.15rem 0.5rem; border-radius: 6px;">CorreosChile</span>
+              </div>
+            </div>
+
+            <p style="font-size: 0.82rem; color: #64748b; line-height: 1.45; margin: 0 0 0.85rem 0;">
+              Para tus despachos fuera de Santiago, procesamos e imprimimos etiquetas automatizadas con los principales couriers de Chile a tarifas preferenciales por volumen:
+            </p>
+
+            <!-- Mini Grid Destinos Populares -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Valparaíso / Viña</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.335</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Rancagua / O'Higgins</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.290</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Coquimbo / Serena</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.748</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Concepción / Biobío</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$4.174</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Puerto Montt / Sur</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$4.223</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
+                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Antofagasta / Norte</div>
+                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$5.294</div>
+                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; border-top: 1px dashed #e2e8f0; padding-top: 0.65rem;">
+              <span style="font-size: 0.72rem; color: #94a3b8;">* Tarifas referenciales netas para paquete estándar (1 a 3 kg).</span>
+              <a href="https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0" target="_blank" style="font-size: 0.78rem; font-weight: 700; color: #5c24ff; text-decoration: underline; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <span>📊 Ver tarifario completo de Couriers en Google Sheets</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="stocka-cot-switch-row active" id="cot-switch-pickup">
+            <div class="stocka-cot-switch-info">
+              <h4>🏬 Punto de Retiro Presencial Ñuñoa</h4>
+              <p>Ofrece a tus clientes retiro gratis en nuestra sucursal de Campos de Deportes.</p>
+            </div>
+            <div class="stocka-cot-switch-price" style="color: #10b981;">¡GRATIS!</div>
+          </div>
+
+          <div class="stocka-cot-switch-row" id="cot-switch-vitrina">
+            <div class="stocka-cot-switch-info">
+              <h4>🛍️ Vitrina de Exhibición / Showroom</h4>
+              <p>Muestra y exhibe tus productos más vendidos en nuestra tienda de Ñuñoa.</p>
+            </div>
+            <div class="stocka-cot-switch-price">0,6 UF / mes</div>
+          </div>
+
+          <div class="stocka-cot-switch-row" id="cot-switch-pos">
+            <div class="stocka-cot-switch-info">
+              <h4>💳 Punto de Venta POS (Venta física)</h4>
+              <p>Habilita venta presencial con boleta directa y cobro con tarjeta.</p>
+            </div>
+            <div class="stocka-cot-switch-price">0,2 UF / mes</div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN: STICKY LIVE SUMMARY -->
+      <div class="stocka-cot-summary-col">
+        <div class="stocka-cot-summary-card">
+          
+          <div class="stocka-cot-sum-header">
+            <div class="stocka-cot-sum-title">
+              <span>📋</span>
+              <span>Resumen de Cotización</span>
+            </div>
+            <div class="stocka-cot-sum-desc">
+              Tarifas netas sin IVA actualizadas en tiempo real.
+            </div>
+          </div>
+
+          <div class="stocka-cot-breakdown-row">
+            <span>Almacenamiento (<span id="sum-vol-display">2.0</span> m³):</span>
+            <strong id="sum-storage-val">$87.000</strong>
+          </div>
+
+          <div class="stocka-cot-breakdown-row">
+            <span>Pick & Pack (<span id="sum-orders-display">60</span> pedidos):</span>
+            <strong id="sum-pickpack-val">$72.000</strong>
+          </div>
+
+          <div class="stocka-cot-breakdown-row" id="sum-row-shipping">
+            <span>Despachos RM (<span id="sum-rm-orders-count">45</span> ped):</span>
+            <strong id="sum-shipping-val">$192.000</strong>
+          </div>
+
+          <div class="stocka-cot-breakdown-row" id="sum-row-extra" style="display: none;">
+            <span>Servicios Sucursal (UF):</span>
+            <strong id="sum-extra-val">$0</strong>
+          </div>
+
+          <div class="stocka-cot-total-box">
+            <div class="stocka-cot-total-lbl">Costo Mensual Estimado</div>
+            <div class="stocka-cot-total-clp" id="sum-total-clp">$351.000</div>
+            <div class="stocka-cot-total-uf" id="sum-total-uf">~ 8,59 UF + IVA</div>
+          </div>
+
+          <button type="button" id="cot-open-modal-btn" class="stocka-cot-btn-cta">
+            <span>Solicitar Alta o Recibir Cotización en PDF</span> 🚀
+          </button>
+
+          <p style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin-top: 1rem; margin-bottom: 0;">
+            🔒 Sin cobros adelantados. Te enviaremos el desglose formal con tarifarios a tu correo.
+          </p>
+
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<!-- MODAL FORM POPUP -->
+<div class="stocka-cot-modal-overlay" id="stocka-cot-modal">
+  <div class="stocka-cot-modal-card">
+    <button type="button" class="stocka-cot-modal-close" id="stocka-cot-modal-close-btn" aria-label="Cerrar ventana">
+      <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+    </button>
+    
+    <div id="modal-form-view">
+      <div class="stocka-modal-header">
+        <div class="stocka-modal-icon-badge">
+          <svg viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+        </div>
+        <h3 class="stocka-modal-title">
+          Recibe tu Cotización Formal
+        </h3>
+        <p class="stocka-modal-subtitle">
+          Te enviaremos a tu correo la propuesta formal en PDF con el desglose exacto de tu simulación y los tarifarios vigentes.
+        </p>
+      </div>
+
+      <!-- Live Simulation Summary Card -->
+      <div class="stocka-modal-summary-box">
+        <div class="stocka-modal-summary-top">
+          <span class="stocka-modal-summary-badge">
+            <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+            Simulación Lista
+          </span>
+          <span id="modal-sum-tier" class="stocka-modal-summary-tier">Rango 2 (26 a 100 ped)</span>
+        </div>
+        <div class="stocka-modal-summary-grid">
+          <div class="stocka-modal-sum-item">
+            <span class="stocka-modal-sum-label">Volumen Mensual</span>
+            <strong id="modal-sum-orders" class="stocka-modal-sum-val">60 ped/mes</strong>
+          </div>
+          <div class="stocka-modal-sum-item">
+            <span class="stocka-modal-sum-label">Espacio Bodega</span>
+            <strong id="modal-sum-storage" class="stocka-modal-sum-val">1,0 m³</strong>
+          </div>
+          <div class="stocka-modal-sum-item">
+            <span class="stocka-modal-sum-label">Costo Estimado</span>
+            <strong id="modal-sum-total" class="stocka-modal-sum-val highlight">$351.000 /mes</strong>
+          </div>
+        </div>
+      </div>
+
+      <form id="stocka-cot-lead-form" novalidate>
+        <div class="stocka-modal-grid-2">
+          <div class="stocka-modal-field">
+            <label class="stocka-modal-label">Tu Nombre <span class="req">*</span></label>
+            <div class="stocka-modal-input-wrap">
+              <input type="text" id="cot-lead-name" class="stocka-modal-input" placeholder="Ej: Felipe" required>
+              <div class="stocka-modal-input-icon">
+                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-modal-field">
+            <label class="stocka-modal-label">Correo Electrónico <span class="req">*</span></label>
+            <div class="stocka-modal-input-wrap">
+              <input type="email" id="cot-lead-email" class="stocka-modal-input" placeholder="felipe@mail.com" required>
+              <div class="stocka-modal-input-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stocka-modal-grid-2">
+          <div class="stocka-modal-field">
+            <label class="stocka-modal-label">Teléfono / WhatsApp <span class="req">*</span></label>
+            <div class="stocka-modal-input-wrap">
+              <input type="tel" id="cot-lead-phone" class="stocka-modal-input" placeholder="+56 9 876 54321" required>
+              <div class="stocka-modal-input-icon">
+                <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"></path></svg>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-modal-field">
+            <label class="stocka-modal-label">Nombre de tu Tienda <span class="req">*</span></label>
+            <div class="stocka-modal-input-wrap">
+              <input type="text" id="cot-lead-company" class="stocka-modal-input" placeholder="Ej: Stocka Store" required>
+              <div class="stocka-modal-input-icon">
+                <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stocka-modal-field">
+          <label class="stocka-modal-label">Sitio Web o Instagram <span style="font-weight: 500; color: #94a3b8; font-size: 0.75rem;">(Opcional)</span></label>
+          <div class="stocka-modal-input-wrap">
+            <input type="text" id="cot-lead-web" class="stocka-modal-input" placeholder="www.mitienda.cl o @mitienda">
+            <div class="stocka-modal-input-icon">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="stocka-modal-field">
+          <label class="stocka-modal-label">Comentarios adicionales <span style="font-weight: 500; color: #94a3b8; font-size: 0.75rem;">(Opcional)</span></label>
+          <div class="stocka-modal-input-wrap textarea-wrap">
+            <textarea id="cot-lead-notes" class="stocka-modal-textarea" rows="2" placeholder="Detalles de tus productos, fechas de inicio estimadas..."></textarea>
+            <div class="stocka-modal-input-icon">
+              <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div id="cot-form-error" style="display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 0.75rem; border-radius: 12px; font-size: 0.85rem; margin-bottom: 0.85rem; font-weight: 600;"></div>
+
+        <button type="submit" id="cot-submit-btn" class="stocka-modal-btn-submit">
+          <span id="cot-submit-btn-text">Confirmar y Enviar Cotización</span>
+          <svg id="cot-submit-btn-icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          <div id="cot-submit-spinner" class="stocka-embed-spinner" style="display: none;"></div>
+        </button>
+
+        <div class="stocka-modal-trust-strip">
+          <div class="stocka-modal-trust-item">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>100% Confidencial</span>
+          </div>
+          <div class="stocka-modal-trust-item">
+            <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+            <span>Envío Inmediato a tu Email</span>
+          </div>
+          <div class="stocka-modal-trust-item">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Sin cobros adelantados</span>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <!-- Success Screen -->
+    <div id="modal-success-view" style="display: none; text-align: center; padding: 1.5rem 0.5rem;">
+      <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 2px solid #10b981; border-radius: 50%; color: #10b981; display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem; margin-bottom: 1rem; box-shadow: 0 10px 20px -5px rgba(16, 185, 129, 0.3);">
+        ✓
+      </div>
+      <h3 style="font-size: 1.45rem; font-weight: 800; color: #0f172a; margin-bottom: 0.4rem; letter-spacing: -0.02em;">
+        ¡Cotización Enviada con Éxito!
+      </h3>
+      <p style="font-size: 0.9rem; color: #475569; line-height: 1.55; margin-bottom: 1.5rem; max-width: 440px; margin-left: auto; margin-right: auto;">
+        Muchas gracias <strong id="cot-success-name" style="color: #5c24ff;"></strong>. Hemos enviado la propuesta formal en PDF con el detalle de tu simulación y presentaciones a <strong id="cot-success-email" style="color: #0f172a;"></strong>.
+      </p>
+      
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 380px; margin: 0 auto;">
+        <a href="https://wa.me/56939247487?text=Hola!%20Acabo%20de%20simular%20una%20cotizaci%C3%B3n%20en%20Stocka.cl%20y%20quiero%20conversar%20sobre%20fulfillment" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem; background: #25d366; color: #ffffff !important; padding: 0.9rem 1.25rem; border-radius: 12px; font-weight: 700; font-size: 0.92rem; text-decoration: none; box-shadow: 0 8px 20px -4px rgba(37, 211, 102, 0.4); transition: transform 0.2s ease;">
+          <svg style="width: 20px; height: 20px; fill: currentColor;" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+          <span>Hablar por WhatsApp Comercial</span>
+        </a>
+        <a href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem; background: #0f172a; color: #ffffff !important; padding: 0.9rem 1.25rem; border-radius: 12px; font-weight: 700; font-size: 0.92rem; text-decoration: none; border: 1px solid #334155; transition: background 0.2s ease;">
+          <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          <span>Agendar Reunión 1 a 1 en Meet</span>
+        </a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  (function() {
+    const UF_VALUE = 40867;
+    const TIERS = [
+      { id: 1, min: 0, max: 25, label: "Rango 1: 0 a 25 pedidos", storage: 48900, pickpack: 1250 },
+      { id: 2, min: 26, max: 100, label: "Rango 2: 26 a 100 pedidos", storage: 43500, pickpack: 1200 },
+      { id: 3, min: 101, max: 200, label: "Rango 3: 101 a 200 pedidos", storage: 38500, pickpack: 1150 },
+      { id: 4, min: 201, max: 500, label: "Rango 4: 201 a 500 pedidos", storage: 33500, pickpack: 1050 },
+      { id: 5, min: 501, max: 1500, label: "Rango 5: 501 a 1.500 pedidos", storage: 30500, pickpack: 950 },
+      { id: 6, min: 1501, max: 2500, label: "Rango 6: 1.501 a 2.500 pedidos", storage: 28500, pickpack: 900 },
+      { id: 7, min: 2501, max: 999999, label: "Rango 7: +2.500 pedidos (Enterprise)", storage: 26500, pickpack: 850 }
+    ];
+
+    let currentOrders = 60;
+    let currentVol = 2.0;
+    let includeSameDay = true;
+    let rmPercentage = 75;
+    let includeVitrina = false;
+    let includePOS = false;
+
+    function formatCLP(val) {
+      return '$' + Math.round(val).toLocaleString('es-CL');
+    }
+
+    function calculate() {
+      const tier = TIERS.find(t => currentOrders >= t.min && currentOrders <= t.max) || TIERS[0];
+      
+      let storageDiscountPct = 0;
+      if (currentVol >= 60.0) storageDiscountPct = 0.32;
+      else if (currentVol >= 35.0) storageDiscountPct = 0.27;
+      else if (currentVol >= 25.0) storageDiscountPct = 0.24;
+      else if (currentVol >= 15.0) storageDiscountPct = 0.21;
+      else if (currentVol >= 10.0) storageDiscountPct = 0.18;
+
+      const effectiveStorageRate = tier.storage * (1 - storageDiscountPct);
+      const totalStorage = currentVol * effectiveStorageRate;
+      const totalPickPack = currentOrders * tier.pickpack;
+      const rmOrders = includeSameDay ? Math.round(currentOrders * (rmPercentage / 100)) : 0;
+      const regOrders = currentOrders - rmOrders;
+      const totalShipping = rmOrders * 3200;
+
+      let extraUF = 0;
+      if (includeVitrina) extraUF += 0.6;
+      if (includePOS) extraUF += 0.2;
+      const totalExtra = extraUF * UF_VALUE;
+
+      const totalCost = totalStorage + totalPickPack + totalShipping + totalExtra;
+      const totalUF = (totalCost / UF_VALUE).toFixed(2);
+
+      const tBadge = document.getElementById('stocka-tier-badge');
+      if (tBadge) tBadge.textContent = tier.label;
+      const tName = document.getElementById('cot-tier-name');
+      if (tName) tName.textContent = tier.label + "/mes";
+      const tPick = document.getElementById('cot-tier-pickpack');
+      if (tPick) tPick.textContent = formatCLP(tier.pickpack);
+      const tStore = document.getElementById('cot-tier-storage');
+      if (tStore) tStore.textContent = formatCLP(tier.storage);
+
+      const nextTierIndex = TIERS.findIndex(t => t.id === tier.id) + 1;
+      const nextTierBar = document.getElementById('cot-next-tier-bar');
+      if (nextTierBar) {
+        if (nextTierIndex < TIERS.length) {
+          const nextTier = TIERS[nextTierIndex];
+          const ordersNeeded = nextTier.min - currentOrders;
+          document.getElementById('cot-next-tier-text').innerHTML = `¡Agrega <strong>${ordersNeeded} pedidos</strong> más para desbloquear el Rango ${nextTier.id} y pagar <strong>${formatCLP(nextTier.pickpack)}</strong> por pedido!`;
+          nextTierBar.style.display = 'flex';
+        } else {
+          nextTierBar.style.display = 'none';
+        }
+      }
+
+      const discBadge = document.getElementById('stocka-storage-discount-badge');
+      if (discBadge) {
+        if (storageDiscountPct > 0) {
+          discBadge.textContent = `${Math.round(storageDiscountPct * 100)}% de descuento por volumen`;
+          discBadge.style.display = 'inline-block';
+        } else {
+          discBadge.style.display = 'none';
+        }
+      }
+
+      const svDisp = document.getElementById('sum-vol-display');
+      if (svDisp) svDisp.textContent = currentVol.toFixed(1);
+      const ssVal = document.getElementById('sum-storage-val');
+      if (ssVal) ssVal.textContent = formatCLP(totalStorage);
+      const soDisp = document.getElementById('sum-orders-display');
+      if (soDisp) soDisp.textContent = currentOrders;
+      const spVal = document.getElementById('sum-pickpack-val');
+      if (spVal) spVal.textContent = formatCLP(totalPickPack);
+
+      const rmBadge = document.getElementById('cot-rm-pct-badge');
+      if (rmBadge) rmBadge.textContent = `${rmPercentage}% RM`;
+      const rmTxt = document.getElementById('cot-rm-orders-text');
+      if (rmTxt) rmTxt.textContent = `${rmOrders} pedidos`;
+      const regTxt = document.getElementById('cot-reg-orders-text');
+      if (regTxt) regTxt.textContent = `${regOrders} pedidos`;
+
+      const rowShipping = document.getElementById('sum-row-shipping');
+      const sumRmOrdersCount = document.getElementById('sum-rm-orders-count');
+      if (rowShipping) {
+        if (includeSameDay && rmOrders > 0) {
+          rowShipping.style.display = 'flex';
+          if (sumRmOrdersCount) sumRmOrdersCount.textContent = rmOrders;
+          document.getElementById('sum-shipping-val').textContent = formatCLP(totalShipping);
+        } else {
+          rowShipping.style.display = 'none';
+        }
+      }
+
+      const rowExtra = document.getElementById('sum-row-extra');
+      if (rowExtra) {
+        if (totalExtra > 0) {
+          rowExtra.style.display = 'flex';
+          document.getElementById('sum-extra-val').textContent = formatCLP(totalExtra);
+        } else {
+          rowExtra.style.display = 'none';
+        }
+      }
+
+      const stClp = document.getElementById('sum-total-clp');
+      if (stClp) stClp.textContent = formatCLP(totalCost);
+      const stUf = document.getElementById('sum-total-uf');
+      if (stUf) stUf.textContent = `~ ${totalUF} UF + IVA`;
+    }
+
+    function init() {
+      const ordersSlider = document.getElementById('cot-orders-slider');
+      const ordersNum = document.getElementById('cot-orders-num');
+      const volSlider = document.getElementById('cot-vol-slider');
+      const volNum = document.getElementById('cot-vol-num');
+
+      if (!ordersSlider) return;
+
+      ordersSlider.oninput = () => {
+        currentOrders = parseInt(ordersSlider.value, 10) || 0;
+        ordersNum.value = currentOrders;
+        document.querySelectorAll('.stocka-cot-presets button[data-orders]').forEach(b => {
+          b.classList.toggle('active', parseInt(b.dataset.orders, 10) === currentOrders);
+        });
+        calculate();
+      };
+      ordersNum.oninput = () => {
+        currentOrders = Math.max(0, parseInt(ordersNum.value, 10) || 0);
+        ordersSlider.value = Math.min(3000, currentOrders);
+        calculate();
+      };
+      document.querySelectorAll('.stocka-cot-presets button[data-orders]').forEach(btn => {
+        btn.onclick = () => {
+          currentOrders = parseInt(btn.dataset.orders, 10);
+          ordersSlider.value = currentOrders;
+          ordersNum.value = currentOrders;
+          document.querySelectorAll('.stocka-cot-presets button[data-orders]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          calculate();
+        };
+      });
+
+      volSlider.oninput = () => {
+        currentVol = parseFloat(volSlider.value) || 0.5;
+        volNum.value = currentVol.toFixed(1);
+        calculate();
+      };
+      volNum.oninput = () => {
+        currentVol = Math.max(0.5, parseFloat(volNum.value) || 0.5);
+        volSlider.value = Math.min(30, currentVol);
+        calculate();
+      };
+      document.querySelectorAll('.stocka-cot-presets button[data-vol]').forEach(btn => {
+        btn.onclick = () => {
+          currentVol = parseFloat(btn.dataset.vol);
+          volSlider.value = currentVol;
+          volNum.value = currentVol.toFixed(1);
+          document.querySelectorAll('.stocka-cot-presets button[data-vol]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          calculate();
+        };
+      });
+
+      document.querySelectorAll('#cot-channels-group .stocka-cot-channel-item').forEach(item => {
+        item.onclick = () => item.classList.toggle('active');
+      });
+
+      const rmSlider = document.getElementById('cot-rm-slider');
+      const rmContainer = document.getElementById('cot-rm-slider-container');
+      if (rmSlider) {
+        rmSlider.oninput = () => {
+          rmPercentage = parseInt(rmSlider.value, 10) || 0;
+          document.querySelectorAll('.stocka-cot-presets button[data-rm]').forEach(b => {
+            b.classList.toggle('active', parseInt(b.dataset.rm, 10) === rmPercentage);
+          });
+          calculate();
+        };
+        document.querySelectorAll('.stocka-cot-presets button[data-rm]').forEach(btn => {
+          btn.onclick = () => {
+            rmPercentage = parseInt(btn.dataset.rm, 10);
+            rmSlider.value = rmPercentage;
+            document.querySelectorAll('.stocka-cot-presets button[data-rm]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            calculate();
+          };
+        });
+      }
+
+      const swSameDay = document.getElementById('cot-switch-sameday');
+      if (swSameDay) {
+        swSameDay.onclick = () => {
+          includeSameDay = !includeSameDay;
+          swSameDay.classList.toggle('active', includeSameDay);
+          if (rmContainer) rmContainer.style.display = includeSameDay ? 'block' : 'none';
+          calculate();
+        };
+      }
+
+      const swVitrina = document.getElementById('cot-switch-vitrina');
+      if (swVitrina) {
+        swVitrina.onclick = () => {
+          includeVitrina = !includeVitrina;
+          swVitrina.classList.toggle('active', includeVitrina);
+          calculate();
+        };
+      }
+
+      const swPOS = document.getElementById('cot-switch-pos');
+      if (swPOS) {
+        swPOS.onclick = () => {
+          includePOS = !includePOS;
+          swPOS.classList.toggle('active', includePOS);
+          calculate();
+        };
+      }
+
+      const modal = document.getElementById('stocka-cot-modal');
+      const openModalBtn = document.getElementById('cot-open-modal-btn');
+      const closeModalBtn = document.getElementById('stocka-cot-modal-close-btn');
+
+      if (openModalBtn && modal) {
+        openModalBtn.onclick = () => {
+          const sumOrders = document.getElementById('modal-sum-orders');
+          const sumStorage = document.getElementById('modal-sum-storage');
+          const sumTotal = document.getElementById('modal-sum-total');
+          const sumTier = document.getElementById('modal-sum-tier');
+          
+          if (sumOrders) sumOrders.textContent = `${currentOrders.toLocaleString('es-CL')} ped/mes`;
+          if (sumStorage) sumStorage.textContent = `${currentVol.toFixed(1).replace('.', ',')} m³`;
+          if (sumTotal) sumTotal.textContent = document.getElementById('sum-total-clp').textContent;
+          if (sumTier) {
+            const tierEl = document.getElementById('cot-tier-name');
+            if (tierEl) sumTier.textContent = tierEl.textContent.split(':')[0];
+          }
+
+          modal.style.display = 'flex';
+        };
+      }
+      if (closeModalBtn && modal) {
+        closeModalBtn.onclick = () => { modal.style.display = 'none'; };
+      }
+      if (modal) {
+        modal.onclick = (e) => {
+          if (e.target === modal) modal.style.display = 'none';
+        };
+      }
+
+      const leadForm = document.getElementById('stocka-cot-lead-form');
+      if (leadForm) {
+        leadForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const name = document.getElementById('cot-lead-name').value.trim();
+          const email = document.getElementById('cot-lead-email').value.trim();
+          const phone = document.getElementById('cot-lead-phone').value.trim();
+          const company = document.getElementById('cot-lead-company').value.trim();
+          const web = document.getElementById('cot-lead-web').value.trim();
+          const notes = document.getElementById('cot-lead-notes').value.trim();
+          const errorDiv = document.getElementById('cot-form-error');
+          const submitBtn = document.getElementById('cot-submit-btn');
+          const btnText = document.getElementById('cot-submit-btn-text');
+          const spinner = document.getElementById('cot-submit-spinner');
+
+          errorDiv.style.display = 'none';
+
+          if (!name || !email || !phone || !company) {
+            errorDiv.textContent = 'Por favor completa todos los campos requeridos (*).';
+            errorDiv.style.display = 'block';
+            return;
+          }
+
+          submitBtn.disabled = true;
+          btnText.textContent = 'Generando cotización y enviando propuesta...';
+          spinner.style.display = 'inline-block';
+
+          const selectedChannels = Array.from(document.querySelectorAll('#cot-channels-group .stocka-cot-channel-item.active')).map(el => el.dataset.channel);
+
+          const quoteDetailsNotes = `[COTIZADOR ONLINE 360]\n` +
+            `Pedidos Mensuales: ${currentOrders}\n` +
+            `Volumen Bodega: ${currentVol.toFixed(1)} m3\n` +
+            `Canales: ${selectedChannels.join(', ') || 'No indicado'}\n` +
+            `Same Day RM: ${includeSameDay ? `${rmPercentage}% (${Math.round(currentOrders * (rmPercentage / 100))} pedidos)` : 'No'}\n` +
+            `Envíos a Regiones: ${currentOrders - (includeSameDay ? Math.round(currentOrders * (rmPercentage / 100)) : 0)} pedidos (vía couriers)\n` +
+            `Vitrina / Showroom: ${includeVitrina ? 'Sí' : 'No'}\n` +
+            `Punto de Venta POS: ${includePOS ? 'Sí' : 'No'}\n` +
+            `Costo Estimado Mensual: ${document.getElementById('sum-total-clp').textContent} (${document.getElementById('sum-total-uf').textContent})\n` +
+            `Comentarios: ${notes || 'Sin comentarios adicionales'}`;
+
+          try {
+            const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/submit-lead', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contactName: name, email, phone, companyName: company, website: web,
+                services: ['Fulfillment 360', 'Simulación Online'],
+                monthlyVolume: `${currentOrders} pedidos/mes`,
+                storageSpace: `${currentVol.toFixed(1)} m3`,
+                notes: quoteDetailsNotes
+              })
+            });
+
+            if (!res.ok) throw new Error('Error enviando la cotización.');
+
+            document.getElementById('modal-form-view').style.display = 'none';
+            document.getElementById('cot-success-name').textContent = name;
+            document.getElementById('cot-success-email').textContent = email;
+            document.getElementById('modal-success-view').style.display = 'block';
+
+          } catch (err) {
+            errorDiv.textContent = 'Ocurrió un error al enviar. Escríbenos directamente a contacto@stocka.cl';
+            errorDiv.style.display = 'block';
+            submitBtn.disabled = false;
+            btnText.textContent = 'Confirmar y Enviar Cotización 🚀';
+            spinner.style.display = 'none';
+          }
+        };
+      }
+
+      
+      // ========================================================
+      // ROBUST STICKY SCROLL ENGINE FOR SUMMARY CARD
+      // ========================================================
+      function initStickyScroll() {
+        const grid = document.querySelector('.stocka-cot-grid');
+        const summaryCol = document.querySelector('.stocka-cot-summary-col');
+        const summaryCard = document.querySelector('.stocka-cot-summary-card');
+
+        if (!grid || !summaryCol || !summaryCard) return;
+
+        let ticking = false;
+
+        function updateStickyPosition() {
+          ticking = false;
+
+          // Only float on desktop viewports (>= 1024px) where columns are side-by-side
+          if (window.innerWidth < 1024) {
+            summaryCard.style.transform = 'none';
+            return;
+          }
+
+          const headerOffset = 90; // Height of theme navbar + padding
+          const gridRect = grid.getBoundingClientRect();
+          const cardHeight = summaryCard.offsetHeight;
+          const colHeight = summaryCol.offsetHeight;
+          const maxTranslate = Math.max(0, colHeight - cardHeight);
+
+          if (gridRect.top < headerOffset) {
+            const targetY = headerOffset - gridRect.top;
+            const clampedY = Math.min(maxTranslate, Math.max(0, targetY));
+            summaryCard.style.transform = 'translateY(' + clampedY + 'px)';
+          } else {
+            summaryCard.style.transform = 'translateY(0px)';
+          }
+        }
+
+        function onScrollOrResize() {
+          if (!ticking) {
+            requestAnimationFrame(updateStickyPosition);
+            ticking = true;
+          }
+        }
+
+        window.addEventListener('scroll', onScrollOrResize, { passive: true });
+        window.addEventListener('resize', onScrollOrResize, { passive: true });
+
+        // Update when user interacts with sliders/options that might resize steps
+        window.addEventListener('stocka-cot-recalc', onScrollOrResize);
+
+        // Initial trigger
+        updateStickyPosition();
+      }
+
+      initStickyScroll();
+
+      calculate();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+</script>

@@ -1,0 +1,211 @@
+{%- assign faq_bg_color = "#ffffff" -%}
+
+<style>
+  .stocka-cfaq-section {
+    background-color: {{ faq_bg_color }};
+    padding: 4.5rem 1rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cfaq-section {
+      padding: 6rem 2rem;
+    }
+  }
+
+  .stocka-cfaq-container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .stocka-cfaq-header {
+    text-align: center;
+    margin-bottom: 3.5rem;
+  }
+  .stocka-cfaq-badge {
+    display: inline-block;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+  .stocka-cfaq-title {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.01em;
+  }
+  @media (min-width: 768px) {
+    .stocka-cfaq-title {
+      font-size: 2.5rem;
+    }
+  }
+  .stocka-cfaq-desc {
+    font-size: 0.95rem;
+    color: #64748b;
+    line-height: 1.6;
+  }
+
+  .stocka-cfaq-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .stocka-cfaq-item {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    overflow: hidden;
+    transition: all 0.25s ease;
+  }
+  .stocka-cfaq-item:hover {
+    border-color: #cbd5e1;
+  }
+  .stocka-cfaq-item.active {
+    border-color: #5c24ff;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.08);
+  }
+
+  .stocka-cfaq-question {
+    padding: 1.25rem 1.5rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stocka-cfaq-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    transition: transform 0.3s ease;
+    flex-shrink: 0;
+  }
+  .stocka-cfaq-item.active .stocka-cfaq-icon {
+    transform: rotate(45deg);
+    background: #5c24ff;
+    color: #ffffff;
+  }
+
+  .stocka-cfaq-answer {
+    padding: 0 1.5rem 1.35rem 1.5rem;
+    font-size: 0.92rem;
+    color: #475569;
+    line-height: 1.65;
+    display: none;
+  }
+  .stocka-cfaq-item.active .stocka-cfaq-answer {
+    display: block;
+  }
+</style>
+
+<section class="stocka-cfaq-section">
+  <div class="stocka-cfaq-container">
+    
+    <div class="stocka-cfaq-header">
+      <div class="stocka-cfaq-badge">RESOLVEMOS TUS DUDAS</div>
+      <h2 class="stocka-cfaq-title">Preguntas Frecuentes sobre el Servicio</h2>
+      <p class="stocka-cfaq-desc">
+        Todo lo que necesitas saber sobre nuestras tarifas, integración tecnológica y operación logística.
+      </p>
+    </div>
+
+    <div class="stocka-cfaq-accordion" id="stocka-faq-accordion-snip">
+      
+      <!-- FAQ 1 -->
+      <div class="stocka-cfaq-item active">
+        <div class="stocka-cfaq-question">
+          <span>¿Cómo se calcula el almacenamiento en metros cúbicos (m³)?</span>
+          <div class="stocka-cfaq-icon">+</div>
+        </div>
+        <div class="stocka-cfaq-answer">
+          Medimos el espacio real ocupado por tus productos en bodega (alto x ancho x profundidad en metros). 1 m³ equivale aproximadamente a 1 pallet estándar (1.0m x 1.2m x 1.0m). Solo pagas por el volumen que utilizas cada mes y cuentas con descuentos automáticos de hasta 32% si almacenas más de 10 m³.
+        </div>
+      </div>
+
+      <!-- FAQ 2 -->
+      <div class="stocka-cfaq-item">
+        <div class="stocka-cfaq-question">
+          <span>¿Tienen costos de ingreso o permanencia mínima obligatoria?</span>
+          <div class="stocka-cfaq-icon">+</div>
+        </div>
+        <div class="stocka-cfaq-answer">
+          No. No cobramos tarifas de ingreso ocultas ni exigimos contratos de amarre con permanencia forzosa. Nuestro modelo está pensado para crecer contigo: si aumentas o disminuyes tu operación, tus costos se ajustan automáticamente.
+        </div>
+      </div>
+
+      <!-- FAQ 3 -->
+      <div class="stocka-cfaq-item">
+        <div class="stocka-cfaq-question">
+          <span>¿Cómo se integra Stocka con Shopify y Mercado Libre?</span>
+          <div class="stocka-cfaq-icon">+</div>
+        </div>
+        <div class="stocka-cfaq-answer">
+          Conectamos tu tienda directamente a nuestro sistema WMS en minutos. Cada vez que recibes una venta en Shopify, Mercado Libre, WooCommerce o Falabella, el pedido ingresa automáticamente a nuestro panel de preparación y los niveles de stock se sincronizan en tiempo real.
+        </div>
+      </div>
+
+      <!-- FAQ 4 -->
+      <div class="stocka-cfaq-item">
+        <div class="stocka-cfaq-question">
+          <span>¿Cuáles son los horarios de corte para despachos Same Day en Santiago?</span>
+          <div class="stocka-cfaq-icon">+</div>
+        </div>
+        <div class="stocka-cfaq-answer">
+          Procesamos y despachamos todas las ventas ingresadas antes de las 13:00 hrs para entrega el mismo día en 36 comunas de la Región Metropolitana (incluyendo entregas de Mercado Libre Flex).
+        </div>
+      </div>
+
+      <!-- FAQ 5 -->
+      <div class="stocka-cfaq-item">
+        <div class="stocka-cfaq-question">
+          <span>¿Qué incluye el valor de Pick & Pack por pedido?</span>
+          <div class="stocka-cfaq-icon">+</div>
+        </div>
+        <div class="stocka-cfaq-answer">
+          Incluye la recolección de los productos en bodega, verificación de código de barras, armado del paquete, bolsa courier de seguridad estándar y etiquetado de envío con el courier correspondiente.
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<script>
+  (function() {
+    function initFaq() {
+      const items = document.querySelectorAll('#stocka-faq-accordion-snip .stocka-cfaq-item');
+      items.forEach(item => {
+        const q = item.querySelector('.stocka-cfaq-question');
+        if (q) {
+          q.onclick = () => {
+            const isActive = item.classList.contains('active');
+            items.forEach(i => i.classList.remove('active'));
+            if (!isActive) item.classList.add('active');
+          };
+        }
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFaq);
+    } else {
+      initFaq();
+    }
+  })();
+</script>

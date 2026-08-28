@@ -1,8 +1,21 @@
-{% render 'page-title', title: page.title, container: true %}
-{%- if page.content != blank -%}
-  <div class="container mx-auto xl:pb-16 sm:pb-10 pb-8">
-    <div class="prose">
-      {{ page.content }}
+{%- if page.handle == 'cotizaserviciofulfillment' or page.handle == 'cotizador' or page.handle == 'fulfillment_para_ecommerce' or page.handle == 'fulfillment-para-ecommerce' -%}
+  {% render 'stocka-cotizador-hero-snippet' %}
+  {% render 'stocka-cotizador-app' %}
+  {% render 'stocka-contact-channels' %}
+  {% render 'stocka-cotizador-faq' %}
+  {% render 'stocka-contact-meeting' %}
+{%- elsif page.handle == 'contacto' or page.handle == 'contact' -%}
+  {% render 'stocka-contact-hero' %}
+  {% render 'stocka-contact-channels' %}
+  {% render 'stocka-contact-form-embed' %}
+  {% render 'stocka-contact-meeting' %}
+{%- else -%}
+  {% render 'page-title', title: page.title, container: true %}
+  {%- if page.content != blank -%}
+    <div class="container mx-auto xl:pb-16 sm:pb-10 pb-8">
+      <div class="prose">
+        {{ page.content }}
+      </div>
     </div>
-  </div>
+  {%- endif -%}
 {%- endif -%}

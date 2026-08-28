@@ -1,241 +1,44 @@
-/*
- * ------------------------------------------------------------
- * IMPORTANT: The contents of this file are auto-generated.
- *
- * This file may be updated by the Shopify admin theme editor
- * or related systems. Please exercise caution as any changes
- * made to this file may be overwritten.
- * ------------------------------------------------------------
- */
 {
   "sections": {
-    "16476187755be1caaf": {
-      "type": "custom-content",
-      "blocks": {
-        "16476187743f33b9b0-0": {
-          "type": "text",
-          "settings": {
-            "title": "¿Quieres que te contactemos o agendar una reunión?",
-            "subheading": "",
-            "text": "<p>Llena el formulario a continuación para que te contactemos por el medio que prefieras, o agenda una reunión en el calendario para que podamos conocernos mejor y explicarte todo sobre Stocka.cl y los servicios que tenemos para ti!</p>",
-            "width": "50%",
-            "alignment": "center",
-            "align_text": "left",
-            "text_size": "medium",
-            "text_color": "black",
-            "button_label": "",
-            "button_link": "",
-            "button_style": "sf__btn-primary",
-            "button_size": "",
-            "block_custom_class": ""
-          }
-        },
-        "16476187743f33b9b0-1": {
-          "type": "image",
-          "settings": {
-            "image": "shopify://shop_images/Diseno_sin_titulo_11.png",
-            "link": "",
-            "width": "50%",
-            "alignment": "center",
-            "block_custom_class": ""
-          }
-        }
-      },
-      "block_order": [
-        "16476187743f33b9b0-0",
-        "16476187743f33b9b0-1"
-      ],
+    "contact_hero": {
+      "type": "stocka-contact-hero",
       "settings": {
-        "heading": "",
-        "subheading": "",
-        "description": "",
-        "header_alignment": "center",
-        "container": "container-fluid",
-        "background_color": "rgba(0,0,0,0)",
-        "gap": 30,
-        "use_scroll_mobile": false,
-        "gap_mobile": 16,
-        "custom_class": ""
+        "badge_text": "PARTNER LOGÍSTICO PARA TU ECOMMERCE",
+        "title_prefix": "Conversemos y llevemos tu ",
+        "title_highlight": "Logística al Siguiente Nivel",
+        "subtitle": "En Stocka somos tu partner estratégico para externalizar tu bodega, automatizar el armado de pedidos (Pick & Pack) y entregar el mismo día en Santiago y a todo Chile.",
+        "btn_primary_text": "Cotizar Servicio Online 🚀",
+        "btn_secondary_text": "📹 Agendar Reunión Meet",
+        "bg_color": "#f8fafc"
       }
     },
-    "main": {
-      "type": "page-contact",
-      "disabled": true,
+    "contact_channels": {
+      "type": "stocka-contact-channels",
       "settings": {
-        "container": "container"
+        "bg_color": "#ffffff"
       }
     },
-    "16455674279e1c774e": {
+    "contact_lead_form": {
       "type": "stocka-contact-form",
       "settings": {
         "subheading": "COTIZA O CONTÁCTANOS",
         "heading": "Te contactamos y enviamos nuestra propuesta",
         "description": "Ingresa tus datos y te enviaremos nuestra presentación oficial con tarifarios a tu correo. Nuestro equipo comercial se comunicará contigo a la brevedad.",
         "container": "container",
-        "background_color": "#ffffff"
+        "background_color": "#f8fafc"
       }
     },
-    "maps": {
-      "type": "maps",
-      "disabled": true,
+    "contact_meeting": {
+      "type": "stocka-contact-meeting",
       "settings": {
-        "container": "container",
-        "map_height": "medium",
-        "textx": "-33.46102886922448",
-        "texty": "-70.6185185442187",
-        "zoom": "10",
-        "text2": ""
-      }
-    },
-    "contact-form": {
-      "type": "contact-form",
-      "blocks": {
-        "text-block-1": {
-          "type": "textblock",
-          "settings": {
-            "title": "Address",
-            "content": "<p>7895 Piermont Dr NE Albuquerque, NM 198866, <a href=\"#\">See Our Stores</a></p>"
-          }
-        },
-        "text-block-2": {
-          "type": "textblock",
-          "settings": {
-            "title": "Information",
-            "content": "<p>+391 (0)35 2568 4593</p><p>hello@domain.com</p>"
-          }
-        },
-        "text-block-3": {
-          "type": "socialmedia",
-          "settings": {
-            "title": "Social Media"
-          }
-        },
-        "text-block-4": {
-          "type": "textblock",
-          "settings": {
-            "title": "We're Open",
-            "content": "<p>Our store has re-opened for shopping, exchanges</p><p>Every day 11am to 7pm</p>"
-          }
-        }
-      },
-      "block_order": [
-        "text-block-1",
-        "text-block-2",
-        "text-block-3",
-        "text-block-4"
-      ],
-      "disabled": true,
-      "settings": {
-        "container": "container",
-        "title": "We would love to hear from you.",
-        "description": "<p>If you’ve got great products your making or looking to work with us then drop us a line.</p>",
-        "show_name": true,
-        "show_phone": true,
-        "show_email": true,
-        "show_message": true
-      }
-    },
-    "16473951115172b4ca": {
-      "type": "custom-content",
-      "blocks": {
-        "16473951114a5ad307-0": {
-          "type": "text",
-          "settings": {
-            "title": "Agenda una reunión!",
-            "subheading": "",
-            "text": "<p>Si ya tienes una idea de nuestros servicios y ahora quieres saber cómo en Stocka nos podemos adaptar a tus necesidades, agenda una reunión para que podamos conocer mejor y más de cerca tu negocio y sus particularidades. Aquí esperamos siempre poder armar un plan a tu medida.</p>",
-            "width": "50%",
-            "alignment": "center",
-            "align_text": "left",
-            "text_size": "medium",
-            "text_color": "black",
-            "button_label": "",
-            "button_link": "",
-            "button_style": "sf__btn-primary",
-            "button_size": "",
-            "block_custom_class": ""
-          }
-        },
-        "a6eb5c03-c3fc-4737-81d5-0941ec1e58f6": {
-          "type": "html",
-          "settings": {
-            "code": "<!-- Start of Meetings Embed Script -->\n    <div class=\"meetings-iframe-container\" data-src=\"https://meetings.hubspot.com/stocka?embed=true\"></div>\n    <script type=\"text/javascript\" src=\"https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js\"></script>\n  <!-- End of Meetings Embed Script -->",
-            "width": "50%",
-            "block_custom_class": ""
-          }
-        }
-      },
-      "block_order": [
-        "16473951114a5ad307-0",
-        "a6eb5c03-c3fc-4737-81d5-0941ec1e58f6"
-      ],
-      "settings": {
-        "heading": "",
-        "subheading": "",
-        "description": "",
-        "header_alignment": "center",
-        "container": "container-fluid",
-        "background_color": "#ededed",
-        "gap": 30,
-        "use_scroll_mobile": false,
-        "gap_mobile": 16,
-        "custom_class": ""
-      }
-    },
-    "16473958615853250c": {
-      "type": "custom-content",
-      "blocks": {
-        "1647395861ee3727dd-0": {
-          "type": "text",
-          "settings": {
-            "title": "Nuestra ubicación",
-            "subheading": "",
-            "text": "<p>Nuestra oficina central se encuentra ubicada en la comuna de Ñuñoa, en Avenida Campos de Deportes 405, cercana a estaciones de metro de las líneas 3, y 6, ofrece una excelente accesibilidad y conectividad.</p>",
-            "width": "100%",
-            "alignment": "center",
-            "align_text": "center",
-            "text_size": "medium",
-            "text_color": "black",
-            "button_label": "",
-            "button_link": "",
-            "button_style": "sf__btn-primary",
-            "button_size": "",
-            "block_custom_class": ""
-          }
-        }
-      },
-      "block_order": [
-        "1647395861ee3727dd-0"
-      ],
-      "settings": {
-        "heading": "",
-        "subheading": "",
-        "description": "",
-        "header_alignment": "center",
-        "container": "container-fluid",
-        "background_color": "",
-        "gap": 30,
-        "use_scroll_mobile": false,
-        "gap_mobile": 16,
-        "custom_class": ""
-      }
-    },
-    "16457507473f6986e6": {
-      "type": "custom-liquid",
-      "settings": {
-        "custom_liquid": "<center><iframe src=\"https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1025.0461639403695!2d-70.61047503034712!3d-33.45734999833666!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x9662cf8d88374f2d%3A0xcda8463b1a73438b!2sAv.%20Campos%20de%20Deportes%20405%2C%207750207%20%C3%91u%C3%B1oa%2C%20Regi%C3%B3n%20Metropolitana!5e1!3m2!1ses!2scl!4v1724464891182!5m2!1ses!2scl\" width=\"1400\" height=\"600\" style=\"border:0;\" allowfullscreen=\"\" loading=\"lazy\" referrerpolicy=\"no-referrer-when-downgrade\"></iframe></center>",
-        "custom_class": ""
+        "bg_color": "#ffffff"
       }
     }
   },
   "order": [
-    "16476187755be1caaf",
-    "main",
-    "16455674279e1c774e",
-    "maps",
-    "contact-form",
-    "16473951115172b4ca",
-    "16473958615853250c",
-    "16457507473f6986e6"
+    "contact_hero",
+    "contact_channels",
+    "contact_lead_form",
+    "contact_meeting"
   ]
 }

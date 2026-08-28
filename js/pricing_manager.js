@@ -94,16 +94,16 @@ export const DEFAULT_PRICING_CONFIG = {
 
   // 9. Presentaciones Comerciales de Servicios (Descargables en Cotizador y Correo)
   presentations: {
-    fulfillment_url: "https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf",
+    fulfillment_url: "https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf",
     fulfillment_name: "Presentación de Servicio Fulfillment 360 (PDF)",
-    fulfillment_storage_path: "presentations/presentacion_fulfillment_360.pdf",
-    fulfillment_updated_at: "2026-08-25",
-    despachos_rm_url: "https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf",
+    fulfillment_storage_path: "presentations/presentacion_fulfillment_360_1787715943297.pdf",
+    fulfillment_updated_at: "2026-08-26",
+    despachos_rm_url: "https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf",
     despachos_rm_name: "Presentación de Despachos RM y Cobertura (PDF)",
-    despachos_rm_storage_path: "presentations/presentacion_despachos_rm.pdf",
-    despachos_rm_updated_at: "2026-08-25",
-    courier_folder_url: "https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH",
-    cotizador_url: "https://stocka.cl/pages/cotizaserviciofulfillment"
+    despachos_rm_storage_path: "presentations/presentacion_despachos_rm_1787715973435.pdf",
+    despachos_rm_updated_at: "2026-08-26",
+    courier_folder_url: "https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0",
+    cotizador_url: "https://wms.stocka.cl/cotizaciones.html"
   },
 
   // 10. Estimaciones de Envíos a Regiones por Peso Promedio y Zonas Populares (Vía Envíame)

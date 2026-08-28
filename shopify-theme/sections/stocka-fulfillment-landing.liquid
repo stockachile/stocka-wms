@@ -1,0 +1,1201 @@
+{%- comment -%}
+  Stocka Fulfillment 360 Landing Page
+  Native Shopify OS 2.0 Section - High Performance & SaaS Modern Aesthetic
+{%- endcomment -%}
+
+<style>
+  /* ========================================================
+     GLOBAL CONTAINER & PALETTE VARIABLES
+     ======================================================== */
+  .stocka-fl-page {
+    font-family: inherit;
+    color: #0f172a;
+    background-color: #ffffff;
+    overflow-x: hidden;
+  }
+  .stocka-fl-container {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-fl-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* ========================================================
+     1. HERO SECTION
+     ======================================================== */
+  .stocka-fl-hero-sec {
+    padding: 3.5rem 0 4.5rem 0;
+    background: radial-gradient(circle at 80% 20%, rgba(92, 36, 255, 0.05) 0%, rgba(255, 255, 255, 1) 70%);
+    border-bottom: 1px solid #f1f5f9;
+  }
+  @media (min-width: 1024px) {
+    .stocka-fl-hero-sec {
+      padding: 4.5rem 0 5.5rem 0;
+    }
+  }
+  .stocka-fl-hero-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .stocka-fl-hero-grid {
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 3.5rem;
+    }
+  }
+
+  /* Hero Left */
+  .stocka-fl-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.9rem;
+    border-radius: 9999px;
+    background: #f1f0fe;
+    border: 1px solid #e0dcfe;
+    color: #5c24ff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.25rem;
+  }
+  .stocka-fl-hero-badge span.pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #5c24ff;
+    display: inline-block;
+    box-shadow: 0 0 0 3px rgba(92, 36, 255, 0.25);
+  }
+  .stocka-fl-hero-title {
+    font-size: 2.25rem;
+    line-height: 1.15;
+    font-weight: 900;
+    color: #0f172a;
+    letter-spacing: -0.03em;
+    margin: 0 0 1.25rem 0;
+  }
+  @media (min-width: 768px) {
+    .stocka-fl-hero-title {
+      font-size: 3rem;
+    }
+  }
+  .stocka-fl-hero-title span.highlight {
+    background: linear-gradient(135deg, #5c24ff 0%, #818cf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stocka-fl-hero-desc {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    color: #475569;
+    margin: 0 0 2rem 0;
+    max-width: 540px;
+  }
+  .stocka-fl-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 2rem;
+  }
+  .stocka-fl-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%);
+    color: #ffffff !important;
+    padding: 0.95rem 1.85rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    text-decoration: none !important;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.35);
+    transition: all 0.25s ease;
+  }
+  .stocka-fl-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px -5px rgba(92, 36, 255, 0.45);
+    background: linear-gradient(135deg, #6d3aff 0%, #4f46e5 100%);
+  }
+  .stocka-fl-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: #ffffff;
+    color: #0f172a !important;
+    padding: 0.95rem 1.65rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none !important;
+    border: 1.5px solid #e2e8f0;
+    transition: all 0.25s ease;
+  }
+  .stocka-fl-btn-secondary:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #5c24ff !important;
+  }
+
+  /* Social proof review bar */
+  .stocka-fl-hero-reviews {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid #e2e8f0;
+  }
+  .stocka-fl-avatars {
+    display: flex;
+    align-items: center;
+  }
+  .stocka-fl-avatars img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    margin-left: -8px;
+    object-fit: cover;
+  }
+  .stocka-fl-avatars img:first-child {
+    margin-left: 0;
+  }
+  .stocka-fl-review-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .stocka-fl-stars {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #f59e0b;
+  }
+  .stocka-fl-stars svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+  .stocka-fl-review-text {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .stocka-fl-review-text strong {
+    color: #0f172a;
+  }
+
+  /* Hero Right: Interactive Pillar Tabs */
+  .stocka-fl-pillar-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 1.5rem;
+    box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.08);
+  }
+  .stocka-fl-tabs-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.5rem;
+    background: #f1f5f9;
+    padding: 0.35rem;
+    border-radius: 14px;
+    margin-bottom: 1.25rem;
+  }
+  .stocka-fl-tab-btn {
+    background: transparent;
+    border: none;
+    padding: 0.65rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+  }
+  .stocka-fl-tab-btn.active {
+    background: #ffffff;
+    color: #5c24ff;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  }
+  .stocka-fl-tab-content {
+    display: none;
+    animation: stockaFadeIn 0.3s ease-out forwards;
+  }
+  .stocka-fl-tab-content.active {
+    display: block;
+  }
+  .stocka-fl-tab-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-fl-tab-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(92, 36, 255, 0.1);
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stocka-fl-tab-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .stocka-fl-tab-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .stocka-fl-tab-img-wrap {
+    border-radius: 16px;
+    overflow: hidden;
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
+  }
+  .stocka-fl-tab-img-wrap img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+  }
+
+  /* ========================================================
+     2. SPOTLIGHT SECTION: SIMPLIFICAMOS LA LOGÍSTICA
+     ======================================================== */
+  .stocka-fl-spotlight-sec {
+    padding: 5rem 0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-fl-sec-header {
+    text-align: center;
+    max-width: 680px;
+    margin: 0 auto 3.5rem auto;
+  }
+  .stocka-fl-sec-sub {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: #5c24ff;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  .stocka-fl-sec-title {
+    font-size: 1.85rem;
+    font-weight: 900;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.85rem 0;
+    line-height: 1.25;
+  }
+  @media (min-width: 768px) {
+    .stocka-fl-sec-title {
+      font-size: 2.35rem;
+    }
+  }
+  .stocka-fl-sec-desc {
+    font-size: 0.98rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .stocka-fl-spotlight-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .stocka-fl-spotlight-grid {
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 3.5rem;
+    }
+  }
+
+  /* Spotlight Image */
+  .stocka-fl-spotlight-img-card {
+    position: relative;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.12);
+    border: 1px solid #e2e8f0;
+  }
+  .stocka-fl-spotlight-img-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* Spotlight Checklist & SaaS Value Cards */
+  .stocka-fl-spotlight-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+  .stocka-fl-checklist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .stocka-fl-check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: #ffffff;
+    padding: 0.85rem 1.15rem;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+  }
+  .stocka-fl-check-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    color: #10b981;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+  }
+  .stocka-fl-check-icon svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    fill: none;
+  }
+  .stocka-fl-check-text {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.4;
+  }
+
+  /* 4 SaaS Feature Cards Grid */
+  .stocka-fl-features-4 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  @media (max-width: 540px) {
+    .stocka-fl-features-4 {
+      grid-template-columns: 1fr;
+    }
+  }
+  .stocka-fl-feat-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 1.15rem;
+    transition: all 0.25s ease;
+  }
+  .stocka-fl-feat-card:hover {
+    border-color: #cbd5e1;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.05);
+  }
+  .stocka-fl-feat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(92, 36, 255, 0.1) 0%, rgba(129, 140, 248, 0.15) 100%);
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.65rem;
+  }
+  .stocka-fl-feat-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+  .stocka-fl-feat-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.3rem 0;
+  }
+  .stocka-fl-feat-desc {
+    font-size: 0.8rem;
+    color: #64748b;
+    line-height: 1.45;
+    margin: 0;
+  }
+
+  /* ========================================================
+     3. COTIZADOR 360 SECTION WRAPPER
+     ======================================================== */
+  .stocka-fl-cotizador-sec {
+    padding: 5rem 0 2rem 0;
+    background: #ffffff;
+  }
+
+  /* ========================================================
+     4. PRESENTATIONS / DOWNLOADS SECTION
+     ======================================================== */
+  .stocka-fl-presentations-sec {
+    padding: 5rem 0;
+    background: #f8fafc;
+    border-top: 1px solid #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-fl-pres-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-fl-pres-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .stocka-fl-pres-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    text-decoration: none !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  }
+  .stocka-fl-pres-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 35px -10px rgba(92, 36, 255, 0.15);
+    border-color: #cbd5e1;
+  }
+  .stocka-fl-pres-img-wrap {
+    position: relative;
+    width: 100%;
+    padding-top: 65%;
+    overflow: hidden;
+    background: #f1f5f9;
+  }
+  .stocka-fl-pres-img-wrap img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+  }
+  .stocka-fl-pres-card:hover .stocka-fl-pres-img-wrap img {
+    transform: scale(1.04);
+  }
+  .stocka-fl-pres-badge {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(6px);
+    color: #ffffff;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stocka-fl-pres-body {
+    padding: 1.35rem;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    justify-content: space-between;
+  }
+  .stocka-fl-pres-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.5rem 0;
+  }
+  .stocka-fl-pres-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #5c24ff;
+    margin-top: 1rem;
+    transition: gap 0.2s ease;
+  }
+  .stocka-fl-pres-card:hover .stocka-fl-pres-btn {
+    gap: 0.65rem;
+  }
+  .stocka-fl-pres-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 2.25;
+    fill: none;
+  }
+
+  /* ========================================================
+     5. FAQ SECTION
+     ======================================================== */
+  .stocka-fl-faq-sec {
+    padding: 5rem 0;
+    background: #ffffff;
+  }
+  .stocka-fl-faq-wrap {
+    max-width: 800px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .stocka-fl-faq-item {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .stocka-fl-faq-item.active {
+    border-color: #5c24ff;
+    box-shadow: 0 6px 20px -5px rgba(92, 36, 255, 0.08);
+  }
+  .stocka-fl-faq-q {
+    width: 100%;
+    padding: 1.25rem 1.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    background: transparent;
+    border: none;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #0f172a;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+  }
+  .stocka-fl-faq-q:hover {
+    color: #5c24ff;
+  }
+  .stocka-fl-faq-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.25s ease;
+  }
+  .stocka-fl-faq-item.active .stocka-fl-faq-icon {
+    background: #5c24ff;
+    color: #ffffff;
+    transform: rotate(180deg);
+  }
+  .stocka-fl-faq-icon svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 2.25;
+    fill: none;
+  }
+  .stocka-fl-faq-a {
+    display: none;
+    padding: 0 1.35rem 1.35rem 1.35rem;
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: #475569;
+  }
+  .stocka-fl-faq-item.active .stocka-fl-faq-a {
+    display: block;
+    animation: stockaFadeIn 0.25s ease-out;
+  }
+
+  /* ========================================================
+     6. FINAL CTA BANNER
+     ======================================================== */
+  .stocka-fl-cta-sec {
+    padding: 4.5rem 0;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #ffffff;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-fl-cta-wrap {
+    max-width: 680px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 2;
+  }
+  .stocka-fl-cta-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #ffffff;
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-fl-cta-title {
+      font-size: 2.6rem;
+    }
+  }
+  .stocka-fl-cta-desc {
+    font-size: 1.05rem;
+    color: #cbd5e1;
+    margin: 0 0 2rem 0;
+    line-height: 1.6;
+  }
+  .stocka-fl-cta-btns {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+  }
+  .stocka-fl-btn-wa {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #25d366;
+    color: #ffffff !important;
+    padding: 0.95rem 1.85rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    text-decoration: none !important;
+    box-shadow: 0 10px 25px -5px rgba(37, 211, 102, 0.4);
+    transition: transform 0.2s ease;
+  }
+  .stocka-fl-btn-wa:hover {
+    transform: translateY(-2px);
+  }
+  .stocka-fl-btn-wa svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+  }
+  .stocka-fl-btn-meet {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff !important;
+    padding: 0.95rem 1.85rem;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    text-decoration: none !important;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    transition: all 0.2s ease;
+  }
+  .stocka-fl-btn-meet:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+  }
+  .stocka-fl-btn-meet svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+</style>
+
+<div class="stocka-fl-page">
+
+  <!-- ========================================================
+       1. HERO SECTION
+       ======================================================== -->
+  <section class="stocka-fl-hero-sec">
+    <div class="stocka-fl-container">
+      <div class="stocka-fl-hero-grid">
+        
+        <!-- Hero Left Column -->
+        <div>
+          <div class="stocka-fl-hero-badge">
+            <span class="pulse-dot"></span>
+            <span>Fulfillment 360 Ecommerce</span>
+          </div>
+
+          <h1 class="stocka-fl-hero-title">
+            Toda la logística de tu ecommerce en las <span class="highlight">mejores manos</span>.
+          </h1>
+
+          <p class="stocka-fl-hero-desc">
+            Almacenamos tu inventario en bodegas seguras, preparamos tus pedidos con máxima precisión y despachamos a todo Chile el mismo día. Olvídate de armar paquetes y escala tus ventas sin límites.
+          </p>
+
+          <div class="stocka-fl-hero-actions">
+            <a href="#stocka-cotizador-anchor" class="stocka-fl-btn-primary">
+              <span>Calcular Cotización Online</span>
+              <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+            </a>
+            <a href="/pages/tarifas" class="stocka-fl-btn-secondary">
+              <span>Ver Tarifas Oficiales</span>
+              <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </a>
+          </div>
+
+          <!-- Social Proof Google Reviews -->
+          <div class="stocka-fl-hero-reviews">
+            <div class="stocka-fl-avatars">
+              <img src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-juxb8b6vGaavt-1.png?v=1698656649" alt="Review cliente 1" width="36" height="36" loading="lazy">
+              <img src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-ZBAPpkLyY0avt-2.png?v=1698656737" alt="Review cliente 2" width="36" height="36" loading="lazy">
+              <img src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-CdCBn6qTRTavt-3.png?v=1698656753" alt="Review cliente 3" width="36" height="36" loading="lazy">
+            </div>
+            <div class="stocka-fl-review-info">
+              <div class="stocka-fl-stars">
+                <svg viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                <svg viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                <svg viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                <svg viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                <svg viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+              </div>
+              <span class="stocka-fl-review-text"><strong>4.6</strong> · 18 reviews en Google</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hero Right Column: Interactive Pillar Tabs -->
+        <div>
+          <div class="stocka-fl-pillar-card">
+            
+            <div class="stocka-fl-tabs-nav">
+              <button type="button" class="stocka-fl-tab-btn active" data-tab="tab-almacenamiento">Almacenamiento</button>
+              <button type="button" class="stocka-fl-tab-btn" data-tab="tab-pickpack">Pick & Pack</button>
+              <button type="button" class="stocka-fl-tab-btn" data-tab="tab-despachos">Despachos</button>
+            </div>
+
+            <!-- Tab 1: Almacenamiento -->
+            <div id="tab-almacenamiento" class="stocka-fl-tab-content active">
+              <div class="stocka-fl-tab-header">
+                <div class="stocka-fl-tab-icon">
+                  <svg viewBox="0 0 24 24"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                </div>
+                <div class="stocka-fl-tab-title">¡Olvídate de pagar de más por una bodega!</div>
+              </div>
+              <div class="stocka-fl-tab-img-wrap">
+                <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_21_903c3b07-66dc-4934-9a40-f7e070f7f866.png?v=1724372555" alt="Almacenamiento Stocka" width="600" height="420" loading="eager">
+              </div>
+            </div>
+
+            <!-- Tab 2: Pick & Pack -->
+            <div id="tab-pickpack" class="stocka-fl-tab-content">
+              <div class="stocka-fl-tab-header">
+                <div class="stocka-fl-tab-icon">
+                  <svg viewBox="0 0 24 24"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                </div>
+                <div class="stocka-fl-tab-title">¡Tus pedidos se arman como tú lo harías!</div>
+              </div>
+              <div class="stocka-fl-tab-img-wrap">
+                <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_26_5ed411bd-b917-48a7-8649-6854a591cff2.png?v=1724388916" alt="Pick & Pack Stocka" width="600" height="420" loading="lazy">
+              </div>
+            </div>
+
+            <!-- Tab 3: Despachos -->
+            <div id="tab-despachos" class="stocka-fl-tab-content">
+              <div class="stocka-fl-tab-header">
+                <div class="stocka-fl-tab-icon">
+                  <svg viewBox="0 0 24 24"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"></path><path d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path></svg>
+                </div>
+                <div class="stocka-fl-tab-title">¡Llega a todo Chile, fácil y rápido!</div>
+              </div>
+              <div class="stocka-fl-tab-img-wrap">
+                <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_27_c6c1c71c-84bd-4a08-993e-6a6416d44655.png?v=1724389778" alt="Despachos Stocka" width="600" height="420" loading="lazy">
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       2. SPOTLIGHT SECTION: SIMPLIFICAMOS LA LOGÍSTICA
+       ======================================================== -->
+  <section class="stocka-fl-spotlight-sec">
+    <div class="stocka-fl-container">
+      
+      <div class="stocka-fl-sec-header">
+        <span class="stocka-fl-sec-sub">SIMPLIFICAMOS LA LOGÍSTICA</span>
+        <h2 class="stocka-fl-sec-title">Tú solo vendes, olvídate de todo lo demás</h2>
+        <p class="stocka-fl-sec-desc">
+          Contamos con el servicio más completo que puedas encontrar. La logística de tu ecommerce nunca más será un dolor de cabeza, ofreciendo a tus clientes una experiencia de compra que amarán.
+        </p>
+      </div>
+
+      <div class="stocka-fl-spotlight-grid">
+        
+        <!-- Left: Image Box -->
+        <div class="stocka-fl-spotlight-img-card">
+          <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_25.png?v=1724377334" alt="Centro Logístico Stocka" width="600" height="500" loading="lazy">
+        </div>
+
+        <!-- Right: Process Checklist + 4 SaaS Cards -->
+        <div class="stocka-fl-spotlight-content">
+          
+          <ul class="stocka-fl-checklist">
+            <li class="stocka-fl-check-item">
+              <div class="stocka-fl-check-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span class="stocka-fl-check-text">Almacenamos tus productos en nuestros centros logísticos de Santiago.</span>
+            </li>
+            <li class="stocka-fl-check-item">
+              <div class="stocka-fl-check-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span class="stocka-fl-check-text">Armamos los pedidos de todos tus canales (Shopify, Mercadolibre, Falabella, Ripley, etc).</span>
+            </li>
+            <li class="stocka-fl-check-item">
+              <div class="stocka-fl-check-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span class="stocka-fl-check-text">Nos encargamos de la entrega a tus clientes con Same Day y couriers líderes.</span>
+            </li>
+            <li class="stocka-fl-check-item">
+              <div class="stocka-fl-check-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span class="stocka-fl-check-text">Gestionamos tu logística inversa, cambios y devoluciones con rapidez.</span>
+            </li>
+            <li class="stocka-fl-check-item">
+              <div class="stocka-fl-check-icon">
+                <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <span class="stocka-fl-check-text">Ofrecemos Punto de Retiro físico en Ñuñoa y Vitrinas comerciales para tus productos.</span>
+            </li>
+          </ul>
+
+          <!-- 4 SaaS Value Pillars -->
+          <div class="stocka-fl-features-4">
+            <div class="stocka-fl-feat-card">
+              <div class="stocka-fl-feat-icon">
+                <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+              </div>
+              <h4 class="stocka-fl-feat-title">Inventario Online</h4>
+              <p class="stocka-fl-feat-desc">Control total en tiempo real de tu stock y movimientos 24/7.</p>
+            </div>
+
+            <div class="stocka-fl-feat-card">
+              <div class="stocka-fl-feat-icon">
+                <svg viewBox="0 0 24 24"><path d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+              </div>
+              <h4 class="stocka-fl-feat-title">Soporte Permanente</h4>
+              <p class="stocka-fl-feat-desc">Ejecutivo dedicado y canal directo vía WhatsApp para tu comercio.</p>
+            </div>
+
+            <div class="stocka-fl-feat-card">
+              <div class="stocka-fl-feat-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </div>
+              <h4 class="stocka-fl-feat-title">Tu Stock Asegurado</h4>
+              <p class="stocka-fl-feat-desc">Máximo cuidado en la manipulación de tus productos, CCTV, tu stock seguro.</p>
+            </div>
+
+            <div class="stocka-fl-feat-card">
+              <div class="stocka-fl-feat-icon">
+                <svg viewBox="0 0 24 24"><path d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+              </div>
+              <h4 class="stocka-fl-feat-title">Optimiza tus Costos</h4>
+              <p class="stocka-fl-feat-desc">Estructura flexible donde pagas solo por los pedidos que vendes.</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       3. COTIZADOR INTERACTIVO 360
+       ======================================================== -->
+  <section class="stocka-fl-cotizador-sec" id="stocka-cotizador-anchor">
+    <div class="stocka-fl-container">
+      <div class="stocka-fl-sec-header" style="margin-bottom: 2rem;">
+        <span class="stocka-fl-sec-sub">SIMULADOR EN TIEMPO REAL</span>
+        <h2 class="stocka-fl-sec-title">Calcula tu tarifa de Fulfillment</h2>
+        <p class="stocka-fl-sec-desc">
+          Mueve los sliders según tu volumen estimado y obtén una cotización inmediata y formal en PDF.
+        </p>
+      </div>
+
+      <!-- Cotizador App Render -->
+      {% render 'stocka-cotizador-app' %}
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       4. PRESENTATIONS / DOWNLOADS SECTION
+       ======================================================== -->
+  <section class="stocka-fl-presentations-sec">
+    <div class="stocka-fl-container">
+      
+      <div class="stocka-fl-sec-header">
+        <span class="stocka-fl-sec-sub">DOCUMENTACIÓN Y MATERIAL COMERCIAL</span>
+        <h2 class="stocka-fl-sec-title">Descarga nuestras presentaciones oficiales</h2>
+        <p class="stocka-fl-sec-desc">
+          Revisa a fondo el alcance operativo, especificaciones y ventajas competitivas de cada uno de nuestros servicios.
+        </p>
+      </div>
+
+      <div class="stocka-fl-pres-grid">
+        
+        <!-- Card 1 -->
+        <a href="https://hubs.ly/Q02R4PLC0" target="_blank" class="stocka-fl-pres-card">
+          <div class="stocka-fl-pres-img-wrap">
+            <span class="stocka-fl-pres-badge">Presentación PDF</span>
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_22_bab10e87-14f8-4868-b83b-702dcc29ab25.png?v=1724374063" alt="Servicios de Fulfillment" width="400" height="260" loading="lazy">
+          </div>
+          <div class="stocka-fl-pres-body">
+            <h3 class="stocka-fl-pres-title">Servicios de Fulfillment 360</h3>
+            <span class="stocka-fl-pres-btn">
+              <span>Descargar Presentación</span>
+              <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+            </span>
+          </div>
+        </a>
+
+        <!-- Card 2 -->
+        <a href="https://hubs.ly/Q02R4Ps90" target="_blank" class="stocka-fl-pres-card">
+          <div class="stocka-fl-pres-img-wrap">
+            <span class="stocka-fl-pres-badge">Sucursal Física</span>
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_23.png?v=1724374825" alt="Punto de Retiro y Vitrinas" width="400" height="260" loading="lazy">
+          </div>
+          <div class="stocka-fl-pres-body">
+            <h3 class="stocka-fl-pres-title">Punto de Retiro y Vitrina</h3>
+            <span class="stocka-fl-pres-btn">
+              <span>Descargar Presentación</span>
+              <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+            </span>
+          </div>
+        </a>
+
+        <!-- Card 3 -->
+        <a href="https://hubs.ly/Q02R4Pcr0" target="_blank" class="stocka-fl-pres-card">
+          <div class="stocka-fl-pres-img-wrap">
+            <span class="stocka-fl-pres-badge">Red de Envíos</span>
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_24.png?v=1724375275" alt="Despachos y Distribución" width="400" height="260" loading="lazy">
+          </div>
+          <div class="stocka-fl-pres-body">
+            <h3 class="stocka-fl-pres-title">Despachos Same Day y Regiones</h3>
+            <span class="stocka-fl-pres-btn">
+              <span>Descargar Presentación</span>
+              <svg viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+            </span>
+          </div>
+        </a>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       5. FAQ SECTION
+       ======================================================== -->
+  <section class="stocka-fl-faq-sec">
+    <div class="stocka-fl-container">
+      
+      <div class="stocka-fl-sec-header">
+        <span class="stocka-fl-sec-sub">RESOLVEMOS TUS DUDAS</span>
+        <h2 class="stocka-fl-sec-title">Preguntas Frecuentes</h2>
+        <p class="stocka-fl-sec-desc">
+          Todo lo que necesitas saber antes de comenzar a operar con Stocka Fulfillment.
+        </p>
+      </div>
+
+      <div class="stocka-fl-faq-wrap">
+        
+        <div class="stocka-fl-faq-item active">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>1. ¿Puedo ver mi stock en línea en tiempo real?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Sí. Dispones de un portal WMS en la nube donde puedes ver en vivo el stock por SKU, crear ingresos de mercadería, revisar los pedidos en preparación y seguir el estado de entrega de cada despacho.
+          </div>
+        </div>
+
+        <div class="stocka-fl-faq-item">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>2. ¿Mis productos quedan asegurados en sus bodegas?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Totalmente. Nuestras instalaciones cuentan con control de acceso biométrico, circuito cerrado de televisión (CCTV) 24/7, guardias y póliza de seguro ante robo o siniestros para que operes con total tranquilidad.
+          </div>
+        </div>
+
+        <div class="stocka-fl-faq-item">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>3. ¿Cuentan con cobertura de envíos a todo Chile?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Sí. En la Región Metropolitana ofrecemos entregas Same Day (el mismo día) y Next Day. A nivel nacional contamos con integración a los principales couriers de Chile (Starken, Blue Express, CorreosChile, Chilexpress) con tarifas preferenciales negociadas por volumen.
+          </div>
+        </div>
+
+        <div class="stocka-fl-faq-item">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>4. ¿Dónde se encuentran ubicadas sus bodegas?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Nuestros centros de distribución y fulfillment se encuentran estratégicamente ubicados en la comuna de Ñuñoa, Santiago, lo que nos permite una conectividad inmejorable con los principales ejes viales de la capital.
+          </div>
+        </div>
+
+        <div class="stocka-fl-faq-item">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>5. ¿Ofrecen puntos de retiro físico para mis clientes?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Sí, tus clientes pueden elegir retirar sus compras de manera presencial en nuestra sucursal de Ñuñoa. Este servicio es sin costo adicional para los comercios que operan con Stocka.
+          </div>
+        </div>
+
+        <div class="stocka-fl-faq-item">
+          <button type="button" class="stocka-fl-faq-q">
+            <span>6. ¿Cuentan con almacenamiento en frío o alimentos?</span>
+            <div class="stocka-fl-faq-icon">
+              <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </button>
+          <div class="stocka-fl-faq-a">
+            Nuestro centro está especializado en almacenamiento seco a temperatura ambiente controlada. Es ideal para moda, calzado, belleza, cosmética, tecnología, accesorios, hogar y productos generales no refrigerados.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       6. FINAL COMMERCIAL CTA BANNER
+       ======================================================== -->
+  <section class="stocka-fl-cta-sec">
+    <div class="stocka-fl-container">
+      <div class="stocka-fl-cta-wrap">
+        <h2 class="stocka-fl-cta-title">¿Listo para transformar la logística de tu e-commerce?</h2>
+        <p class="stocka-fl-cta-desc">
+          Contáctanos hoy mismo y un especialista comercial armará un plan a tu medida para comenzar a operar en menos de 48 horas.
+        </p>
+        <div class="stocka-fl-cta-btns">
+          <a href="https://wa.me/56939247487?text=Hola!%20Quiero%20conocer%20m%C3%A1s%20sobre%20el%20servicio%20de%20Fulfillment%20para%20mi%20tienda" target="_blank" class="stocka-fl-btn-wa">
+            <svg viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+            <span>WhatsApp Comercial</span>
+          </a>
+          <a href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" target="_blank" class="stocka-fl-btn-meet">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>Agendar Reunión 1 a 1</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- Client-side script for tabs & FAQs (Zero external dependencies) -->
+<script>
+  (function() {
+    function initFulfillmentLanding() {
+      // 1. Pillar Tabs
+      const tabBtns = document.querySelectorAll('.stocka-fl-tab-btn');
+      const tabContents = document.querySelectorAll('.stocka-fl-tab-content');
+
+      tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.tab;
+          tabBtns.forEach(b => b.classList.remove('active'));
+          tabContents.forEach(c => c.classList.remove('active'));
+
+          btn.classList.add('active');
+          const content = document.getElementById(target);
+          if (content) content.classList.add('active');
+        });
+      });
+
+      // 2. FAQ Accordion
+      const faqItems = document.querySelectorAll('.stocka-fl-faq-item');
+      faqItems.forEach(item => {
+        const btn = item.querySelector('.stocka-fl-faq-q');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            const isActive = item.classList.contains('active');
+            faqItems.forEach(i => i.classList.remove('active'));
+            if (!isActive) {
+              item.classList.add('active');
+            }
+          });
+        }
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initFulfillmentLanding);
+    } else {
+      initFulfillmentLanding();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Fulfillment 360",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Fulfillment 360"
+    }
+  ]
+}
+{% endschema %}

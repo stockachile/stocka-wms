@@ -10,9 +10,27 @@
 
 (function() {
   const BREVO_DEFAULT_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+  const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
 
   function getBrevoApiKey() {
     return localStorage.getItem('wms_brevo_api_key') || BREVO_DEFAULT_API_KEY;
+  }
+
+  function getSupabaseClient() {
+    if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
+      return window.supabaseClient;
+    }
+    if (window.supabase && typeof window.supabase.from === 'function') {
+      return window.supabase;
+    }
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+      if (!window._inboundSupabaseClient) {
+        window._inboundSupabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+      return window._inboundSupabaseClient;
+    }
+    return null;
   }
 
   /**
@@ -24,8 +42,14 @@
     const targetComercioLower = comercio.trim().toLowerCase();
 
     try {
+      const client = getSupabaseClient();
+      if (!client) {
+        console.warn('[Inbound Notifications] Supabase client no inicializado aún.');
+        return [];
+      }
+
       // 1. Obtener perfiles de usuarios de la base de datos
-      const { data: profiles, error: profErr } = await window.supabase
+      const { data: profiles, error: profErr } = await client
         .from('profiles')
         .select('id, email, full_name, comercio, role');
 
@@ -46,7 +70,7 @@
       }
 
       // 2. Obtener correos adicionales de configuración del comercio
-      const { data: config, error: confErr } = await window.supabase
+      const { data: config, error: confErr } = await client
         .from('comercios_adicional_config')
         .select('email_colaborador, kam_email')
         .eq('comercio', comercio)
@@ -74,10 +98,12 @@
    */
   async function createInAppNotifications(comercio, title, message) {
     try {
-      if (!comercio || comercio === 'no asignado' || !window.supabase) return;
+      if (!comercio || comercio === 'no asignado') return;
       const targetComercioLower = comercio.trim().toLowerCase();
+      const client = getSupabaseClient();
+      if (!client) return;
 
-      const { data: profiles } = await window.supabase
+      const { data: profiles } = await client
         .from('profiles')
         .select('id, comercio')
         .neq('role', 'admin');
@@ -98,7 +124,7 @@
             is_read: false
           }));
 
-          await window.supabase
+          await client
             .from('dashboard_notifications')
             .insert(inserts);
         }

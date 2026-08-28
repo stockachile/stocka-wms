@@ -1,0 +1,237 @@
+{%- comment -%}
+  Stocka Contact Meeting & Location Section
+  Combines the HubSpot Meeting Scheduler with Headquarters Info and Google Maps Embed.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+
+<style>
+  .stocka-cml-section-{{ section.id }} {
+    background-color: {{ settings.bg_color | default: "#f8fafc" }};
+    padding: 4rem 1rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cml-section-{{ section.id }} {
+      padding: 6rem 2rem;
+    }
+  }
+
+  .stocka-cml-container-{{ section.id }} {
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+
+  .stocka-cml-grid-{{ section.id }} {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: flex-start;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cml-grid-{{ section.id }} {
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 3.5rem;
+    }
+  }
+
+  .stocka-cml-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+    height: 100%;
+  }
+  @media (max-width: 767px) {
+    .stocka-cml-card {
+      padding: 1.5rem 1.25rem;
+      border-radius: 18px;
+    }
+  }
+
+  .stocka-cml-card-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .stocka-cml-card-subtitle {
+    font-size: 0.9rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+
+  .stocka-cml-iframe-wrap {
+    min-height: 620px;
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  /* Location Details */
+  .stocka-cml-loc-img {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    border-radius: 16px;
+    margin-bottom: 1.5rem;
+  }
+
+  .stocka-cml-info-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .stocka-cml-info-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .stocka-cml-info-content strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #0f172a;
+    margin-bottom: 0.2rem;
+  }
+  .stocka-cml-info-content p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #64748b;
+    line-height: 1.5;
+  }
+
+  .stocka-cml-map-container {
+    margin-top: 1.5rem;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    height: 240px;
+  }
+  .stocka-cml-map-container iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+  }
+</style>
+
+<section id="stocka-meeting-section" class="stocka-cml-section-{{ section.id }} {{ settings.custom_class }}">
+  <div class="stocka-cml-container-{{ section.id }}">
+    
+    <div class="stocka-cml-grid-{{ section.id }}">
+      
+      <!-- Left Column: HubSpot Meeting Scheduler -->
+      <div class="stocka-cml-card">
+        <div class="stocka-cml-card-title">
+          <span>📹</span>
+          <span>Agenda una reunión Virtual</span>
+        </div>
+        <p class="stocka-cml-card-subtitle">
+          Elige directamente en nuestro calendario un horario disponible para una videollamada 1 a 1 de 20 a 30 minutos vía Google Meet.
+        </p>
+
+        <div class="stocka-cml-iframe-wrap">
+          <!-- HubSpot Meetings Embed -->
+          <div class="meetings-iframe-container" data-src="https://meetings.hubspot.com/stocka?embed=true"></div>
+          <script type="text/javascript" src="https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js"></script>
+        </div>
+      </div>
+
+      <!-- Right Column: Location & Google Maps -->
+      <div class="stocka-cml-card" id="stocka-location-map">
+        
+        <img 
+          src="{{ 'stocka-bot-dispatch.jpg' | asset_url }}" 
+          alt="Stocka Centro Logístico Ñuñoa" 
+          class="stocka-cml-loc-img"
+          loading="lazy"
+        >
+
+        <div class="stocka-cml-card-title">
+          <span>📍</span>
+          <span>Nuestra Casa Matriz & Bodega</span>
+        </div>
+        <p class="stocka-cml-card-subtitle">
+          Contamos con ubicación física estratégica en el corazón de Santiago para retiro presencial y distribución veloz.
+        </p>
+
+        <!-- Dirección -->
+        <div class="stocka-cml-info-row">
+          <div class="stocka-cml-info-icon">🏢</div>
+          <div class="stocka-cml-info-content">
+            <strong>Dirección Central</strong>
+            <p>Avenida Campos de Deportes 405, Ñuñoa, Región Metropolitana, Chile.</p>
+          </div>
+        </div>
+
+        <!-- Conectividad -->
+        <div class="stocka-cml-info-row">
+          <div class="stocka-cml-info-icon">🚇</div>
+          <div class="stocka-cml-info-content">
+            <strong>Conectividad y Metro</strong>
+            <p>A pasos de estaciones de Metro Estadio Nacional (L6) y Monseñor Eyzaguirre / Ñuñoa (L3).</p>
+          </div>
+        </div>
+
+        <!-- Horarios -->
+        <div class="stocka-cml-info-row">
+          <div class="stocka-cml-info-icon">⏰</div>
+          <div class="stocka-cml-info-content">
+            <strong>Horario de Operaciones</strong>
+            <p>Lunes a Viernes: 09:00 a 18:30 hrs • Sábados: 10:00 a 14:00 hrs.</p>
+          </div>
+        </div>
+
+        <!-- Interactive Google Map -->
+        <div class="stocka-cml-map-container">
+          <iframe 
+            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1025.0461639403695!2d-70.61047503034712!3d-33.45734999833666!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x9662cf8d88374f2d%3A0xcda8463b1a73438b!2sAv.%20Campos%20de%20Deportes%20405%2C%207750207%20%C3%91u%C3%B1oa%2C%20Regi%C3%B3n%20Metropolitana!5e1!3m2!1ses!2scl!4v1724464891182!5m2!1ses!2scl" 
+            loading="lazy" 
+            referrerpolicy="no-referrer-when-downgrade"
+            title="Ubicación Stocka Chile"
+          ></iframe>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Stocka Meeting & Location",
+  "settings": [
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Color de Fondo",
+      "default": "#f8fafc"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS personalizada"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Meeting & Location"
+    }
+  ]
+}
+{% endschema %}

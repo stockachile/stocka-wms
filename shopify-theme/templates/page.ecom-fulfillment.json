@@ -10,12 +10,12 @@
 {
   "layout": "theme",
   "sections": {
-    "ecom-fulfillment-page": {
-      "type": "ecom-fulfillment-page",
+    "fulfillment_landing": {
+      "type": "stocka-fulfillment-landing",
       "settings": {}
     }
   },
   "order": [
-    "ecom-fulfillment-page"
+    "fulfillment_landing"
   ]
 }

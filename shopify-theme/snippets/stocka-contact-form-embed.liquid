@@ -1,0 +1,481 @@
+{%- comment -%}
+  Stocka Lead Engine & Contact Form (Self-contained Snippet for EComposer / Custom Liquid)
+  Compatible with {% render 'stocka-contact-form-embed' %}
+{%- endcomment -%}
+
+{%- assign embed_id = 'ecom-form' -%}
+
+<style>
+  .stocka-embed-lead-wrapper {
+    width: 100%;
+    margin: 1.5rem auto;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .stocka-embed-lead-wrapper *, .stocka-embed-lead-wrapper *:before, .stocka-embed-lead-wrapper *:after {
+    box-sizing: border-box;
+  }
+  .stocka-embed-card {
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.02);
+    padding: 2.25rem 2rem;
+    position: relative;
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  @media (max-width: 767px) {
+    .stocka-embed-card {
+      padding: 1.5rem 1.2rem;
+      border-radius: 16px;
+    }
+  }
+  .stocka-embed-input {
+    width: 100%;
+    padding: 0.85rem 1.1rem;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    outline: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 0.95rem;
+    color: #0f172a;
+    background-color: #f8fafc;
+    font-family: inherit;
+    margin-bottom: 0.2rem;
+  }
+  .stocka-embed-input:focus {
+    background-color: #ffffff;
+    border-color: #5c24ff;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12);
+  }
+  .stocka-embed-label {
+    display: block;
+    margin-bottom: 0.45rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  .stocka-embed-service-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem 1rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #334155;
+  }
+  .stocka-embed-service-pill:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+  .stocka-embed-service-pill.active {
+    background: #f5f3ff;
+    border-color: #5c24ff;
+    color: #5c24ff;
+    box-shadow: 0 2px 8px rgba(92, 36, 255, 0.1);
+  }
+  .stocka-embed-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.65rem 1.1rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+  .stocka-embed-pill-btn:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+  .stocka-embed-pill-btn.active {
+    background: #5c24ff;
+    border-color: #5c24ff;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);
+  }
+  .stocka-embed-btn-submit {
+    background: linear-gradient(135deg, #5c24ff 0%, #4314c7 100%);
+    color: #ffffff !important;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 1.1rem 2.5rem;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    transition: all 0.25s ease;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.4);
+    width: 100%;
+    text-decoration: none !important;
+  }
+  .stocka-embed-btn-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(92, 36, 255, 0.5);
+    background: linear-gradient(135deg, #6d3bff 0%, #4d18e0 100%);
+  }
+  .stocka-embed-btn-submit:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+  @keyframes spin-stocka-embed {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .stocka-embed-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin-stocka-embed 0.8s linear infinite;
+  }
+
+  .stocka-embed-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-embed-grid-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .stocka-embed-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-embed-grid-3 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .stocka-embed-services-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  @media (min-width: 576px) {
+    .stocka-embed-services-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 860px) {
+    .stocka-embed-services-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>
+
+<div class="stocka-embed-lead-wrapper" id="stocka-embed-container-{{ embed_id }}">
+  <div class="stocka-embed-card">
+    
+    <!-- Formulario Principal -->
+    <form id="stocka-embed-form-{{ embed_id }}" novalidate>
+      
+      <!-- 1. Servicios -->
+      <div style="margin-bottom: 2rem;">
+        <label class="stocka-embed-label" style="font-size: 0.95rem;">
+          1. ¿Qué servicios te interesan para tu negocio? <span style="color: #ef4444;">*</span>
+        </label>
+        <p style="font-size: 0.8rem; color: #64748b; margin-top: -0.2rem; margin-bottom: 0.85rem; line-height: 1.4;">
+          El servicio Fulfillment 360 es la base para escalar tu ecommerce de forma 100% automatizada.
+        </p>
+        
+        <div class="stocka-embed-services-grid" id="stocka-embed-services-{{ embed_id }}">
+          <div class="stocka-embed-service-pill active" data-value="Fulfillment 360">
+            <span style="font-size: 1.2rem;">📦</span>
+            <span>Fulfillment 360</span>
+          </div>
+          <div class="stocka-embed-service-pill" data-value="Punto de Retiro">
+            <span style="font-size: 1.2rem;">🏬</span>
+            <span>Punto de Retiro</span>
+          </div>
+          <div class="stocka-embed-service-pill" data-value="Despachos Same Day RM">
+            <span style="font-size: 1.2rem;">⚡</span>
+            <span>Same Day en RM</span>
+          </div>
+          <div class="stocka-embed-service-pill" data-value="Envíos a todo Chile">
+            <span style="font-size: 1.2rem;">🚚</span>
+            <span>Envíos Todo Chile</span>
+          </div>
+          <div class="stocka-embed-service-pill" data-value="Logística Inversa">
+            <span style="font-size: 1.2rem;">🔄</span>
+            <span>Logística Inversa</span>
+          </div>
+          <div class="stocka-embed-service-pill" data-value="Vitrinas en Sucursal">
+            <span style="font-size: 1.2rem;">🛍️</span>
+            <span>Vitrinas en Sucursal</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Operación y Volumen -->
+      <div class="stocka-embed-grid-2" style="margin-bottom: 2rem; padding: 1.25rem; border-radius: 16px; background: #f8fafc; border: 1px solid #e2e8f0;">
+        <div>
+          <label class="stocka-embed-label">2. Cantidad de ventas mensuales (pedidos) <span style="color: #ef4444;">*</span></label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;" id="stocka-embed-volume-{{ embed_id }}">
+            <div class="stocka-embed-pill-btn active" data-value="0 - 100 pedidos">0 - 100</div>
+            <div class="stocka-embed-pill-btn" data-value="100 - 500 pedidos">100 - 500</div>
+            <div class="stocka-embed-pill-btn" data-value="500 - 1.000 pedidos">500 - 1.000</div>
+            <div class="stocka-embed-pill-btn" data-value="Más de 1.000 pedidos">1.000+</div>
+          </div>
+        </div>
+
+        <div>
+          <label class="stocka-embed-label">3. Espacio estimado de almacenamiento</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem;" id="stocka-embed-storage-{{ embed_id }}">
+            <div class="stocka-embed-pill-btn active" data-value="No lo sé aún">No lo sé aún</div>
+            <div class="stocka-embed-pill-btn" data-value="Menos de 1 m3">&lt; 1 m³</div>
+            <div class="stocka-embed-pill-btn" data-value="1 - 4 m3">1 - 4 m³</div>
+            <div class="stocka-embed-pill-btn" data-value="5 - 10 m3">5 - 10 m³</div>
+            <div class="stocka-embed-pill-btn" data-value="Más de 10 m3">10+ m³</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Datos de Contacto -->
+      <div style="margin-bottom: 1.5rem;">
+        <label class="stocka-embed-label" style="font-size: 0.95rem; margin-bottom: 0.75rem;">
+          4. Tus datos de contacto y de tu tienda
+        </label>
+        
+        <div class="stocka-embed-grid-2" style="margin-bottom: 1rem;">
+          <div>
+            <label class="stocka-embed-label">Tu Nombre <span style="color: #ef4444;">*</span></label>
+            <input type="text" id="embed-lead-name" class="stocka-embed-input" placeholder="Ej: Felipe" required>
+          </div>
+          <div>
+            <label class="stocka-embed-label">Correo Electrónico <span style="color: #ef4444;">*</span></label>
+            <input type="email" id="embed-lead-email" class="stocka-embed-input" placeholder="felipe@mail.com" required>
+          </div>
+        </div>
+
+        <div class="stocka-embed-grid-3" style="margin-bottom: 1rem;">
+          <div>
+            <label class="stocka-embed-label">Teléfono / WhatsApp <span style="color: #ef4444;">*</span></label>
+            <input type="tel" id="embed-lead-phone" class="stocka-embed-input" placeholder="+56 9 876 54321" required>
+          </div>
+          <div>
+            <label class="stocka-embed-label">Nombre de tu Tienda <span style="color: #ef4444;">*</span></label>
+            <input type="text" id="embed-lead-company" class="stocka-embed-input" placeholder="Ej: Stocka Store" required>
+          </div>
+          <div>
+            <label class="stocka-embed-label">Sitio Web o Instagram</label>
+            <input type="text" id="embed-lead-web" class="stocka-embed-input" placeholder="www.mitienda.cl o @mitienda">
+          </div>
+        </div>
+
+        <div>
+          <label class="stocka-embed-label">Cuéntanos un poco más de tu comercio</label>
+          <textarea id="embed-lead-notes" class="stocka-embed-input" rows="3" placeholder="Productos, requerimientos especiales o dudas sobre el servicio..."></textarea>
+        </div>
+      </div>
+
+      <!-- Error box -->
+      <div id="stocka-embed-error" style="display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-bottom: 1rem; font-weight: 600;"></div>
+
+      <!-- Submit button -->
+      <div style="text-align: center; padding-top: 0.5rem;">
+        <button type="submit" id="stocka-embed-submit-btn" class="stocka-embed-btn-submit">
+          <span id="stocka-embed-btn-text">Solicitar Propuesta y Recibir Presentación 🚀</span>
+          <div id="stocka-embed-btn-spinner" class="stocka-embed-spinner" style="display: none;"></div>
+        </button>
+        <p style="font-size: 0.76rem; color: #64748b; margin-top: 0.85rem; margin-bottom: 0;">
+          🔒 Tus datos están 100% seguros. Te enviaremos la presentación y tarifario oficial en PDF al instante.
+        </p>
+      </div>
+
+    </form>
+
+    <!-- Success Screen -->
+    <div id="stocka-embed-success" style="display: none; text-align: center; padding: 2.5rem 1rem;">
+      <div style="width: 68px; height: 68px; background: #ecfdf5; border: 2px solid #10b981; border-radius: 50%; color: #10b981; display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 1.25rem;">
+        ✓
+      </div>
+      
+      <h3 style="font-size: 1.5rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">
+        ¡Solicitud Recibida con Éxito! 🎉
+      </h3>
+      
+      <p style="font-size: 0.95rem; color: #475569; max-width: 520px; margin: 0 auto 1.5rem auto; line-height: 1.6;">
+        Muchas gracias <strong id="embed-success-name" style="color: #5c24ff;"></strong>. Hemos recibido los datos de <strong id="embed-success-company"></strong> y te hemos enviado la <strong>Presentación Oficial de Fulfillment 360 y Tarifarios</strong> en PDF a tu correo.
+      </p>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.25rem 1.5rem; max-width: 500px; margin: 0 auto 1.75rem auto; text-align: left;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b; margin-bottom: 0.35rem;">
+          📬 Revisa tu bandeja de entrada
+        </div>
+        <p style="font-size: 0.8rem; color: #64748b; margin: 0; line-height: 1.5;">
+          Enviamos el correo a <strong id="embed-success-email" style="color: #0f172a;"></strong> con todos los documentos adjuntos y el enlace para agendar reunión virtual 1 a 1 vía Google Meet con Felipe Trujillo.
+        </p>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; justify-content: center; max-width: 440px; margin: 0 auto;">
+        <a 
+          href="https://wa.me/56939247487?text=Hola!%20Acabo%20de%20solicitar%20informaci%C3%B3n%20en%20Stocka.cl%20y%20me%20gustar%C3%ADa%20conversar%20sobre%20fulfillment" 
+          target="_blank" 
+          style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #25d366; color: #ffffff !important; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.35);"
+        >
+          <span>💬</span> Hablar con Asesor por WhatsApp
+        </a>
+        
+        <a 
+          href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" 
+          target="_blank" 
+          style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #5c24ff; color: #ffffff !important; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(92, 36, 255, 0.35);"
+        >
+          <span>📹</span> Agendar Reunión Virtual (Meet)
+        </a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  (function() {
+    function initStockaEmbedForm() {
+      const form = document.getElementById('stocka-embed-form-{{ embed_id }}');
+      if (!form) return;
+
+      // 1. Selector de Servicios
+      const servicesGroup = document.getElementById('stocka-embed-services-{{ embed_id }}');
+      if (servicesGroup) {
+        const pills = servicesGroup.querySelectorAll('.stocka-embed-service-pill');
+        pills.forEach(pill => {
+          pill.addEventListener('click', () => {
+            pill.classList.toggle('active');
+          });
+        });
+      }
+
+      // 2. Selector de Volumen
+      const volumeGroup = document.getElementById('stocka-embed-volume-{{ embed_id }}');
+      if (volumeGroup) {
+        const volumeBtns = volumeGroup.querySelectorAll('.stocka-embed-pill-btn');
+        volumeBtns.forEach(btn => {
+          btn.addEventListener('click', () => {
+            volumeBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+          });
+        });
+      }
+
+      // 3. Selector de Almacenamiento
+      const storageGroup = document.getElementById('stocka-embed-storage-{{ embed_id }}');
+      if (storageGroup) {
+        const storageBtns = storageGroup.querySelectorAll('.stocka-embed-pill-btn');
+        storageBtns.forEach(btn => {
+          btn.addEventListener('click', () => {
+            storageBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+          });
+        });
+      }
+
+      // 4. Form Submit
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const errorDiv = document.getElementById('stocka-embed-error');
+        const submitBtn = document.getElementById('stocka-embed-submit-btn');
+        const btnText = document.getElementById('stocka-embed-btn-text');
+        const btnSpinner = document.getElementById('stocka-embed-btn-spinner');
+
+        errorDiv.style.display = 'none';
+
+        const name = document.getElementById('embed-lead-name').value.trim();
+        const email = document.getElementById('embed-lead-email').value.trim();
+        const phone = document.getElementById('embed-lead-phone').value.trim();
+        const companyName = document.getElementById('embed-lead-company').value.trim();
+        const website = document.getElementById('embed-lead-web').value.trim();
+        const notes = document.getElementById('embed-lead-notes').value.trim();
+
+        const activeServices = Array.from(servicesGroup.querySelectorAll('.stocka-embed-service-pill.active')).map(p => p.getAttribute('data-value'));
+        if (activeServices.length === 0) activeServices.push('Fulfillment 360');
+
+        const activeVolume = volumeGroup.querySelector('.stocka-embed-pill-btn.active')?.getAttribute('data-value') || '0 - 100 pedidos';
+        const activeStorage = storageGroup.querySelector('.stocka-embed-pill-btn.active')?.getAttribute('data-value') || 'No lo sé aún';
+
+        if (!name || !email || !phone || !companyName) {
+          errorDiv.textContent = 'Por favor completa todos los campos obligatorios (*) para continuar.';
+          errorDiv.style.display = 'block';
+          return;
+        }
+
+        submitBtn.disabled = true;
+        btnText.textContent = 'Enviando y preparando tu presentación...';
+        btnSpinner.style.display = 'inline-block';
+
+        try {
+          const endpointUrl = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/submit-lead';
+
+          const response = await fetch(endpointUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contactName: name,
+              email: email,
+              phone: phone,
+              companyName: companyName,
+              website: website,
+              services: activeServices,
+              monthlyVolume: activeVolume,
+              storageSpace: activeStorage,
+              notes: notes
+            })
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Ocurrió un error al enviar tu solicitud.');
+          }
+
+          form.style.display = 'none';
+          document.getElementById('embed-success-name').textContent = name;
+          document.getElementById('embed-success-company').textContent = companyName;
+          document.getElementById('embed-success-email').textContent = email;
+
+          const successScreen = document.getElementById('stocka-embed-success');
+          successScreen.style.display = 'block';
+          successScreen.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+        } catch (err) {
+          console.error('Error enviando formulario:', err);
+          errorDiv.textContent = err.message || 'No se pudo enviar el formulario. Contáctanos a contacto@stocka.cl';
+          errorDiv.style.display = 'block';
+          submitBtn.disabled = false;
+          btnText.textContent = 'Solicitar Propuesta y Recibir Presentación 🚀';
+          btnSpinner.style.display = 'none';
+        }
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initStockaEmbedForm);
+    } else {
+      initStockaEmbedForm();
+    }
+  })();
+</script>

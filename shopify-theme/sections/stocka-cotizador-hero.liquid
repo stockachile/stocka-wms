@@ -1,0 +1,349 @@
+{%- comment -%}
+  Stocka Cotizador Landing - Hero Section
+  Dynamic hero with value propositions, badges, and 3D mascot visual card.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+
+<style>
+  .stocka-coth-section-{{ section.id }} {
+    background-color: {{ settings.bg_color | default: "#f8fafc" }};
+    padding: 3.5rem 1rem;
+    position: relative;
+    overflow: hidden;
+  }
+  @media (min-width: 1024px) {
+    .stocka-coth-section-{{ section.id }} {
+      padding: 5rem 2rem;
+    }
+  }
+
+  .stocka-coth-container-{{ section.id }} {
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 1024px) {
+    .stocka-coth-container-{{ section.id }} {
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 4rem;
+    }
+  }
+
+  .stocka-coth-badge-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(92, 36, 255, 0.15);
+  }
+
+  .stocka-coth-title-{{ section.id }} {
+    font-size: 2.35rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #0f172a;
+    margin-bottom: 1.25rem;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-coth-title-{{ section.id }} {
+      font-size: 3.25rem;
+    }
+  }
+
+  .stocka-coth-gradient-text {
+    background: linear-gradient(135deg, #5c24ff 0%, #a855f7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .stocka-coth-subtitle-{{ section.id }} {
+    font-size: 1.05rem;
+    line-height: 1.65;
+    color: #475569;
+    margin-bottom: 2rem;
+    max-width: 600px;
+  }
+
+  .stocka-coth-pills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-bottom: 2.25rem;
+  }
+  .stocka-coth-pill-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    padding: 0.4rem 1rem;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #334155;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  }
+
+  .stocka-coth-actions-{{ section.id }} {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+  }
+  .stocka-coth-btn-primary-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #5c24ff;
+    color: #ffffff !important;
+    padding: 0.95rem 2.2rem;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    text-decoration: none !important;
+    transition: all 0.25s ease;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.4);
+  }
+  .stocka-coth-btn-primary-{{ section.id }}:hover {
+    background: #4a15e6;
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(92, 36, 255, 0.5);
+  }
+
+  .stocka-coth-btn-secondary-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    color: #0f172a !important;
+    border: 1.5px solid #cbd5e1;
+    padding: 0.9rem 1.8rem;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: none !important;
+    transition: all 0.2s ease;
+  }
+  .stocka-coth-btn-secondary-{{ section.id }}:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    transform: translateY(-2px);
+  }
+
+  /* Mascot Visual Card */
+  .stocka-coth-image-wrapper-{{ section.id }} {
+    position: relative;
+    border-radius: 28px;
+  }
+  .stocka-coth-image-container-{{ section.id }} {
+    position: relative;
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.05);
+    background: #ffffff;
+  }
+  .stocka-coth-img-{{ section.id }} {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+    aspect-ratio: 4 / 3;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-coth-image-container-{{ section.id }}:hover .stocka-coth-img-{{ section.id }} {
+    transform: scale(1.03);
+  }
+
+  .stocka-coth-float-badge {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    padding: 0.75rem 1.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0,0,0,0.05);
+    z-index: 10;
+    animation: floatAnimation 4s ease-in-out infinite;
+  }
+  .stocka-coth-float-1 {
+    top: -15px;
+    left: -15px;
+    animation-delay: 0s;
+  }
+  .stocka-coth-float-2 {
+    bottom: -15px;
+    right: -15px;
+    animation-delay: 2s;
+  }
+
+  @media (max-width: 640px) {
+    .stocka-coth-float-badge { display: none; }
+  }
+</style>
+
+<section class="stocka-coth-section-{{ section.id }} {{ settings.custom_class }}">
+  <div class="stocka-coth-container-{{ section.id }}">
+    
+    <!-- Left Column: Headline & Info -->
+    <div>
+      {% if settings.badge_text != blank %}
+        <div class="stocka-coth-badge-{{ section.id }}">
+          <span>🧮</span> {{ settings.badge_text }}
+        </div>
+      {% endif %}
+
+      <h1 class="stocka-coth-title-{{ section.id }}">
+        {{ settings.title_prefix | default: "Cotiza tu Servicio de" }}
+        <span class="stocka-coth-gradient-text">{{ settings.title_highlight | default: "Fulfillment 360 en Tiempo Real" }}</span>
+      </h1>
+
+      <p class="stocka-coth-subtitle-{{ section.id }}">
+        {{ settings.subtitle | default: "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. Sin costos fijos ocultos ni contratos forzosos." }}
+      </p>
+
+      <div class="stocka-coth-pills-row">
+        <div class="stocka-coth-pill-item">
+          <span style="color: #10b981;">✓</span> Tarifas dinámicas según volumen
+        </div>
+        <div class="stocka-coth-pill-item">
+          <span style="color: #10b981;">✓</span> Hasta 32% descuento en bodega
+        </div>
+        <div class="stocka-coth-pill-item">
+          <span style="color: #10b981;">✓</span> Sin costos de ingreso
+        </div>
+        <div class="stocka-coth-pill-item">
+          <span style="color: #10b981;">✓</span> Integración Shopify y Mercado Libre
+        </div>
+      </div>
+
+      <div class="stocka-coth-actions-{{ section.id }}">
+        <a href="#stocka-simulator-app" class="stocka-coth-btn-primary-{{ section.id }}">
+          {{ settings.btn_primary_text | default: "Comenzar Simulación Online 👇" }}
+        </a>
+        <a href="https://wa.me/56939247487?text=Hola!%20Me%20gustar%C3%ADa%20conversar%20sobre%20una%20cotizaci%C3%B3n%20para%20mi%20tienda" target="_blank" class="stocka-coth-btn-secondary-{{ section.id }}">
+          💬 Consultar por WhatsApp
+        </a>
+      </div>
+    </div>
+
+    <!-- Right Column: Mascot Visual Card -->
+    <div class="stocka-coth-image-wrapper-{{ section.id }}">
+      
+      <div class="stocka-coth-float-badge stocka-coth-float-1">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #eef2ff; color: #5c24ff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          🚀
+        </div>
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Pick & Pack Inteligente</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Desde $850 por pedido</div>
+        </div>
+      </div>
+
+      <div class="stocka-coth-image-container-{{ section.id }}">
+        {% if settings.image != blank %}
+          <img 
+            src="{{ settings.image | image_url: width: 800 }}" 
+            alt="Cotizador Stocka Fulfillment"
+            class="stocka-coth-img-{{ section.id }}"
+            loading="eager"
+          >
+        {% else %}
+          <img 
+            src="{{ 'stocka-bot-packing.jpg' | asset_url }}" 
+            alt="Stocka Bot Packing"
+            class="stocka-coth-img-{{ section.id }}"
+            loading="eager"
+          >
+        {% endif %}
+      </div>
+
+      <div class="stocka-coth-float-badge stocka-coth-float-2">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          📊
+        </div>
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.2;">Tarifas Oficiales</div>
+          <div style="font-size: 0.75rem; color: #64748b;">Cálculo en vivo CLP y UF</div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Stocka Cotizador Hero",
+  "settings": [
+    {
+      "type": "text",
+      "id": "badge_text",
+      "label": "Texto del Badge",
+      "default": "SIMULADOR EN VIVO • TARIFAS OFICIALES"
+    },
+    {
+      "type": "text",
+      "id": "title_prefix",
+      "label": "Prefijo del Título",
+      "default": "Cotiza tu Servicio de "
+    },
+    {
+      "type": "text",
+      "id": "title_highlight",
+      "label": "Texto Destacado (Gradiente)",
+      "default": "Fulfillment 360 en Tiempo Real"
+    },
+    {
+      "type": "textarea",
+      "id": "subtitle",
+      "label": "Subtítulo / Bajada",
+      "default": "Calcula de forma transparente los costos de almacenamiento, preparación de pedidos (Pick & Pack) y despachos para tu ecommerce. Sin costos fijos ocultos ni contratos forzosos."
+    },
+    {
+      "type": "text",
+      "id": "btn_primary_text",
+      "label": "Texto Botón Principal",
+      "default": "Comenzar Simulación Online 👇"
+    },
+    {
+      "type": "image_picker",
+      "id": "image",
+      "label": "Imagen Ilustrativa"
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Color de Fondo",
+      "default": "#f8fafc"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS personalizada"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Cotizador Hero"
+    }
+  ]
+}
+{% endschema %}

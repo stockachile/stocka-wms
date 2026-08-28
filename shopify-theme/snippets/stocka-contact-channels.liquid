@@ -1,0 +1,211 @@
+{%- assign cc_bg_color = "#f8fafc" -%}
+
+<style>
+  .stocka-cc-section {
+    background-color: {{ cc_bg_color }};
+    padding: 4rem 1rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-cc-section {
+      padding: 5rem 2rem;
+    }
+  }
+
+  .stocka-cc-container {
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+
+  .stocka-cc-header {
+    text-align: center;
+    max-width: 700px;
+    margin: 0 auto 3.5rem auto;
+  }
+  .stocka-cc-header-badge {
+    display: inline-block;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+  .stocka-cc-title {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.01em;
+  }
+  @media (min-width: 768px) {
+    .stocka-cc-title {
+      font-size: 2.5rem;
+    }
+  }
+  .stocka-cc-desc {
+    font-size: 0.95rem;
+    color: #64748b;
+    line-height: 1.6;
+  }
+
+  .stocka-cc-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-cc-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 1024px) {
+    .stocka-cc-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  .stocka-cc-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 2rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    text-decoration: none !important;
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-cc-card:hover {
+    border-color: #5c24ff;
+    transform: translateY(-5px);
+    box-shadow: 0 20px 35px -10px rgba(92, 36, 255, 0.15);
+  }
+
+  .stocka-cc-icon-wrap {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 1.25rem;
+    transition: transform 0.3s ease;
+  }
+  .stocka-cc-card:hover .stocka-cc-icon-wrap {
+    transform: scale(1.1) rotate(4deg);
+  }
+
+  .stocka-cc-card-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.5rem;
+  }
+  .stocka-cc-card-desc {
+    font-size: 0.85rem;
+    color: #64748b;
+    line-height: 1.5;
+    margin-bottom: 1.25rem;
+  }
+
+  .stocka-cc-card-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #5c24ff;
+    transition: gap 0.2s ease;
+  }
+  .stocka-cc-card:hover .stocka-cc-card-action {
+    gap: 0.65rem;
+  }
+</style>
+
+<section class="stocka-cc-section">
+  <div class="stocka-cc-container">
+    
+    <div class="stocka-cc-header">
+      <div class="stocka-cc-header-badge">CANALES DIRECTOS</div>
+      <h2 class="stocka-cc-title">¿Prefieres atención personalizada?</h2>
+      <p class="stocka-cc-desc">
+        Comunícate directamente con nuestro equipo de logística y ventas para resolver tus dudas operativas.
+      </p>
+    </div>
+
+    <div class="stocka-cc-grid">
+      
+      <!-- 1. WhatsApp -->
+      <a href="https://wa.me/56939247487?text=Hola!%20Me%20gustar%C3%ADa%20cotizar%20los%20servicios%20de%20fulfillment%20de%20Stocka.cl" target="_blank" class="stocka-cc-card">
+        <div>
+          <div class="stocka-cc-icon-wrap" style="background: #ecfdf5; color: #10b981;">
+            💬
+          </div>
+          <h3 class="stocka-cc-card-title">WhatsApp Directo</h3>
+          <p class="stocka-cc-card-desc">
+            Chatea en tiempo real con un asesor comercial para resolver dudas operativas o cotizaciones inmediatas.
+          </p>
+        </div>
+        <div class="stocka-cc-card-action" style="color: #10b981;">
+          <span>+56 9 3924 7487</span> ➔
+        </div>
+      </a>
+
+      <!-- 2. Google Meet -->
+      <a href="#stocka-meeting-section" class="stocka-cc-card">
+        <div>
+          <div class="stocka-cc-icon-wrap" style="background: #f5f3ff; color: #5c24ff;">
+            📹
+          </div>
+          <h3 class="stocka-cc-card-title">Reunión Virtual</h3>
+          <p class="stocka-cc-card-desc">
+            Agenda una videollamada 1 a 1 de 20 a 30 minutos con Felipe Trujillo para evaluar tu operación.
+          </p>
+        </div>
+        <div class="stocka-cc-card-action">
+          <span>Elegir horario en calendario</span> ➔
+        </div>
+      </a>
+
+      <!-- 3. Correo Electrónico -->
+      <a href="mailto:contacto@stocka.cl?subject=Consulta%20Servicios%20Fulfillment%20Stocka.cl" class="stocka-cc-card">
+        <div>
+          <div class="stocka-cc-icon-wrap" style="background: #eff6ff; color: #2563eb;">
+            ✉️
+          </div>
+          <h3 class="stocka-cc-card-title">Correo Oficial</h3>
+          <p class="stocka-cc-card-desc">
+            Escríbenos para consultas comerciales, requerimientos corporativos o propuestas a medida.
+          </p>
+        </div>
+        <div class="stocka-cc-card-action" style="color: #2563eb;">
+          <span>contacto@stocka.cl</span> ➔
+        </div>
+      </a>
+
+      <!-- 4. Ubicación Física -->
+      <a href="#stocka-location-map" class="stocka-cc-card">
+        <div>
+          <div class="stocka-cc-icon-wrap" style="background: #fdf2f8; color: #ec4899;">
+            📍
+          </div>
+          <h3 class="stocka-cc-card-title">Bodega y Oficinas</h3>
+          <p class="stocka-cc-card-desc">
+            Sucursal central y punto de retiros ubicada en Av. Campos de Deportes 405, comuna de Ñuñoa.
+          </p>
+        </div>
+        <div class="stocka-cc-card-action" style="color: #ec4899;">
+          <span>Ver mapa y accesos</span> ➔
+        </div>
+      </a>
+
+    </div>
+
+  </div>
+</section>

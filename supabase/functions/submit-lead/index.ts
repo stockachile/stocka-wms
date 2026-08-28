@@ -21,11 +21,13 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    const brevoApiKey = Deno.env.get('BREVO_API_KEY') ?? ''
+    const rawBrevoKey = Deno.env.get('BREVO_API_KEY') ?? ''
+    const FALLBACK_BREVO_KEY = 'YOUR_BREVO_API_KEY_HERE'
+    const brevoApiKey = (rawBrevoKey.trim().startsWith('xkeysib') ? rawBrevoKey : FALLBACK_BREVO_KEY).trim()
 
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     const cleanServiceKey = supabaseServiceKey.trim()
-    const KNOWN_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8"
+    const KNOWN_SERVICE_ROLE = "YOUR_SUPABASE_SERVICE_ROLE_KEY_HERE"
     const actualServiceKey = cleanServiceKey.startsWith("eyJ") ? cleanServiceKey : KNOWN_SERVICE_ROLE
 
     const supabaseClient = createClient(supabaseUrl, actualServiceKey, {
@@ -153,16 +155,38 @@ serve(async (req) => {
         console.error('[submit-lead] Error enviando correo al equipo Stocka:', adminMailErr)
       }
 
-      // 3. Enviar correo de Presentación Comercial Oficial al Prospecto (Lead) con PDFs adjuntos
+      // 3. Enviar correo de Presentación Comercial Oficial al Prospecto (Lead)
       const contactGreeting = contactName ? `¡Hola, ${contactName}! 👋` : `¡Hola! 👋`
       const displayCommerce = companyName ? ` - ${companyName}` : ''
       const clientEmailSubject = `Información y Propuesta Fulfillment 360 - Stocka${displayCommerce}`
 
-      const fulfillmentDocUrl = 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf'
-      const despachosDocUrl = 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf'
-      const courierFolderUrl = 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH'
-      const cotizadorUrl = 'https://stocka.cl/pages/cotizaserviciofulfillment'
-      const meetingUrl = 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5'
+      // URLs por defecto
+      let fulfillmentDocUrl = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf'
+      let despachosDocUrl = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf'
+      let courierFolderUrl = 'https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0'
+      let cotizadorUrl = 'https://wms.stocka.cl/cotizaciones.html'
+      let meetingUrl = 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5'
+
+      // Consultar dinámicamente pricing_config para que cualquier cambio futuro en el Admin aplique automáticamente
+      try {
+        const { data: pConfigData } = await supabaseClient
+          .from('pricing_config')
+          .select('data')
+          .eq('config_key', 'current_rates')
+          .maybeSingle()
+
+        if (pConfigData?.data?.presentations) {
+          const pres = pConfigData.data.presentations
+          if (pres.fulfillment_url) fulfillmentDocUrl = pres.fulfillment_url
+          if (pres.despachos_rm_url) despachosDocUrl = pres.despachos_rm_url
+          if (pres.courier_folder_url) courierFolderUrl = pres.courier_folder_url
+          if (pres.cotizador_url) cotizadorUrl = pres.cotizador_url
+          if (pres.meeting_url) meetingUrl = pres.meeting_url
+          console.log('[submit-lead] Presentaciones dinámicas cargadas desde pricing_config')
+        }
+      } catch (e) {
+        console.warn('[submit-lead] Aviso cargando pricing_config:', e)
+      }
 
       const leadEmailHtml = `
 <!DOCTYPE html>
@@ -229,13 +253,13 @@ serve(async (req) => {
         </div>
       </div>
 
-      <!-- PRESENTACIONES Y MATERIAL OFICIAL ADJUNTO -->
+      <!-- RECURSOS Y DOCUMENTOS OFICIALES (ENLACES DIRECTOS) -->
       <div style="margin: 22px 0 20px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px;">
         <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 6px;">
-          📚 Presentaciones Oficiales y Documentación Adjunta:
+          📚 Recursos y Documentos Oficiales en Línea:
         </div>
         <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.4;">
-          Adjuntamos los documentos en formato PDF a este correo y te dejamos los enlaces directos para abrirlos o descargarlos:
+          Accede directamente a la información y presentaciones de servicios haciendo clic en los siguientes enlaces:
         </p>
         <div style="display: table; width: 100%; margin-bottom: 8px;">
           <div style="display: table-cell; width: 50%; padding-right: 5px;">
@@ -245,12 +269,12 @@ serve(async (req) => {
           </div>
           <div style="display: table-cell; width: 50%; padding-left: 5px;">
             <a href="${despachosDocUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 10px; text-decoration: none; color: #0f172a; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-              🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
+              🚚 <span style="color: #2563eb;">Alternativas Despachos RM</span> (PDF) ↗
             </a>
           </div>
         </div>
         <a href="${courierFolderUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 10px; text-decoration: none; color: #0f172a; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
-          🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
+          🌐 <span style="color: #7c3aed;">Planilla Tarifas Courier Chile (Google Sheets)</span> ↗
         </a>
       </div>
 
@@ -263,7 +287,7 @@ serve(async (req) => {
           Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose inmediato:
         </p>
         <a href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13.5px; box-shadow: 0 2px 6px rgba(94, 23, 235, 0.08);">
-          🔄 Simular Cotización Online en Stocka.cl ↗
+          🔄 Simular Cotización Online en Cotizador WMS ↗
         </a>
       </div>
 
@@ -318,41 +342,13 @@ serve(async (req) => {
 </html>
       `
 
-      // Descargar y adjuntar los PDFs oficiales
+      // Payload sin archivos adjuntos pesados, 100% enfocado en enlaces directos
       const brevoLeadPayload: any = {
         sender: { name: "Felipe de Stocka", email: "contacto@stocka.cl" },
         to: [{ email: email, name: contactName || "Cliente" }],
         replyTo: { email: "contacto@stocka.cl", name: "Stocka Fulfillment" },
         subject: clientEmailSubject,
-        htmlContent: leadEmailHtml,
-        attachment: []
-      }
-
-      const docsToAttach = [
-        { url: fulfillmentDocUrl, name: 'Presentacion_Fulfillment_360_Stocka.pdf' },
-        { url: despachosDocUrl, name: 'Presentacion_Despachos_RM_Stocka.pdf' }
-      ]
-
-      for (const doc of docsToAttach) {
-        try {
-          console.log(`[submit-lead] Descargando adjunto ${doc.name} desde ${doc.url}`)
-          const fileRes = await fetch(doc.url)
-          if (fileRes.ok) {
-            const arrayBuffer = await fileRes.arrayBuffer()
-            const sizeInMB = arrayBuffer.byteLength / (1024 * 1024)
-            if (sizeInMB < 5.0) {
-              const uint8 = new Uint8Array(arrayBuffer)
-              const base64Content = btoa(new TextDecoder('latin1').decode(uint8))
-              brevoLeadPayload.attachment.push({
-                content: base64Content,
-                name: doc.name
-              })
-              console.log(`[submit-lead] Adjunto ${doc.name} agregado exitosamente.`)
-            }
-          }
-        } catch (attErr) {
-          console.warn(`[submit-lead] Aviso descargando adjunto ${doc.name}:`, attErr)
-        }
+        htmlContent: leadEmailHtml
       }
 
       try {
