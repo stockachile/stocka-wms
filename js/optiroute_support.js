@@ -759,7 +759,7 @@ export async function renderOptirouteSupport() {
               images: w.images || [],
               reception_name: w.reception_name || '',
               reception_rut: w.reception_rut || '',
-              supplier: c.empresa_comercio_proveedor || sr.supplier?.name || 'STOCKA',
+              supplier: (sr.supplier?.name && sr.supplier.name.toLowerCase() !== 'no asignado') ? sr.supplier.name.trim() : ((c.empresa_comercio_proveedor && c.empresa_comercio_proveedor.toLowerCase() !== 'no asignado') ? c.empresa_comercio_proveedor.trim() : 'STOCKA'),
               comuna: c.comuna_destino || sr.address?.commune_string || '',
               tracking_url: c.tracking_url || sr.tracking_url || '',
               route_vehicle: w.route_vehicle || sr.route_vehicle || '',
@@ -789,9 +789,6 @@ export async function renderOptirouteSupport() {
           renderSummaryDashboard(routeName);
           populateFilterDropdowns();
           applyFilters();
-          checkAndAutoSendDispatchEmails(allWaypoints);
-          checkAndAutoSendDeliveryEmails(allWaypoints);
-          checkAndAutoSendFailedEmails(allWaypoints);
           
           if (btnFetchRoute) {
             btnFetchRoute.disabled = false;
@@ -799,6 +796,9 @@ export async function renderOptirouteSupport() {
           }
           console.log(`Caché inicial cargada (${allWaypoints.length} envíos).`);
           if (routePlanId === 'ALL_DB') {
+            checkAndAutoSendDispatchEmails(allWaypoints);
+            checkAndAutoSendDeliveryEmails(allWaypoints);
+            checkAndAutoSendFailedEmails(allWaypoints);
             return;
           }
         }
@@ -868,10 +868,13 @@ export async function renderOptirouteSupport() {
       const dbMap = new Map();
       dbOrders.forEach(o => {
         if (o.referencia) {
+          const rawDbSupp = (o.raw_data?.supplier?.name || o.empresa_comercio_proveedor || '').trim();
+          const cleanDbSupp = (rawDbSupp && rawDbSupp.toLowerCase() !== 'no asignado') ? rawDbSupp : 'STOCKA';
+
           dbMap.set(o.referencia, {
             phone: o.telefono_destino,
             email: o.email_cliente_destino,
-            supplier: o.empresa_comercio_proveedor,
+            supplier: cleanDbSupp,
             comuna: o.comuna_destino,
             tracking_url: o.tracking_url,
             email_notified_at: o.raw_data?.email_notified_at,
@@ -949,7 +952,8 @@ export async function renderOptirouteSupport() {
 
         const phone = dbInfo.phone || detOrder?.customer?.phone_number || w.service_request?.customer?.phone_number || '';
         const email = dbInfo.email || detOrder?.customer?.customer?.email || detOrder?.customer?.email || w.service_request?.customer?.email || '';
-        const supplier = dbInfo.supplier || detOrder?.supplier?.name || detOrder?.enterprise?.name || 'STOCKA';
+        const rawLiveSupp = (detOrder?.supplier?.name || w.service_request?.supplier?.name || dbInfo.supplier || detOrder?.enterprise?.name || '').trim();
+        const supplier = (rawLiveSupp && rawLiveSupp.toLowerCase() !== 'no asignado') ? rawLiveSupp : 'STOCKA';
         const comuna = dbInfo.comuna || detOrder?.address?.commune_string || detOrder?.address?.commune?.name || '';
         const tracking_url = dbInfo.tracking_url || detOrder?.tracking_url || '';
         const complemento = [
@@ -4587,6 +4591,8 @@ modal.style.position = 'fixed';
     return permanentImages;
   }
 
+  const inFlightBrevoSends = new Set();
+
   async function sendBrevoNotificationEmail(item, type = 'dispatch') {
     if (!item.email || !item.email.includes('@')) {
       throw new Error(`El pedido ${item.reference} no tiene un correo válido asignado.`);
@@ -4596,15 +4602,27 @@ modal.style.position = 'fixed';
     const isDelivery = type === 'delivery';
     const isFailed = type === 'failed' || type === 'saltado';
 
-    let subject = `🚚 Tu despacho está programado - ${item.supplier || 'STOCKA'}`;
+    const rawSuppItem = (item.supplier || item.raw_data?.supplier?.name || '').trim();
+    const supplierName = (rawSuppItem && rawSuppItem.toLowerCase() !== 'no asignado') ? rawSuppItem : 'STOCKA';
+    item.supplier = supplierName;
+
+    // Guardia en memoria para prevenir disparos duplicados durante la misma sesión/ejecución
+    const lockKey = `${item.reference || item.id || item.email}_${type}`;
+    if (inFlightBrevoSends.has(lockKey)) {
+      console.log(`⏳ [ANTI-DUPLICADO] Correo de ${type} para ${item.reference || item.id} ya en proceso, cancelando envío redundante.`);
+      return;
+    }
+    inFlightBrevoSends.add(lockKey);
+
+    let subject = `🚚 Tu despacho está programado - ${supplierName}`;
     let htmlBody = buildDispatchEmailHTML(item);
 
     if (isDelivery) {
       await ensurePermanentDeliveryImages(item);
-      subject = `🎉 ¡Tu pedido ${item.reference} ha sido entregado! - ${item.supplier || 'STOCKA'}`;
+      subject = `🎉 ¡Tu pedido ${item.reference} ha sido entregado! - ${supplierName}`;
       htmlBody = buildDeliveryConfirmedEmailHTML(item);
     } else if (isFailed) {
-      subject = `⚠️ Novedad con tu despacho - ${item.supplier || 'STOCKA'}`;
+      subject = `⚠️ Novedad con tu despacho - ${supplierName}`;
       htmlBody = buildFailedDeliveryEmailHTML(item);
     }
 

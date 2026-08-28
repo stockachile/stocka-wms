@@ -253,10 +253,15 @@ async function syncMerchantOrders(integration) {
           if (existing.raw_data.failed_email_notified_at) detailedOrder.failed_email_notified_at = existing.raw_data.failed_email_notified_at;
         }
 
+        const rawSupp = detailedOrder.supplier?.name || optiOrder.supplier?.name || detailedOrder.enterprise?.name || null;
+        const finalSupplierName = (rawSupp && rawSupp.trim() && rawSupp.toLowerCase() !== 'no asignado')
+          ? rawSupp.trim()
+          : ((integration.comercio && integration.comercio.toLowerCase() !== 'no asignado') ? integration.comercio.trim() : 'STOCKA');
+
         const payloadItem = {
           id: idStr,
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
-          empresa_comercio_proveedor: integration.comercio || 'STOCKA',
+          empresa_comercio_proveedor: finalSupplierName,
           tracking: (detailedOrder.tracking || optiOrder.tracking || '').trim() || null,
           tracking_url: (detailedOrder.tracking_url || optiOrder.tracking_url || '').trim() || null,
           courier: 'STOCKA X',
@@ -409,10 +414,15 @@ async function syncPendingOldOrders(integration) {
         if (dbOrder.raw_data.failed_email_notified_at) detailedOrder.failed_email_notified_at = dbOrder.raw_data.failed_email_notified_at;
       }
 
+      const rawSuppOld = detailedOrder.supplier?.name || dbOrder.empresa_comercio_proveedor || detailedOrder.enterprise?.name || null;
+      const finalSupplierNameOld = (rawSuppOld && rawSuppOld.trim() && rawSuppOld.toLowerCase() !== 'no asignado')
+        ? rawSuppOld.trim()
+        : 'STOCKA';
+
       const payloadItem = {
         id: String(detailedOrder.id),
         referencia: detailedOrder.reference ? detailedOrder.reference.trim() : dbOrder.referencia,
-        empresa_comercio_proveedor: integration.comercio || dbOrder.empresa_comercio_proveedor || 'STOCKA',
+        empresa_comercio_proveedor: finalSupplierNameOld,
         tracking: detailedOrder.tracking ? detailedOrder.tracking.trim() : dbOrder.tracking,
         tracking_url: detailedOrder.tracking_url ? detailedOrder.tracking_url.trim() : dbOrder.tracking_url,
         courier: 'STOCKA X',
