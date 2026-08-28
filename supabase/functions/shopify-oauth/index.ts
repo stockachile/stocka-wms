@@ -171,6 +171,34 @@ serve(async (req) => {
       const accessToken = tokenData.access_token;
       const refreshToken = tokenData.refresh_token || null;
 
+      // Obtener el comercio exacto desde el perfil del usuario si existe
+      let resolvedComercio = comercio || "Shopify Store";
+      try {
+        const { data: userProfile } = await supabase
+          .from("profiles")
+          .select("comercio, company_name")
+          .eq("id", merchantId)
+          .maybeSingle();
+
+        if (userProfile && (userProfile.comercio || userProfile.company_name)) {
+          resolvedComercio = userProfile.comercio || userProfile.company_name;
+        }
+      } catch (profErr) {
+        console.warn("Aviso consultando profile en OAuth:", profErr);
+      }
+
+      // Eliminar registros anteriores o duplicados para esta misma tienda que tengan otro comercio o merchant
+      try {
+        await supabase
+          .from("merchant_integrations")
+          .delete()
+          .eq("platform", "Shopify")
+          .eq("shop_url", shop)
+          .neq("comercio", resolvedComercio);
+      } catch (delErr) {
+        console.warn("Aviso eliminando integraciones anteriores duplicadas:", delErr);
+      }
+
       const { error: dbError } = await supabase
         .from("merchant_integrations")
         .upsert({
@@ -180,7 +208,7 @@ serve(async (req) => {
           access_token: accessToken,
           webhook_secret: shopifyClientSecret,
           is_active: true,
-          comercio: comercio,
+          comercio: resolvedComercio,
           refresh_token: refreshToken
         }, { onConflict: "comercio,platform" });
 
@@ -196,7 +224,7 @@ serve(async (req) => {
         shop_url: shop,
         access_token: accessToken,
         merchant_id: merchantId,
-        comercio: comercio
+        comercio: resolvedComercio
       };
 
       // @ts-ignore

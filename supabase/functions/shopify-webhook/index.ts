@@ -36,8 +36,12 @@ serve(async (req) => {
         .select("*")
         .eq("shop_url", shopDomain)
         .eq("platform", "Shopify")
-        .maybeSingle();
-      integration = data;
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        integration = data[0];
+      }
     }
 
     if (!integration && merchantId) {
@@ -46,9 +50,12 @@ serve(async (req) => {
         .select("*")
         .eq("merchant_id", merchantId)
         .eq("platform", "Shopify")
-        .limit(1)
-        .maybeSingle();
-      integration = data;
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        integration = data[0];
+      }
     }
 
     // Usar el secreto del cliente o el secreto global de la app como fallback
@@ -93,7 +100,22 @@ serve(async (req) => {
     }
 
     const effectiveMerchantId = integration.merchant_id || merchantId;
-    const effectiveComercio = integration.comercio;
+    let effectiveComercio = integration.comercio;
+
+    if (effectiveMerchantId) {
+      try {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("comercio, company_name")
+          .eq("id", effectiveMerchantId)
+          .maybeSingle();
+        if (prof && (prof.comercio || prof.company_name)) {
+          effectiveComercio = prof.comercio || prof.company_name;
+        }
+      } catch (profErr) {
+        console.warn("Aviso consultando profile en webhook:", profErr);
+      }
+    }
 
     // 6. Parsear el body JSON
     const payload = JSON.parse(rawBody);
