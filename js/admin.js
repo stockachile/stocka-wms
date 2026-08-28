@@ -17,15 +17,95 @@ window.ALPHA_COBERTURA_36 = [
   'colina'
 ];
 
-window.isAlphaComunaExact = function(comunaName) {
-  if (!comunaName) return false;
-  const normalized = comunaName.toLowerCase()
+window.normalizeComunaKey = function(str) {
+  if (!str) return '';
+  return String(str).toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/ñ/g, 'n')
-    .replace(/[^a-z\s]/g, '')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
+};
+
+window.isAlphaComunaExact = function(comunaName) {
+  if (!comunaName) return false;
+  const normalized = window.normalizeComunaKey(comunaName);
   return window.ALPHA_COBERTURA_36.includes(normalized);
+};
+
+window.isChileComuna = function(comunaName) {
+  if (!comunaName) return false;
+  const norm = window.normalizeComunaKey(comunaName);
+  if (!norm) return false;
+
+  if (window.shippingRates && window.shippingRates[norm]) return true;
+
+  const aliases = {
+    'santiago centro': 'santiago',
+    'stgo': 'santiago',
+    'santiago de chile': 'santiago',
+    'valpo': 'valparaiso',
+    'vina': 'vina del mar',
+    'la calera': 'calera',
+    'la serena centro': 'la serena',
+    'san felipe centro': 'san felipe',
+    'san bernardo centro': 'san bernardo',
+    'puente alto centro': 'puente alto'
+  };
+  if (aliases[norm] && window.shippingRates && window.shippingRates[aliases[norm]]) return true;
+
+  if (window.ALPHA_COBERTURA_36.includes(norm)) return true;
+
+  return false;
+};
+
+window.getChileCommunesList = function() {
+  if (window.CHILE_COMMUNES_CACHED_LIST && window.CHILE_COMMUNES_CACHED_LIST.length > 0) {
+    return window.CHILE_COMMUNES_CACHED_LIST;
+  }
+  const list = [];
+  if (window.shippingRates && Object.keys(window.shippingRates).length > 0) {
+    for (const [k, v] of Object.entries(window.shippingRates)) {
+      list.push({
+        key: k,
+        name: v.comuna || k,
+        region: v.region || '',
+        hasAlpha: window.isAlphaComunaExact(k)
+      });
+    }
+  } else {
+    window.ALPHA_COBERTURA_36.forEach(c => {
+      list.push({
+        key: c,
+        name: c.charAt(0).toUpperCase() + c.slice(1),
+        region: 'Metropolitana de Santiago',
+        hasAlpha: true
+      });
+    });
+  }
+  list.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  window.CHILE_COMMUNES_CACHED_LIST = list;
+  return list;
+};
+
+window.getComunaCoverageBadge = function(comunaName) {
+  if (!comunaName || !String(comunaName).trim()) {
+    return `<span style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="No hay comuna registrada para este pedido."><i class="ri-alert-fill" style="font-size: 0.8rem;"></i> Sin Comuna</span>`;
+  }
+
+  const isAlpha = window.isAlphaComunaExact(comunaName);
+  if (isAlpha) {
+    return `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Comuna con cobertura directa urbana RM (Alpha / Stocka Flex)."><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura RM OK</span>`;
+  }
+
+  const isChile = window.isChileComuna(comunaName);
+  if (isChile) {
+    return `<span style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Comuna válida de Chile (Regiones / RM Periférica). Requiere courier tradicional (Starken, Blue Express, Chilexpress)."><i class="ri-map-pin-2-fill" style="font-size: 0.8rem;"></i> Regiones / Otras Comunas</span>`;
+  }
+
+  const escaped = String(comunaName || '').replace(/"/g, '&quot;');
+  return `<span style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta ciudad/comuna ('${escaped}') no coincide con ninguna de las 346 comunas oficiales de Chile. Por favor edítala para evitar fallas con el courier o despacho."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Comuna No Válida (Chile)</span>`;
 };
 
 let userRole = 'admin';
@@ -608,52 +688,7 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
   }
 
   // Si hay problemas, construir las opciones de comunas con las tildes y grafías exactas
-  const allComunas = [
-    { name: 'Cerrillos', hasAlpha: true },
-    { name: 'Cerro Navia', hasAlpha: true },
-    { name: 'Conchalí', hasAlpha: true },
-    { name: 'El Bosque', hasAlpha: true },
-    { name: 'Estación Central', hasAlpha: true },
-    { name: 'Huechuraba', hasAlpha: true },
-    { name: 'Independencia', hasAlpha: true },
-    { name: 'La Cisterna', hasAlpha: true },
-    { name: 'La Florida', hasAlpha: true },
-    { name: 'La Granja', hasAlpha: true },
-    { name: 'La Pintana', hasAlpha: true },
-    { name: 'La Reina', hasAlpha: true },
-    { name: 'Las Condes', hasAlpha: true },
-    { name: 'Lo Barnechea', hasAlpha: true },
-    { name: 'Lo Espejo', hasAlpha: true },
-    { name: 'Lo Prado', hasAlpha: true },
-    { name: 'Macul', hasAlpha: true },
-    { name: 'Maipú', hasAlpha: true },
-    { name: 'Ñuñoa', hasAlpha: true },
-    { name: 'Pedro Aguirre Cerda', hasAlpha: true },
-    { name: 'Peñalolén', hasAlpha: true },
-    { name: 'Providencia', hasAlpha: true },
-    { name: 'Pudahuel', hasAlpha: true },
-    { name: 'Puente Alto', hasAlpha: true },
-    { name: 'Quilicura', hasAlpha: true },
-    { name: 'Quinta Normal', hasAlpha: true },
-    { name: 'Recoleta', hasAlpha: true },
-    { name: 'Renca', hasAlpha: true },
-    { name: 'San Bernardo', hasAlpha: true },
-    { name: 'San Joaquín', hasAlpha: true },
-    { name: 'San Miguel', hasAlpha: true },
-    { name: 'San Ramón', hasAlpha: true },
-    { name: 'Santiago', hasAlpha: true },
-    { name: 'Vitacura', hasAlpha: true },
-    { name: 'Padre Hurtado', hasAlpha: true },
-    { name: 'Colina', hasAlpha: true },
-    { name: 'Buin', hasAlpha: false },
-    { name: 'Calera de Tango', hasAlpha: false },
-    { name: 'Lampa', hasAlpha: false },
-    { name: 'Malloco', hasAlpha: false },
-    { name: 'Paine', hasAlpha: false },
-    { name: 'Pirque', hasAlpha: false },
-    { name: 'San José de Maipo', hasAlpha: false },
-    { name: 'Talagante', hasAlpha: false }
-  ].sort((a, b) => a.name.localeCompare(b.name));
+  const allComunas = window.getChileCommunesList();
 
   let tableRowsHtml = '';
   invalidOrders.forEach(o => {
@@ -668,10 +703,10 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
     const isKnown = allComunas.some(c => c.name.toLowerCase() === currentComuna.toLowerCase());
     let optionsHtml = '';
     if (currentComuna && !isKnown) {
-      optionsHtml += `<option value="${currentComuna}" selected>${currentComuna} (No válida/Sin Cobertura)</option>`;
+      optionsHtml += `<option value="${currentComuna}" selected>${currentComuna} (No válida/Sin Cobertura RM)</option>`;
     }
     optionsHtml += allComunas.map(c => 
-      `<option value="${c.name}" ${c.name.toLowerCase() === currentComuna.toLowerCase() ? 'selected' : ''}>${c.name} ${c.hasAlpha ? '(RM Cobertura OK)' : '(Sin Cobertura)'}</option>`
+      `<option value="${c.name}" ${c.name.toLowerCase() === currentComuna.toLowerCase() ? 'selected' : ''}>${c.name} ${c.hasAlpha ? '(RM Cobertura OK)' : '(Sin Cobertura RM)'}</option>`
     ).join('');
 
     tableRowsHtml += `
@@ -3602,7 +3637,11 @@ window.applyWmsFiltersAndRender = function() {
             <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
             <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
               ${order.shipping_city || 'Por definir'}
-              ${(String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `<i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha."></i>` : ''}
+              ${!window.isChileComuna(order.shipping_city) ? `
+                <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.9rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
+              ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
+                <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
+              ` : '')}
             </span>
           </div>
         </td>
@@ -3654,11 +3693,7 @@ window.applyWmsFiltersAndRender = function() {
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
                   <strong>Ciudad/Comuna:</strong> 
                   <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
-                  ${(order.shipping_city || comuna_destino) ? (
-                    window.isAlphaComunaExact(order.shipping_city || comuna_destino)
-                      ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;"><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura RM OK</span>`
-                      : `<span style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta comuna no coincide exactamente con las 36 comunas urbanas con cobertura de RM. Puede causar fallas al emitir la etiqueta en LightData."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Sin Cobertura RM / Typo</span>`
-                  ) : ''}
+                  ${window.getComunaCoverageBadge(order.shipping_city || comuna_destino)}
                   <button onclick="window.editWmsOrderComuna('${order.id}')" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem; height: 22px;">
                     <i class="ri-edit-line"></i> Editar
                   </button>
@@ -36240,24 +36275,17 @@ window.editWmsOrderComuna = async function(orderId) {
   const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
   const currentComuna = order ? (order.shipping_city || '') : '';
 
-  const allComunas = [
-    ...window.ALPHA_COBERTURA_36.map(c => ({ name: c.charAt(0).toUpperCase() + c.slice(1), hasAlpha: true })),
-    { name: 'Buin', hasAlpha: false },
-    { name: 'Calera de Tango', hasAlpha: false },
-    { name: 'Lampa', hasAlpha: false },
-    { name: 'Malloco', hasAlpha: false },
-    { name: 'Paine', hasAlpha: false },
-    { name: 'Pirque', hasAlpha: false },
-    { name: 'San Jose de Maipo', hasAlpha: false },
-    { name: 'Talagante', hasAlpha: false }
-  ].sort((a, b) => a.name.localeCompare(b.name));
+  const allComunas = window.getChileCommunesList();
 
   const optionsHtml = allComunas.map(c => `
     <div class="comuna-option-item" data-value="${c.name}" style="padding: 0.5rem; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
-      <span>${c.name}</span>
+      <div>
+        <span>${c.name}</span>
+        ${c.region ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); margin-left: 0.35rem;">(${c.region})</span>` : ''}
+      </div>
       ${c.hasAlpha 
         ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Cobertura RM OK</span>`
-        : `<span style="background: rgba(100, 116, 139, 0.1); color: #475569; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Sin Cobertura RM</span>`
+        : `<span style="background: rgba(59, 130, 246, 0.1); color: #2563eb; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Otras</span>`
       }
     </div>
   `).join('');
