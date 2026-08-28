@@ -207,13 +207,16 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       sku = sku.trim().replace(/\s+/g, '');
       let mappedSku = skuMap[sku] || sku;
 
-      itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.quantity);
+      itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.qty || op.quantity || 1);
       if (op.name && !itemNames.includes(op.name)) {
         itemNames.push(op.name);
       }
     }
   }
 
+  const flatSku = Object.keys(itemQuantities).join(', ');
+  const flatItemName = itemNames.join(', ');
+  const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
   const totalValue = Number(order.total || 0);
 
   const orderData = {
@@ -221,6 +224,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     comercio: comercio,
     external_order_number: finalOrderNumber,
     external_platform: 'Jumpseller',
+    origen: 'Jumpseller',
     payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
     total_value: totalValue,
     customer_email: order.customer?.email || order.shipping_address?.email || order.billing_address?.email,
@@ -229,6 +233,10 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     shipping_address: order.shipping_address?.address || order.billing_address?.address,
     shipping_city: order.shipping_address?.city || order.billing_address?.city,
     shipping_complement: order.shipping_address?.municipality || order.shipping_address?.region || '',
+    shipping_method: order.shipping_method_name || (order.shipping_option === 'store_pickup' ? 'Retiro en Tienda' : 'Despacho a Domicilio'),
+    sku: flatSku || 'Sin SKU',
+    item: flatItemName || 'Sin Nombre',
+    cantidad: flatQuantity || 1,
     raw_jumpseller_data: order,
     created_at: new Date(order.created_at).toISOString()
   };
@@ -294,7 +302,12 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       .eq('merchant_id', merchantId)
       .limit(1)
       .maybeSingle();
-    const warehouseId = whRel?.warehouse_id || null;
+    let warehouseId = whRel?.warehouse_id || null;
+
+    if (!warehouseId) {
+      const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+      if (defaultWh) warehouseId = defaultWh.id;
+    }
 
     for (const [sku, qty] of Object.entries(itemQuantities)) {
       let { data: product } = await supabase
