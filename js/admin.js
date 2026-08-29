@@ -32597,10 +32597,33 @@ window.exportAdminShopifyOrdersCsv = async function() {
     
     const orderName = raw.name || order.external_order_number || `#${order.id.split('-')[0]}`;
     const email = raw.email || order.customer_email || "";
-    const finStatus = raw.financial_status || (order.payment_status === 'PAID' ? 'paid' : 'pending');
+    
+    // Normalizar estado financiero / pago
+    const rawPayStatus = String(raw.financial_status || order.payment_status || '').toLowerCase().trim();
+    let finStatus = 'pending';
+    if (['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'].includes(rawPayStatus)) {
+      finStatus = 'paid';
+    } else if (['authorized', 'autorizado'].includes(rawPayStatus)) {
+      finStatus = 'authorized';
+    } else if (['partially_paid', 'parcialmente_pagado', 'partially paid'].includes(rawPayStatus)) {
+      finStatus = 'partially_paid';
+    } else if (['refunded', 'reembolsado', 'reembolsada'].includes(rawPayStatus)) {
+      finStatus = 'refunded';
+    } else if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawPayStatus)) {
+      finStatus = 'partially_refunded';
+    } else if (['voided', 'anulado', 'cancelado', 'cancelled'].includes(rawPayStatus)) {
+      finStatus = 'voided';
+    } else if (['pending', 'pendiente', 'unpaid', 'no pagado'].includes(rawPayStatus)) {
+      finStatus = 'pending';
+    } else if (rawPayStatus) {
+      finStatus = rawPayStatus;
+    } else {
+      finStatus = 'paid';
+    }
+
     const fulfillStatus = raw.fulfillment_status || (order.estado_wms === 'Despachado' ? 'fulfilled' : '');
-    const paidAt = raw.processed_at || order.created_at;
-    const fulfilledAt = order.estado_wms === 'Despachado' ? order.created_at : '';
+    const paidAt = raw.processed_at || (finStatus === 'paid' ? (order.created_at || new Date().toISOString()) : '');
+    const fulfilledAt = order.estado_wms === 'Despachado' ? (order.fecha_procesamiento || order.created_at || '') : '';
     const currency = raw.currency || "CLP";
     const subtotal = raw.subtotal_price || (Number(order.total_value) || 0).toFixed(2);
     const shipping = raw.total_shipping_price_set?.shop_money?.amount || "0.00";
