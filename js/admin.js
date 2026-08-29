@@ -4322,17 +4322,6 @@ window.applyBulkWmsStatus = async function() {
             } catch (innerErr) {
               console.error('Error al registrar incidencia masiva:', innerErr);
             }
-          }
-
-          const successIds = ids.filter(id => !failedOrders.has(id));
-          if (successIds.length === 0) {
-            window.wmsSelectedOrderIds.clear();
-            const cbAll = document.getElementById('wms-select-all');
-            if (cbAll) cbAll.checked = false;
-            applyWmsFiltersAndRender();
-            return;
-          }
-
           ids.length = 0;
           ids.push(...successIds);
         }
