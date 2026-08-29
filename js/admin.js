@@ -4322,6 +4322,8 @@ window.applyBulkWmsStatus = async function() {
             } catch (innerErr) {
               console.error('Error al registrar incidencia masiva:', innerErr);
             }
+          }
+
           ids.length = 0;
           ids.push(...successIds);
         }
