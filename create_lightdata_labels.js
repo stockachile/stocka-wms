@@ -215,7 +215,7 @@ async function sendSingleOrderToPicker(order) {
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
-      name: prod.name || order.item || 'Producto WMS',
+      name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
       manga: opt.manga || null,
@@ -313,7 +313,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))')
+    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, alias, send_alias_to_picker))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -706,7 +706,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
