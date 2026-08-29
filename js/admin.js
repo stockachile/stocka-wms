@@ -4280,11 +4280,22 @@ window.applyBulkWmsStatus = async function() {
           }
 
           const failuresByOrder = Array.from(failuresByOrderMap.values());
-          await window.showStockShortageSlidesModal({
+          const successIds = ids.filter(id => !failedOrders.has(id));
+
+          const shortageSwalRes = await window.showStockShortageSlidesModal({
             title: 'Stock Insuficiente Detectado',
-            subtitle: `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y <strong>no serán enviados al Picker</strong> (el resto de los pedidos continuará el proceso):`,
-            failuresByOrder
+            subtitle: successIds.length > 0
+              ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ids.length} seleccionados. Hay <strong>${successIds.length} pedidos listos</strong> para ser enviados al Picker:`
+              : `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y no pueden ser enviados al Picker:`,
+            failuresByOrder,
+            validOrdersCount: successIds.length,
+            actionButtonText: `<i class="ri-send-plane-line"></i> Enviar los ${successIds.length} pedidos restantes al Picker`
           });
+
+          if (successIds.length === 0 || (shortageSwalRes && !shortageSwalRes.isConfirmed)) {
+            applyWmsFiltersAndRender();
+            return;
+          }
 
           for (const f of failedDetails) {
             try {
@@ -4378,10 +4389,19 @@ window.applyBulkWmsStatus = async function() {
         await window.sendSingleOrderToPicker(order);
       }
 
-      Swal.fire('¡Éxito!', `Se enviaron ${ids.length} pedidos al Picker correctamente.`, 'success');
-      window.wmsSelectedOrderIds.clear();
+      if (failedOrders.size > 0) {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Enviados al Picker!',
+          text: `Se enviaron ${ids.length} pedidos al Picker correctamente. Los ${failedOrders.size} pedidos con stock insuficiente quedaron pendientes y seleccionados para su gestión.`,
+          confirmButtonColor: '#7117eb'
+        });
+      } else {
+        Swal.fire('¡Éxito!', `Se enviaron ${ids.length} pedidos al Picker correctamente.`, 'success');
+      }
+      ids.forEach(id => window.wmsSelectedOrderIds.delete(id));
       const cbAll = document.getElementById('wms-select-all');
-      if (cbAll) cbAll.checked = false;
+      if (cbAll && window.wmsSelectedOrderIds.size === 0) cbAll.checked = false;
       applyWmsFiltersAndRender();
     } catch (err) {
       console.error(err);
@@ -4389,18 +4409,35 @@ window.applyBulkWmsStatus = async function() {
       applyWmsFiltersAndRender();
     }
   } else {
+    let idsToProcess = [...ids];
+    let partialFailureInfo = null;
+
     if (newStatus === 'Despachado') {
       const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
-      const isValid = await validateOrderStockForDispatch(selectedOrders);
-      if (!isValid) {
+      const valResult = await validateOrderStockForDispatch(selectedOrders);
+      if (!valResult || !valResult.isValid) {
         applyWmsFiltersAndRender();
         return;
+      }
+
+      if (valResult.proceedWithValidOnly) {
+        idsToProcess = valResult.validOrders.map(o => o.id);
+        partialFailureInfo = {
+          validCount: valResult.validOrders.length,
+          failedCount: valResult.failedOrders.length
+        };
       }
     } else {
       if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
         return;
       }
     }
+
+    if (idsToProcess.length === 0) {
+      applyWmsFiltersAndRender();
+      return;
+    }
+
     try {
       const updateData = { estado_wms: newStatus };
       if (newStatus === 'Despachado') {
@@ -4411,13 +4448,12 @@ window.applyBulkWmsStatus = async function() {
       const { error } = await supabase
         .from('orders')
         .update(updateData)
-        .in('id', ids);
+        .in('id', idsToProcess);
         
       if (error) throw error;
-      alert(`Se actualizaron con éxito ${ids.length} pedidos a "${newStatus}".`);
       
       if (window.loadedOrders) {
-        ids.forEach(id => {
+        idsToProcess.forEach(id => {
           const order = window.loadedOrders.find(o => o.id === id);
           if (order) {
             order.estado_wms = newStatus;
@@ -4430,9 +4466,23 @@ window.applyBulkWmsStatus = async function() {
         });
       }
       
-      window.wmsSelectedOrderIds.clear();
-      const cbAll = document.getElementById('wms-select-all');
-      if (cbAll) cbAll.checked = false;
+      // Desmarcar únicamente los pedidos procesados con éxito
+      idsToProcess.forEach(id => window.wmsSelectedOrderIds.delete(id));
+
+      if (partialFailureInfo) {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Pedidos Despachados!',
+          text: `Se despacharon exitosamente ${partialFailureInfo.validCount} pedidos. Los ${partialFailureInfo.failedCount} pedidos con stock insuficiente quedaron pendientes y seleccionados para su gestión.`,
+          confirmButtonColor: '#7117eb'
+        });
+      } else {
+        alert(`Se actualizaron con éxito ${idsToProcess.length} pedidos a "${newStatus}".`);
+        window.wmsSelectedOrderIds.clear();
+        const cbAll = document.getElementById('wms-select-all');
+        if (cbAll) cbAll.checked = false;
+      }
+
       applyWmsFiltersAndRender();
     } catch (err) {
       console.error(err);
@@ -4504,8 +4554,14 @@ window.getFormattedStockByWarehouse = async function(productId, targetWarehouseI
   }
 };
 
-window.showStockShortageSlidesModal = async function({ title = 'Stock Físico Insuficiente', subtitle = '', failuresByOrder = [] }) {
-  if (!failuresByOrder || failuresByOrder.length === 0) return;
+window.showStockShortageSlidesModal = async function({
+  title = 'Stock Físico Insuficiente',
+  subtitle = '',
+  failuresByOrder = [],
+  validOrdersCount = 0,
+  actionButtonText = null
+}) {
+  if (!failuresByOrder || failuresByOrder.length === 0) return { isConfirmed: false };
 
   // Cargar tablas de stock por producto de forma asíncrona para todos los ítems de cada orden
   for (const orderFail of failuresByOrder) {
@@ -4517,6 +4573,7 @@ window.showStockShortageSlidesModal = async function({ title = 'Stock Físico In
   }
 
   const totalSlides = failuresByOrder.length;
+  const hasValidOrders = validOrdersCount > 0;
 
   const slidesHtml = failuresByOrder.map((orderFail, idx) => {
     const isFirst = idx === 0;
@@ -4591,13 +4648,19 @@ window.showStockShortageSlidesModal = async function({ title = 'Stock Físico In
     </div>
   `;
 
-  await Swal.fire({
+  return await Swal.fire({
     icon: 'error',
     title: title,
     html: modalHtml,
-    width: totalSlides > 1 ? '620px' : '540px',
-    confirmButtonText: totalSlides > 1 ? 'Entendido / Cerrar' : 'Entendido',
-    confirmButtonColor: '#7117eb',
+    width: totalSlides > 1 ? '640px' : '540px',
+    showCancelButton: hasValidOrders,
+    confirmButtonText: hasValidOrders 
+      ? (actionButtonText || `Procesar los ${validOrdersCount} pedidos restantes`)
+      : (totalSlides > 1 ? 'Entendido / Cerrar' : 'Entendido'),
+    confirmButtonColor: hasValidOrders ? '#10b981' : '#7117eb',
+    cancelButtonText: 'Cancelar todo',
+    cancelButtonColor: '#64748b',
+    reverseButtons: true,
     didOpen: () => {
       if (totalSlides <= 1) return;
 
@@ -4776,7 +4839,7 @@ async function validateOrderStockForDispatch(ordersList) {
     });
   }
 
-  if (itemsToCheck.length === 0) return true;
+  if (itemsToCheck.length === 0) return { isValid: true, validOrders: ordersList, failedOrders: [] };
 
   const productIds = Array.from(new Set(itemsToCheck.map(i => i.productId)));
   const { data: invData, error: invErr } = await supabase
@@ -4786,7 +4849,7 @@ async function validateOrderStockForDispatch(ordersList) {
 
   if (invErr) {
     console.error('Error consultando inventario:', invErr);
-    return true;
+    return { isValid: true, validOrders: ordersList, failedOrders: [] };
   }
 
   const invMap = {};
@@ -4826,18 +4889,35 @@ async function validateOrderStockForDispatch(ordersList) {
   }
 
   const failuresByOrder = Array.from(failuresByOrderMap.values());
+  const failedOrderIds = new Set(failuresByOrderMap.keys());
+  const validOrders = ordersList.filter(o => !failedOrderIds.has(o.id));
+
   if (failuresByOrder.length > 0) {
-    await window.showStockShortageSlidesModal({
+    const swalRes = await window.showStockShortageSlidesModal({
       title: 'Stock Físico Insuficiente',
-      subtitle: failuresByOrder.length > 1
-        ? `No se pueden marcar como <strong>Despachado</strong>: Se detectaron <strong>${failuresByOrder.length} pedidos</strong> con stock insuficiente en su sucursal de despacho:`
-        : `No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico:`,
-      failuresByOrder
+      subtitle: validOrders.length > 0
+        ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ordersList.length} seleccionados. Hay <strong>${validOrders.length} pedidos con stock disponible</strong> listos para ser despachados:`
+        : (failuresByOrder.length > 1
+            ? `No se pueden marcar como <strong>Despachado</strong>: Se detectaron <strong>${failuresByOrder.length} pedidos</strong> con stock insuficiente en su sucursal de despacho:`
+            : `No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico:`),
+      failuresByOrder,
+      validOrdersCount: validOrders.length,
+      actionButtonText: `<i class="ri-truck-line"></i> Despachar los ${validOrders.length} pedidos restantes`
     });
-    return false;
+
+    if (validOrders.length > 0 && swalRes?.isConfirmed) {
+      return {
+        isValid: true,
+        proceedWithValidOnly: true,
+        validOrders,
+        failedOrders: failuresByOrder
+      };
+    }
+
+    return { isValid: false, validOrders: [], failedOrders: failuresByOrder };
   }
 
-  return true;
+  return { isValid: true, proceedWithValidOnly: false, validOrders: ordersList, failedOrders: [] };
 }
 
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
@@ -5047,8 +5127,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   } else {
     try {
       if (newWmsStatus === 'Despachado') {
-        const isValid = await validateOrderStockForDispatch([order]);
-        if (!isValid) {
+        const valRes = await validateOrderStockForDispatch([order]);
+        if (!valRes || !valRes.isValid) {
           applyWmsFiltersAndRender();
           return;
         }
@@ -5433,14 +5513,20 @@ async function renderManualIn() {
 
 async function renderIntegrations() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando integraciones...</p>`;
+  if (!appContent) return;
+  appContent.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4rem 1rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 2.5rem; color: var(--color-primary); margin-bottom: 1rem;"></i>
+      <p style="font-size: 1rem; font-weight: 500;">Cargando módulo de Integraciones 2.0...</p>
+    </div>
+  `;
 
   try {
     const { data: userAuth } = await supabase.auth.getUser();
-    if(!userAuth || !userAuth.user) throw new Error("No autenticado");
+    if (!userAuth || !userAuth.user) throw new Error("No autenticado en el WMS.");
     const merchantId = userAuth.user.id;
 
-    // Obtener la integración de Optiroute
+    // 1. Obtener la integración de Optiroute
     const { data: optirouteIntegration, error: optirouteErr } = await supabase
       .from('merchant_integrations')
       .select('*')
@@ -5448,17 +5534,17 @@ async function renderIntegrations() {
       .eq('platform', 'Optiroute')
       .maybeSingle();
 
-    if (optirouteErr) throw optirouteErr;
+    if (optirouteErr) console.warn('Error al obtener integración Optiroute:', optirouteErr);
 
     const hasOptiroute = !!optirouteIntegration;
-    const optirouteStatusText = hasOptiroute 
-      ? (optirouteIntegration.is_active ? '<span class="badge badge-success">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
-      : '<span class="badge badge-neutral">No configurada</span>';
-    // Obtener las integraciones de los comercios (clientes)
-    const { data: merchantInts, error: merchErr } = await supabase
+    const isOptirouteActive = hasOptiroute && optirouteIntegration.is_active;
+
+    // 2. Obtener las integraciones de los comercios (clientes)
+    const { data: merchantIntsRaw, error: merchErr } = await supabase
       .from('merchant_integrations')
       .select(`
         id,
+        merchant_id,
         platform,
         shop_url,
         username,
@@ -5470,7 +5556,9 @@ async function renderIntegrations() {
         partner_pin,
         security_pin,
         profiles (
-          company_name
+          company_name,
+          email,
+          phone
         )
       `)
       .neq('platform', 'Optiroute')
@@ -5478,24 +5566,647 @@ async function renderIntegrations() {
 
     if (merchErr) throw merchErr;
 
-    let rowsHtml = '';
-    if (merchantInts && merchantInts.length > 0) {
-      merchantInts.forEach(mi => {
-        const companyName = mi.profiles?.company_name || 'Desconocido';
+    const allMerchantInts = merchantIntsRaw || [];
+
+    // 3. Obtener logs de Optiroute para métricas
+    let optirouteLogs = [];
+    try {
+      const { data: logsData, error: logsErr } = await supabase
+        .from('optiroute_api_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (!logsErr && logsData) {
+        optirouteLogs = logsData;
+      }
+    } catch (e) {
+      console.warn('Tabla optiroute_api_logs no disponible o sin registros:', e);
+    }
+
+    // Helper visual para colores e iconos de plataformas
+    const getPlatformStyle = (platform) => {
+      const p = (platform || '').trim();
+      switch (p) {
+        case 'Shopify':
+          return { bg: 'rgba(150, 191, 72, 0.12)', color: '#15803d', border: 'rgba(150, 191, 72, 0.3)', icon: 'ri-shopping-bag-3-fill', name: 'Shopify' };
+        case 'MercadoLibre':
+          return { bg: 'rgba(245, 158, 11, 0.12)', color: '#b45309', border: 'rgba(245, 158, 11, 0.3)', icon: 'ri-shopping-cart-2-fill', name: 'Mercado Libre' };
+        case 'Falabella':
+          return { bg: 'rgba(132, 204, 22, 0.12)', color: '#4d7c0f', border: 'rgba(132, 204, 22, 0.3)', icon: 'ri-store-3-fill', name: 'Falabella' };
+        case 'Paris':
+          return { bg: 'rgba(225, 29, 72, 0.12)', color: '#be123c', border: 'rgba(225, 29, 72, 0.3)', icon: 'ri-shopping-bag-2-fill', name: 'Paris' };
+        case 'Ripley':
+          return { bg: 'rgba(124, 58, 237, 0.12)', color: '#6d28d9', border: 'rgba(124, 58, 237, 0.3)', icon: 'ri-store-fill', name: 'Ripley' };
+        case 'WooCommerce':
+          return { bg: 'rgba(150, 88, 138, 0.12)', color: '#7e22ce', border: 'rgba(150, 88, 138, 0.3)', icon: 'ri-wordpress-fill', name: 'WooCommerce' };
+        case 'Walmart':
+          return { bg: 'rgba(0, 113, 206, 0.12)', color: '#0369a1', border: 'rgba(0, 113, 206, 0.3)', icon: 'ri-shopping-basket-fill', name: 'Walmart' };
+        case 'Jumpseller':
+          return { bg: 'rgba(2, 132, 199, 0.12)', color: '#0284c7', border: 'rgba(2, 132, 199, 0.3)', icon: 'ri-global-fill', name: 'Jumpseller' };
+        case 'Tiendanube':
+          return { bg: 'rgba(6, 182, 212, 0.12)', color: '#0e7490', border: 'rgba(6, 182, 212, 0.3)', icon: 'ri-cloud-fill', name: 'Tiendanube' };
+        case 'LightData':
+          return { bg: 'rgba(139, 92, 246, 0.12)', color: '#7c3aed', border: 'rgba(139, 92, 246, 0.3)', icon: 'ri-database-2-fill', name: 'LightData' };
+        default:
+          return { bg: 'rgba(100, 116, 139, 0.12)', color: '#475569', border: 'rgba(100, 116, 139, 0.3)', icon: 'ri-plug-line', name: p || 'Desconocida' };
+      }
+    };
+
+    // Cálculos KPI Comercios
+    const totalComercios = allMerchantInts.length;
+    const totalActivas = allMerchantInts.filter(i => i.is_active).length;
+    const totalInactivas = allMerchantInts.filter(i => !i.is_active).length;
+    const totalConError = allMerchantInts.filter(i => i.last_sync_error).length;
+    const distinctPlatforms = [...new Set(allMerchantInts.map(i => i.platform).filter(Boolean))].sort();
+
+    // Cálculos KPI Optiroute
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayLogs = optirouteLogs.filter(l => new Date(l.created_at) >= todayStart);
+    const totalCallsToday = todayLogs.reduce((acc, l) => acc + (l.total_http_calls || 0), 0);
+    const totalSkippedToday = todayLogs.reduce((acc, l) => acc + (l.skipped_terminal || 0) + (l.skipped_unchanged || 0), 0);
+    const totalProcessedToday = todayLogs.reduce((acc, l) => acc + (l.orders_synced || 0), 0);
+    const totalPotentialToday = totalCallsToday + totalSkippedToday;
+    const savingPercentage = totalPotentialToday > 0 ? ((totalSkippedToday / totalPotentialToday) * 100).toFixed(1) : '100.0';
+
+    // Inyectar HTML Base con 2 Pestañas
+    appContent.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 1.5rem; animation: fadeIn 0.25s ease;">
+        <!-- Encabezado Principal -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <div style="background: linear-gradient(135deg, var(--color-primary), #6366f1); color: white; width: 42px; height: 42px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; box-shadow: var(--shadow-sm);">
+                <i class="ri-plug-line"></i>
+              </div>
+              <div>
+                <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--color-text-main); margin: 0; line-height: 1.2;">
+                  Centro de Integraciones WMS
+                </h2>
+                <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.2rem 0 0 0;">
+                  Administra las conexiones de tus clientes con marketplaces y la sincronización global de tracking con Optiroute.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button id="btn-refresh-integrations-view" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; padding: 0 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" title="Recargar datos">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra de Navegación por Pestañas (Tabs 2.0) -->
+        <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; flex-wrap: wrap;">
+          <button id="tab-btn-merchants" class="integration-tab-btn active" data-tab="tab-merchants" style="display: flex; align-items: center; gap: 0.5rem; background: transparent; border: none; border-bottom: 3px solid var(--color-primary); color: var(--color-primary); font-weight: 700; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; transition: all 0.2s;">
+            <i class="ri-store-2-line" style="font-size: 1.1rem;"></i>
+            <span>Integraciones de Comercios</span>
+            <span class="badge" style="background: rgba(37, 99, 235, 0.12); color: var(--color-primary); border-radius: 99px; padding: 0.15rem 0.55rem; font-size: 0.75rem; font-weight: 700;">${totalComercios}</span>
+          </button>
+
+          <button id="tab-btn-optiroute" class="integration-tab-btn" data-tab="tab-optiroute" style="display: flex; align-items: center; gap: 0.5rem; background: transparent; border: none; border-bottom: 3px solid transparent; color: var(--color-text-muted); font-weight: 600; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; transition: all 0.2s;">
+            <i class="ri-truck-line" style="font-size: 1.1rem;"></i>
+            <span>Optiroute WMS</span>
+            ${isOptirouteActive 
+              ? `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; border-radius: 99px; padding: 0.15rem 0.55rem; font-size: 0.72rem; font-weight: 700;"><i class="ri-checkbox-circle-fill"></i> Activa</span>`
+              : `<span class="badge" style="background: rgba(239, 68, 68, 0.12); color: #dc2626; border-radius: 99px; padding: 0.15rem 0.55rem; font-size: 0.72rem; font-weight: 700;"><i class="ri-close-circle-fill"></i> ${hasOptiroute ? 'Inactiva' : 'No conectada'}</span>`
+            }
+          </button>
+        </div>
+
+        <!-- ==================================================== -->
+        <!-- PESTAÑA 1: INTEGRACIONES DE COMERCIOS (CLIENTES)     -->
+        <!-- ==================================================== -->
+        <div id="tab-merchants-content" class="integration-tab-panel" style="display: flex; flex-direction: column; gap: 1.25rem;">
+          
+          <!-- KPIs Resumen de Comercios -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+            <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: space-between; box-shadow: var(--shadow-sm);">
+              <div>
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Total Conexiones</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.2rem;">${totalComercios}</div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">Comercios en WMS</span>
+              </div>
+              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+                <i class="ri-store-3-line"></i>
+              </div>
+            </div>
+
+            <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: space-between; box-shadow: var(--shadow-sm);">
+              <div>
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Integraciones Activas</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">${totalActivas}</div>
+                <span style="font-size: 0.75rem; color: #059669;">Sincronizando activamente</span>
+              </div>
+              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+                <i class="ri-checkbox-circle-line"></i>
+              </div>
+            </div>
+
+            <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: space-between; box-shadow: var(--shadow-sm);">
+              <div>
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Atención / Inactivas</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: ${totalInactivas > 0 || totalConError > 0 ? '#ef4444' : 'var(--color-text-muted)'}; margin-top: 0.2rem;">
+                  ${totalInactivas + totalConError}
+                </div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">${totalConError} con error reportado</span>
+              </div>
+              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(239, 68, 68, 0.1); color: #ef4444; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+                <i class="ri-alert-line"></i>
+              </div>
+            </div>
+
+            <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); display: flex; align-items: center; justify-content: space-between; box-shadow: var(--shadow-sm);">
+              <div>
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Plataformas en Uso</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">${distinctPlatforms.length}</div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">Canales diferentes</span>
+              </div>
+              <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(139, 92, 246, 0.1); color: #8b5cf6; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+                <i class="ri-apps-line"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra de Búsqueda y Filtros de Comercios -->
+          <div class="card" style="padding: 1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: var(--shadow-sm);">
+            <div style="display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: center; justify-content: space-between;">
+              
+              <!-- Buscador con icono -->
+              <div style="flex: 2; min-width: 260px; position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1rem;"></i>
+                <input type="text" id="search-merchant-integrations" class="form-input" placeholder="Buscar por comercio, cliente, empresa, tienda URL o plataforma..." style="padding-left: 2.3rem; padding-right: 2rem; width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+                <button id="btn-clear-merchant-search" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-muted); cursor: pointer; display: none; font-size: 0.95rem; padding: 0.2rem;" title="Limpiar búsqueda">
+                  <i class="ri-close-circle-fill"></i>
+                </button>
+              </div>
+
+              <!-- Filtro de Plataforma -->
+              <div style="flex: 1; min-width: 180px;">
+                <select id="filter-merchant-platform" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.75rem;">
+                  <option value="">🌐 Todas las Plataformas</option>
+                  ${distinctPlatforms.map(plat => `<option value="${plat}">${plat}</option>`).join('')}
+                </select>
+              </div>
+
+              <!-- Filtro por Estado de Conexión -->
+              <div style="flex: 1; min-width: 150px;">
+                <select id="filter-merchant-status" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.75rem;">
+                  <option value="">📌 Estado: Todos</option>
+                  <option value="active">Activas</option>
+                  <option value="inactive">Inactivas</option>
+                </select>
+              </div>
+
+              <!-- Filtro por Sincronización -->
+              <div style="flex: 1; min-width: 160px;">
+                <select id="filter-merchant-sync" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.75rem;">
+                  <option value="">🔄 Sincronización: Todos</option>
+                  <option value="ok">Sincronizado OK</option>
+                  <option value="error">Con Error</option>
+                  <option value="delayed">Inactivo (>1 hora)</option>
+                </select>
+              </div>
+
+              <!-- Contador de Resultados y Botón Reset -->
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span id="merchants-filtered-count-badge" class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.78rem; border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+                  Mostrando ${totalComercios} de ${totalComercios}
+                </span>
+                <button id="btn-reset-merchant-filters" class="btn btn-outline" style="height: 38px; font-size: 0.8rem; padding: 0 0.7rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-bg); cursor: pointer; display: none;" title="Restablecer todos los filtros">
+                  <i class="ri-filter-off-line"></i>
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Tabla de Comercios Conectados -->
+          <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); box-shadow: var(--shadow-sm);">
+            <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+              <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-list-check-2" style="color: var(--color-primary);"></i> Comercios y Canales Sincronizados
+              </h3>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                Actualización automática continua
+              </span>
+            </div>
+
+            <div class="table-responsive" style="overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                <thead>
+                  <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 22%;">Cliente / Empresa</th>
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 14%;">Plataforma</th>
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 24%;">Tienda / Identificador</th>
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 14%;">Fecha Conexión</th>
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 10%;">Estado</th>
+                    <th style="padding: 0.85rem 1rem; font-weight: 700; width: 16%;">Sincronización (Cron)</th>
+                  </tr>
+                </thead>
+                <tbody id="merchants-table-body">
+                  <!-- Filas generadas dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ==================================================== -->
+        <!-- PESTAÑA 2: NUESTRA INTEGRACIÓN OPTIROUTE             -->
+        <!-- ==================================================== -->
+        <div id="tab-optiroute-content" class="integration-tab-panel" style="display: none; flex-direction: column; gap: 1.5rem;">
+          
+          <!-- Banner de Estado General de Optiroute -->
+          <div class="card" style="padding: 1.25rem 1.5rem; border-radius: var(--radius-lg); border: 1px solid ${isOptirouteActive ? 'rgba(16, 185, 129, 0.3)' : 'var(--color-border)'}; background: ${isOptirouteActive ? 'rgba(16, 185, 129, 0.05)' : 'var(--color-surface)'}; box-shadow: var(--shadow-sm);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                <div style="width: 50px; height: 50px; border-radius: 14px; background: ${isOptirouteActive ? '#10b981' : '#64748b'}; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; box-shadow: var(--shadow-sm);">
+                  <i class="ri-truck-line"></i>
+                </div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text-main);">Optiroute Tracking API</h3>
+                    ${isOptirouteActive 
+                      ? `<span class="badge" style="background: #d1fae5; color: #065f46; border-radius: 99px; padding: 0.2rem 0.6rem; font-size: 0.75rem; font-weight: 700;"><i class="ri-checkbox-circle-fill"></i> Conectado y Operativo</span>`
+                      : `<span class="badge" style="background: #fee2e2; color: #991b1b; border-radius: 99px; padding: 0.2rem 0.6rem; font-size: 0.75rem; font-weight: 700;"><i class="ri-alert-fill"></i> ${hasOptiroute ? 'Inactivo' : 'Sin Configurar'}</span>`
+                    }
+                  </div>
+                  <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+                    Motor de sincronización de última milla. Consulta rutas, conductores y estados de entrega en tiempo real.
+                  </p>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+                <button id="btn-sync-optiroute-now-tab" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 700; padding: 0 1rem; border-radius: var(--radius-md); background: var(--color-primary); color: white; border: none; cursor: pointer; transition: all 0.2s;" title="Ejecutar sincronización forzada con Optiroute">
+                  <i class="ri-flashlight-line"></i> ⚡ Sincronizar Ahora
+                </button>
+                <button id="btn-refresh-optiroute-metrics" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; padding: 0 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" title="Refrescar métricas">
+                  <i class="ri-refresh-line"></i> Refrescar Métricas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SECCIÓN: MÉTRICAS DE CONSUMO Y AUDITORÍA API OPTIROUTE -->
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-bar-chart-box-line" style="color: var(--color-primary);"></i> Métricas de Consultas API Optiroute (Hoy)
+              </h3>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                Auditoría en tiempo real de llamadas HTTP y ahorro por caché
+              </span>
+            </div>
+
+            <!-- Banner de Alerta de Consumo Elevado si > 500 llamadas -->
+            <div id="optiroute-alert-banner-container">
+              ${totalCallsToday > 500 ? `
+                <div class="alert alert-danger" style="padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.75rem; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; margin-bottom: 0.5rem;">
+                  <i class="ri-alarm-warning-fill" style="font-size: 1.4rem;"></i>
+                  <div>
+                    <strong>⚠️ ALERTA DE CONSUMO ELEVADO:</strong> Se han registrado <strong>${totalCallsToday} peticiones HTTP hoy</strong> a la API de Optiroute, superando el umbral recomendado de 500 llamadas/día.
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+
+            <!-- Cards KPI de Métricas -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem;">
+              
+              <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Peticiones API Hoy</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: ${totalCallsToday > 500 ? '#ef4444' : totalCallsToday > 300 ? '#f59e0b' : 'var(--color-primary)'};">
+                  ${totalCallsToday} <span style="font-size: 0.78rem; font-weight: 500; color: var(--color-text-muted);">/ 500 máx recomendadas</span>
+                </div>
+                <div>
+                  ${totalCallsToday > 500 
+                    ? `<span class="badge" style="background: #fee2e2; color: #991b1b; padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 700; border-radius: 4px;"><i class="ri-error-warning-fill"></i> Alerta Crítica (> 500)</span>`
+                    : totalCallsToday > 300
+                    ? `<span class="badge" style="background: #fef3c7; color: #92400e; padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 700; border-radius: 4px;"><i class="ri-alert-fill"></i> Consumo Moderado (300-500)</span>`
+                    : `<span class="badge" style="background: #d1fae5; color: #065f46; padding: 0.2rem 0.5rem; font-size: 0.72rem; font-weight: 700; border-radius: 4px;"><i class="ri-checkbox-circle-fill"></i> Nivel Óptimo (< 300)</span>`
+                  }
+                </div>
+              </div>
+
+              <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Ahorro de Peticiones</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: #10b981;">
+                  ${savingPercentage}% <span style="font-size: 0.78rem; font-weight: 500; color: var(--color-text-muted);">evitadas</span>
+                </div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                  <strong>${totalSkippedToday.toLocaleString('es-CL')}</strong> pedidos omitidos por caché e inmutables
+                </span>
+              </div>
+
+              <div class="card" style="padding: 1.1rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Pedidos Sincronizados Hoy</span>
+                <div style="font-size: 1.65rem; font-weight: 800; color: var(--color-text-main);">
+                  ${totalProcessedToday.toLocaleString('es-CL')}
+                </div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                  Actualizados y reflejados en base de datos
+                </span>
+              </div>
+
+            </div>
+
+            <!-- Tabla de Historial de Auditoría de Sincronizaciones -->
+            <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); box-shadow: var(--shadow-sm);">
+              <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-history-line" style="color: var(--color-primary);"></i> Últimas Ejecuciones de Sincronización API
+                </h4>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                  Mostrando últimos 30 registros
+                </span>
+              </div>
+
+              <div class="table-responsive" style="overflow-x: auto;">
+                <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
+                  <thead>
+                    <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); color: var(--color-text-main);">
+                      <th style="padding: 0.6rem 0.85rem;">Fecha / Hora</th>
+                      <th style="padding: 0.6rem 0.85rem;">Origen</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Listado HTTP</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Detalle HTTP</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Total HTTP</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Omitidos (Caché)</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Sincronizados</th>
+                      <th style="padding: 0.6rem 0.85rem; text-align: center;">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${optirouteLogs.length === 0 ? `
+                      <tr>
+                        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+                          <i class="ri-information-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem; color: var(--color-text-muted);"></i>
+                          Aún no hay registros de auditoría en <code>optiroute_api_logs</code>. Las métricas se registrarán automáticamente en la próxima sincronización.
+                        </td>
+                      </tr>
+                    ` : optirouteLogs.map(l => {
+                      const dateStr = l.created_at ? new Date(l.created_at).toLocaleString('es-CL', {
+                        day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'
+                      }) : '-';
+                      const statusBadge = l.status === 'critical'
+                        ? '<span class="badge badge-danger" style="font-size:0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px;">Crítico</span>'
+                        : l.status === 'warning'
+                        ? '<span class="badge badge-warning" style="font-size:0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px;">Advertencia</span>'
+                        : '<span class="badge badge-success" style="font-size:0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px;">Normal</span>';
+                      const skipped = (l.skipped_terminal || 0) + (l.skipped_unchanged || 0);
+                      return `
+                        <tr style="border-bottom: 1px solid var(--color-border);">
+                          <td style="padding: 0.55rem 0.85rem; font-weight: 500;">${dateStr}</td>
+                          <td style="padding: 0.55rem 0.85rem;"><code style="background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: 3px;">${l.source || 'cron'}</code></td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center;">${l.list_calls || 0}</td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center;">${l.detail_calls || 0}</td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center; font-weight: 700; color: ${(l.total_http_calls || 0) > 30 ? '#ef4444' : 'var(--color-text-main)'};">${l.total_http_calls || 0}</td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center; color: #10b981; font-weight: 600;">${skipped}</td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center; font-weight: 600;">${l.orders_synced || 0}</td>
+                          <td style="padding: 0.55rem 0.85rem; text-align: center;">${statusBadge}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- SECCIÓN: CONFIGURACIÓN DE CREDENCIALES Y GUÍA -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+            
+            <!-- Tarjeta de Configuración de Token -->
+            <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm);">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+                  <i class="ri-key-2-line" style="color: var(--color-primary);"></i> Credenciales de API Optiroute
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <form id="form-optiroute-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); margin-bottom: 0.4rem; display: block;">Access Token de la API</label>
+                    <div style="position: relative;">
+                      <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? (optirouteIntegration.access_token || '') : ''}" required style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); font-family: monospace; font-size: 0.85rem; padding-right: 2.5rem; width: 100%; height: 38px; border-radius: var(--radius-md);">
+                      <button type="button" id="btn-toggle-optiroute-token-visibility" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.1rem;" title="Mostrar/Ocultar Token">
+                        <i class="ri-eye-line"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Credential Helper Desplegable -->
+                  <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem 1rem; border-radius: var(--radius-md); background: var(--color-bg);">
+                    <summary style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary); display: flex; align-items: center; gap: 0.4rem;">
+                      <i class="ri-magic-line"></i> Generar Token automáticamente con credenciales
+                    </summary>
+                    <div style="margin-top: 0.85rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">
+                        Ingresa el usuario y contraseña de tu cuenta Optiroute para obtener el token oficial de inmediato:
+                      </p>
+                      <div class="form-group" style="margin: 0;">
+                        <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem 0.75rem; font-size: 0.85rem; background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); width: 100%;">
+                      </div>
+                      <div class="form-group" style="margin: 0;">
+                        <input type="password" id="optiroute-password" class="form-input" placeholder="Contraseña de Optiroute" style="padding: 0.5rem 0.75rem; font-size: 0.85rem; background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); width: 100%;">
+                      </div>
+                      <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.82rem; font-weight: 700; border-color: var(--color-primary); color: var(--color-primary); background: transparent; border-radius: var(--radius-md); cursor: pointer; align-self: flex-start;">
+                        <i class="ri-key-line"></i> Obtener Token
+                      </button>
+                      <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.6rem 0.8rem; font-size: 0.8rem; margin: 0; border-radius: var(--radius-md);"></div>
+                    </div>
+                  </details>
+                  
+                  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" id="btn-save-optiroute" style="background-color: var(--color-primary); border: none; padding: 0.65rem 1.25rem; font-weight: 700; font-size: 0.85rem; border-radius: var(--radius-md); cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s;">
+                      ${hasOptiroute ? '<i class="ri-save-line"></i> Actualizar Token' : '<i class="ri-link"></i> Conectar Optiroute'}
+                    </button>
+                    ${hasOptiroute ? `
+                      <button type="button" class="btn btn-outline" id="btn-disconnect-optiroute" style="color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); background: transparent; padding: 0.65rem 1.25rem; font-weight: 600; font-size: 0.85rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                        <i class="ri-link-unlink-m"></i> Desconectar Optiroute
+                      </button>
+                    ` : ''}
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <!-- Guía de Integración y Pruebas -->
+            <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm);">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-book-read-line" style="color: var(--color-primary);"></i> Guía Técnica de Optiroute
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.88rem; display: flex; flex-direction: column; gap: 1rem; line-height: 1.5;">
+                  <li>
+                    <strong>Sincronización Automática:</strong>
+                    <p style="margin: 0.2rem 0 0 0; color: var(--color-text-muted); font-size: 0.82rem;">
+                      WMS STOCKA sincroniza el estado de las rutas y pedidos de Optiroute automáticamente cada 30 minutos, actualizando entregas, conductores y waypoints.
+                    </p>
+                  </li>
+                  <li>
+                    <strong>Optimización y Caché Inteligente:</strong>
+                    <p style="margin: 0.2rem 0 0 0; color: var(--color-text-muted); font-size: 0.82rem;">
+                      Para no saturar la API de Optiroute, los pedidos en estados finales (<em>Entregado / Completado</em>) no se re-consultan constantemente, logrando más del 95% de ahorro en llamadas HTTP.
+                    </p>
+                  </li>
+                  <li>
+                    <strong>Comando cURL de Prueba Manual:</strong>
+                    <p style="margin: 0.2rem 0 0 0; color: var(--color-text-muted); font-size: 0.82rem;">
+                      Si prefieres obtener el token directamente desde tu terminal:
+                    </p>
+                    <pre style="background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); font-size: 0.75rem; overflow-x: auto; margin-top: 0.4rem; color: var(--color-text-main); border: 1px solid var(--color-border); font-family: monospace;">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
+  -F "username=tu-correo@empresa.com" \\
+  -F "password=tu-contrasena"</pre>
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    // ====================================================
+    // LÓGICA Y RENDERIZADO REACTIVO DE LA TABLA DE COMERCIOS
+    // ====================================================
+    const merchantsTableBody = document.getElementById('merchants-table-body');
+    const searchInput = document.getElementById('search-merchant-integrations');
+    const clearSearchBtn = document.getElementById('btn-clear-merchant-search');
+    const filterPlatformSelect = document.getElementById('filter-merchant-platform');
+    const filterStatusSelect = document.getElementById('filter-merchant-status');
+    const filterSyncSelect = document.getElementById('filter-merchant-sync');
+    const filteredCountBadge = document.getElementById('merchants-filtered-count-badge');
+    const resetFiltersBtn = document.getElementById('btn-reset-merchant-filters');
+
+    function filterAndRenderMerchants() {
+      const searchTerm = (searchInput ? searchInput.value : '').toLowerCase().trim();
+      const selectedPlatform = filterPlatformSelect ? filterPlatformSelect.value : '';
+      const selectedStatus = filterStatusSelect ? filterStatusSelect.value : '';
+      const selectedSync = filterSyncSelect ? filterSyncSelect.value : '';
+
+      // Mostrar/Ocultar botón de limpiar búsqueda y reset
+      if (clearSearchBtn) clearSearchBtn.style.display = searchTerm ? 'block' : 'none';
+      const hasActiveFilters = searchTerm || selectedPlatform || selectedStatus || selectedSync;
+      if (resetFiltersBtn) resetFiltersBtn.style.display = hasActiveFilters ? 'inline-flex' : 'none';
+
+      const filtered = allMerchantInts.filter(mi => {
+        const companyName = (mi.profiles?.company_name || '').toLowerCase();
+        const commerceName = (mi.comercio || '').toLowerCase();
+        const platform = (mi.platform || '').toLowerCase();
+        const shopUrl = (mi.shop_url || '').toLowerCase();
+        const username = (mi.username || '').toLowerCase();
+
+        // 1. Filtro de búsqueda de texto
+        if (searchTerm) {
+          const matchText = companyName.includes(searchTerm) ||
+                            commerceName.includes(searchTerm) ||
+                            platform.includes(searchTerm) ||
+                            shopUrl.includes(searchTerm) ||
+                            username.includes(searchTerm);
+          if (!matchText) return false;
+        }
+
+        // 2. Filtro de Plataforma
+        if (selectedPlatform && (mi.platform || '') !== selectedPlatform) {
+          return false;
+        }
+
+        // 3. Filtro por Estado de Conexión
+        if (selectedStatus) {
+          if (selectedStatus === 'active' && !mi.is_active) return false;
+          if (selectedStatus === 'inactive' && mi.is_active) return false;
+        }
+
+        // 4. Filtro por Sincronización
+        if (selectedSync) {
+          const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
+          const now = new Date();
+          const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true;
+
+          if (selectedSync === 'error' && !mi.last_sync_error) return false;
+          if (selectedSync === 'delayed' && (!isDelayed || mi.last_sync_error)) return false;
+          if (selectedSync === 'ok' && (mi.last_sync_error || isDelayed)) return false;
+        }
+
+        return true;
+      });
+
+      // Actualizar contador
+      if (filteredCountBadge) {
+        filteredCountBadge.textContent = `Mostrando ${filtered.length} de ${allMerchantInts.length}`;
+      }
+
+      // Renderizar filas
+      if (filtered.length === 0) {
+        merchantsTableBody.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align: center; padding: 3rem 1.5rem; color: var(--color-text-muted);">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+                <i class="ri-search-eye-line" style="font-size: 2.2rem; color: var(--color-text-muted); opacity: 0.7;"></i>
+                <span style="font-size: 0.95rem; font-weight: 600; color: var(--color-text-main);">No se encontraron integraciones</span>
+                <span style="font-size: 0.8rem;">Prueba ajustando el término de búsqueda o restableciendo los filtros.</span>
+                ${hasActiveFilters ? `
+                  <button id="btn-empty-reset-filters" class="btn btn-outline btn-sm" style="margin-top: 0.5rem; font-size: 0.8rem; border-radius: var(--radius-md); padding: 0.4rem 0.85rem; border: 1px solid var(--color-border); color: var(--color-primary); background: var(--color-bg); cursor: pointer;">
+                    <i class="ri-filter-off-line"></i> Restablecer Filtros
+                  </button>
+                ` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+
+        const btnEmptyReset = document.getElementById('btn-empty-reset-filters');
+        if (btnEmptyReset) {
+          btnEmptyReset.addEventListener('click', () => {
+            if (searchInput) searchInput.value = '';
+            if (filterPlatformSelect) filterPlatformSelect.value = '';
+            if (filterStatusSelect) filterStatusSelect.value = '';
+            if (filterSyncSelect) filterSyncSelect.value = '';
+            filterAndRenderMerchants();
+          });
+        }
+        return;
+      }
+
+      let rowsHtml = '';
+      filtered.forEach(mi => {
+        const companyName = mi.profiles?.company_name || 'Comercio Sin Perfil';
         const commerceName = mi.comercio || 'No especificado';
         const platform = mi.platform || 'Desconocida';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280'))))))));
-        
-        const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
-        
+        const platStyle = getPlatformStyle(platform);
+
+        const platformHtml = `
+          <span style="background-color: ${platStyle.bg}; color: ${platStyle.color}; border: 1px solid ${platStyle.border}; padding: 0.25rem 0.55rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; text-transform: uppercase;">
+            <i class="${platStyle.icon}"></i> ${platform}
+          </span>
+        `;
+
         const partnerPin = mi.partner_pin || mi.security_pin || '';
         const partnerPinHtml = (platform === 'Shopify' && partnerPin) 
-          ? `<span class="badge" style="background-color: #ede9fe; color: #5b21b6; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-family: monospace; font-weight: 700; margin-left: 0.5rem;" title="Código PIN Partner Shopify"><i class="ri-key-2-line"></i> PIN: ${partnerPin}</span>`
-          : '';
+          ? `
+            <div style="margin-top: 0.3rem;">
+              <span class="btn-copy-pin" data-pin="${partnerPin}" style="background-color: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-family: monospace; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Haz clic para copiar PIN">
+                <i class="ri-key-2-line"></i> PIN: ${partnerPin} <i class="ri-file-copy-line" style="font-size: 0.75rem;"></i>
+              </span>
+            </div>
+          ` : '';
 
-        const shopInfo = (mi.username 
-          ? `${mi.username} (${mi.shop_url || '-'})` 
-          : (mi.shop_url || '-')) + partnerPinHtml;
+        // Formato de Tienda / URL
+        let shopUrlHtml = mi.shop_url || '-';
+        if (mi.shop_url && (mi.shop_url.startsWith('http') || mi.shop_url.includes('.'))) {
+          const fullUrl = mi.shop_url.startsWith('http') ? mi.shop_url : `https://${mi.shop_url}`;
+          shopUrlHtml = `<a href="${fullUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--color-primary); text-decoration: none; word-break: break-all; font-weight: 500;">${mi.shop_url} <i class="ri-external-link-line" style="font-size: 0.75rem;"></i></a>`;
+        }
 
         const dateStr = mi.created_at ? new Date(mi.created_at).toLocaleDateString('es-CL', {
           day: '2-digit',
@@ -5506,208 +6217,345 @@ async function renderIntegrations() {
         }) : '-';
 
         const statusBadge = mi.is_active 
-          ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Activa</span>' 
-          : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Inactiva</span>';
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.15); color: #059669; padding: 0.25rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-fill"></i> Activa</span>' 
+          : '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #b45309; padding: 0.25rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-pause-circle-fill"></i> Inactiva</span>';
 
-        let syncStatusHtml = '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
-        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Ripley' || mi.platform === 'Falabella' || mi.platform === 'Walmart' || mi.platform === 'Tiendanube') {
-          const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
-          const now = new Date();
-          const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true; // Más de 1 hora
-          const timeStr = lastSync ? lastSync.toLocaleDateString('es-CL', {
-            day: '2-digit',
-            month: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : 'Nunca';
-          
-          if (mi.last_sync_error) {
-            syncStatusHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="${mi.last_sync_error.replace(/"/g, '&quot;')}"><i class="ri-error-warning-line" style="font-size: 0.9rem;"></i> Error (${timeStr})</span>`;
-          } else if (isDelayed) {
-            syncStatusHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Lleva más de 1 hora inactivo o sin reportar éxitos"><i class="ri-history-line" style="font-size: 0.9rem;"></i> Inactivo (${timeStr})</span>`;
-          } else {
-            syncStatusHtml = `<span class="badge" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> OK (${timeStr})</span>`;
-          }
+        // Estado de sincronización
+        let syncStatusHtml = '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>';
+        const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
+        const now = new Date();
+        const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true;
+        const timeStr = lastSync ? lastSync.toLocaleDateString('es-CL', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }) : 'Nunca';
 
-          // Botón para forzar sincronización manual (disponible en plataformas mapeadas en Edge Function)
-          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
-          if (supportManualSync && mi.is_active) {
-            syncStatusHtml += `
-              <div style="margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap;">
-                <button class="btn-sync-now" data-platform="${mi.platform}" data-comercio="${commerceName.replace(/'/g, "&apos;")}" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; border-radius: 3px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
-                  <i class="ri-refresh-line"></i> Sincronizar
-                </button>
-                ${mi.platform === 'WooCommerce' ? `
-                  <button class="btn-verify-woo-admin" data-comercio="${commerceName.replace(/'/g, "&apos;")}" data-merchant="${mi.merchant_id}" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; border-radius: 3px; border: 1px solid #0284c7; background: rgba(2, 132, 199, 0.08); color: #0284c7; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-shield-check-line"></i> Diagnóstico
-                  </button>
-                ` : ''}
+        if (mi.last_sync_error) {
+          syncStatusHtml = `
+            <div>
+              <span class="badge" style="background-color: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;" title="${mi.last_sync_error.replace(/"/g, '&quot;')}">
+                <i class="ri-error-warning-fill" style="font-size: 0.85rem;"></i> Error (${timeStr})
+              </span>
+              <div style="font-size: 0.7rem; color: #991b1b; margin-top: 0.2rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${mi.last_sync_error.replace(/"/g, '&quot;')}">
+                ${mi.last_sync_error}
               </div>
-            `;
-          }
+            </div>
+          `;
+        } else if (isDelayed) {
+          syncStatusHtml = `
+            <span class="badge" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;" title="Lleva más de 1 hora sin reportar actividad">
+              <i class="ri-history-line" style="font-size: 0.85rem;"></i> Inactivo (${timeStr})
+            </span>
+          `;
+        } else {
+          syncStatusHtml = `
+            <span class="badge" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-checkbox-circle-line" style="font-size: 0.85rem;"></i> OK (${timeStr})
+            </span>
+          `;
+        }
+
+        // Acciones rápidas de sincronización
+        const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
+        if (supportManualSync && mi.is_active) {
+          syncStatusHtml += `
+            <div style="margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap;">
+              <button class="btn-sync-now" data-platform="${mi.platform}" data-comercio="${commerceName.replace(/'/g, "&apos;")}" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-refresh-line"></i> Sincronizar
+              </button>
+              ${mi.platform === 'WooCommerce' ? `
+                <button class="btn-verify-woo-admin" data-comercio="${commerceName.replace(/'/g, "&apos;")}" data-merchant="${mi.merchant_id}" style="padding: 0.2rem 0.5rem; font-size: 0.72rem; border-radius: 4px; border: 1px solid #0284c7; background: rgba(2, 132, 199, 0.08); color: #0284c7; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-shield-check-line"></i> Diagnóstico
+                </button>
+              ` : ''}
+            </div>
+          `;
         }
 
         rowsHtml += `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.2s;">
-            <td style="padding: 1rem 0.75rem;">
-              <strong style="color: var(--color-text-main);">${companyName}</strong>
-              <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Comercio: ${commerceName}</span>
+            <td style="padding: 0.9rem 1rem;">
+              <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.9rem;">${companyName}</div>
+              <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem;">
+                <span class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.72rem; border: 1px solid var(--color-border); padding: 0.1rem 0.4rem; border-radius: 4px;">
+                  Comercio: <strong>${commerceName}</strong>
+                </span>
+              </div>
             </td>
-            <td style="padding: 1rem 0.75rem;">${platformHtml}</td>
-            <td style="padding: 1rem 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${shopInfo}</td>
-            <td style="padding: 1rem 0.75rem; color: var(--color-text-muted); font-size: 0.875rem;">${dateStr}</td>
-            <td style="padding: 1rem 0.75rem;">${statusBadge}</td>
-            <td style="padding: 1rem 0.75rem;">${syncStatusHtml}</td>
+            <td style="padding: 0.9rem 1rem;">${platformHtml}</td>
+            <td style="padding: 0.9rem 1rem; font-size: 0.82rem;">
+              ${mi.username ? `<div style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.15rem;"><i class="ri-user-3-line" style="font-size: 0.8rem; color: var(--color-text-muted);"></i> ${mi.username}</div>` : ''}
+              <div>${shopUrlHtml}</div>
+              ${partnerPinHtml}
+            </td>
+            <td style="padding: 0.9rem 1rem; color: var(--color-text-muted); font-size: 0.82rem;">
+              <div style="display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-calendar-line" style="font-size: 0.85rem;"></i> ${dateStr}
+              </div>
+            </td>
+            <td style="padding: 0.9rem 1rem;">${statusBadge}</td>
+            <td style="padding: 0.9rem 1rem;">${syncStatusHtml}</td>
           </tr>
         `;
       });
-    } else {
-      rowsHtml = `
-        <tr>
-          <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay integraciones de comercios configuradas.</td>
-        </tr>
-      `;
+
+      merchantsTableBody.innerHTML = rowsHtml;
+      attachTableActionListeners();
     }
 
-    appContent.innerHTML = `
-      <div style="margin-bottom: 2rem;">
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones del WMS (Administración)</h2>
-        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Conecta el WMS STOCKA con plataformas de logística globales. 
-          Sincroniza pedidos de todos los clientes y realiza el seguimiento de entregas en tiempo real.
-        </p>
-      </div>
+    // Listener para copiar PIN al portapapeles y botones de acción
+    function attachTableActionListeners() {
+      // Copiar PIN
+      document.querySelectorAll('.btn-copy-pin').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const pin = btn.getAttribute('data-pin');
+          if (pin) {
+            navigator.clipboard.writeText(pin).then(() => {
+              const originalHtml = btn.innerHTML;
+              btn.innerHTML = `<i class="ri-check-line"></i> ¡Copiado!`;
+              setTimeout(() => { btn.innerHTML = originalHtml; }, 2000);
+            });
+          }
+        });
+      });
 
-      <div class="integration-tabs" style="display: flex; gap: 1rem; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
-        <button class="integration-tab active" data-tab="tab-connections" style="background: none; border: none; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; padding: 0.5rem 1.25rem; cursor: pointer; font-size: 0.95rem;">
-          <i class="ri-plug-line"></i> Conexiones
-        </button>
-      </div>
-
-      <div class="integration-content">
-        <div id="tab-connections" class="integration-tab-pane" style="display: block;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-bottom: 2.5rem;">
-        <!-- Left Column: Active/Available Integrations -->
-        <div style="display: flex; flex-direction: column; gap: 2rem;">
+      // Sincronización manual "Sincronizar ahora"
+      document.querySelectorAll('.btn-sync-now').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const platform = btn.getAttribute('data-platform');
+          const comercio = btn.getAttribute('data-comercio');
           
-          <!-- Optiroute Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-truck-line"></i> Optiroute API</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasOptiroute ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasOptiroute ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasOptiroute ? '#10b981' : 'var(--color-text-main)'};">Optiroute Tracking</h4>
-                      <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de estado de despacho global.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${optirouteStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-optiroute-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
-                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" required style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
+          btn.disabled = true;
+          const originalHtml = btn.innerHTML;
+          btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
+          
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("No autenticado en el WMS.");
+            
+            const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+              },
+              body: JSON.stringify({ platform })
+            });
+            
+            const result = await response.json();
+            if (!response.ok) {
+              throw new Error(result.error || `Error del servidor: ${response.status}`);
+            }
+            
+            if (window.Swal) {
+              Swal.fire({
+                title: 'Sincronización Iniciada',
+                text: `Sincronización solicitada para ${comercio} (${platform}). El WMS se actualizará en unos minutos.`,
+                icon: 'success',
+                confirmButtonColor: 'var(--color-primary)'
+              });
+            } else {
+              alert(`Sincronización manual solicitada para ${comercio} (${platform}). El WMS se actualizará en unos minutos.`);
+            }
+          } catch (err) {
+            console.error(err);
+            if (window.Swal) {
+              Swal.fire('Error al sincronizar', err.message, 'error');
+            } else {
+              alert(`Error al sincronizar: ${err.message}`);
+            }
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+          }
+        });
+      });
 
-                <!-- Credential Helper -->
-                <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: var(--color-surface);">
-                  <summary style="font-size: 0.875rem; font-weight: 600; cursor: pointer; color: var(--color-accent);"><i class="ri-key-line"></i> Generar Token usando credenciales</summary>
-                  <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Ingresa las credenciales de tu cuenta Optiroute para obtener el token automáticamente:</p>
-                    <div class="form-group" style="margin: 0;">
-                      <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
+      // Diagnóstico WooCommerce
+      document.querySelectorAll('.btn-verify-woo-admin').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const comercio = btn.getAttribute('data-comercio');
+          const merchantId = btn.getAttribute('data-merchant');
+          
+          const originalHtml = btn.innerHTML;
+          btn.disabled = true;
+          btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+              },
+              body: JSON.stringify({
+                action: 'verify_connection',
+                comercio: comercio,
+                merchant_id: merchantId
+              })
+            });
+
+            const result = await response.json();
+
+            if (!result.success && !result.api_connected) {
+              if (window.Swal) {
+                Swal.fire({
+                  title: `Error WooCommerce (${comercio})`,
+                  text: result.error || 'No se pudo conectar con la API de WooCommerce.',
+                  icon: 'error',
+                  confirmButtonColor: '#ef4444'
+                });
+              } else {
+                alert(`Error WooCommerce (${comercio}): ${result.error || 'No se pudo conectar con la API de WooCommerce.'}`);
+              }
+              return;
+            }
+
+            const hasCreated = result.webhooks?.order_created;
+            const hasUpdated = result.webhooks?.order_updated;
+            const writePerms = result.write_permissions;
+            const allOk = result.all_healthy;
+
+            if (window.Swal) {
+              Swal.fire({
+                title: `Diagnóstico WooCommerce: ${comercio}`,
+                html: `
+                  <div style="text-align: left; font-size: 0.875rem;">
+                    <p style="margin-bottom: 0.75rem; color: var(--color-text-main);"><strong>URL:</strong> <a href="${result.shop_url}" target="_blank" style="color: #0284c7;">${result.shop_url}</a></p>
+                    <div style="background: var(--color-bg, #f8fafc); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); margin-bottom: 1rem; line-height: 1.6;">
+                      <div>• <strong>API REST:</strong> <span style="color: #10b981; font-weight: 600;">✅ Conectada</span></div>
+                      <div>• <strong>Permisos de Clave:</strong> ${writePerms ? '<span style="color: #10b981; font-weight: 600;">✅ Lectura y Escritura</span>' : '<span style="color: #d97706; font-weight: 600;">⚠️ Solo Lectura</span>'}</div>
+                      <div>• <strong>Webhook Pedido Creado:</strong> ${hasCreated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
+                      <div>• <strong>Webhook Pedido Actualizado:</strong> ${hasUpdated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
                     </div>
-                    <div class="form-group" style="margin: 0;">
-                      <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <div style="font-size: 0.8rem; color: var(--color-text-muted, #64748b);">
+                      <strong>URL de Webhook asignada:</strong><br>
+                      <code style="background: var(--color-surface, #ffffff); padding: 0.2rem 0.4rem; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all; border: 1px solid var(--color-border, #cbd5e1); font-size: 0.75rem;">${result.expected_webhook_url}</code>
                     </div>
-                    <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem; width: auto; font-weight: 600; border-color: var(--color-accent); color: var(--color-accent);">Obtener Token</button>
-                    <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.5rem; font-size: 0.8rem; margin: 0;"></div>
                   </div>
-                </details>
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
-                  <button type="submit" class="btn btn-primary" id="btn-save-optiroute" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">${hasOptiroute ? 'Actualizar Token' : 'Conectar Optiroute'}</button>
-                  ${hasOptiroute ? '<button type="button" class="btn btn-outline" id="btn-disconnect-optiroute" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Optiroute</button>' : ''}
-                </div>
-              </form>
-            </div>
-          </div>
+                `,
+                icon: allOk ? 'success' : 'info',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: '#0284c7'
+              });
+            } else {
+              alert(`Diagnóstico WooCommerce ${comercio}: Conectado. Webhooks OK: ${hasCreated && hasUpdated}`);
+            }
 
-        </div>
+          } catch (err) {
+            console.error(err);
+            if (window.Swal) {
+              Swal.fire('Error', `Error al ejecutar diagnóstico: ${err.message}`, 'error');
+            } else {
+              alert(`Error al ejecutar diagnóstico: ${err.message}`);
+            }
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+          }
+        });
+      });
+    }
 
-        <!-- Right Column: Manual/Guides -->
-        <div>
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);"><i class="ri-book-read-line" style="color: var(--color-primary);"></i> Guía de Integración Optiroute</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              
-              <div class="tab-content">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">¿Qué hace esta integración?</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">WMS STOCKA consultará periódicamente la API de Optiroute para obtener el estado de tránsito y entrega de las rutas de todos los pedidos, actualizando el WMS en tiempo real a nivel global.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Token Automáticamente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Usa la sección desplegable <em>"Generar Token usando credenciales"</em> de la izquierda. Ingresa tu correo y contraseña de Optiroute para obtenerlo de inmediato.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Token Manualmente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Si prefieres obtener tu token mediante un comando en la consola de tu computador:</p>
-                    <pre style="background: var(--color-bg); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem; color: var(--color-text-main); border: 1px solid var(--color-border);">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
-  -F "username=tu-correo@empresa.com" \\
-  -F "password=tu-contrasena"</pre>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">Copia el valor de 'token' retornado y pégalo arriba.</p>
-                  </li>
-                </ol>
-              </div>
+    // Renderizar inicialmente la tabla
+    filterAndRenderMerchants();
 
-            </div>
-          </div>
-        </div>
-      </div>
+    // Eventos de Filtrado y Búsqueda
+    if (searchInput) searchInput.addEventListener('input', () => filterAndRenderMerchants());
+    if (clearSearchBtn) {
+      clearSearchBtn.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        filterAndRenderMerchants();
+      });
+    }
+    if (filterPlatformSelect) filterPlatformSelect.addEventListener('change', () => filterAndRenderMerchants());
+    if (filterStatusSelect) filterStatusSelect.addEventListener('change', () => filterAndRenderMerchants());
+    if (filterSyncSelect) filterSyncSelect.addEventListener('change', () => filterAndRenderMerchants());
+    if (resetFiltersBtn) {
+      resetFiltersBtn.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        if (filterPlatformSelect) filterPlatformSelect.value = '';
+        if (filterStatusSelect) filterStatusSelect.value = '';
+        if (filterSyncSelect) filterSyncSelect.value = '';
+        filterAndRenderMerchants();
+      });
+    }
 
-      <!-- Sección de Integraciones Activas de Comercios (Clientes) -->
-      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-          <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Integraciones Activas de Comercios</h3>
-        </div>
-        <div class="card-body" style="padding: 1.5rem;">
-          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0; margin-bottom: 1.5rem;">
-            Listado de los marketplaces y tiendas conectadas por tus clientes en el WMS.
-          </p>
-          <div class="table-responsive">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
-              <thead>
-                <tr>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Cliente / Empresa</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Plataforma</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Usuario / Tienda URL</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Fecha Conexión</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Estado</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Sincronización (Cron)</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-    </div>
-  </div>
-  `;
+    // ====================================================
+    // LÓGICA DE TABS PRINCIPALES (Comercios vs Optiroute)
+    // ====================================================
+    const tabBtnMerchants = document.getElementById('tab-btn-merchants');
+    const tabBtnOptiroute = document.getElementById('tab-btn-optiroute');
+    const tabContentMerchants = document.getElementById('tab-merchants-content');
+    const tabContentOptiroute = document.getElementById('tab-optiroute-content');
 
-    // Optiroute Submit Listener
+    function switchTab(target) {
+      if (target === 'tab-merchants') {
+        tabBtnMerchants.classList.add('active');
+        tabBtnMerchants.style.borderBottomColor = 'var(--color-primary)';
+        tabBtnMerchants.style.color = 'var(--color-primary)';
+        tabBtnMerchants.style.fontWeight = '700';
+
+        tabBtnOptiroute.classList.remove('active');
+        tabBtnOptiroute.style.borderBottomColor = 'transparent';
+        tabBtnOptiroute.style.color = 'var(--color-text-muted)';
+        tabBtnOptiroute.style.fontWeight = '600';
+
+        tabContentMerchants.style.display = 'flex';
+        tabContentOptiroute.style.display = 'none';
+      } else {
+        tabBtnOptiroute.classList.add('active');
+        tabBtnOptiroute.style.borderBottomColor = 'var(--color-primary)';
+        tabBtnOptiroute.style.color = 'var(--color-primary)';
+        tabBtnOptiroute.style.fontWeight = '700';
+
+        tabBtnMerchants.classList.remove('active');
+        tabBtnMerchants.style.borderBottomColor = 'transparent';
+        tabBtnMerchants.style.color = 'var(--color-text-muted)';
+        tabBtnMerchants.style.fontWeight = '600';
+
+        tabContentMerchants.style.display = 'none';
+        tabContentOptiroute.style.display = 'flex';
+      }
+    }
+
+    if (tabBtnMerchants) tabBtnMerchants.addEventListener('click', () => switchTab('tab-merchants'));
+    if (tabBtnOptiroute) tabBtnOptiroute.addEventListener('click', () => switchTab('tab-optiroute'));
+
+    // Botón refrescar vista completa
+    const btnRefreshView = document.getElementById('btn-refresh-integrations-view');
+    if (btnRefreshView) {
+      btnRefreshView.addEventListener('click', () => {
+        renderIntegrations();
+      });
+    }
+
+    // ====================================================
+    // LÓGICA DE LA PESTAÑA OPTIROUTE
+    // ====================================================
+    
+    // Toggle visibilidad de Token
+    const btnToggleVis = document.getElementById('btn-toggle-optiroute-token-visibility');
+    const optirouteTokenInput = document.getElementById('optiroute-token');
+    if (btnToggleVis && optirouteTokenInput) {
+      btnToggleVis.addEventListener('click', () => {
+        if (optirouteTokenInput.type === 'password') {
+          optirouteTokenInput.type = 'text';
+          btnToggleVis.innerHTML = '<i class="ri-eye-off-line"></i>';
+        } else {
+          optirouteTokenInput.type = 'password';
+          btnToggleVis.innerHTML = '<i class="ri-eye-line"></i>';
+        }
+      });
+    }
+
+    // Submit Guardar Token Optiroute
     const formOptiroute = document.getElementById('form-optiroute-integration');
     if (formOptiroute) {
       formOptiroute.addEventListener('submit', async (e) => {
@@ -5717,7 +6565,8 @@ async function renderIntegrations() {
 
         const token = document.getElementById('optiroute-token').value.trim();
         if (!token) {
-          alert('Por favor ingresa un Token de API válido.');
+          if (window.Swal) Swal.fire('Atención', 'Por favor ingresa un Token de API válido.', 'warning');
+          else alert('Por favor ingresa un Token de API válido.');
           if (btn) btn.disabled = false;
           return;
         }
@@ -5729,7 +6578,8 @@ async function renderIntegrations() {
               .eq('id', optirouteIntegration.id);
 
             if (upErr) throw upErr;
-            alert('Token de Optiroute actualizado correctamente.');
+            if (window.Swal) Swal.fire('Éxito', 'Token de Optiroute actualizado correctamente.', 'success');
+            else alert('Token de Optiroute actualizado correctamente.');
           } else {
             const { error: insErr } = await supabase.from('merchant_integrations').insert([{
               merchant_id: merchantId,
@@ -5740,18 +6590,20 @@ async function renderIntegrations() {
               comercio: 'STOCKA'
             }]);
             if (insErr) throw insErr;
-            alert('Integración con Optiroute guardada correctamente.');
+            if (window.Swal) Swal.fire('Éxito', 'Integración con Optiroute guardada correctamente.', 'success');
+            else alert('Integración con Optiroute guardada correctamente.');
           }
           renderIntegrations();
         } catch (err) {
           console.error(err);
-          alert('Error al guardar la integración: ' + err.message);
+          if (window.Swal) Swal.fire('Error', 'Error al guardar la integración: ' + err.message, 'error');
+          else alert('Error al guardar la integración: ' + err.message);
           if (btn) btn.disabled = false;
         }
       });
     }
 
-    // Token Generator helper handler
+    // Generador de Token Automático con credenciales
     const btnGen = document.getElementById('btn-generate-optiroute-token');
     if (btnGen) {
       btnGen.addEventListener('click', async (e) => {
@@ -5769,13 +6621,13 @@ async function renderIntegrations() {
             alertContainer.style.backgroundColor = '#fee2e2';
             alertContainer.style.color = '#b91c1c';
             alertContainer.style.border = '1px solid #fecaca';
-            alertContainer.textContent = 'Ingresa tu usuario y contraseña.';
+            alertContainer.textContent = 'Ingresa tu correo y contraseña de Optiroute.';
           }
           return;
         }
         
         btnGen.disabled = true;
-        btnGen.textContent = 'Obteniendo token...';
+        btnGen.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Obteniendo token...';
         if (alertContainer) alertContainer.style.display = 'none';
         
         try {
@@ -5817,182 +6669,135 @@ async function renderIntegrations() {
             alertContainer.style.backgroundColor = '#fee2e2';
             alertContainer.style.color = '#b91c1c';
             alertContainer.style.border = '1px solid #fecaca';
-            alertContainer.innerHTML = '<strong>Error de conexión / Bloqueo CORS:</strong> Obtén el token manualmente usando curl (ver la guía a la derecha) e ingrésalo en el campo de arriba.';
+            alertContainer.innerHTML = '<strong>Error de conexión / Bloqueo CORS:</strong> Si tu navegador bloquea la petición directa, obtén el token usando el comando cURL (ver guía de la derecha) e ingrésalo en el campo superior.';
           }
         } finally {
           btnGen.disabled = false;
-          btnGen.textContent = 'Obtener Token';
+          btnGen.innerHTML = '<i class="ri-key-line"></i> Obtener Token';
         }
       });
     }
 
-    // Disconnect listener
+    // Desconectar Optiroute
     const btnDisconnectOptiroute = document.getElementById('btn-disconnect-optiroute');
     if (btnDisconnectOptiroute) {
       btnDisconnectOptiroute.addEventListener('click', async () => {
-        if (confirm('¿Estás seguro que deseas desconectar tu cuenta de Optiroute?')) {
+        const doDisconnect = async () => {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
               .eq('platform', 'Optiroute');
 
             if (delErr) throw delErr;
-            alert('Optiroute desconectado correctamente.');
+            if (window.Swal) Swal.fire('Desconectado', 'Optiroute desconectado correctamente.', 'success');
+            else alert('Optiroute desconectado correctamente.');
             renderIntegrations();
           } catch (err) {
             console.error(err);
-            alert('Error al desconectar: ' + err.message);
+            if (window.Swal) Swal.fire('Error', 'Error al desconectar: ' + err.message, 'error');
+            else alert('Error al desconectar: ' + err.message);
           }
+        };
+
+        if (window.Swal) {
+          Swal.fire({
+            title: '¿Desconectar Optiroute?',
+            text: 'Se eliminarán las credenciales activas del WMS y la sincronización automática de tracking se detendrá.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ef4444',
+            cancelButtonColor: 'var(--color-text-muted)',
+            confirmButtonText: 'Sí, Desconectar',
+            cancelButtonText: 'Cancelar'
+          }).then((res) => {
+            if (res.isConfirmed) doDisconnect();
+          });
+        } else if (confirm('¿Estás seguro que deseas desconectar tu cuenta de Optiroute?')) {
+          doDisconnect();
         }
       });
     }
 
-    // Listeners para sincronización manual "Sincronizar ahora"
-    document.querySelectorAll('.btn-sync-now').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const platform = btn.getAttribute('data-platform');
-        const comercio = btn.getAttribute('data-comercio');
-        
-        btn.disabled = true;
-        const originalHtml = btn.innerHTML;
-        btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
-        
+    // Botón Sincronizar Optiroute Ahora desde la pestaña
+    const btnSyncOptirouteNowTab = document.getElementById('btn-sync-optiroute-now-tab');
+    if (btnSyncOptirouteNowTab) {
+      btnSyncOptirouteNowTab.addEventListener('click', async () => {
+        btnSyncOptirouteNowTab.disabled = true;
+        const origHtml = btnSyncOptirouteNowTab.innerHTML;
+        btnSyncOptirouteNowTab.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Solicitando sync...';
+
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("No autenticado en el WMS.");
-          
-          const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations`, {
+
+          const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${session.access_token}`
             },
-            body: JSON.stringify({ platform })
+            body: JSON.stringify({ platform: 'Optiroute' })
           });
-          
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(result.error || `Error del servidor: ${response.status}`);
+
+          if (!res.ok) {
+            console.warn('Edge Function sync-integrations devolvió respuesta no OK');
           }
-          
-          alert(`Sincronización manual solicitada para ${comercio} (${platform}). El WMS se actualizará en unos minutos.`);
-        } catch (err) {
-          console.error(err);
-          alert(`Error al sincronizar: ${err.message}`);
-        } finally {
-          btn.disabled = false;
-          btn.innerHTML = originalHtml;
-        }
-      });
-    });
 
-    // Listeners para diagnóstico de WooCommerce en Admin
-    document.querySelectorAll('.btn-verify-woo-admin').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const comercio = btn.getAttribute('data-comercio');
-        const merchantId = btn.getAttribute('data-merchant');
-        
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
-
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
-            },
-            body: JSON.stringify({
-              action: 'verify_connection',
-              comercio: comercio,
-              merchant_id: merchantId
-            })
-          });
-
-          const result = await response.json();
-
-          if (!result.success && !result.api_connected) {
+          if (window.Swal) {
             Swal.fire({
-              title: `Error WooCommerce (${comercio})`,
-              text: result.error || 'No se pudo conectar con la API de WooCommerce.',
-              icon: 'error',
-              confirmButtonColor: '#ef4444'
+              icon: 'success',
+              title: 'Sincronización Optiroute Solicitada',
+              text: 'Se inició el proceso de sincronización con Optiroute. Las métricas y pedidos se actualizarán en breve.',
+              confirmButtonColor: 'var(--color-primary)'
             });
-            return;
+          } else {
+            alert('Sincronización con Optiroute solicitada correctamente.');
           }
 
-          const hasCreated = result.webhooks?.order_created;
-          const hasUpdated = result.webhooks?.order_updated;
-          const writePerms = result.write_permissions;
-          const allOk = result.all_healthy;
-
-          Swal.fire({
-            title: `Diagnóstico WooCommerce: ${comercio}`,
-            html: `
-              <div style="text-align: left; font-size: 0.875rem;">
-                <p style="margin-bottom: 0.75rem; color: var(--color-text-main);"><strong>URL:</strong> <a href="${result.shop_url}" target="_blank" style="color: #0284c7;">${result.shop_url}</a></p>
-                <div style="background: var(--color-bg, #f8fafc); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); margin-bottom: 1rem; line-height: 1.6;">
-                  <div>• <strong>API REST:</strong> <span style="color: #10b981; font-weight: 600;">✅ Conectada</span></div>
-                  <div>• <strong>Permisos de Clave:</strong> ${writePerms ? '<span style="color: #10b981; font-weight: 600;">✅ Lectura y Escritura</span>' : '<span style="color: #d97706; font-weight: 600;">⚠️ Solo Lectura</span>'}</div>
-                  <div>• <strong>Webhook Pedido Creado:</strong> ${hasCreated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
-                  <div>• <strong>Webhook Pedido Actualizado:</strong> ${hasUpdated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
-                </div>
-                <div style="font-size: 0.8rem; color: var(--color-text-muted, #64748b);">
-                  <strong>URL de Webhook asignada:</strong><br>
-                  <code style="background: var(--color-surface, #ffffff); padding: 0.2rem 0.4rem; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all; border: 1px solid var(--color-border, #cbd5e1); font-size: 0.75rem;">${result.expected_webhook_url}</code>
-                </div>
-              </div>
-            `,
-            icon: allOk ? 'success' : 'info',
-            confirmButtonText: 'Entendido',
-            confirmButtonColor: '#0284c7'
-          });
+          // Auto refrescar métricas tras unos segundos
+          setTimeout(() => {
+            renderIntegrations().then(() => {
+              switchTab('tab-optiroute');
+            });
+          }, 4000);
 
         } catch (err) {
-          console.error(err);
-          Swal.fire('Error', `Error al ejecutar diagnóstico: ${err.message}`, 'error');
+          console.error('Error al sincronizar Optiroute:', err);
+          if (window.Swal) Swal.fire('Error', `No se pudo iniciar la sincronización: ${err.message}`, 'error');
+          else alert(`Error al iniciar sincronización: ${err.message}`);
         } finally {
-          btn.disabled = false;
-          btn.innerHTML = originalHtml;
+          btnSyncOptirouteNowTab.disabled = false;
+          btnSyncOptirouteNowTab.innerHTML = origHtml;
         }
       });
-    });
+    }
 
-    // JS Tabs Logic for Admin Integrations
-    setTimeout(() => {
-      const tabs = document.querySelectorAll('.integration-tab');
-      const panes = document.querySelectorAll('.integration-tab-pane');
-      tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-          tabs.forEach(t => {
-            t.classList.remove('active');
-            t.style.borderBottomColor = 'transparent';
-            t.style.color = 'var(--color-text-muted)';
-            t.style.fontWeight = '500';
-          });
-          panes.forEach(p => p.style.display = 'none');
-          
-          tab.classList.add('active');
-          tab.style.borderBottomColor = 'var(--color-primary)';
-          tab.style.color = 'var(--color-text-main)';
-          tab.style.fontWeight = '600';
-          
-          const tabId = tab.getAttribute('data-tab');
-          const targetPane = document.getElementById(tabId);
-          if (targetPane) {
-            targetPane.style.display = 'block';
-          }
+    // Botón Refrescar Métricas Optiroute
+    const btnRefreshOptirouteMetrics = document.getElementById('btn-refresh-optiroute-metrics');
+    if (btnRefreshOptirouteMetrics) {
+      btnRefreshOptirouteMetrics.addEventListener('click', () => {
+        renderIntegrations().then(() => {
+          switchTab('tab-optiroute');
         });
       });
-    }, 0);
+    }
 
   } catch (error) {
     console.error('Error fetching integrations:', error);
-    appContent.innerHTML = `<p class="text-center text-danger">Error al cargar integraciones: ${error.message}</p>`;
+    appContent.innerHTML = `
+      <div style="padding: 3rem 1.5rem; text-align: center;">
+        <div class="alert alert-danger" style="display: inline-block; max-width: 600px; padding: 1.5rem; border-radius: var(--radius-lg); text-align: left;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <i class="ri-error-warning-fill" style="font-size: 1.5rem; color: #ef4444;"></i>
+            <h3 style="margin: 0; font-size: 1.1rem; color: #991b1b;">Error al cargar el módulo de Integraciones</h3>
+          </div>
+          <p style="margin: 0; font-size: 0.88rem; color: #7f1d1d;">${error.message}</p>
+          <button onclick="renderIntegrations()" class="btn btn-outline" style="margin-top: 1rem; border-color: #ef4444; color: #ef4444; background: transparent; padding: 0.4rem 0.9rem; font-size: 0.82rem; border-radius: var(--radius-md); cursor: pointer;">
+            <i class="ri-refresh-line"></i> Reintentar
+          </button>
+        </div>
+      </div>
+    `;
   }
 }
 // ==========================================
