@@ -114,9 +114,10 @@ serve(async (req) => {
       }
     }
 
-    // WooCommerce a veces envía un webhook de prueba al crearlo {"webhook_id": 123}
-    if (payload.webhook_id && !payload.id && !topicHeader) {
-      console.log(`ℹ️ Webhook Ping de WooCommerce recibido con éxito. Webhook ID: ${payload.webhook_id}`);
+    // Detectar si es un Ping de prueba / Handshake de WooCommerce al guardar el webhook
+    const isPingOrEmpty = !!payload.webhook_id || (!payload.id && !payload.number) || Object.keys(payload).length === 0;
+    if (isPingOrEmpty) {
+      console.log(`ℹ️ Webhook Ping / Handshake de WooCommerce recibido con éxito. Evento: ${topicHeader || 'ping'}`);
       return new Response(JSON.stringify({ success: true, message: "Webhook ping received successfully" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -443,6 +444,11 @@ async function resolveWooOrderNumber(comercio: string, rawNumber: string | numbe
 }
 
 async function handleWooOrderCreate(merchantId: string, comercio: string, order: any) {
+  if (!order || (!order.id && !order.number)) {
+    console.log(`ℹ️ Payload de orden de WooCommerce sin número ni ID válido. Omitiendo.`);
+    return;
+  }
+
   const orderId = String(order.id || "");
   const baseNumber = String(order.number || orderId).trim();
   const { finalNumber: finalOrderNumber } = await resolveWooOrderNumber(comercio, baseNumber);
@@ -623,6 +629,11 @@ async function handleWooOrderCreate(merchantId: string, comercio: string, order:
 }
 
 async function handleWooOrderUpdate(merchantId: string, comercio: string, order: any) {
+  if (!order || (!order.id && !order.number)) {
+    console.log(`ℹ️ Payload de actualización de orden sin número ni ID válido. Omitiendo.`);
+    return;
+  }
+
   const orderId = String(order.id || "");
   const baseNumber = String(order.number || orderId).trim();
   const { finalNumber: finalOrderNumber } = await resolveWooOrderNumber(comercio, baseNumber);
