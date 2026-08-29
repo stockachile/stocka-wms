@@ -10857,7 +10857,7 @@ async function renderIntegrations() {
         const hh = String(now.getHours()).padStart(2, '0');
         const min = String(now.getMinutes()).padStart(2, '0');
         const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-        finalExternalId = `MAN-${yy}${mm}${dd}-${hh}${min}-${randomSuffix}`;
+        finalExternalId = `MAN${yy}${mm}${dd}${hh}${min}${randomSuffix}`;
       }
 
       // Aplicar reglas de prefijo para pedidos Manuales
@@ -10906,6 +10906,9 @@ async function renderIntegrations() {
       } catch (err) {
         console.warn('⚠️ Error al aplicar prefijo a la orden manual:', err.message);
       }
+
+      // Eliminar caracteres especiales como el guion
+      finalExternalId = finalExternalId.replace(/[^a-zA-Z0-9]/g, '');
 
       // Consolidated values
       const totalCantidad = items.reduce((sum, i) => sum + i.quantity, 0);
