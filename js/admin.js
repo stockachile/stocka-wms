@@ -4189,6 +4189,7 @@ window.applyBulkWmsStatus = async function() {
     if (!formValues) return;
 
     const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const failedOrders = new Set();
 
     // A. Validar stock físico disponible para cada pedido (excluyendo virtuales) en la bodega de la sucursal destino
     // Solo para comercios con seguimiento de stock activo
@@ -4231,7 +4232,6 @@ window.applyBulkWmsStatus = async function() {
         });
 
         const tempInv = { ...invMap };
-        const failedOrders = new Set();
         const failedDetails = [];
 
         for (const item of allItemsToCheck) {
