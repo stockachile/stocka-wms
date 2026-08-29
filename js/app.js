@@ -6254,11 +6254,18 @@ window.applyClientWmsFiltersAndRender = function() {
 
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
-    let orderShipments = shipments.filter(s => 
-      s.pedido_referencia === order.id || 
-      (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-      (order.tracking_number && s.pedido_referencia === order.tracking_number)
-    );
+    let orderShipments = shipments.filter(s => {
+      // Ignorar couriers no operativos (RECIBELO, WELIVERY, etc.)
+      const sCourierUpper = (s.courier || '').toUpperCase().trim();
+      if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+          sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+        return false;
+      }
+
+      return s.pedido_referencia === order.id || 
+             (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
+             (order.tracking_number && s.pedido_referencia === order.tracking_number);
+    });
 
     // Priorizar los envíos según movimiento y coincidencia
     if (orderShipments.length > 1) {
@@ -6507,12 +6514,20 @@ window.applyClientWmsFiltersAndRender = function() {
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
     const totalItems = order.order_items?.reduce((s, i) => s + (i.quantity || 1), 0) || order.cantidad || '-';
 
+    // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
+    const orderCourierUpper = (order.courier || '').toUpperCase().trim();
+    const orderOperadorUpper = (order.operador || '').toUpperCase().trim();
+    const isIgnoredCourier = orderCourierUpper.includes('RECIBELO') || orderCourierUpper.includes('RECÍBELO') || 
+                             orderCourierUpper.includes('WELIVERY') || orderCourierUpper.includes('WOODELIVERY') || orderCourierUpper.includes('WODELY') ||
+                             orderOperadorUpper.includes('RECIBELO') || orderOperadorUpper.includes('RECÍBELO') || 
+                             orderOperadorUpper.includes('WELIVERY');
+
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
-    if (order.label_base64) {
+    if (order.label_base64 && !isIgnoredCourier) {
       labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.label_url) {
+    } else if (order.label_url && !isIgnoredCourier) {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; text-decoration: none; border-radius: var(--radius-sm); transition: all 0.2s;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
     }
 
@@ -7047,7 +7062,7 @@ window.applyClientWmsFiltersAndRender = function() {
                 <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
                   <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Courier Asignado:</span>
                   <span style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                    <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${order.courier || (orderShipments.length > 0 ? orderShipments[0].courier : null) || 'No asignado'}
+                    <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${(isIgnoredCourier ? 'No asignado' : ((order.courier && order.courier !== 'CARRIER EXTERNO') ? order.courier : (orderShipments.length > 0 ? orderShipments[0].courier : null) || 'No asignado'))}
                   </span>
                 </div>
 

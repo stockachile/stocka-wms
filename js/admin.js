@@ -2825,6 +2825,13 @@ window.applyWmsFiltersAndRender = function() {
 
     // Buscar el envío en el listado cargado con control de colisiones por comercio
     let orderShipments = shipments.filter(s => {
+      // Ignorar couriers no operativos (RECIBELO, WELIVERY, etc.)
+      const sCourierUpper = (s.courier || '').toUpperCase().trim();
+      if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+          sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+        return false;
+      }
+
       const refMatches = s.pedido_referencia === order.id || 
                          (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
                          (order.tracking_number && s.pedido_referencia === order.tracking_number);
@@ -3239,21 +3246,29 @@ window.applyWmsFiltersAndRender = function() {
       ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
       : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span></div>`;
 
+    // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
+    const orderCourierUpper = (order.courier || '').toUpperCase().trim();
+    const orderOperadorUpper = (order.operador || '').toUpperCase().trim();
+    const isIgnoredCourier = orderCourierUpper.includes('RECIBELO') || orderCourierUpper.includes('RECÍBELO') || 
+                             orderCourierUpper.includes('WELIVERY') || orderCourierUpper.includes('WOODELIVERY') || orderCourierUpper.includes('WODELY') ||
+                             orderOperadorUpper.includes('RECIBELO') || orderOperadorUpper.includes('RECÍBELO') || 
+                             orderOperadorUpper.includes('WELIVERY');
+
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
-    if (order.label_url) {
+    if (order.label_url && !isIgnoredCourier) {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
-    } else if (order.tracking_number) {
+    } else if (order.tracking_number && !isIgnoredCourier) {
       labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') {
+    } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA' || isIgnoredCourier) {
       labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
     }
 
     let courier_destino = '';
     let comuna_destino = '';
-    let trackingNum = order.tracking_number;
-    let trackingUrl = order.tracking_url;
+    let trackingNum = isIgnoredCourier ? null : order.tracking_number;
+    let trackingUrl = isIgnoredCourier ? null : order.tracking_url;
 
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
@@ -3296,7 +3311,7 @@ window.applyWmsFiltersAndRender = function() {
 
     const courierName = (orderShipments.length > 0 && orderShipments[0].courier)
       ? orderShipments[0].courier
-      : ((order.courier && order.courier !== 'CARRIER EXTERNO') ? order.courier : (courier_destino || order.courier || 'Courier'));
+      : ((order.courier && order.courier !== 'CARRIER EXTERNO' && !isIgnoredCourier) ? order.courier : ((courier_destino && !courier_destino.toUpperCase().includes('RECIBELO') && !courier_destino.toUpperCase().includes('WELIVERY')) ? courier_destino : ((order.courier && !isIgnoredCourier) ? order.courier : 'Courier')));
 
     if (trackingNum) {
       const trackingLink = trackingUrl && trackingUrl !== 'N/A'
@@ -37557,6 +37572,12 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     let orderShipments = (!shipErr && shipData) ? shipData : [];
     if (orderShipments.length > 0) {
       orderShipments = orderShipments.filter(s => {
+        const sCourierUpper = (s.courier || '').toUpperCase().trim();
+        if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+            sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+          return false;
+        }
+
         let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
@@ -38087,6 +38108,16 @@ window.sendSingleOrderToPicker = async function(order) {
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
+    const opUpper = (order.operador || '').toUpperCase().trim();
+    const curUpper = (order.courier || '').toUpperCase().trim();
+    const isIgnoredOp = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
+                        opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY') ||
+                        curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
+                        curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
+
+    const cleanTracking = isIgnoredOp ? '' : ((order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''));
+    const cleanOperator = isIgnoredOp ? '' : (order.operador || '');
+
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
       order_number: orderNumber,
@@ -38099,8 +38130,8 @@ window.sendSingleOrderToPicker = async function(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
-      operator: order.operador || '',
+      tracking: cleanTracking,
+      operator: cleanOperator,
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
       observation: order.observation || prod.description || '',
