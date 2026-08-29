@@ -450,6 +450,40 @@ const INITIAL_MOCK_DATA = {
   system_banners: [],
   system_popups: [],
   user_notification_reads: [],
+  tickets: [
+    {
+      id: 'tk-1001-demo',
+      user_id: DEMO_USER_ID,
+      comercio: DEMO_COMMERCE,
+      subject: 'Consulta sobre tiempo de recepción de carga',
+      category: 'incidencia',
+      priority: 'media',
+      description: 'Hola equipo, enviamos una declaración de stock ayer y quisiéramos saber cuándo estará recepcionada en bodega.',
+      order_id: null,
+      status: 'en_proceso',
+      assigned_to: 'colab-2',
+      created_at: new Date(Date.now() - 36 * 3600 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString()
+    }
+  ],
+  ticket_messages: [
+    {
+      id: 'tm-1001-1',
+      ticket_id: 'tk-1001-demo',
+      sender_id: DEMO_USER_ID,
+      message: 'Hola equipo, enviamos una declaración de stock ayer y quisiéramos saber cuándo estará recepcionada en bodega.',
+      is_internal: false,
+      created_at: new Date(Date.now() - 36 * 3600 * 1000).toISOString()
+    },
+    {
+      id: 'tm-1001-2',
+      ticket_id: 'tk-1001-demo',
+      sender_id: 'colab-2',
+      message: 'Hola, estamos revisando el ingreso de pallets en Bodega Central. Debería quedar disponible en el sistema hoy antes de las 18:00 hrs.',
+      is_internal: false,
+      created_at: new Date(Date.now() - 2 * 3600 * 1000).toISOString()
+    }
+  ],
   shipping_rates: [
     { id: 'current', rates: { "Santiago": 3500, "Valparaiso": 4200, "Concepcion": 5000, "Antofagasta": 6500 } }
   ],

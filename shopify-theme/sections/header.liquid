@@ -9,21 +9,68 @@
       --logo-width-mobile: {{ section.settings.mobile_logo_max_width }}px;
       --logo-width-sticky: {{ section.settings.sticky_logo_max_width }}px;
     }
-    .sf-header header {
-        background-color: {{ settings.color_header_bg }};
-        color: {{ settings.color_header_link }};
-    }
-    .sf-header.sf-mega-active header {
-        color: #000;
-    }
-    .sf-header.sf-mega-active .transparent-on-top header {
-      color: {{ settings.color_header_link }};
-    }
-    {% if transparent_on_top %}
-        .sf-header .transparent-on-top header {
-            color: {{ settings.color_header_transparent }};
-        }
-    {% endif %}
+    
+/* ==========================================================================
+   STOCKA PREMIUM FROSTED GLASS HEADER (BULLETPROOF FIX)
+   ========================================================================== */
+section.sf-header,
+section.sf-header .header__wrapper,
+section.sf-header .sf-header__bg,
+section.sf-header .sf-header__dropdown-bg,
+section.sf-header .sf-menu-logo-bar,
+section.sf-header .sf-menu-wrapper__desktop,
+section.sf-header .sf-header-main-top,
+section.sf-header .sf-header-main-menu,
+section.sf-header .container,
+section.sf-header .container-fluid {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+header.sf-header__desktop,
+header.sf-header__mobile {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05) !important;
+  transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
+}
+
+.sf-header.sf-header-scrolled header.sf-header__desktop,
+.sf-header.sf-header-scrolled header.sf-header__mobile,
+.sf-header.stuck header.sf-header__desktop,
+.sf-header.stuck header.sf-header__mobile {
+  background: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(24px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
+  box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.04) !important;
+}
+
+.sf-nav li.sf-menu-item a.sf__parent-item {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #1e293b;
+  padding: 1.15rem 1rem;
+  transition: all 0.2s ease;
+}
+
+.sf-nav li.sf-menu-item a.sf__parent-item:hover {
+  color: #5c24ff !important;
+}
+
+.sf-header-btn-quote:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(92, 36, 255, 0.4) !important;
+  background: linear-gradient(135deg, #6d3aff 0%, #4f46e5 100%) !important;
+}
+
+.sf-header-btn-wms:hover {
+  background: #1e293b !important;
+  transform: translateY(-1px);
+}
+
 {% endstyle %}
 
 {%- capture class -%}
@@ -739,3 +786,18 @@
         ]
 	}
 {% endschema %}
+<script>
+  (function() {
+    function handleHeaderScroll() {
+      var headerSec = document.querySelector('.sf-header');
+      if (!headerSec) return;
+      if (window.scrollY > 20) {
+        headerSec.classList.add('sf-header-scrolled');
+      } else {
+        headerSec.classList.remove('sf-header-scrolled');
+      }
+    }
+    window.addEventListener('scroll', handleHeaderScroll, { passive: true });
+    document.addEventListener('DOMContentLoaded', handleHeaderScroll);
+  })();
+</script>

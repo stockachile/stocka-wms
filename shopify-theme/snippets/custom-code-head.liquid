@@ -3,3 +3,107 @@
   For example: tracking code, custom css, custom javascript
   All custom code in this file will be kept when updating the theme
 {%- endcomment -%}
+
+<!-- Google Fonts: Poppins (Weights 300, 400, 500, 600, 700, 800, 900) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap" rel="stylesheet">
+
+<style>
+  /* ==========================================================================
+     POPPINS TYPOGRAPHY FOR TITLES, HEADINGS & HIGHLIGHTED TEXTS
+     ========================================================================== */
+  :root {
+    --font-stack-header: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    --font-stack-body: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    --font-family-header: 'Poppins', sans-serif !important;
+    --font-family-base: 'Poppins', sans-serif !important;
+  }
+
+  body,
+  p,
+  span,
+  a,
+  li,
+  input,
+  button,
+  select,
+  textarea {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6,
+  .h1, .h2, .h3, .h4, .h5, .h6,
+  .sf__parent-item,
+  .sf-menu-item,
+  .sf-footer-title,
+  .stocka-footer-title,
+  .ecom__heading,
+  .ecom-heading,
+  .content__heading,
+  .slide__block-title,
+  .stocka-tf-title,
+  .stocka-ff-title,
+  .stocka-title,
+  .stocka-heading,
+  .stocka-lead-section h2,
+  .stocka-lead-section h3,
+  .stocka-hero h1,
+  .stocka-hero h2,
+  .stocka-cot-title,
+  .stocka-cot-step-title,
+  .stocka-btn,
+  .btn-submit-stocka,
+  .sf-header-btn-quote,
+  .sf-header-btn-wms,
+  .stocka-service-pill,
+  .stocka-pill-btn,
+  .stocka-badge,
+  [class*="heading"],
+  [class*="title"],
+  .font-extrabold,
+  .font-bold,
+  .font-semibold,
+  strong,
+  b {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+
+  /* ==========================================================================
+     STOCKA PREMIUM FROSTED GLASS HEADER (GLOBAL INJECTION)
+     ========================================================================== */
+  section.sf-header,
+  section.sf-header .header__wrapper,
+  section.sf-header .sf-header__bg,
+  section.sf-header .sf-header__dropdown-bg,
+  section.sf-header .sf-menu-logo-bar,
+  section.sf-header .sf-menu-wrapper__desktop,
+  section.sf-header .sf-header-main-top,
+  section.sf-header .sf-header-main-menu,
+  section.sf-header .container,
+  section.sf-header .container-fluid {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  header.sf-header__desktop,
+  header.sf-header__mobile {
+    background: rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: blur(20px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05) !important;
+    transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
+  }
+
+  .sf-header.sf-header-scrolled header.sf-header__desktop,
+  .sf-header.sf-header-scrolled header.sf-header__mobile,
+  .sf-header.stuck header.sf-header__desktop,
+  .sf-header.stuck header.sf-header__mobile {
+    background: rgba(255, 255, 255, 0.78) !important;
+    backdrop-filter: blur(24px) saturate(200%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
+    border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
+    box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.04) !important;
+  }
+</style>

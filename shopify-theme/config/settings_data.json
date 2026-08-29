@@ -161,7 +161,7 @@
           "secondary_menu": "footer",
           "mobile_menu": "",
           "uppercase_parent_level": false,
-          "search": "show_icon",
+          "search": "hide",
           "show_account_icon": true,
           "show_cart_icon": false,
           "show_wishlist_icon": false,

@@ -287,6 +287,27 @@ class MockQueryBuilder {
         });
       }
       result = history;
+    } else if (this.tableName === 'tickets') {
+      const profiles = window.getMockTable('profiles');
+      result = result.map(t => {
+        const client = profiles.find(p => p.id === t.user_id) || profiles[0] || null;
+        const assignee = profiles.find(p => p.id === t.assigned_to) || null;
+        return {
+          ...t,
+          client: client,
+          assignee: assignee,
+          assigned: assignee
+        };
+      });
+    } else if (this.tableName === 'ticket_messages') {
+      const profiles = window.getMockTable('profiles');
+      result = result.map(m => {
+        const sender = profiles.find(p => p.id === m.sender_id) || profiles[0] || null;
+        return {
+          ...m,
+          sender: sender
+        };
+      });
     }
 
     // 3. Aplicar filtros
@@ -501,16 +522,48 @@ const authProxy = new Proxy(actualSupabase.auth, {
   }
 });
 
-// Cliente Supabase proxificado con un objeto plano
-const supabaseProxy = {
+// Mock Realtime Channel para modo demo o fallback
+class MockRealtimeChannel {
+  constructor(topic) {
+    this.topic = topic;
+    this.callbacks = [];
+  }
+  on(type, filter, callback) {
+    if (typeof filter === 'function') {
+      this.callbacks.push(filter);
+    } else if (typeof callback === 'function') {
+      this.callbacks.push(callback);
+    }
+    return this;
+  }
+  subscribe(callback) {
+    if (callback) callback('SUBSCRIBED');
+    return this;
+  }
+  unsubscribe() {
+    return Promise.resolve('ok');
+  }
+  send() {
+    return Promise.resolve('ok');
+  }
+}
+
+const mockChannels = new Map();
+
+// Handlers especiales para el Proxy de Supabase
+const supabaseCustomHandlers = {
   auth: authProxy,
-  get storage() { return actualSupabase.storage; },
+  get storage() { return actualSupabase ? actualSupabase.storage : null; },
   from: (tableName) => {
     if (window.isDemoMode()) {
       const data = window.getMockTable(tableName);
       return new MockQueryBuilder(tableName, data);
     }
-    return actualSupabase.from(tableName);
+    if (actualSupabase) {
+      return actualSupabase.from(tableName);
+    }
+    const data = window.getMockTable ? window.getMockTable(tableName) : [];
+    return new MockQueryBuilder(tableName, data);
   },
   rpc: (name, args) => {
     if (window.isDemoMode()) {
@@ -533,9 +586,72 @@ const supabaseProxy = {
       }
       return Promise.resolve({ data: true, error: null });
     }
-    return actualSupabase.rpc(name, args);
+    if (actualSupabase) {
+      return actualSupabase.rpc(name, args);
+    }
+    return Promise.resolve({ data: true, error: null });
+  },
+  channel: (name, opts) => {
+    if (window.isDemoMode()) {
+      const ch = new MockRealtimeChannel(name);
+      mockChannels.set(name, ch);
+      return ch;
+    }
+    if (actualSupabase && typeof actualSupabase.channel === 'function') {
+      return actualSupabase.channel(name, opts);
+    }
+    const ch = new MockRealtimeChannel(name);
+    return ch;
+  },
+  removeChannel: (channel) => {
+    if (window.isDemoMode()) {
+      if (channel && channel.topic) {
+        mockChannels.delete(channel.topic);
+      }
+      return Promise.resolve('ok');
+    }
+    if (actualSupabase && typeof actualSupabase.removeChannel === 'function') {
+      return actualSupabase.removeChannel(channel);
+    }
+    return Promise.resolve('ok');
+  },
+  removeAllChannels: () => {
+    if (window.isDemoMode()) {
+      mockChannels.clear();
+      return Promise.resolve([]);
+    }
+    if (actualSupabase && typeof actualSupabase.removeAllChannels === 'function') {
+      return actualSupabase.removeAllChannels();
+    }
+    return Promise.resolve([]);
+  },
+  getChannels: () => {
+    if (window.isDemoMode()) {
+      return Array.from(mockChannels.values());
+    }
+    if (actualSupabase && typeof actualSupabase.getChannels === 'function') {
+      return actualSupabase.getChannels();
+    }
+    return [];
   }
 };
+
+// Cliente Supabase proxificado
+const supabaseProxy = new Proxy(actualSupabase || {}, {
+  get(target, prop) {
+    if (prop in supabaseCustomHandlers) {
+      return supabaseCustomHandlers[prop];
+    }
+    if (target && prop in target) {
+      const val = target[prop];
+      if (typeof val === 'function') {
+        return val.bind(target);
+      }
+      return val;
+    }
+    return undefined;
+  }
+});
 
 const supabase = supabaseProxy;
 

@@ -5533,10 +5533,15 @@ async function renderIntegrations() {
           const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
           if (supportManualSync && mi.is_active) {
             syncStatusHtml += `
-              <div style="margin-top: 0.35rem;">
+              <div style="margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap;">
                 <button class="btn-sync-now" data-platform="${mi.platform}" data-comercio="${commerceName.replace(/'/g, "&apos;")}" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; border-radius: 3px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
                   <i class="ri-refresh-line"></i> Sincronizar
                 </button>
+                ${mi.platform === 'WooCommerce' ? `
+                  <button class="btn-verify-woo-admin" data-comercio="${commerceName.replace(/'/g, "&apos;")}" data-merchant="${mi.merchant_id}" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; border-radius: 3px; border: 1px solid #0284c7; background: rgba(2, 132, 199, 0.08); color: #0284c7; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-shield-check-line"></i> Diagnóstico
+                  </button>
+                ` : ''}
               </div>
             `;
           }
@@ -5875,6 +5880,81 @@ async function renderIntegrations() {
         } catch (err) {
           console.error(err);
           alert(`Error al sincronizar: ${err.message}`);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      });
+    });
+
+    // Listeners para diagnóstico de WooCommerce en Admin
+    document.querySelectorAll('.btn-verify-woo-admin').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const comercio = btn.getAttribute('data-comercio');
+        const merchantId = btn.getAttribute('data-merchant');
+        
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
+
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+            },
+            body: JSON.stringify({
+              action: 'verify_connection',
+              comercio: comercio,
+              merchant_id: merchantId
+            })
+          });
+
+          const result = await response.json();
+
+          if (!result.success && !result.api_connected) {
+            Swal.fire({
+              title: `Error WooCommerce (${comercio})`,
+              text: result.error || 'No se pudo conectar con la API de WooCommerce.',
+              icon: 'error',
+              confirmButtonColor: '#ef4444'
+            });
+            return;
+          }
+
+          const hasCreated = result.webhooks?.order_created;
+          const hasUpdated = result.webhooks?.order_updated;
+          const writePerms = result.write_permissions;
+          const allOk = result.all_healthy;
+
+          Swal.fire({
+            title: `Diagnóstico WooCommerce: ${comercio}`,
+            html: `
+              <div style="text-align: left; font-size: 0.875rem;">
+                <p style="margin-bottom: 0.75rem; color: var(--color-text-main);"><strong>URL:</strong> <a href="${result.shop_url}" target="_blank" style="color: #0284c7;">${result.shop_url}</a></p>
+                <div style="background: var(--color-bg, #f8fafc); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border, #e2e8f0); margin-bottom: 1rem; line-height: 1.6;">
+                  <div>• <strong>API REST:</strong> <span style="color: #10b981; font-weight: 600;">✅ Conectada</span></div>
+                  <div>• <strong>Permisos de Clave:</strong> ${writePerms ? '<span style="color: #10b981; font-weight: 600;">✅ Lectura y Escritura</span>' : '<span style="color: #d97706; font-weight: 600;">⚠️ Solo Lectura</span>'}</div>
+                  <div>• <strong>Webhook Pedido Creado:</strong> ${hasCreated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
+                  <div>• <strong>Webhook Pedido Actualizado:</strong> ${hasUpdated ? '<span style="color: #10b981; font-weight: 600;">✅ Activo</span>' : '<span style="color: #ef4444; font-weight: 600;">❌ No Configurado</span>'}</div>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted, #64748b);">
+                  <strong>URL de Webhook asignada:</strong><br>
+                  <code style="background: var(--color-surface, #ffffff); padding: 0.2rem 0.4rem; border-radius: 4px; display: block; margin-top: 0.25rem; word-break: break-all; border: 1px solid var(--color-border, #cbd5e1); font-size: 0.75rem;">${result.expected_webhook_url}</code>
+                </div>
+              </div>
+            `,
+            icon: allOk ? 'success' : 'info',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: '#0284c7'
+          });
+
+        } catch (err) {
+          console.error(err);
+          Swal.fire('Error', `Error al ejecutar diagnóstico: ${err.message}`, 'error');
         } finally {
           btn.disabled = false;
           btn.innerHTML = originalHtml;

@@ -7437,11 +7437,16 @@ async function renderIntegrations() {
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-walmart" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Walmart</button>' +
             '<button type="button" class="btn btn-primary" id="btn-sync-walmart" style="background-color: #0071ce; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
 
+    const wooMerchantId = wooIntegration ? wooIntegration.merchant_id : merchantId;
+    const wooWebhookUrl = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook?merchant_id=${wooMerchantId}`;
+
     const wooButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasWoo 
-          ? '<button type="submit" class="btn btn-primary" id="btn-save-woo" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda WooCommerce</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-woo" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar WooCommerce</button>');
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-woo" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;"><i class="ri-plug-line" style="margin-right: 0.3rem;"></i>Conectar Tienda WooCommerce</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-woo" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.25rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;"><i class="ri-link-unlink"></i> Desconectar</button>' +
+            '<button type="button" class="btn" id="btn-verify-woo" style="background-color: #0284c7; color: white; border: none; padding: 0.75rem 1.25rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.35rem;"><i class="ri-shield-check-line"></i> Verificar Conexión y Webhooks</button>' +
+            '<button type="button" class="btn" id="btn-sync-woo" style="background-color: #96588a; border: none; padding: 0.75rem 1.25rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.35rem;"><i class="ri-refresh-line"></i> Sincronizar Ahora</button>');
 
     const jumpsellerButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -8268,14 +8273,14 @@ async function renderIntegrations() {
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
             <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
               <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line" style="color: #96588a;"></i> WooCommerce Integration</h3>
               </div>
               <div class="card-body" style="padding: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? 'rgba(150, 88, 138, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? 'rgba(150, 88, 138, 0.2)' : 'var(--color-border)'};">
                    <div style="display: flex; align-items: center; gap: 1rem;">
                       <div>
                          <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? '#96588a' : 'var(--color-text-main)'};">WooCommerce Store</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">${hasWoo ? wooUrl : 'Conecta tu tienda para sincronizar ventas y catálogo en tiempo real.'}</p>
                       </div>
                    </div>
                    <div>
@@ -8295,12 +8300,38 @@ async function renderIntegrations() {
                     <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
                     <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                   </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+
+                  ${hasWoo ? `
+                    <!-- Webhook Quick Info for Connected Users -->
+                    <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.25rem;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 700; color: var(--color-text-main); font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+                          <i class="ri-flashlight-line" style="color: #f59e0b;"></i> URL de Webhooks (Tiempo Real):
+                        </span>
+                        <span class="badge" style="background: rgba(2, 132, 199, 0.1); color: #0284c7; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600;">Recomendado</span>
+                      </div>
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 0.6rem 0; line-height: 1.4;">
+                        Copia esta URL y configúrala en tu WordPress (<em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; Webhooks</em>) para que los pedidos lleguen al instante:
+                      </p>
+                      <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="woo-webhook-url-input" class="form-input" value="${wooWebhookUrl}" readonly style="font-family: monospace; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                        <button type="button" class="btn btn-sm" onclick="window.copyWooWebhookUrl(this)" style="padding: 0.5rem 0.85rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;">
+                          <i class="ri-file-copy-line"></i> Copiar URL
+                        </button>
+                      </div>
+                    </div>
+                  ` : ''}
+
+                  <div style="margin-top: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
                     ${wooButtonHtml}
                   </div>
                 </form>
+
+                <div id="woo-diagnostic-results" style="margin-top: 1rem;"></div>
               </div>
             </div>
+
+            <!-- Columna derecha: Guía paso a paso -->
             <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
               <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
                 <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
@@ -8315,11 +8346,19 @@ async function renderIntegrations() {
                   </li>
                   <li>
                     <strong style="color: var(--color-text-main);">Generar Claves de la API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong> y selecciona permisos de <strong style="color: var(--color-text-main);">Lectura y Escritura</strong>.</p>
                   </li>
                   <li>
-                    <strong style="color: var(--color-text-main);">Asignar Permisos:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Configura el acceso con permisos de <strong style="color: var(--color-text-main);">Lectura y Escritura</strong>. Copia el <em>Consumer Key</em> y el <em>Consumer Secret</em> que se generarán y pégalos en el formulario.</p>
+                    <strong style="color: var(--color-text-main);">Configurar Webhooks (Recepción Instantánea):</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Para que los pedidos ingresen al WMS al instante en que el cliente compra, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; Webhooks</em> y crea dos webhooks con estado <strong>Activo</strong> usando la URL de entrega:</p>
+                    <div style="margin-top: 0.4rem; background: var(--color-bg); padding: 0.6rem 0.8rem; border-radius: 6px; font-size: 0.8rem; border: 1px solid var(--color-border); color: var(--color-text-main); line-height: 1.5;">
+                      <div>• <strong>Webhook 1:</strong> Tema: <code>Pedido creado</code> (Topic: <code>order.created</code>)</div>
+                      <div>• <strong>Webhook 2:</strong> Tema: <code>Pedido actualizado</code> (Topic: <code>order.updated</code>)</div>
+                    </div>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Verificar Estado de Conexión:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez conectada tu tienda, puedes presionar <strong style="color: #0284c7;">Verificar Conexión y Webhooks</strong> en cualquier momento para comprobar el estado y salud de la integración.</p>
                   </li>
                 </ol>
               </div>
@@ -9773,7 +9812,221 @@ async function renderIntegrations() {
           }
         });
       }
+
+      // WooCommerce Live Diagnostic / Verify Listener
+      const btnVerifyWoo = document.getElementById('btn-verify-woo');
+      if (btnVerifyWoo) {
+        btnVerifyWoo.addEventListener('click', async () => {
+          const originalHtml = btnVerifyWoo.innerHTML;
+          btnVerifyWoo.disabled = true;
+          btnVerifyWoo.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Verificando conexión...';
+
+          const diagResults = document.getElementById('woo-diagnostic-results');
+          if (diagResults) {
+            diagResults.innerHTML = `
+              <div style="padding: 1rem; text-align: center; color: var(--color-text-muted); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+                <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #96588a; display: block; margin-bottom: 0.5rem;"></i>
+                Consultando API de WooCommerce y verificando webhooks de tiempo real...
+              </div>
+            `;
+          }
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/woocommerce-webhook', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+              },
+              body: JSON.stringify({
+                action: 'verify_connection',
+                comercio: window.activeIntegrationCommerce,
+                merchant_id: wooMerchantId
+              })
+            });
+
+            const result = await response.json();
+
+            if (!result.success && !result.api_connected) {
+              if (diagResults) {
+                diagResults.innerHTML = `
+                  <div class="alert alert-danger" style="margin: 0; background: #fee2e2; border: 1px solid #f87171; color: #991b1b; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem;">
+                    <strong><i class="ri-error-warning-line"></i> Error de conexión:</strong> ${result.error || 'No se pudo conectar a la tienda WooCommerce. Revisa la URL y claves API.'}
+                  </div>
+                `;
+              }
+              Swal.fire({
+                title: 'Error de Conexión',
+                text: result.error || 'No se pudo conectar con la API de WooCommerce.',
+                icon: 'error',
+                confirmButtonColor: '#ef4444'
+              });
+              return;
+            }
+
+            const hasCreated = result.webhooks?.order_created;
+            const hasUpdated = result.webhooks?.order_updated;
+            const writePerms = result.write_permissions;
+            const allOk = result.all_healthy;
+
+            const badgeApi = '<span class="badge badge-success" style="background:#d1fae5; color:#065f46; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-checkbox-circle-fill"></i> Conectado</span>';
+            const badgePerms = writePerms 
+              ? '<span class="badge badge-success" style="background:#d1fae5; color:#065f46; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-checkbox-circle-fill"></i> Lectura y Escritura</span>'
+              : '<span class="badge badge-warning" style="background:#fef3c7; color:#92400e; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;" title="Permiso de Solo Lectura"><i class="ri-alert-fill"></i> Solo Lectura</span>';
+            
+            const badgeOrderCreated = hasCreated
+              ? '<span class="badge badge-success" style="background:#d1fae5; color:#065f46; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-flashlight-fill"></i> Activo (Instantáneo)</span>'
+              : '<span class="badge badge-danger" style="background:#fee2e2; color:#991b1b; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-close-circle-fill"></i> No Configurado</span>';
+
+            const badgeOrderUpdated = hasUpdated
+              ? '<span class="badge badge-success" style="background:#d1fae5; color:#065f46; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-flashlight-fill"></i> Activo (Instantáneo)</span>'
+              : '<span class="badge badge-danger" style="background:#fee2e2; color:#991b1b; padding:0.2rem 0.5rem; border-radius:4px; font-size:0.75rem; font-weight:600;"><i class="ri-close-circle-fill"></i> No Configurado</span>';
+
+            if (diagResults) {
+              diagResults.innerHTML = `
+                <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
+                    <strong style="color: var(--color-text-main); font-size: 0.9rem;"><i class="ri-shield-check-line" style="color: #0284c7;"></i> Diagnóstico de Conexión en Vivo</strong>
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted);">Comprobado recién</span>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.825rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                      <span>API WooCommerce:</span>
+                      ${badgeApi}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                      <span>Permisos Clave:</span>
+                      ${badgePerms}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                      <span>Webhook Pedido Creado:</span>
+                      ${badgeOrderCreated}
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                      <span>Webhook Pedido Actualizado:</span>
+                      ${badgeOrderUpdated}
+                    </div>
+                  </div>
+                  ${allOk ? `
+                    <div style="margin-top: 0.75rem; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 0.6rem 0.85rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.5rem;">
+                      <i class="ri-checkbox-circle-fill" style="font-size: 1.1rem; color: #10b981;"></i>
+                      <span><strong>¡Todo 100% operativo!</strong> Los pedidos que se generen en tu tienda WooCommerce llegarán al instante al WMS.</span>
+                    </div>
+                  ` : `
+                    <div style="margin-top: 0.75rem; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 0.6rem 0.85rem; border-radius: 4px; font-size: 0.8rem;">
+                      <div style="font-weight: 600; margin-bottom: 0.2rem;"><i class="ri-alert-line"></i> Acción recomendada para recibir pedidos al instante:</div>
+                      ${!hasCreated || !hasUpdated ? `
+                        <span>Falta agregar los webhooks en WordPress (<em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; Webhooks</em>). Usa la URL que aparece arriba.</span>
+                      ` : ''}
+                    </div>
+                  `}
+                </div>
+              `;
+            }
+
+            if (allOk) {
+              Swal.fire({
+                title: '¡Conexión y Webhooks 100% OK!',
+                text: 'La API y los Webhooks en tiempo real están funcionando perfectamente. Los pedidos llegarán al instante al WMS.',
+                icon: 'success',
+                confirmButtonColor: '#10b981'
+              });
+            } else {
+              Swal.fire({
+                title: 'Estado de la Conexión',
+                html: `
+                  <div style="text-align: left; font-size: 0.9rem;">
+                    <p style="margin-bottom: 0.75rem; color: var(--color-text-main);">${result.message}</p>
+                    <ul style="padding-left: 1.25rem; margin-bottom: 1rem; color: #4b5563; line-height: 1.6;">
+                      <li><strong>Conexión API REST:</strong> ✅ Conectada correctamente</li>
+                      <li><strong>Permisos:</strong> ${writePerms ? '✅ Lectura y Escritura' : '⚠️ Solo Lectura (Recomendado: Lectura y Escritura)'}</li>
+                      <li><strong>Webhook Pedido Creado:</strong> ${hasCreated ? '✅ Activo' : '❌ Falta configurar en WooCommerce'}</li>
+                      <li><strong>Webhook Pedido Actualizado:</strong> ${hasUpdated ? '✅ Activo' : '❌ Falta configurar en WooCommerce'}</li>
+                    </ul>
+                    ${!allOk ? `<div style="font-size: 0.825rem; color: #b45309; background: #fef3c7; padding: 0.6rem; border-radius: 4px; border: 1px solid #fde68a;">
+                      Para habilitar la sincronización en tiempo real, crea los webhooks en <strong>WooCommerce &gt; Ajustes &gt; Avanzado &gt; Webhooks</strong> con la URL proporcionada.
+                    </div>` : ''}
+                  </div>
+                `,
+                icon: allOk ? 'success' : 'info',
+                confirmButtonColor: '#0284c7'
+              });
+            }
+
+          } catch (err) {
+            console.error('Error probando conexión WooCommerce:', err);
+            Swal.fire('Error', 'Ocurrió un error al verificar la conexión: ' + err.message, 'error');
+          } finally {
+            btnVerifyWoo.disabled = false;
+            btnVerifyWoo.innerHTML = originalHtml;
+          }
+        });
+      }
+
+      // WooCommerce Manual Sync Listener
+      const btnSyncWoo = document.getElementById('btn-sync-woo');
+      if (btnSyncWoo) {
+        btnSyncWoo.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const originalHtml = btnSyncWoo.innerHTML;
+          btnSyncWoo.disabled = true;
+          btnSyncWoo.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Sincronizando...';
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("No hay sesión activa");
+
+            const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+              },
+              body: JSON.stringify({
+                platform: 'WooCommerce',
+                comercio: window.activeIntegrationCommerce
+              })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+              throw new Error(result.error || 'Error al sincronizar');
+            }
+
+            Swal.fire('Sincronización Iniciada', `Se ha iniciado la sincronización de pedidos y productos para ${window.activeIntegrationCommerce}. El WMS se actualizará en unos minutos.`, 'success');
+          } catch (err) {
+            console.error(err);
+            Swal.fire('Error de Sincronización', err.message, 'error');
+          } finally {
+            btnSyncWoo.disabled = false;
+            btnSyncWoo.innerHTML = originalHtml;
+          }
+        });
+      }
     }
+
+    // Helper para copiar URL de webhook de WooCommerce
+    window.copyWooWebhookUrl = function(btn) {
+      const input = document.getElementById('woo-webhook-url-input');
+      if (input) {
+        input.select();
+        navigator.clipboard.writeText(input.value).then(() => {
+          const orig = btn.innerHTML;
+          btn.innerHTML = '<i class="ri-check-line"></i> ¡Copiado!';
+          btn.style.background = '#10b981';
+          btn.style.color = '#ffffff';
+          setTimeout(() => {
+            btn.innerHTML = orig;
+            btn.style.background = '';
+            btn.style.color = '';
+          }, 2000);
+        });
+      }
+    };
 
     // Jumpseller Submit Listener
     if(!hasJumpseller) {

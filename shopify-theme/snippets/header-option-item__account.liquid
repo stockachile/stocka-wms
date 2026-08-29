@@ -1,6 +1,25 @@
 {%- comment -%}
-  Acceso WMS Button replacement for user account icon in the header.
+  Stocka Header CTA Action Buttons (Duo: Cotizar Online + Acceso WMS)
 {%- endcomment -%}
-<a href="https://wms.stocka.cl/" class="sf-header-wms-btn inline-flex items-center justify-center bg-black text-white hover:bg-opacity-85 transition-all font-bold rounded-full whitespace-nowrap" style="background-color: #000000; color: #ffffff; font-weight: 700; border-radius: 9999px; padding: 8px 18px; font-size: 13px; margin-left: 10px; line-height: 1.2;">
-    Acceso WMS
-</a>
+<div class="sf-header-actions-duo inline-flex items-center gap-2.5 ml-3">
+  <!-- Botón Principal de Conversión -->
+  <a 
+    href="/pages/tarifas#stocka-cotizador-anchor" 
+    class="sf-header-btn-quote inline-flex items-center justify-center text-white font-bold rounded-full whitespace-nowrap shadow-sm transition-all"
+    style="background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%); color: #ffffff !important; font-weight: 700; border-radius: 9999px; padding: 8px 18px; font-size: 13px; line-height: 1.2; box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25); text-decoration: none !important;"
+  >
+    <span>Cotizar Online</span>
+    <span style="margin-left: 5px;">🚀</span>
+  </a>
+
+  <!-- Botón Secundario para Clientes Existentes -->
+  <a 
+    href="https://wms.stocka.cl/" 
+    target="_blank"
+    class="sf-header-btn-wms inline-flex items-center justify-center text-white font-bold rounded-full whitespace-nowrap transition-all"
+    style="background-color: #0f172a; color: #ffffff !important; font-weight: 700; border-radius: 9999px; padding: 8px 16px; font-size: 13px; line-height: 1.2; text-decoration: none !important;"
+  >
+    <span>Acceso WMS</span>
+    <span style="margin-left: 4px; font-size: 11px;">🔒</span>
+  </a>
+</div>

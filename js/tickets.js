@@ -719,20 +719,27 @@ export async function renderTicketsClient(appContent) {
   // Realtime subscription helper
   let ticketSubscription = null;
   function subscribeToTicketMessages(ticketId) {
-    if (ticketSubscription) {
-      supabase.removeChannel(ticketSubscription);
-    }
+    try {
+      if (ticketSubscription && typeof supabase.removeChannel === 'function') {
+        supabase.removeChannel(ticketSubscription);
+        ticketSubscription = null;
+      }
 
-    ticketSubscription = supabase
-      .channel(`ticket_messages_realtime:${ticketId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${ticketId}` },
-        () => {
-          loadChatMessages(ticketId);
-        }
-      )
-      .subscribe();
+      if (typeof supabase.channel === 'function') {
+        ticketSubscription = supabase
+          .channel(`ticket_messages_realtime:${ticketId}`)
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${ticketId}` },
+            () => {
+              loadChatMessages(ticketId);
+            }
+          )
+          .subscribe();
+      }
+    } catch (err) {
+      console.warn('Advertencia en suscripción de tickets realtime:', err);
+    }
   }
 }
 
@@ -1245,20 +1252,27 @@ export async function renderTicketsAdmin(appContent) {
   // Realtime subscription helper para Admin
   let adminTicketSubscription = null;
   function subscribeToAdminMessages(ticketId) {
-    if (adminTicketSubscription) {
-      supabase.removeChannel(adminTicketSubscription);
-    }
+    try {
+      if (adminTicketSubscription && typeof supabase.removeChannel === 'function') {
+        supabase.removeChannel(adminTicketSubscription);
+        adminTicketSubscription = null;
+      }
 
-    adminTicketSubscription = supabase
-      .channel(`admin_ticket_messages_realtime:${ticketId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${ticketId}` },
-        () => {
-          loadAdminChatMessages(ticketId);
-        }
-      )
-      .subscribe();
+      if (typeof supabase.channel === 'function') {
+        adminTicketSubscription = supabase
+          .channel(`admin_ticket_messages_realtime:${ticketId}`)
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'ticket_messages', filter: `ticket_id=eq.${ticketId}` },
+            () => {
+              loadAdminChatMessages(ticketId);
+            }
+          )
+          .subscribe();
+      }
+    } catch (err) {
+      console.warn('Advertencia en suscripción de admin tickets realtime:', err);
+    }
   }
 }
 
@@ -1267,8 +1281,8 @@ export async function renderTicketsAdmin(appContent) {
 // ==========================================
 
 function escapeHtml(str) {
-  if (!str) return '';
-  return str
+  if (str === null || str === undefined) return '';
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
