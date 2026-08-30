@@ -419,8 +419,15 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         }
       } else {
         // Insertar nuevo pedido en WMS
-        const initialStatus = isCancelled ? 'cancelado' : 'para procesar';
         const orderDate = order.date_created_gmt ? `${order.date_created_gmt}Z` : (order.date_created ? new Date(order.date_created).toISOString() : new Date().toISOString());
+        const orderAgeHours = (Date.now() - new Date(orderDate).getTime()) / (1000 * 60 * 60);
+
+        let initialStatus = 'para procesar';
+        if (isCancelled) {
+          initialStatus = 'cancelado';
+        } else if (isDelivered && orderAgeHours > 48) {
+          initialStatus = 'despachado';
+        }
 
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
