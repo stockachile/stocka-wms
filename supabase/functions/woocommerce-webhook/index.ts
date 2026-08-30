@@ -94,8 +94,13 @@ serve(async (req) => {
       if (data && data.length > 0) integration = data[0];
     }
 
-    // 2. Verificación de Seguridad HMAC (si tiene webhook_secret configurado)
-    if (integration && integration.webhook_secret && signatureHeader) {
+    // 2. Verificación de Seguridad HMAC (obligatoria si la integración tiene webhook_secret)
+    if (integration && integration.webhook_secret) {
+      if (!signatureHeader) {
+        console.error("❌ Falta cabecera x-wc-webhook-signature en petición de WooCommerce");
+        return new Response("Missing signature header", { status: 401, headers: corsHeaders });
+      }
+
       const keyBuf = new TextEncoder().encode(integration.webhook_secret.trim());
       const key = await crypto.subtle.importKey(
         "raw",
@@ -110,7 +115,7 @@ serve(async (req) => {
 
       if (signatureBase64 !== signatureHeader) {
         console.error("❌ Firma HMAC inválida para WooCommerce webhook");
-        return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+        return new Response("Unauthorized: Invalid signature", { status: 401, headers: corsHeaders });
       }
     }
 

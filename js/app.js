@@ -409,46 +409,19 @@ async function init() {
 
     if (!session) {
       if (shopParam && urlParams.get('integration') !== 'success') {
-        console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
+        console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a login...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
-        const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
-        const scopes = 'read_products,read_orders';
-        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
-        
-        const stateObj = {
-          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
-          comercio: 'STOCKA STORE TEST',
-          redirect_back_url: window.location.origin + window.location.pathname
-        };
-        const stateBase64 = btoa(JSON.stringify(stateObj));
-        
-        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+        window.location.href = `index.html?shop=${encodeURIComponent(cleanShopUrl)}`;
         return;
       }
 
       if (urlParams.get('integration') === 'success') {
         const shop = urlParams.get('shop') || '';
         const cleanShop = shop.trim().replace(/^https?:\/\//, '');
-        
-        console.log('DEBUG: Retorno de instalación de Shopify sin sesión activa. Auto-logueando usuario de prueba...');
-        try {
-          const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
-            email: 'shopify-test@stockachile.cl',
-            password: 'ShopifyTest2026!'
-          });
-          if (!loginErr && loginData) {
-            window.location.reload();
-            return;
-          }
-        } catch (e) {
-          console.error('Error en auto-login de Shopify review:', e);
-        }
-
-        console.log('DEBUG: Redirigiendo a index.html para iniciar sesión y vincular cuenta...');
+        console.log('DEBUG: Retorno de instalación de Shopify sin sesión activa. Redirigiendo a index.html para iniciar sesión...');
         window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
         return;
       }
-
 
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
       window.location.href = 'index.html';
@@ -474,7 +447,9 @@ async function init() {
       const stateObj = {
         merchant_id: session.user.id,
         comercio: userCommerce,
-        redirect_back_url: window.location.origin + window.location.pathname
+        redirect_back_url: window.location.origin + window.location.pathname,
+        timestamp: Date.now(),
+        nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
       };
       const stateBase64 = btoa(JSON.stringify(stateObj));
       
@@ -8661,7 +8636,9 @@ async function renderIntegrations() {
         const stateObj = {
           merchant_id: merchantId,
           comercio: window.activeIntegrationCommerce,
-          redirect_back_url: window.location.origin + window.location.pathname
+          redirect_back_url: window.location.origin + window.location.pathname,
+          timestamp: Date.now(),
+          nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
         };
         // Codificar el state en base64 para transportarlo de forma segura
         const stateBase64 = btoa(JSON.stringify(stateObj));

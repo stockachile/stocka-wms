@@ -36,6 +36,20 @@ serve(async (req) => {
       })
     }
 
+    // Validar perfil y rol de administrador del usuario
+    const { data: profile, error: profErr } = await supabaseClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profErr || !profile || (profile.role !== 'admin' && profile.role !== 'all')) {
+      return new Response(JSON.stringify({ error: 'Forbidden: Se requieren permisos de Administrador' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
     const githubPat = Deno.env.get('GITHUB_PAT')
     if (!githubPat) {
       return new Response(JSON.stringify({ error: 'Configuration error: GITHUB_PAT not set in Supabase Edge Functions' }), {
@@ -74,20 +88,6 @@ serve(async (req) => {
 
     // Parsear cuerpo de la petición (POST)
     const { orderId, mode, limit, orderIds } = await req.json()
-
-    // Validar perfil del usuario
-    const { data: profile, error: profErr } = await supabaseClient
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profErr || !profile) {
-      return new Response(JSON.stringify({ error: 'Profile not found' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
-    }
 
     const workflowFile = 'create_lightdata_labels.yml'
     

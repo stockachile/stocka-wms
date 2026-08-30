@@ -4,10 +4,18 @@
  */
 
 const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'http://127.0.0.1:3001';
+const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  'x-api-key': WHATSAPP_API_KEY
+});
 
 async function checkWhatsAppStatus() {
   try {
-    const response = await fetch(`${WHATSAPP_API_URL}/status`);
+    const response = await fetch(`${WHATSAPP_API_URL}/status`, {
+      headers: getHeaders()
+    });
     return await response.json();
   } catch (error) {
     return { status: 'OFFLINE', error: error.message };
@@ -18,7 +26,7 @@ async function sendWhatsAppMessage(to, message) {
   try {
     const response = await fetch(`${WHATSAPP_API_URL}/send-message`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({ to, message })
     });
     return await response.json();
@@ -41,7 +49,7 @@ async function sendPickupAlert({
   try {
     const response = await fetch(`${WHATSAPP_API_URL}/send-pickup-alert`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         to,
         orderNumber,
@@ -62,7 +70,9 @@ async function sendPickupAlert({
 
 async function listBotGroups() {
   try {
-    const response = await fetch(`${WHATSAPP_API_URL}/groups`);
+    const response = await fetch(`${WHATSAPP_API_URL}/groups`, {
+      headers: getHeaders()
+    });
     return await response.json();
   } catch (error) {
     return { success: false, error: error.message };

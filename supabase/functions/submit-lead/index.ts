@@ -27,28 +27,66 @@ serve(async (req) => {
 
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     const cleanServiceKey = supabaseServiceKey.trim()
-    const KNOWN_SERVICE_ROLE = "YOUR_SUPABASE_SERVICE_ROLE_KEY_HERE"
-    const actualServiceKey = cleanServiceKey.startsWith("eyJ") ? cleanServiceKey : KNOWN_SERVICE_ROLE
 
-    const supabaseClient = createClient(supabaseUrl, actualServiceKey, {
+    if (!cleanServiceKey) {
+      return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    const supabaseClient = createClient(supabaseUrl, cleanServiceKey, {
       auth: { persistSession: false }
     })
 
     const payload = await req.json()
 
-    const contactName = (payload.contactName || payload.name || payload.nombre || '').trim()
-    const email = (payload.email || payload.correo || '').trim().toLowerCase()
-    const phone = (payload.phone || payload.telefono || '').trim()
-    const companyName = (payload.companyName || payload.company || payload.tienda || payload.comercio || '').trim()
-    const website = (payload.website || payload.web || payload.instagram || '').trim()
-    const services = payload.services || payload.servicios || []
-    const monthlyVolume = (payload.monthlyVolume || payload.volume || payload.volumen || '').trim()
-    const storageSpace = (payload.storageSpace || payload.storage || payload.almacenamiento || '').trim()
-    const notes = (payload.notes || payload.message || payload.mensaje || '').trim()
+    // 1. Detección de Bot vía Honeypot (campos trampa que los usuarios reales no llenan)
+    const honeypot = payload.honeypot || payload._gotcha || payload.hp_field || payload.website_hp
+    if (honeypot && String(honeypot).trim().length > 0) {
+      console.warn('[submit-lead] Intento de bot bloqueado por honeypot:', honeypot)
+      // Responder 200 silencioso para evitar que el bot intente bypass
+      return new Response(JSON.stringify({ success: true, message: 'Solicitud procesada correctamente.' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
 
-    if (!email) {
-      return new Response(JSON.stringify({ error: 'El correo electrónico es requerido.' }), {
+    const contactName = (payload.contactName || payload.name || payload.nombre || '').trim().substring(0, 150)
+    const email = (payload.email || payload.correo || '').trim().toLowerCase().substring(0, 150)
+    const phone = (payload.phone || payload.telefono || '').trim().substring(0, 50)
+    const companyName = (payload.companyName || payload.company || payload.tienda || payload.comercio || '').trim().substring(0, 150)
+    const website = (payload.website || payload.web || payload.instagram || '').trim().substring(0, 200)
+    const services = payload.services || payload.servicios || []
+    const monthlyVolume = (payload.monthlyVolume || payload.volume || payload.volumen || '').trim().substring(0, 50)
+    const storageSpace = (payload.storageSpace || payload.storage || payload.almacenamiento || '').trim().substring(0, 50)
+    const notes = (payload.notes || payload.message || payload.mensaje || '').trim().substring(0, 2000)
+
+    // Validar formato estricto de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!email || !emailRegex.test(email)) {
+      return new Response(JSON.stringify({ error: 'Por favor ingresa un correo electrónico válido.' }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // 2. Control de Tasa / Anti-Spam (Ventana de 3 minutos para el mismo email)
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+    const { data: recentLeads } = await supabaseClient
+      .from('quote_leads')
+      .select('id, created_at')
+      .eq('email', email)
+      .gt('created_at', threeMinutesAgo)
+      .limit(1)
+
+    if (recentLeads && recentLeads.length > 0) {
+      console.warn(`[submit-lead] Solicitud duplicada reciente para ${email}. Omitiendo envío repetido a Brevo.`)
+      return new Response(JSON.stringify({ 
+        success: true, 
+        message: 'Tu solicitud ya ha sido recibida y nuestro equipo comercial la está procesando.' 
+      }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
@@ -57,7 +95,7 @@ serve(async (req) => {
     const cleanPhoneForWa = phone.replace(/\D/g, '')
     const waLink = cleanPhoneForWa ? `https://wa.me/${cleanPhoneForWa.startsWith('56') ? cleanPhoneForWa : '56' + cleanPhoneForWa}` : null
 
-    // 1. Guardar o actualizar en quote_leads
+    // 3. Guardar en quote_leads
     const leadRecord = {
       email: email,
       contact_name: contactName || 'Contacto Web',

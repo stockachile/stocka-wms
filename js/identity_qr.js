@@ -330,14 +330,15 @@ function renderTableRows(workersList, notifications, container) {
     }
 
     const initials = fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'US';
+    const isSafeAvatar = w.avatar_url && (w.avatar_url.startsWith('https://') || w.avatar_url.startsWith('http://') || w.avatar_url.startsWith('data:image/'));
 
     return `
       <tr>
         <td>
           <div class="user-profile-cell">
-            ${w.avatar_url 
-              ? `<img src="${w.avatar_url}" class="user-cell-avatar">` 
-              : `<div class="user-cell-placeholder">${initials}</div>`}
+            ${isSafeAvatar 
+              ? `<img src="${escapeHtml(w.avatar_url)}" class="user-cell-avatar" alt="Avatar">` 
+              : `<div class="user-cell-placeholder">${escapeHtml(initials)}</div>`}
             <div class="user-cell-info">
               <span class="user-cell-name">${escapeHtml(fullName)}</span>
               <span class="user-cell-email">${escapeHtml(email)}</span>
@@ -473,7 +474,7 @@ function openQRViewerModal(worker, qrData) {
           <div style="width: 100%;">
             <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Enlace Público de la Tarjeta</label>
             <div style="display: flex; gap: 0.5rem;">
-              <input type="text" readonly value="${publicUrl}" class="form-input" id="qr-url-input" style="font-size: 0.85rem; background: var(--color-bg);">
+              <input type="text" readonly value="${escapeHtml(publicUrl)}" class="form-input" id="qr-url-input" style="font-size: 0.85rem; background: var(--color-bg);">
               <button class="btn btn-secondary" id="btn-copy-url" style="padding: 0.5rem 1rem;"><i class="ri-file-copy-line"></i> Copiar</button>
             </div>
           </div>

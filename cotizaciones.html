@@ -878,6 +878,11 @@
       </div>
 
       <form id="lead-quote-form">
+        <!-- Campo Honeypot trampa para bots (invisible para usuarios reales) -->
+        <div style="display:none !important; visibility:hidden; opacity:0; position:absolute; left:-9999px;" aria-hidden="true">
+          <input type="text" name="_gotcha" id="lead-honeypot" tabindex="-1" autocomplete="off">
+        </div>
+
         <div class="form-group">
           <label for="lead-company" class="form-label">Nombre de tu Comercio / Empresa <span style="color: var(--color-danger)">*</span></label>
           <input type="text" id="lead-company" class="form-input" placeholder="Mi Tienda Online SpA" required>

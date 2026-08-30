@@ -50,8 +50,13 @@ serve(async (req) => {
 
     const rawBody = await req.text();
 
-    // 4. Verificación de Seguridad HMAC (solo si tiene webhook_secret configurado)
-    if (integration.webhook_secret && signatureHeader) {
+    // 4. Verificación de Seguridad HMAC (obligatoria si la integración tiene webhook_secret)
+    if (integration.webhook_secret) {
+      if (!signatureHeader) {
+        console.error("Falta cabecera x-linkedstore-signature en petición de Tiendanube");
+        return new Response("Missing signature header", { status: 401 });
+      }
+
       const keyBuf = new TextEncoder().encode(integration.webhook_secret.trim());
       const key = await crypto.subtle.importKey(
         "raw",
@@ -68,10 +73,8 @@ serve(async (req) => {
 
       if (signatureHex !== signatureHeader.toLowerCase()) {
         console.error("Firma HMAC inválida para Tiendanube webhook");
-        return new Response("Unauthorized", { status: 401 });
+        return new Response("Unauthorized: Invalid signature", { status: 401 });
       }
-    } else {
-      console.warn("Saltando verificación HMAC: Falta webhook_secret o cabecera x-linkedstore-signature");
     }
 
     // 5. Parsear el body JSON

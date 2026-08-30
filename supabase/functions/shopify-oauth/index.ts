@@ -140,6 +140,15 @@ serve(async (req) => {
         merchantId = decodedState.merchant_id;
         comercio = decodedState.comercio;
         redirectBackUrl = decodedState.redirect_back_url || "";
+
+        // Validar expiración del state si incluye timestamp (ventana de 30 minutos)
+        if (decodedState.timestamp && typeof decodedState.timestamp === "number") {
+          const ageMs = Date.now() - decodedState.timestamp;
+          if (ageMs > 30 * 60 * 1000) {
+            console.warn("⚠️ State de OAuth expirado:", ageMs, "ms");
+            return new Response("OAuth session expired. Please re-initiate connection from WMS dashboard.", { status: 400 });
+          }
+        }
       } catch (e) {
         console.error("Error decodificando state:", e);
         return new Response("Invalid state parameter", { status: 400 });

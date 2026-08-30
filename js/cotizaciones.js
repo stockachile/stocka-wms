@@ -596,7 +596,20 @@ async function handleLeadSubmission(e) {
   }
 
   try {
-    const contactObj = { name, company, email, phone };
+    const honeypot = document.getElementById('lead-honeypot')?.value.trim() || '';
+    if (honeypot) {
+      console.warn('Bot submission caught via honeypot');
+      if (alertContainer) {
+        alertContainer.innerHTML = `<div class="alert alert-success" style="padding: 0.85rem; margin-top: 0.75rem; font-size: 0.85rem; border-radius: var(--radius-md);">¡Cotización enviada exitosamente!</div>`;
+      }
+      setTimeout(() => {
+        const modal = document.getElementById('email-quote-modal');
+        if (modal) modal.classList.remove('open');
+      }, 1500);
+      return;
+    }
+
+    const contactObj = { name, company, email, phone, honeypot };
 
     // 1. Enviar correo formal con Brevo API
     let emailSent = false;

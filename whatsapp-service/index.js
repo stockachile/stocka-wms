@@ -117,20 +117,34 @@ function formatJid(target) {
   return `${cleaned}@s.whatsapp.net`;
 }
 
+const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+
+// Middleware de autenticación por API Key
+function requireAuth(req, res, next) {
+  const apiKey = req.headers['x-api-key'] || 
+                 (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : null) || 
+                 req.query.key;
+
+  if (!apiKey || apiKey !== WHATSAPP_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized: Se requiere x-api-key válida para interactuar con WhatsApp.' });
+  }
+  next();
+}
+
 // ---------------- ENDPOINTS API REST ----------------
 
 // 1. Estado de conexión
-app.get('/status', (req, res) => {
+app.get('/status', requireAuth, (req, res) => {
   res.json({
     status: connectionStatus,
     user: botUser,
     hasQR: !!currentQR,
-    qrUrl: currentQR ? `http://localhost:${PORT}/qr` : null
+    qrUrl: currentQR ? `http://localhost:${PORT}/qr?key=${encodeURIComponent(WHATSAPP_API_KEY)}` : null
   });
 });
 
 // 2. Visualizador amigable de código QR en navegador
-app.get('/qr', async (req, res) => {
+app.get('/qr', requireAuth, async (req, res) => {
   if (connectionStatus === 'CONNECTED') {
     return res.send(`
       <html>
@@ -192,7 +206,7 @@ app.get('/qr', async (req, res) => {
 });
 
 // 3. Obtener listado de grupos en los que está el bot
-app.get('/groups', async (req, res) => {
+app.get('/groups', requireAuth, async (req, res) => {
   if (connectionStatus !== 'CONNECTED' || !sock) {
     return res.status(503).json({ error: 'WhatsApp no está conectado todavía' });
   }
@@ -212,7 +226,7 @@ app.get('/groups', async (req, res) => {
 });
 
 // 4. Enviar Mensaje de Texto Simple
-app.post('/send-message', async (req, res) => {
+app.post('/send-message', requireAuth, async (req, res) => {
   const { to, message } = req.body;
 
   if (!to || !message) {
@@ -234,7 +248,7 @@ app.post('/send-message', async (req, res) => {
 });
 
 // 5. Enviar Alerta Estructurada de Pedido con Retiro en Bodega
-app.post('/send-pickup-alert', async (req, res) => {
+app.post('/send-pickup-alert', requireAuth, async (req, res) => {
   const {
     to, // Puede ser JID de grupo o número de teléfono
     orderNumber,

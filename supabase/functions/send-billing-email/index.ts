@@ -87,30 +87,26 @@ serve(async (req) => {
 
     const token = authHeader.replace(/^Bearer\s/i, '').trim()
     const cleanServiceKey = supabaseServiceKey.trim()
-    const KNOWN_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8"
 
-    const actualServiceKey = cleanServiceKey.startsWith("eyJ") ? cleanServiceKey : KNOWN_SERVICE_ROLE
+    if (!cleanServiceKey) {
+      console.error("Configuración errónea: SUPABASE_SERVICE_ROLE_KEY no está configurada en Supabase Secrets");
+      return new Response(JSON.stringify({ error: "Server configuration error" }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    const supabaseClient = createClient(supabaseUrl, actualServiceKey, {
+    const supabaseClient = createClient(supabaseUrl, cleanServiceKey, {
       auth: { persistSession: false }
     })
-
-    console.log("--- AUTH DEBUG ---");
-    console.log("Token length:", token.length);
-    console.log("ServiceKey length:", cleanServiceKey.length);
-    console.log("ActualServiceKey length:", actualServiceKey.length);
-    console.log("Token starts with:", token.substring(0, 20));
-    console.log("ServiceKey starts with:", cleanServiceKey.substring(0, 20));
 
     // Validar autorización
     let isAuthorized = false;
     let user = null;
 
-    if (token === cleanServiceKey || token === KNOWN_SERVICE_ROLE || token === actualServiceKey) {
-      console.log("Auth Status: Service Role Key Matched.");
+    if (token === cleanServiceKey) {
       isAuthorized = true;
     } else {
-      console.log("Auth Status: Trying User JWT Verification...");
       const { data: { user: verifiedUser }, error: authErr } = await supabaseClient.auth.getUser(token)
       if (!authErr && verifiedUser) {
         user = verifiedUser;
@@ -127,14 +123,7 @@ serve(async (req) => {
 
     if (!isAuthorized) {
       return new Response(JSON.stringify({ 
-        error: 'Unauthorized: Admins or triggers only',
-        debug: {
-          tokenLength: token.length,
-          serviceKeyLength: cleanServiceKey.length,
-          tokenStart: token.substring(0, 20),
-          serviceKeyStart: cleanServiceKey.substring(0, 20),
-          isEnvKeyEmpty: cleanServiceKey === ''
-        }
+        error: 'Unauthorized: Admins or triggers only'
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
