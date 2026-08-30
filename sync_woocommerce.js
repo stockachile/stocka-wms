@@ -417,11 +417,18 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
           shouldInsertItems = true;
         }
-      } else if (isActive) {
-        // Insertar nuevo pedido activo en WMS con estado 'para procesar'
+      } else {
+        // Insertar nuevo pedido en WMS
+        const initialStatus = isCancelled ? 'cancelado' : 'para procesar';
+        const orderDate = order.date_created_gmt ? `${order.date_created_gmt}Z` : (order.date_created ? new Date(order.date_created).toISOString() : new Date().toISOString());
+
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
-          .insert([{ ...orderDataToSave, status: 'para procesar' }])
+          .insert([{ 
+            ...orderDataToSave, 
+            status: initialStatus,
+            created_at: orderDate
+          }])
           .select('id')
           .single();
 
@@ -430,11 +437,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado '${initialStatus}'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
-      } else {
-        console.log(`ℹ️ Pedido ${finalOrderNumber} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
       }
 
       // Registrar ítems en order_items
