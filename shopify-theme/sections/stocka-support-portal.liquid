@@ -1,0 +1,1004 @@
+{%- comment -%}
+  Stocka Support & Order Tracking Portal for End Consumers
+  Secure Cross-Validation (Email + Order Number) against Stocka WMS Supabase Database
+{%- endcomment -%}
+
+<style>
+  .stocka-sp-page {
+    font-family: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+    padding-bottom: 5rem;
+  }
+  .stocka-sp-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-sp-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* Hero Banner */
+  .stocka-sp-hero {
+    padding: 4rem 0 3.5rem 0;
+    text-align: center;
+    background: radial-gradient(circle at 50% 0%, rgba(92, 36, 255, 0.08) 0%, rgba(248, 250, 252, 0) 70%);
+  }
+  .stocka-sp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    background: #f1f0fe;
+    border: 1.5px solid #e0dcfe;
+    color: #5c24ff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+  }
+  .stocka-sp-title {
+    font-size: 2.2rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.2;
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-sp-title {
+      font-size: 2.85rem;
+    }
+  }
+  .stocka-sp-subtitle {
+    font-size: 1.02rem;
+    color: #64748b;
+    max-width: 720px;
+    margin: 0 auto 1.75rem auto;
+    line-height: 1.6;
+  }
+
+  /* Partner Logistics Notice Banner */
+  .stocka-sp-notice-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-left: 5px solid #5c24ff;
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    max-width: 840px;
+    margin: 0 auto 2.5rem auto;
+    text-align: left;
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+  }
+  .stocka-sp-notice-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+  .stocka-sp-notice-desc {
+    font-size: 0.85rem;
+    color: #475569;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  /* Tracking Interactive Box */
+  .stocka-sp-tracker-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 2.25rem 2rem;
+    max-width: 840px;
+    margin: 0 auto 3rem auto;
+    box-shadow: 0 15px 35px -10px rgba(15, 23, 42, 0.07);
+  }
+  @media (max-width: 767px) {
+    .stocka-sp-tracker-card {
+      padding: 1.5rem 1.25rem;
+      border-radius: 18px;
+    }
+  }
+
+  /* Tab Controls (2 Clean Tabs) */
+  .stocka-sp-tabs {
+    display: flex;
+    gap: 0.5rem;
+    background: #f1f5f9;
+    padding: 5px;
+    border-radius: 14px;
+    margin-bottom: 1.75rem;
+  }
+  .stocka-sp-tab-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #64748b;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  .stocka-sp-tab-btn:hover {
+    color: #0f172a;
+  }
+  .stocka-sp-tab-btn.active {
+    background: #ffffff;
+    color: #5c24ff;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  }
+
+  /* Form Input Groups & Security Notice */
+  .stocka-sp-form-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-sp-form-grid.two-inputs {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .stocka-sp-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    text-align: left;
+  }
+  .stocka-sp-label {
+    font-size: 0.84rem;
+    font-weight: 800;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .stocka-sp-label span.req {
+    color: #ef4444;
+  }
+
+  .stocka-sp-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  .stocka-sp-input-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .stocka-sp-input,
+  .stocka-sp-input-wrap input {
+    width: 100% !important;
+    padding-left: 52px !important;
+    padding-right: 1.1rem !important;
+    padding-top: 0.95rem !important;
+    padding-bottom: 0.95rem !important;
+    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    outline: none !important;
+    font-size: 0.95rem !important;
+    color: #0f172a !important;
+    background: #f8fafc !important;
+    font-family: inherit !important;
+    transition: all 0.2s ease !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    z-index: 1 !important;
+    line-height: normal !important;
+  }
+  .stocka-sp-input:focus,
+  .stocka-sp-input-wrap input:focus {
+    background: #ffffff !important;
+    border-color: #5c24ff !important;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12) !important;
+  }
+
+  .stocka-sp-sec-note {
+    font-size: 0.78rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1.25rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 0.55rem 0.9rem;
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .stocka-sp-btn-search {
+    background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%);
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 0.98rem;
+    padding: 0.95rem 1.75rem;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(92, 36, 255, 0.3);
+    font-family: inherit;
+    width: 100%;
+  }
+  .stocka-sp-btn-search:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(92, 36, 255, 0.4);
+  }
+  .stocka-sp-btn-search:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Result Box */
+  .stocka-sp-result-box {
+    margin-top: 2rem;
+    padding-top: 1.75rem;
+    border-top: 1.5px dashed #e2e8f0;
+    display: none;
+    animation: spFadeIn 0.3s ease;
+  }
+  @keyframes spFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stocka-order-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .stocka-order-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-store-badge {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  /* Step Timeline */
+  .stocka-timeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: relative;
+    margin: 1.75rem 0 1.25rem 0;
+  }
+  @media (max-width: 640px) {
+    .stocka-timeline {
+      grid-template-columns: 1fr;
+      gap: 1.25rem;
+    }
+  }
+  .stocka-timeline-step {
+    text-align: center;
+    position: relative;
+    padding: 0 0.5rem;
+  }
+  @media (max-width: 640px) {
+    .stocka-timeline-step {
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+  }
+  .stocka-timeline-dot {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+  }
+  .stocka-timeline-step.done .stocka-timeline-dot {
+    background: #10b981;
+    color: #ffffff;
+  }
+  .stocka-timeline-step.active .stocka-timeline-dot {
+    background: #5c24ff;
+    color: #ffffff;
+    box-shadow: 0 0 0 5px rgba(92, 36, 255, 0.2);
+  }
+  .stocka-timeline-text {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+    line-height: 1.3;
+  }
+  .stocka-timeline-step.active .stocka-timeline-text {
+    color: #5c24ff;
+    font-weight: 800;
+  }
+
+  /* Not Found / Empty State */
+  .stocka-notfound-box {
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    background: #f8fafc;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 18px;
+  }
+  .stocka-notfound-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #fef2f2;
+    color: #ef4444;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+  .stocka-notfound-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.5rem 0;
+  }
+  .stocka-notfound-desc {
+    font-size: 0.88rem;
+    color: #64748b;
+    max-width: 520px;
+    margin: 0 auto 1.5rem auto;
+    line-height: 1.55;
+  }
+
+  /* Help Cards Grid */
+  .stocka-sp-help-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    max-width: 840px;
+    margin: 0 auto 3rem auto;
+  }
+  @media (min-width: 640px) {
+    .stocka-sp-help-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .stocka-sp-help-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.2s ease;
+  }
+  .stocka-sp-help-card:hover {
+    border-color: #5c24ff;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.06);
+  }
+  .stocka-sp-help-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+  .stocka-sp-help-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.45rem 0;
+  }
+  .stocka-sp-help-desc {
+    font-size: 0.85rem;
+    color: #64748b;
+    line-height: 1.55;
+    margin: 0 0 1.25rem 0;
+  }
+  .stocka-sp-help-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.88rem;
+    font-weight: 800;
+    text-decoration: none;
+    margin-top: auto;
+  }
+
+  /* Consumer FAQ Section */
+  .stocka-sp-faq-box {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 2rem;
+    max-width: 840px;
+    margin: 0 auto;
+  }
+  .stocka-sp-faq-item {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 1rem 0;
+  }
+  .stocka-sp-faq-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .stocka-sp-faq-q {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.35rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .stocka-sp-faq-a {
+    font-size: 0.86rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0;
+  }
+</style>
+
+<div class="stocka-sp-page">
+  
+  <!-- Hero Section -->
+  <div class="stocka-sp-hero">
+    <div class="stocka-sp-container">
+      <div class="stocka-sp-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+        <span>CENTRO DE AYUDA Y SEGUIMIENTO AL CONSUMIDOR</span>
+      </div>
+      <h1 class="stocka-sp-title">Rastrea tu pedido o consulta el estado de tu entrega</h1>
+      <p class="stocka-sp-subtitle">
+        Ingresa tus datos de compra para consultar la ubicación de tu paquete, tiempos de entrega y courier asignado directamente en el sistema de Stocka.
+      </p>
+
+      <!-- Clarification Notice Card -->
+      <div class="stocka-sp-notice-card">
+        <div class="stocka-sp-notice-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; color: #5c24ff; flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span>¿Quién es Stocka y por qué gestionamos tu paquete?</span>
+        </div>
+        <p class="stocka-sp-notice-desc">
+          En <strong>Stocka</strong> somos el <strong>partner logístico y centro de fulfillment</strong> de tu tienda online. Nosotros no comercializamos directamente los productos: nos encargamos de almacenarlos con seguridad, armar tu paquete con cuidado y entregarlo en ruta (Same Day en Santiago o vía Starken, Blue Express y Chilexpress a regiones).
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="stocka-sp-container">
+    
+    <!-- Tracking Card Container -->
+    <div class="stocka-sp-tracker-card">
+      
+      <!-- Tab Selection (2 Tabs: Order+Email & Courier) -->
+      <div class="stocka-sp-tabs" id="sp-track-tabs">
+        <button type="button" class="stocka-sp-tab-btn active" data-mode="order-email">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+          <span>N° de Orden + Correo</span>
+        </button>
+        <button type="button" class="stocka-sp-tab-btn" data-mode="courier">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+          <span>Código de Courier</span>
+        </button>
+      </div>
+
+      <!-- Mode 1: Order + Email -->
+      <form id="sp-form-order-email">
+        <div class="stocka-sp-form-grid two-inputs">
+          <div class="stocka-sp-field-group">
+            <label for="sp-oe-email" class="stocka-sp-label">
+              <span>Correo Electrónico de Compra</span> <span class="req">*</span>
+            </label>
+            <div class="stocka-sp-input-wrap">
+              <svg class="stocka-sp-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+              <input type="email" id="sp-oe-email" class="stocka-sp-input" placeholder="ejemplo@correo.cl" required autocomplete="email">
+            </div>
+          </div>
+
+          <div class="stocka-sp-field-group">
+            <label for="sp-oe-order" class="stocka-sp-label">
+              <span>N° de Pedido / Orden</span> <span class="req">*</span>
+            </label>
+            <div class="stocka-sp-input-wrap">
+              <svg class="stocka-sp-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              <input type="text" id="sp-oe-order" class="stocka-sp-input" placeholder="Ej: 11047123 o #12345" required>
+            </div>
+          </div>
+        </div>
+
+        <div class="stocka-sp-sec-note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; color: #10b981; flex-shrink: 0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>Por tu seguridad y privacidad, validamos que el número de compra coincida con el correo registrado.</span>
+        </div>
+
+        <button type="submit" id="sp-btn-oe" class="stocka-sp-btn-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 16px; height: 16px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Consultar Estado de Entrega</span>
+        </button>
+      </form>
+
+      <!-- Mode 2: Courier Tracking Code -->
+      <form id="sp-form-courier" style="display: none;">
+        <div class="stocka-sp-form-grid">
+          <div class="stocka-sp-field-group">
+            <label for="sp-cr-code" class="stocka-sp-label">
+              <span>Código de Seguimiento de Transporte</span> <span class="req">*</span>
+            </label>
+            <div class="stocka-sp-input-wrap">
+              <svg class="stocka-sp-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+              <input type="text" id="sp-cr-code" class="stocka-sp-input" placeholder="Ej: 9948271049 (Starken / Blue / Chilexpress)" required>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" id="sp-btn-cr" class="stocka-sp-btn-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 16px; height: 16px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Rastrear Envío</span>
+        </button>
+      </form>
+
+      <!-- Dynamic Result Display Container -->
+      <div id="sp-result-box" class="stocka-sp-result-box">
+        <div id="sp-results-content"></div>
+      </div>
+
+    </div>
+
+    <!-- Direct Help Channels Cards Grid -->
+    <div class="stocka-sp-help-grid">
+      
+      <!-- WhatsApp Direct Support -->
+      <div class="stocka-sp-help-card">
+        <div>
+          <div class="stocka-sp-help-icon" style="background: #ecfdf5; color: #10b981;">
+            <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: currentColor;"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+          </div>
+          <h3 class="stocka-sp-help-title">WhatsApp de Ayuda a Envíos</h3>
+          <p class="stocka-sp-help-desc">
+            Chatea con nuestro equipo de soporte logístico si tu pedido presenta algún retraso o necesitas coordinar el horario de entrega.
+          </p>
+        </div>
+        <a href="https://wa.me/56933942358?text=Hola!%20Necesito%20ayuda%20con%20el%20seguimiento%20de%20mi%20compra" target="_blank" class="stocka-sp-help-btn" style="color: #10b981;">
+          <span>Hablar por WhatsApp (+56 9 3394 2358)</span> ➔
+        </a>
+      </div>
+
+      <!-- Pickup Point in Nuñoa -->
+      <div class="stocka-sp-help-card">
+        <div>
+          <div class="stocka-sp-help-icon" style="background: #f5f3ff; color: #5c24ff;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 24px; height: 24px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+          </div>
+          <h3 class="stocka-sp-help-title">Retiro Presencial en Ñuñoa</h3>
+          <p class="stocka-sp-help-desc">
+            Si elegiste retiro en tienda, tu compra te espera en Av. Campos de Deportes 405, Ñuñoa. Lunes a Viernes de 10:30 a 14:00 hrs y 15:00 a 17:00 hrs, y Sábados de 10:30 a 14:00 hrs.
+          </p>
+        </div>
+        <a href="https://maps.google.com/?q=Avenida+Campos+de+Deportes+405,+Nuñoa" target="_blank" class="stocka-sp-help-btn" style="color: #5c24ff;">
+          <span>Ver ubicación y cómo llegar</span> ➔
+        </a>
+      </div>
+
+    </div>
+
+    <!-- Consumer Common FAQs -->
+    <div class="stocka-sp-faq-box">
+      <h3 style="font-size: 1.25rem; font-weight: 900; color: #0f172a; margin: 0 0 1.25rem 0;">Preguntas Frecuentes de Compradores</h3>
+      
+      <div class="stocka-sp-faq-item">
+        <h4 class="stocka-sp-faq-q">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; color: #5c24ff;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          ¿Cómo cambio la dirección de entrega de mi paquete?
+        </h4>
+        <p class="stocka-sp-faq-a">
+          Si tu pedido aún no ha salido a ruta, contáctanos de inmediato a nuestro WhatsApp indicando tu número de compra y la nueva dirección exacta. Si ya está en manos del courier, gestionaremos la reexpedición con la empresa de transporte correspondiente.
+        </p>
+      </div>
+
+      <div class="stocka-sp-faq-item">
+        <h4 class="stocka-sp-faq-q">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; color: #5c24ff;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          ¿Qué hago si quiero devolver un producto o solicitar un cambio?
+        </h4>
+        <p class="stocka-sp-faq-a">
+          Las políticas comerciales y garantías corresponden a la tienda donde compraste. Una vez que la tienda autorice tu cambio o devolución, Stocka recibirá el producto en bodega o coordinará el retiro a domicilio.
+        </p>
+      </div>
+
+      <div class="stocka-sp-faq-item">
+        <h4 class="stocka-sp-faq-q">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; color: #5c24ff;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          ¿En qué horario se entregan las compras Same Day en Santiago?
+        </h4>
+        <p class="stocka-sp-faq-a">
+          Las entregas en el mismo día se realizan de lunes a sábado entre las 12:00 y las 21:00 hrs. Nuestro repartidor intentará comunicarse al teléfono registrado previo a la entrega.
+        </p>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+
+    function initSupportPortal() {
+      const tabs = document.querySelectorAll('#sp-track-tabs .stocka-sp-tab-btn');
+      const formOE = document.getElementById('sp-form-order-email');
+      const formCR = document.getElementById('sp-form-courier');
+      const resultBox = document.getElementById('sp-result-box');
+      const resultsContent = document.getElementById('sp-results-content');
+
+      tabs.forEach(tabBtn => {
+        tabBtn.addEventListener('click', () => {
+          tabs.forEach(b => b.classList.remove('active'));
+          tabBtn.classList.add('active');
+          const mode = tabBtn.dataset.mode;
+          
+          if (formOE) formOE.style.display = mode === 'order-email' ? 'block' : 'none';
+          if (formCR) formCR.style.display = mode === 'courier' ? 'block' : 'none';
+        });
+      });
+
+      // Submit Handler for Order + Email
+      if (formOE) {
+        formOE.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const email = document.getElementById('sp-oe-email').value.trim();
+          const order = document.getElementById('sp-oe-order').value.trim();
+          if (!email || !order) return;
+
+          const btn = document.getElementById('sp-btn-oe');
+          btn.disabled = true;
+          const orig = btn.innerHTML;
+          btn.innerHTML = '<span>Verificando en WMS...</span>';
+
+          try {
+            const results = await queryWmsRpc({ email: email, order_number: order });
+            renderResults(results, `Orden #${order} (${email})`);
+          } catch(err) {
+            console.error(err);
+            renderErrorState(order);
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+          }
+        });
+      }
+
+      // Submit Handler for Courier Code
+      if (formCR) {
+        formCR.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const courierCode = document.getElementById('sp-cr-code').value.trim();
+          if (!courierCode) return;
+
+          const btn = document.getElementById('sp-btn-cr');
+          btn.disabled = true;
+          const orig = btn.innerHTML;
+          btn.innerHTML = '<span>Consultando courier...</span>';
+
+          try {
+            const results = await queryWmsRpc({ courier_code: courierCode });
+            renderResults(results, courierCode);
+          } catch(err) {
+            console.error(err);
+            renderErrorState(courierCode);
+          } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+          }
+        });
+      }
+
+      async function queryWmsRpc({ email = null, order_number = null, courier_code = null }) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_customer_tracking`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_ANON_KEY,
+              'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+            },
+            body: JSON.stringify({
+              p_email: email,
+              p_order_number: order_number,
+              p_courier_code: courier_code
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) return data;
+          }
+        } catch (e) {
+          console.warn('RPC query notice:', e);
+        }
+
+        // Fallback direct query if RPC is pending update
+        try {
+          let filter = '';
+          if (email && order_number) {
+            let cleanOrd = order_number.startsWith('#') ? order_number.substring(1) : order_number;
+            filter = `customer_email=ilike.${encodeURIComponent(email)}&or=(external_order_number.ilike.${encodeURIComponent(cleanOrd)},id.eq.${encodeURIComponent(cleanOrd)})`;
+          } else if (courier_code) {
+            filter = `tracking_number.ilike.${encodeURIComponent(courier_code)}`;
+          }
+
+          if (filter) {
+            const fallbackRes = await fetch(`${SUPABASE_URL}/rest/v1/orders?${filter}&select=id,external_order_number,comercio,customer_name,customer_email,status,estado_wms,tracking_number,tracking_url,courier,operador,categoria_entrega,shipping_city,created_at&limit=10`, {
+              headers: {
+                'apikey': SUPABASE_ANON_KEY,
+                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+              }
+            });
+            if (fallbackRes.ok) {
+              const data = await fallbackRes.json();
+              if (Array.isArray(data) && data.length > 0) {
+                return data.map(o => ({
+                  id: o.id,
+                  order_number: o.external_order_number || o.id,
+                  comercio: o.comercio || 'Tienda Asociada Stocka',
+                  customer_name: o.customer_name || 'Cliente',
+                  customer_email: o.customer_email,
+                  status: o.estado_wms || o.status || 'En Proceso',
+                  tracking_number: o.tracking_number,
+                  tracking_url: o.tracking_url,
+                  courier: o.operador || o.courier || 'Stocka Same Day / Courier',
+                  categoria_entrega: o.categoria_entrega || 'DISTRIBUCIÓN',
+                  shipping_city: o.shipping_city,
+                  created_at: o.created_at
+                }));
+              }
+            }
+          }
+        } catch(e) {
+          console.warn('Fallback notice:', e);
+        }
+
+        return [];
+      }
+
+      function renderResults(orders, queryLabel) {
+        if (!resultBox || !resultsContent) return;
+        resultBox.style.display = 'block';
+
+        if (!orders || orders.length === 0) {
+          renderNotFoundState(queryLabel);
+          resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          return;
+        }
+
+        let html = '';
+        orders.forEach(order => {
+          const statusLower = (order.status || '').toLowerCase();
+          let step1Done = true;
+          let step2Done = false;
+          let step3Active = false;
+          let step4Done = false;
+
+          let statusBadgeText = order.status;
+          let statusBadgeColor = '#5c24ff';
+          let statusBadgeBg = '#f1f0fe';
+          let statusBadgeBorder = '#e0dcfe';
+
+          if (statusLower.includes('entreg') || statusLower.includes('retirado') || statusLower.includes('complet')) {
+            step2Done = true;
+            step3Active = true;
+            step4Done = true;
+            statusBadgeText = '✅ Entregado con Éxito';
+            statusBadgeColor = '#059669';
+            statusBadgeBg = '#ecfdf5';
+            statusBadgeBorder = '#a7f3d0';
+          } else if (statusLower.includes('despach') || statusLower.includes('ruta') || statusLower.includes('reparto') || statusLower.includes('camino')) {
+            step2Done = true;
+            step3Active = true;
+            statusBadgeText = '🚀 En Ruta de Despacho';
+            statusBadgeColor = '#2563eb';
+            statusBadgeBg = '#eff6ff';
+            statusBadgeBorder = '#bfdbfe';
+          } else if (statusLower.includes('prep') || statusLower.includes('empaq') || statusLower.includes('picking')) {
+            step2Done = true;
+            statusBadgeText = '📦 En Preparación en Bodega';
+            statusBadgeColor = '#ca8a04';
+            statusBadgeBg = '#fefce8';
+            statusBadgeBorder = '#fef08a';
+          } else {
+            statusBadgeText = '📝 Pedido Recibido';
+          }
+
+          const dateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Reciente';
+
+          let courierUrl = order.tracking_url;
+          if (!courierUrl && order.tracking_number) {
+            const trUpper = (order.courier || '').toUpperCase();
+            if (trUpper.includes('STARKEN')) {
+              courierUrl = `https://www.starken.cl/seguimiento?codigo=${order.tracking_number}`;
+            } else if (trUpper.includes('BLUE')) {
+              courierUrl = `https://www.bluex.cl/seguimiento/?tracking=${order.tracking_number}`;
+            } else if (trUpper.includes('CHILEXPRESS')) {
+              courierUrl = `https://www.chilexpress.cl/tracking-resultado?nro=${order.tracking_number}`;
+            } else {
+              courierUrl = `https://wa.me/56933942358?text=Hola!%20Consulto%20por%20mi%20orden%20${encodeURIComponent(order.order_number)}`;
+            }
+          }
+
+          html += `
+            <div class="stocka-order-card">
+              <div class="stocka-order-card-header">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <span class="stocka-store-badge">${escapeHtml(order.comercio)}</span>
+                    <strong style="font-size: 1.05rem; color: #0f172a;">Orden #${escapeHtml(order.order_number)}</strong>
+                  </div>
+                  <span style="font-size: 0.8rem; color: #64748b;">Fecha de compra: ${dateStr} ${order.shipping_city ? '• Destino: ' + escapeHtml(order.shipping_city) : ''}</span>
+                </div>
+                <div>
+                  <span style="font-size: 0.82rem; font-weight: 800; background: ${statusBadgeBg}; color: ${statusBadgeColor}; border: 1px solid ${statusBadgeBorder}; padding: 4px 12px; border-radius: 9999px;">
+                    ${escapeHtml(statusBadgeText)}
+                  </span>
+                </div>
+              </div>
+
+              <!-- 4 Steps Timeline -->
+              <div class="stocka-timeline">
+                <div class="stocka-timeline-step ${step1Done ? 'done' : ''}">
+                  <div class="stocka-timeline-dot">✓</div>
+                  <div class="stocka-timeline-text">1. Orden Recibida</div>
+                </div>
+                <div class="stocka-timeline-step ${step2Done ? (step3Active ? 'done' : 'active') : ''}">
+                  <div class="stocka-timeline-dot">${step2Done ? '✓' : '2'}</div>
+                  <div class="stocka-timeline-text">2. Armado en Bodega</div>
+                </div>
+                <div class="stocka-timeline-step ${step3Active ? (step4Done ? 'done' : 'active') : ''}">
+                  <div class="stocka-timeline-dot">${step4Done ? '✓' : '3'}</div>
+                  <div class="stocka-timeline-text">3. En Ruta / Courier</div>
+                </div>
+                <div class="stocka-timeline-step ${step4Done ? 'done' : ''}">
+                  <div class="stocka-timeline-dot">${step4Done ? '✓' : '4'}</div>
+                  <div class="stocka-timeline-text">4. Entregado</div>
+                </div>
+              </div>
+
+              <!-- Courier & Direct Link -->
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem 1.25rem; margin-top: 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div>
+                  <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; display: block;">Operador Logístico / Courier</span>
+                  <strong style="font-size: 0.95rem; color: #0f172a;">${escapeHtml(order.courier)}</strong>
+                  ${order.tracking_number ? `<span style="font-size: 0.85rem; color: #5c24ff; font-weight: 700; margin-left: 0.35rem;">#${escapeHtml(order.tracking_number)}</span>` : ''}
+                </div>
+                ${courierUrl ? `
+                  <a href="${courierUrl}" target="_blank" rel="noopener" style="font-size: 0.85rem; font-weight: 800; color: #5c24ff; text-decoration: underline; display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <span>Ver seguimiento en tiempo real</span> ➔
+                  </a>
+                ` : ''}
+              </div>
+
+            </div>
+          `;
+        });
+
+        resultsContent.innerHTML = html;
+        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function renderNotFoundState(queryLabel) {
+        resultsContent.innerHTML = `
+          <div class="stocka-notfound-box">
+            <div class="stocka-notfound-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 26px; height: 26px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            </div>
+            <h3 class="stocka-notfound-title">No encontramos pedidos coincidentes</h3>
+            <p class="stocka-notfound-desc">
+              No se encontraron despachos activos que coincidan con <strong>"${escapeHtml(queryLabel)}"</strong>. Por favor verifica que el correo coincida con el registrado en tu compra o contáctanos por WhatsApp para asistirte.
+            </p>
+            <a href="https://wa.me/56933942358?text=Hola!%20No%20encuentro%20el%20seguimiento%20de%20mi%20pedido%20${encodeURIComponent(queryLabel)}" target="_blank" class="stocka-sp-btn-search" style="display: inline-flex; width: auto; text-decoration: none; padding: 0.8rem 1.75rem;">
+              <span>Consultar por WhatsApp (+56 9 3394 2358)</span> ➔
+            </a>
+          </div>
+        `;
+      }
+
+      function renderErrorState(val) {
+        if (!resultBox || !resultsContent) return;
+        resultBox.style.display = 'block';
+        resultsContent.innerHTML = `
+          <div class="stocka-notfound-box">
+            <h3 class="stocka-notfound-title">Error temporal de conexión</h3>
+            <p class="stocka-notfound-desc">
+              No pudimos conectar con el servidor WMS en este momento. Por favor contáctanos directamente a nuestro WhatsApp de soporte para verificar el estado de tu compra.
+            </p>
+            <a href="https://wa.me/56933942358?text=Hola!%20Quiero%20consultar%20el%20estado%20de%20mi%20pedido%20${encodeURIComponent(val)}" target="_blank" class="stocka-sp-btn-search" style="display: inline-flex; width: auto; text-decoration: none;">
+              <span>Asistencia por WhatsApp</span> ➔
+            </a>
+          </div>
+        `;
+      }
+
+      function escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initSupportPortal);
+    } else {
+      initSupportPortal();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Stocka Support Portal",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Stocka Support Portal"
+    }
+  ]
+}
+{% endschema %}

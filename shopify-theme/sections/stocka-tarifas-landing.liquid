@@ -14,13 +14,15 @@
     overflow-x: clip;
   }
   .stocka-tf-container {
-    max-width: 1240px;
+    max-width: 1280px;
     margin: 0 auto;
     padding: 0 1.25rem;
+    width: 100%;
+    box-sizing: border-box;
   }
   @media (min-width: 1024px) {
     .stocka-tf-container {
-      padding: 0 2rem;
+      padding: 0 1.5rem;
     }
   }
 
@@ -420,8 +422,9 @@
      3. COTIZADOR 360 SECTION WRAPPER
      ======================================================== */
   .stocka-tf-cotizador-sec {
-    padding: 5rem 0 3rem 0;
+    padding: 4rem 0 2rem 0;
     background: #ffffff;
+    overflow-x: hidden;
   }
 
   /* ========================================================
@@ -861,25 +864,25 @@
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <div id="tf-tier-active-badge" style="background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%); color: #ffffff; padding: 0.35rem 0.95rem; border-radius: 9999px; font-size: 0.82rem; font-weight: 800; box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);">
-              Rango 1: 0 a 100 pedidos
+              Rango 7: +2.500 pedidos (Enterprise)
             </div>
           </div>
         </div>
 
         <!-- Quick Tramo Buttons Pills -->
         <div class="stocka-tf-tramo-pills" style="margin-bottom: 1.25rem;">
-          <button type="button" class="stocka-tf-tramo-btn active" data-orders="60" data-tier="1">0 – 100 ped</button>
+          <button type="button" class="stocka-tf-tramo-btn" data-orders="60" data-tier="1">0 – 100 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="180" data-tier="2">101 – 250 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="300" data-tier="3">251 – 350 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="420" data-tier="4">351 – 500 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="800" data-tier="5">501 – 1.500 ped</button>
           <button type="button" class="stocka-tf-tramo-btn" data-orders="1800" data-tier="6">1.501 – 2.500 ped</button>
-          <button type="button" class="stocka-tf-tramo-btn" data-orders="3000" data-tier="7">+2.500 Enterprise</button>
+          <button type="button" class="stocka-tf-tramo-btn active" data-orders="3000" data-tier="7">+2.500 Enterprise ⭐</button>
         </div>
 
         <!-- Range Slider -->
         <div style="position: relative;">
-          <input type="range" id="tf-orders-range" class="stocka-cot-range" min="0" max="3000" value="60" step="10" style="width: 100%;">
+          <input type="range" id="tf-orders-range" class="stocka-cot-range" min="0" max="3000" value="3000" step="10" style="width: 100%;">
           <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-top: 0.35rem;">
             <span>0</span>
             <span>250</span>
@@ -892,7 +895,7 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.15rem; padding-top: 0.85rem; border-top: 1px dashed #e2e8f0;">
           <span style="font-size: 0.85rem; color: #475569;">
-            Mostrando tarifas unitarias para: <strong id="tf-orders-count-text" style="color: #5c24ff; font-weight: 800;">60 pedidos / mes</strong>
+            Mostrando tarifas unitarias para: <strong id="tf-orders-count-text" style="color: #5c24ff; font-weight: 800;">+2.500 pedidos / mes (Enterprise)</strong>
           </span>
           <button type="button" id="tf-toggle-table-btn" style="background: none; border: none; font-size: 0.82rem; font-weight: 700; color: #5c24ff; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-family: inherit;">
             <span>📊 Ver tabla completa de tramos WMS</span>
@@ -933,10 +936,10 @@
           <div style="text-align: right;">
             <div style="display: flex; align-items: baseline; gap: 0.35rem; justify-content: flex-end;">
               <span style="font-size: 0.85rem; color: #64748b; font-weight: 600;">aprox.</span>
-              <strong id="tf-unit-cost-val" style="font-size: 1.45rem; font-weight: 900; color: #5c24ff;">$1.562</strong>
+              <strong id="tf-unit-cost-val" style="font-size: 1.45rem; font-weight: 900; color: #5c24ff;">$956</strong>
               <span style="font-size: 0.8rem; color: #64748b; font-weight: 600;">/ ped</span>
             </div>
-            <span id="tf-unit-cost-sub" style="font-size: 0.7rem; color: #64748b; display: block;">(Pick & Pack $1.200 + Custodia bodega estimada ~$362)</span>
+            <span id="tf-unit-cost-sub" style="font-size: 0.7rem; color: #64748b; display: block;">(Pick & Pack $850 + Custodia bodega estimada ~$106)</span>
           </div>
         </div>
 
@@ -952,19 +955,19 @@
                 <svg viewBox="0 0 24 24"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
               </div>
               <span style="background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 0.3rem;">
-                🏷️ Cobro diario por m³
+                🏷️ Volumen dinámico on demand
               </span>
             </div>
             <h3 class="stocka-tf-card-title">Almacenamiento</h3>
-            <p class="stocka-tf-card-sub" id="tf-card-storage-sub">Tarifa para tramo 0 a 100 pedidos/mes</p>
+            <p class="stocka-tf-card-sub" id="tf-card-storage-sub">Tarifa para tramo +2.500 ped/mes (Enterprise)</p>
             
             <div class="stocka-tf-card-price-box">
               <span class="stocka-tf-card-from">Tarifa:</span>
-              <span class="stocka-tf-card-price" id="tf-card-storage-price">$43.500</span>
+              <span class="stocka-tf-card-price" id="tf-card-storage-price">$26.500</span>
               <span class="stocka-tf-card-unit">/ m³ al mes</span>
             </div>
-            <span id="tf-storage-tier-hint" style="font-size: 0.75rem; color: #5c24ff; font-weight: 700; display: block; margin-top: 0.45rem;">
-              ⬇️ Baja hasta $26.500 / m³ en tramo Enterprise
+            <span id="tf-storage-tier-hint" style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: block; margin-top: 0.45rem;">
+              ⚡ Tarifa más baja para grandes volúmenes
             </span>
           </div>
 
@@ -1012,15 +1015,15 @@
               </span>
             </div>
             <h3 class="stocka-tf-card-title">Preparación (Pick & Pack)</h3>
-            <p class="stocka-tf-card-sub" id="tf-card-pickpack-sub">Tarifa para tramo 0 a 100 pedidos/mes</p>
+            <p class="stocka-tf-card-sub" id="tf-card-pickpack-sub">Tarifa para tramo +2.500 ped/mes (Enterprise)</p>
             
             <div class="stocka-tf-card-price-box">
               <span class="stocka-tf-card-from">Tarifa:</span>
-              <span class="stocka-tf-card-price" id="tf-card-pickpack-price">$1.200</span>
+              <span class="stocka-tf-card-price" id="tf-card-pickpack-price">$850</span>
               <span class="stocka-tf-card-unit">/ pedido</span>
             </div>
-            <span id="tf-pickpack-tier-hint" style="font-size: 0.75rem; color: #5c24ff; font-weight: 700; display: block; margin-top: 0.45rem;">
-              ⬇️ Baja hasta $850 / pedido en tramo Enterprise
+            <span id="tf-pickpack-tier-hint" style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: block; margin-top: 0.45rem;">
+              ⚡ Tarifa más baja para grandes volúmenes
             </span>
           </div>
 
@@ -1393,6 +1396,9 @@
     </div>
   </section>
 
+  {% render 'stocka-integrations-section' %}
+  {% render 'stocka-faq-section' %}
+
   <!-- ========================================================
        6. TESTIMONIALS SECTION
        ======================================================== -->
@@ -1578,8 +1584,8 @@
         });
       }
 
-      // Initialize with default 60 orders
-      updateTierDisplay(60);
+      // Initialize with default Enterprise (lowest rates)
+      updateTierDisplay(3000);
     }
 
     if (document.readyState === 'loading') {

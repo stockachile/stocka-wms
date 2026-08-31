@@ -509,7 +509,7 @@
         productsList: productsList.length > 0 ? productsList : (decData.products_list || [])
       });
 
-      // 3. Preparar payload de Brevo (exclusivo para los usuarios del comercio)
+      // 3. Preparar payload de Brevo
       const brevoApiKey = getBrevoApiKey();
       const brevoPayload = {
         sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
@@ -517,6 +517,11 @@
         subject: generated.subject,
         htmlContent: generated.html
       };
+
+      // Si es un nuevo ingreso creado por un cliente, incluir copia a la administración de Stocka
+      if (event === 'created') {
+        brevoPayload.bcc = [{ email: 'stockachile@gmail.com', name: 'Stocka Operaciones' }];
+      }
 
       // Adjuntar archivo PDF o comprobante si existe
       if (fileBase64 && fileName) {

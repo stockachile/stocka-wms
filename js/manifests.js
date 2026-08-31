@@ -7,6 +7,118 @@
   const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
 
+  // Mapa maestro de normalización para unificar razones sociales, nombres legales y variaciones a marcas comerciales limpias
+  const MASTER_COMMERCE_ALIASES = {
+    'blessnus spa': 'BLESSNUSS',
+    'blessnuss': 'BLESSNUSS',
+    'blessnus': 'BLESSNUSS',
+    'aqualat ltda': 'AQUALAT',
+    'aqualat': 'AQUALAT',
+    'electrones libres spa': 'ASIA CLICK',
+    'electrones libres': 'ASIA CLICK',
+    'asia click importadora': 'ASIA CLICK',
+    'asia click': 'ASIA CLICK',
+    'b4life': 'B4LIFE',
+    'be native': 'BE NATIVE',
+    'christian cea cosmetic spa': 'CHC COSMETIC',
+    'christian cea cosmetic': 'CHC COSMETIC',
+    'chc cosmetic': 'CHC COSMETIC',
+    'comercial sercilock spa': 'SERVILOCK',
+    'comercial servilock spa': 'SERVILOCK',
+    'servilock': 'SERVILOCK',
+    'distribuidora esencial spa': 'THE SKIN STORE',
+    'the skin store': 'THE SKIN STORE',
+    'gorita spa': 'JOYAS GLOSS',
+    'joyas gloss': 'JOYAS GLOSS',
+    'laboratorio copahue s a': 'CAVIAHUE',
+    'laboratorio copahue': 'CAVIAHUE',
+    'caviahue': 'CAVIAHUE',
+    'magic makeup spa': 'MAGIC MAKEUP',
+    'magic makeup': 'MAGIC MAKEUP',
+    'myz importaciones spa': 'RCT CHILE',
+    'rct chile': 'RCT CHILE',
+    'rctech chile': 'RCT CHILE',
+    'nomad distribucion y comercializacion de productos spa': 'NOMAD',
+    'nomad': 'NOMAD',
+    'punto shop spa': 'MMEDD',
+    'mmedd': 'MMEDD',
+    'serpa limitada': 'SERPA LTDA',
+    'serpa ltda': 'SERPA LTDA',
+    'silver fox spa': 'FORTE MAX',
+    'simplemente cafe': 'SIMPLEMENTE CAFE',
+    'simplemente café': 'SIMPLEMENTE CAFE',
+    'smile for pets spa': 'SMILE FOR PETS',
+    'smile for pets': 'SMILE FOR PETS',
+    'suplementos maese': 'MAESE',
+    'maese': 'MAESE',
+    'dg international group spa': 'ALLTOKE',
+    'alltoke': 'ALLTOKE',
+    'cyr monsalve spa': 'LIVROS',
+    'livros': 'LIVROS',
+    'cromo tienda spa': 'CROMO',
+    'cromo': 'CROMO',
+    'laqu spa': 'LAQU & COMPANY',
+    'laqu & company': 'LAQU & COMPANY',
+    'laqu': 'LAQU & COMPANY',
+    'pomkids': 'POM KIDS',
+    'pom kids': 'POM KIDS',
+    'marina vital': 'MARINA VITAL',
+    'dg oral care spa': 'DG ORAL CARE',
+    'dg oral care': 'DG ORAL CARE',
+    'street gym': 'STREET GYM',
+    'hit gaming': 'HIT GAMING',
+    'full calendarios spa': 'FULL CALENDARIOS',
+    'full calendarios': 'FULL CALENDARIOS',
+    'dormilones': 'DORMILONES',
+    'relajarte': 'RELAJARTE',
+    'back in time': 'BACK IN TIME',
+    'asterfairo': 'ASTERFAIRO',
+    'anlustore': 'ANLUSTORE'
+  };
+
+  // Helper para normalizar texto eliminando tildes, signos y espacios extra
+  function normalizeCommerceKey(str) {
+    if (!str) return '';
+    return String(str).toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Resolver nombre comercial canónico y unificado
+  function resolveCanonicalCommerce(rawName) {
+    if (!rawName) return '';
+    const norm = normalizeCommerceKey(rawName);
+    if (!norm || ['no asignado', 'all', 'general', 'null', 'undefined'].includes(norm)) return '';
+
+    // 1. Coincidencia directa en diccionario maestro
+    if (MASTER_COMMERCE_ALIASES[norm]) {
+      return MASTER_COMMERCE_ALIASES[norm];
+    }
+
+    // 2. Coincidencia en alias dinámicos
+    if (state.commerceAliasMap && state.commerceAliasMap.has(norm)) {
+      return state.commerceAliasMap.get(norm);
+    }
+
+    // 3. Limpieza de sufijos legales (SpA, S.A., Ltda, Limitada, etc.)
+    const cleaned = norm
+      .replace(/\b(spa|s\.p\.a|s\.a|sa|ltda|limitada|eirl|e\.i\.r\.l|cia|compania|company|distribuidora|comercializadora|importaciones|importadora|tienda)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleaned && MASTER_COMMERCE_ALIASES[cleaned]) {
+      return MASTER_COMMERCE_ALIASES[cleaned];
+    }
+
+    if (cleaned && state.commerceAliasMap && state.commerceAliasMap.has(cleaned)) {
+      return state.commerceAliasMap.get(cleaned);
+    }
+
+    return rawName.trim().toUpperCase();
+  }
+
   // Helper para obtener el cliente Supabase configurado y autenticado
   function getDb() {
     if (window.supabaseClient && typeof window.supabaseClient.from === 'function') {
@@ -32,6 +144,7 @@
     manifests: [],
     availableOrders: [],
     realCommerces: [],
+    commerceAliasMap: new Map(),
     selectedOrders: new Map(), // orderId -> { order, packages_count }
     filtersList: {
       search: '',
@@ -98,11 +211,17 @@
     }
   }
 
-  // Cargar comercios reales de la plataforma desde Supabase (profiles y envios_unificados)
+  // Cargar y normalizar comercios reales de la plataforma desde Supabase (profiles y comercios_adicional_config)
   async function fetchRealCommerces() {
-    const commercesSet = new Set();
-    const db = getDb();
+    const canonicalSet = new Set();
+    const aliasMap = new Map();
 
+    // Poblar con el mapa maestro
+    Object.entries(MASTER_COMMERCE_ALIASES).forEach(([key, canonical]) => {
+      aliasMap.set(key, canonical);
+    });
+
+    const db = getDb();
     try {
       if (db) {
         // Query 1: perfiles de usuarios/comercios reales
@@ -113,18 +232,34 @@
 
         if (!pErr && profiles) {
           profiles.forEach(p => {
+            const tradeNames = [];
             if (p.comercio) {
               p.comercio.split(',').forEach(c => {
                 const trimmed = c.trim();
-                if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
-                  commercesSet.add(trimmed);
+                if (trimmed && !['no asignado', 'all', 'general', 'null', 'undefined'].includes(trimmed.toLowerCase())) {
+                  const canonical = resolveCanonicalCommerce(trimmed);
+                  if (canonical) tradeNames.push(canonical);
                 }
               });
             }
-            if (p.company_name && p.company_name.trim()) {
-              const compTrimmed = p.company_name.trim();
-              if (compTrimmed.toLowerCase() !== 'no asignado' && compTrimmed.toLowerCase() !== 'all') {
-                commercesSet.add(compTrimmed);
+
+            const compName = (p.company_name || '').trim();
+            const normComp = normalizeCommerceKey(compName);
+
+            if (tradeNames.length > 0) {
+              tradeNames.forEach(canonical => {
+                canonicalSet.add(canonical);
+                aliasMap.set(normalizeCommerceKey(canonical), canonical);
+                if (compName && !['no asignado', 'all', 'stocka spa', 'stocka'].includes(compName.toLowerCase())) {
+                  aliasMap.set(normComp, canonical);
+                }
+              });
+            } else if (compName && !compName.toLowerCase().startsWith('demo -') && !['no asignado', 'all', 'stocka', 'stocka spa'].includes(compName.toLowerCase())) {
+              const canonical = resolveCanonicalCommerce(compName);
+              if (canonical) {
+                canonicalSet.add(canonical);
+                aliasMap.set(normComp, canonical);
+                aliasMap.set(normalizeCommerceKey(canonical), canonical);
               }
             }
           });
@@ -133,12 +268,19 @@
         // Query 2: comercios desde tabla de configuración de comercios si existe
         const { data: configs } = await db
           .from('comercios_adicional_config')
-          .select('comercio');
+          .select('comercio, razon_social');
 
         if (configs) {
           configs.forEach(c => {
             if (c.comercio && c.comercio.trim()) {
-              commercesSet.add(c.comercio.trim());
+              const canonical = resolveCanonicalCommerce(c.comercio.trim());
+              if (canonical) {
+                canonicalSet.add(canonical);
+                aliasMap.set(normalizeCommerceKey(c.comercio), canonical);
+                if (c.razon_social && c.razon_social.trim()) {
+                  aliasMap.set(normalizeCommerceKey(c.razon_social), canonical);
+                }
+              }
             }
           });
         }
@@ -147,7 +289,14 @@
       console.warn('[Manifiestos] Error consultando comercios reales de Supabase:', e);
     }
 
-    state.realCommerces = Array.from(commercesSet).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    state.commerceAliasMap = aliasMap;
+
+    // Filtrar entradas de pruebas o no asignadas
+    state.realCommerces = Array.from(canonicalSet)
+      .filter(Boolean)
+      .filter(c => !c.toLowerCase().startsWith('demo -') && c !== 'NO ASIGNADO' && c !== 'STOCKA' && c !== 'STOCKA SPA')
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
     return state.realCommerces;
   }
 
@@ -205,11 +354,8 @@
           .select('*')
           .neq('global_status', 'DESPACHADO')
           .order('created_at', { ascending: false })
-          .limit(300);
+          .limit(400);
 
-        if (filters.commerce) {
-          query = query.ilike('empresa_comercio_proveedor', `%${filters.commerce.trim()}%`);
-        }
         if (filters.courier) {
           query = query.ilike('courier', `%${filters.courier.trim()}%`);
         }
@@ -232,11 +378,8 @@
             .select('*')
             .neq('status', 'despachado')
             .order('created_at', { ascending: false })
-            .limit(200);
+            .limit(300);
 
-          if (filters.commerce) {
-            ordQuery = ordQuery.ilike('comercio', `%${filters.commerce.trim()}%`);
-          }
           if (filters.courier) {
             ordQuery = ordQuery.ilike('courier', `%${filters.courier.trim()}%`);
           }
@@ -248,7 +391,7 @@
               pedido_referencia: o.external_order_number || o.id,
               tracking: o.tracking_number || '',
               courier: o.courier || 'Por Asignar',
-              empresa_comercio_proveedor: o.comercio || 'Sin Comercio',
+              empresa_comercio_proveedor: resolveCanonicalCommerce(o.comercio) || 'Sin Comercio',
               nombre_destinatario: o.customer_name || 'Cliente',
               comuna_destino: o.shipping_city || '',
               direccion_destino: o.shipping_address || '',
@@ -272,12 +415,25 @@
       return true;
     });
 
-    // Filtrar por comercio seleccionado
+    // Filtrar por comercio seleccionado considerando nombre canónico y razones sociales / alias
     if (filters.commerce) {
-      const commTerm = filters.commerce.toLowerCase().trim();
+      const selectedCanonical = resolveCanonicalCommerce(filters.commerce);
+      const selectedNorm = normalizeCommerceKey(filters.commerce);
+
       orders = orders.filter(o => {
-        const commName = (o.empresa_comercio_proveedor || o.comercio || '').toLowerCase();
-        return commName.includes(commTerm);
+        const orderCommRaw = o.empresa_comercio_proveedor || o.comercio || '';
+        const orderCanonical = resolveCanonicalCommerce(orderCommRaw);
+        
+        if (orderCanonical && selectedCanonical && orderCanonical === selectedCanonical) {
+          return true;
+        }
+
+        const orderNorm = normalizeCommerceKey(orderCommRaw);
+        if (orderNorm && selectedNorm && (orderNorm.includes(selectedNorm) || selectedNorm.includes(orderNorm))) {
+          return true;
+        }
+
+        return false;
       });
     }
 
@@ -302,29 +458,43 @@
     return orders;
   }
 
-  // Extraer lista única de comercios reales y couriers para selectores
+  // Extraer lista única de comercios reales normalizados y couriers para selectores
   function getUniqueFilterOptions() {
     const commerceSet = new Set(['TODOS']);
     const courierSet = new Set(['TODOS', 'Starken', 'Blue Express', 'Chilexpress', 'Optiroute', 'Envíame', 'PedidosYa', 'Lightdata']);
 
     if (state.realCommerces && state.realCommerces.length > 0) {
-      state.realCommerces.forEach(c => commerceSet.add(c));
+      state.realCommerces.forEach(c => {
+        const canonical = resolveCanonicalCommerce(c);
+        if (canonical) commerceSet.add(canonical);
+      });
     }
 
     state.manifests.forEach(m => {
       if (m.courier) courierSet.add(m.courier);
       if (m.merchant_name && m.merchant_name !== 'MÚLTIPLES COMERCIOS' && m.merchant_name !== 'TODOS') {
-        commerceSet.add(m.merchant_name);
+        const canonical = resolveCanonicalCommerce(m.merchant_name);
+        if (canonical) commerceSet.add(canonical);
       }
     });
 
     state.availableOrders.forEach(o => {
       if (o.courier) courierSet.add(o.courier);
-      if (o.empresa_comercio_proveedor) commerceSet.add(o.empresa_comercio_proveedor);
+      const rawComm = o.empresa_comercio_proveedor || o.comercio;
+      if (rawComm) {
+        const canonical = resolveCanonicalCommerce(rawComm);
+        if (canonical) commerceSet.add(canonical);
+      }
+    });
+
+    const sortedCommerces = Array.from(commerceSet).filter(Boolean).sort((a, b) => {
+      if (a === 'TODOS') return -1;
+      if (b === 'TODOS') return 1;
+      return a.localeCompare(b, 'es', { sensitivity: 'base' });
     });
 
     return {
-      commerces: Array.from(commerceSet),
+      commerces: sortedCommerces,
       couriers: Array.from(courierSet)
     };
   }
@@ -680,7 +850,7 @@
           <td style="padding: 0.75rem 1rem;"><span class="badge" style="background: var(--color-bg); font-weight: 600;">${m.courier || 'General'}</span></td>
           <td style="padding: 0.75rem 1rem; font-weight: 600;">${driverDisplay}</td>
           <td style="padding: 0.75rem 1rem;">${vehicleDisplay}</td>
-          <td style="padding: 0.75rem 1rem;">${m.merchant_name || 'MÚLTIPLES'}</td>
+          <td style="padding: 0.75rem 1rem;">${resolveCanonicalCommerce(m.merchant_name) || m.merchant_name || 'MÚLTIPLES'}</td>
           <td style="padding: 0.75rem 1rem; text-align: center; font-weight: 700;">${m.total_orders || 0}</td>
           <td style="padding: 0.75rem 1rem; text-align: center; font-weight: 700; color: var(--color-primary);">${m.total_packages || 0}</td>
           <td style="padding: 0.75rem 1rem; text-align: center;">${statusBadge}</td>
@@ -712,7 +882,8 @@
       );
     }
     if (commerce) {
-      list = list.filter(m => m.merchant_name === commerce);
+      const selectedCanonical = resolveCanonicalCommerce(commerce);
+      list = list.filter(m => resolveCanonicalCommerce(m.merchant_name) === selectedCanonical);
     }
     if (courier) {
       list = list.filter(m => m.courier === courier);
@@ -727,7 +898,7 @@
   // Renderizar filas de selección de pedidos en el Modal
   function renderModalOrderRows() {
     if (!state.availableOrders || state.availableOrders.length === 0) {
-      const selectedCommerceName = state.filterOrders.commerce ? `para el comercio "${state.filterOrders.commerce}"` : '';
+      const selectedCommerceName = state.filterOrders.commerce ? `para el comercio "${resolveCanonicalCommerce(state.filterOrders.commerce)}"` : '';
       return `
         <tr>
           <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
@@ -741,6 +912,7 @@
     return state.availableOrders.map(o => {
       const isChecked = state.selectedOrders.has(o.id);
       const pkgCount = isChecked ? state.selectedOrders.get(o.id).packages_count : 1;
+      const cleanCommerceName = resolveCanonicalCommerce(o.empresa_comercio_proveedor || o.comercio) || 'Sin Comercio';
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border); ${isChecked ? 'background: rgba(99, 102, 241, 0.05);' : ''}">
@@ -751,7 +923,7 @@
             <strong style="color: var(--color-primary);">${o.pedido_referencia || o.id}</strong>
             ${o.tracking ? `<br><small style="color: var(--color-text-muted);">Trk: ${o.tracking}</small>` : ''}
           </td>
-          <td style="padding: 0.5rem; font-weight: 500;">${o.empresa_comercio_proveedor || o.comercio || 'Sin Comercio'}</td>
+          <td style="padding: 0.5rem; font-weight: 600; color: #1e3a8a;">${cleanCommerceName}</td>
           <td style="padding: 0.5rem;"><span class="badge" style="font-size: 0.75rem;">${o.courier || 'N/A'}</span></td>
           <td style="padding: 0.5rem;">
             ${o.nombre_destinatario || 'Cliente'}
@@ -916,11 +1088,11 @@
     const modal = document.getElementById('modal-create-manifest');
     if (!modal) return;
 
-    // Asegurar que los comercios reales estén cargados desde Supabase
+    // Asegurar que los comercios reales y canónicos estén cargados desde Supabase
     await fetchRealCommerces();
     const filterOpts = getUniqueFilterOptions();
 
-    // Actualizar el selector de comercio en el modal con los comercios reales
+    // Actualizar el selector de comercio en el modal con la lista limpia
     const modComm = document.getElementById('modal-filter-commerce');
     if (modComm) {
       modComm.innerHTML = filterOpts.commerces.map(c => `<option value="${c === 'TODOS' ? '' : c}">${c}</option>`).join('');
@@ -1122,7 +1294,7 @@
     state.selectedOrders.forEach(({ order, packages_count }) => {
       const pCount = parseInt(packages_count || 1, 10);
       totalPackages += pCount;
-      const cName = order.empresa_comercio_proveedor || order.comercio || '';
+      const cName = resolveCanonicalCommerce(order.empresa_comercio_proveedor || order.comercio || '');
       if (cName) merchantsSet.add(cName);
       if (order.courier) couriersSet.add(order.courier);
 
@@ -1146,7 +1318,7 @@
 
     const merchantNameStr = merchantsSet.size === 1 
       ? Array.from(merchantsSet)[0] 
-      : (merchantsSet.size > 1 ? 'MÚLTIPLES COMERCIOS' : (state.filterOrders.commerce || 'General'));
+      : (merchantsSet.size > 1 ? 'MÚLTIPLES COMERCIOS' : (resolveCanonicalCommerce(state.filterOrders.commerce) || 'General'));
 
     const code = generateManifestCode();
 
@@ -1414,6 +1586,8 @@
       ? 'width: 100%;' 
       : 'background: white; color: #1f2937; padding: 2.2rem; border-radius: 8px; font-family: "Segoe UI", Arial, sans-serif; max-width: 820px; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); line-height: 1.4;';
 
+    const headerMerchant = resolveCanonicalCommerce(m.merchant_name) || m.merchant_name || 'MÚLTIPLES';
+
     return `
       <div style="${containerStyle}">
         
@@ -1443,7 +1617,7 @@
             <div style="color: #475569; font-weight: 700; font-size: 0.73rem; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2rem;">DATOS DEL VEHÍCULO Y CARGA</div>
             <div style="margin-top: 0.2rem;"><strong>Patente Vehículo:</strong> ${renderHandwriteLine(m.license_plate, '150px')}</div>
             <div><strong>Vehículo:</strong> ${renderHandwriteLine(m.vehicle_info, '190px')}</div>
-            <div><strong>Comercio(s):</strong> <strong style="color: #1e3a8a;">${m.merchant_name || 'MÚLTIPLES'}</strong></div>
+            <div><strong>Comercio(s):</strong> <strong style="color: #1e3a8a;">${headerMerchant}</strong></div>
           </div>
         </div>
 
@@ -1482,7 +1656,7 @@
                     <strong>${it.pedido_referencia}</strong>
                     ${it.tracking ? `<br><span style="color: #64748b; font-size: 0.72rem;">Trk: ${it.tracking}</span>` : ''}
                   </td>
-                  <td style="padding: 0.4rem;">${it.empresa_comercio_proveedor || '—'}</td>
+                  <td style="padding: 0.4rem; font-weight: 600; color: #1e3a8a;">${resolveCanonicalCommerce(it.empresa_comercio_proveedor) || it.empresa_comercio_proveedor || '—'}</td>
                   <td style="padding: 0.4rem;">
                     ${it.nombre_destinatario || 'Cliente'}
                     <br><span style="color: #64748b; font-size: 0.72rem;">${it.comuna_destino || ''}</span>

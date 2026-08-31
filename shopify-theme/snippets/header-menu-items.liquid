@@ -3,6 +3,10 @@
 
 <ul class="sf-nav flex text-base font-medium whitespace-nowrap clearfix sf-no-scroll-bar {{ nav_class }}">
     {% for link in linklists[section.settings[menu_id]].links %}
+        {% assign current_link_url = link.url %}
+        {% if current_link_url contains 'freshdesk' or link.title == 'Soporte' or link.title == 'Ayuda' %}
+          {% assign current_link_url = '/pages/soporte' %}
+        {% endif %}
         {%- assign three_level = false -%}
         {% assign li_class = 'sf-menu-item list-none' %}
         {% assign box_size = 'block px-4 py-5' %}
@@ -74,7 +78,7 @@
 
         {% if link.links != blank %}
             <li class="{{ li_class }} sf__menu-item-level1 sf-menu-item-parent{% if is_mega %} sf-menu-item--mega{% endif %}" data-index="{{ forloop.index0 }}"">
-                <a href="{{ link.url }}" class="{{ box_size }} sf__sub-menu-link1 flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">{{ link.title }}
+                <a href="{{ current_link_url }}" class="{{ box_size }} sf__sub-menu-link1 flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">{{ link.title }}
                     <span class="ml-2 sf-menu__arrow">{% render 'icon', name: 'chevron-down-solid', size: 'custom', class: 'w-2 h-2' %}</span>
                 </a>
                 {% if link.links != blank %}
@@ -88,7 +92,7 @@
                                     <ul class="sf-menu-submenu__items flex {% if is_mega == false %} flex-col w-full{% else %} -mx-2{% if stretch_width == false and block_type != blank %} w-2/3{% else %} w-full{% endif %}{% endif %}">
                                         {% for childlink in link.links %}
                                             <li class="list-none sf__menu-item-level2 {% if is_mega %} w-1/2 xl:w-1/3 2xl:w-1/4 mb-4{% else %} w-full leading-9{% endif %}{% if stretch_width == true %} min-w-[200px] pr-2{% endif %}">
-                                                <a href="{{ childlink.url }}" class="sf__sub-menu-link2 whitespace-normal block{% if is_mega %} sf-menu-submenu__title{% else %} sf-sub-menu__link{% endif %}">{{ childlink.title }}</a>
+                                                {% assign child_url = childlink.url %}{% if child_url contains 'freshdesk' or childlink.title == 'Soporte' %}{% assign child_url = '/pages/soporte' %}{% endif %}<a href="{{ child_url }}" class="sf__sub-menu-link2 whitespace-normal block{% if is_mega %} sf-menu-submenu__title{% else %} sf-sub-menu__link{% endif %}">{{ childlink.title }}</a>
                                                 {% if childlink.links != blank %}
                                                     <div class="sf__sub-menu-column mt-4">
                                                         <ul class="leading-8">
@@ -118,7 +122,7 @@
             </li>
         {% else %}
             <li class="{{ li_class }} sf-menu-item-parent{% if is_mega %} sf-menu-item--mega{% endif %}" data-index="{{ forloop.index0 }}">
-                <a href="{{ link.url }}" class="{{ box_size }} flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">
+                <a href="{{ current_link_url }}" class="{{ box_size }} flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">
                     {{ link.title }}
                     {% if is_mega %}
                         <span class="ml-2 sf-menu__arrow">{% render 'icon', name: 'chevron-down-solid', size: 'custom', class: 'w-2 h-2' %}</span>

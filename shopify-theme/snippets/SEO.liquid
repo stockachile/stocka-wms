@@ -3,21 +3,25 @@
 {%- endif -%}
 
 {%- capture seo_title -%}
-  {%- if request.page_type == 'search' and search.performed == true -%}
-    {{ 'general.search.results_with_count' | t: terms: search.terms, count: search.results_count }}
+  {%- if request.page_type == 'index' -%}
+    Stocka | Fulfillment para tu Ecommerce en Chile | Bodegaje y Despachos
+  {%- elsif template.name == 'page' and page.handle == 'tarifas' -%}
+    Tarifas y Precios de Fulfillment en Chile | Stocka Logística
+  {%- elsif template.name == 'page' and page.handle == 'soporte' or template.name == 'page' and page.handle == 'support' -%}
+    Rastrea tu pedido y consulta el estado de despacho de tus compras online preparadas por Stocka Fulfillment. Seguimiento Same Day en Santiago y envíos a regiones con Starken, Blue Express y Chilexpress.
+  {%- elsif template.name == 'page' and page.handle == 'tarifas' -%}
+    Conoce las tarifas de fulfillment para ecommerce en Chile: almacenamiento desde $26.500/m³, pick & pack desde $850/pedido y despachos Same Day en Santiago. Cotiza online con Stocka.
+  {%- elsif template.name == 'page' and page.handle == 'soporte' or template.name == 'page' and page.handle == 'support' -%}
+    Consulta el estado de tu compra en tiendas asociadas a Stocka Fulfillment. Rastrea tu despacho Same Day o envíos a regiones con Starken, Blue Express y Chilexpress.
+  {%- elsif template.name == 'page' and page.handle == 'contacto' -%}
+    Contáctanos para externalizar la logística de tu ecommerce en Chile. Visita nuestra bodega y casa matriz en Ñuñoa o agenda una videollamada comercial 1 a 1 vía Google Meet.
+  {%- elsif page_description != blank -%}
+    {{ page_description | escape }}
   {%- else -%}
-    {{ page_title }}
+    Solución integral de fulfillment para ecommerce en Chile. Almacenamiento, preparación de pedidos y despachos a todo Chile.
   {%- endif -%}
-  {%- if current_tags -%}
-  {%- assign meta_tags = current_tags | join: ', ' -%} &ndash; {{ 'general.meta.tags' | t: tags: meta_tags -}}
-  {%- endif -%}
-  {%- if current_page != 1 -%}
-  &ndash; {{ 'general.meta.page' | t: page: current_page }}
-  {%- endif -%}
-  {%- assign escaped_page_title = page_title | escape -%}
-
 {%- endcapture -%}
+
 <title>{{ seo_title | strip }}</title>
-{%- if page_description -%}
-<meta name="description" content="{{ page_description | escape }}">
-{%- endif -%}
+<meta name="description" content="{{ seo_description | strip }}">
+<link rel="canonical" href="{{ canonical_url | replace: 'http://', 'https://' }}">

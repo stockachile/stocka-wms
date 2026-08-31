@@ -1,0 +1,262 @@
+{%- comment -%}
+  Stocka Interactive FAQ Accordion Section with Schema SEO Support
+{%- endcomment -%}
+
+<style>
+  .stocka-faq-sec {
+    padding: 5rem 0;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-faq-header {
+    text-align: center;
+    max-width: 740px;
+    margin: 0 auto 3.5rem auto;
+  }
+  .stocka-faq-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-faq-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-faq-title {
+      font-size: 2.45rem;
+    }
+  }
+  .stocka-faq-desc {
+    font-size: 0.98rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .stocka-faq-container {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+  .stocka-faq-item {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .stocka-faq-item:hover {
+    border-color: #cbd5e1;
+  }
+  .stocka-faq-item.active {
+    border-color: #5c24ff;
+    box-shadow: 0 8px 25px -5px rgba(92, 36, 255, 0.08);
+  }
+
+  .stocka-faq-question-btn {
+    width: 100%;
+    text-align: left;
+    padding: 1.25rem 1.5rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-family: inherit;
+    font-size: 1.02rem;
+    font-weight: 800;
+    color: #0f172a;
+    user-select: none;
+  }
+  .stocka-faq-item.active .stocka-faq-question-btn {
+    color: #5c24ff;
+  }
+
+  .stocka-faq-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.25s ease;
+  }
+  .stocka-faq-item.active .stocka-faq-icon {
+    background: #5c24ff;
+    color: #ffffff;
+    transform: rotate(45deg);
+  }
+
+  .stocka-faq-answer {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(0, 1, 0, 1), padding 0.3s ease;
+    padding: 0 1.5rem;
+    font-size: 0.92rem;
+    color: #475569;
+    line-height: 1.65;
+  }
+  .stocka-faq-item.active .stocka-faq-answer {
+    max-height: 500px;
+    padding: 0 1.5rem 1.4rem 1.5rem;
+    transition: max-height 0.35s ease-in-out, padding 0.35s ease;
+  }
+</style>
+
+<section class="stocka-faq-sec" id="stocka-faq-anchor">
+  <div class="stocka-tf-container">
+    
+    <div class="stocka-faq-header">
+      <div class="stocka-faq-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        <span>PREGUNTAS FRECUENTES</span>
+      </div>
+      <h2 class="stocka-faq-title">Todo lo que necesitas saber antes de comenzar con Stocka</h2>
+      <p class="stocka-faq-desc">
+        Resolvemos las dudas más habituales sobre nuestras tarifas transparentes, tiempos de entrega Same Day, ubicación y operativa diaria.
+      </p>
+    </div>
+
+    <div class="stocka-faq-container">
+      
+      <!-- FAQ 1 -->
+      <div class="stocka-faq-item active">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Qué incluye exactamente el servicio de Fulfillment 360 de Stocka?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Nos hacemos cargo de todo tu flujo operativo: recibimos tu mercadería en bodega, la almacenamos en custodia segura en nuestras bodegas ubicadas en La Reina, Recoleta y Ñuñoa con CCTV 24/7, sincronizamos tu catálogo en tiempo real, preparamos cada paquete (Pick & Pack con empaque estándar incluido) y lo despachamos el mismo día en Santiago (Same Day) o a regiones vía couriers integrados (Starken, Blue Express, Chilexpress y CorreosChile).
+        </div>
+      </div>
+
+      <!-- FAQ 2 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Cómo se calculan las tarifas y existen costos ocultos o contratos de permanencia?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Nuestra estructura es 100% transparente y no cobramos comisiones por venta. Pagas únicamente por lo que usas: almacenamiento por metro cúbico real diario ($26.500/m³ a $43.500/m³), armado por pedido preparado ($850 a $1.200) y despachos a tarifa preferencial plana ($3.200 + IVA en RM). Sin contratos de amarre ni penalizaciones de permanencia.
+        </div>
+      </div>
+
+      <!-- FAQ 3 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Cómo opera la integración con Mercado Libre Flex y qué horarios de corte tienen?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Stocka se conecta vía API oficial a tu cuenta de Mercado Libre. Todos los pedidos recibidos dentro del horario de corte son preparados y entregados en ruta el mismo día por nuestra flota de distribución, garantizando el 100% de cumplimiento en tus métricas de reputación verde de Mercado Libre.
+        </div>
+      </div>
+
+      <!-- FAQ 4 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Dónde está ubicada la bodega y cómo funciona el Punto de Retiro presencial?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Nuestra oficina y casa matriz está ubicada en Avenida Campos de Deportes 405, comuna de Ñuñoa (a pasos de Metro Estadio Nacional y Monseñor Eyzaguirre), donde tus clientes pueden elegir retirar sus compras online gratis de lunes a viernes (10:30 a 14:00 hrs y 15:00 a 17:00 hrs) y sábados (10:30 a 14:00 hrs). Además, disponemos de centros de distribución de mayor capacidad en La Reina y Recoleta para almacenamiento estratégico y gran escala.
+        </div>
+      </div>
+
+      <!-- FAQ 5 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Qué plataformas y tiendas online son compatibles con el WMS de Stocka?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Contamos con sincronización nativa con Shopify, WooCommerce, Mercado Libre, Falabella, Ripley, Paris y Jumpseller. Adicionalmente, conectamos cualquier ERP de gestión empresarial (SAP, Defontana, Bsale, Relbase, Laudus, Softland) o sistema propio mediante integración personalizada a través de nuestro equipo técnico.
+        </div>
+      </div>
+
+      <!-- FAQ 6 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Cómo gestionan los envíos a regiones de Chile y qué couriers integran?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          Disponemos de acuerdos corporativos de alto volumen con Starken, Blue Express, Chilexpress y CorreosChile. Nuestro WMS etiqueta y despacha tus paquetes con tarifas preferenciales y número de seguimiento automático enviado al correo de tu comprador.
+        </div>
+      </div>
+
+      <!-- FAQ 7 -->
+      <div class="stocka-faq-item">
+        <button type="button" class="stocka-faq-question-btn">
+          <span>¿Cómo es el proceso de onboarding para empezar a operar con Stocka?</span>
+          <div class="stocka-faq-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </div>
+        </button>
+        <div class="stocka-faq-answer">
+          El onboarding es muy rápido y guiado paso a paso: 1) Coordinamos el ingreso y conteo de tu stock; 2) Vinculamos tus tiendas y canales de venta en minutos; 3) Realizamos pruebas de sincronización. ¡En solo horas tu cuenta puede estar 100% lista y configurada para empezar a operar y despachar!
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</section>
+
+<script>
+  (function() {
+    function initStockaFaq() {
+      const items = document.querySelectorAll('.stocka-faq-item');
+      items.forEach(item => {
+        const btn = item.querySelector('.stocka-faq-question-btn');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+          const isActive = item.classList.contains('active');
+          // Close others
+          items.forEach(i => i.classList.remove('active'));
+          // Toggle current
+          if (!isActive) {
+            item.classList.add('active');
+          }
+        });
+      });
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initStockaFaq);
+    } else {
+      initStockaFaq();
+    }
+  })();
+</script>

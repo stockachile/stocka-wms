@@ -13,20 +13,24 @@
   }
 
   .stocka-cot-container {
-    max-width: 1240px;
+    max-width: 100%;
+    width: 100%;
     margin: 0 auto;
+    box-sizing: border-box;
   }
 
   .stocka-cot-grid {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 2.5rem;
-    align-items: stretch;
+    gap: 2rem;
+    align-items: start;
+    width: 100%;
+    box-sizing: border-box;
   }
   @media (min-width: 1024px) {
     .stocka-cot-grid {
-      grid-template-columns: 1.25fr 0.75fr;
-      gap: 3.5rem;
+      grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.95fr);
+      gap: 2.25rem;
     }
   }
 
@@ -310,8 +314,7 @@
     position: relative;
     z-index: 25;
     box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
-    will-change: transform;
-    transition: transform 0.04s ease-out;
+    will-change: transform; transition: transform 0.05s linear;
   }
   @media (max-width: 1023px) {
     .stocka-cot-summary-card {
@@ -791,6 +794,173 @@
     stroke-width: 2.25;
     fill: none;
   }
+
+  /* ========================================================
+     COURIER RATE SHOWCASE STYLES (OS 2.0 B2B)
+     ======================================================== */
+  .stocka-courier-tabs-container {
+    display: flex;
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .stocka-courier-tabs {
+    display: inline-flex;
+    gap: 0.35rem;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+  }
+  .stocka-courier-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  .stocka-courier-tab-btn:hover {
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.7);
+  }
+  .stocka-courier-tab-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  }
+  .courier-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .dot-starken { background-color: #f59e0b; }
+  .dot-blue { background-color: #0284c7; }
+  .dot-chilexpress { background-color: #ef4444; }
+  .dot-correos { background-color: #64748b; }
+
+  .courier-pill-best {
+    font-size: 0.65rem;
+    font-weight: 800;
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+    padding: 1px 6px;
+    border-radius: 6px;
+    letter-spacing: -0.2px;
+  }
+
+  .stocka-courier-banner {
+    border-radius: 10px;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 0.85rem;
+    display: flex;
+    align-items: center;
+    border: 1px solid transparent;
+    transition: all 0.25s ease;
+  }
+  .banner-starken { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+  .banner-blue { background: #f0f9ff; border-color: #bae6fd; color: #075985; }
+  .banner-chilexpress { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .banner-correos { background: #f8fafc; border-color: #e2e8f0; color: #334155; }
+  .courier-banner-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .stocka-courier-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.65rem;
+    margin-bottom: 0.85rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  @media (min-width: 640px) {
+    .stocka-courier-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.65rem;
+    }
+  }
+  .stocka-dest-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 0.75rem 0.55rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  .stocka-dest-card:hover {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 18px -4px rgba(15, 23, 42, 0.08);
+  }
+  .dest-card-header {
+    margin-bottom: 0.35rem;
+  }
+  .dest-zone {
+    display: block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .dest-name {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.25;
+    margin-top: 2px;
+  }
+  .dest-price-box {
+    margin: 0.35rem 0;
+  }
+  .dest-price {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.5px;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+    display: inline-block;
+    font-family: inherit;
+  }
+  .dest-iva {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    margin-left: 2px;
+    font-weight: 500;
+  }
+  .dest-tag-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #d1fae5;
+    padding: 3px 6px;
+    border-radius: 6px;
+    display: inline-block;
+    align-self: center;
+    margin-top: auto;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
 </style>
 
 <section id="stocka-simulator-app" class="stocka-cot-app-sec">
@@ -965,65 +1135,161 @@
             </div>
           </div>
 
-          <!-- Caja de Envíos a Regiones con Couriers Integrados -->
-          <div class="stocka-cot-regional-card" style="margin-bottom: 1.25rem; padding: 1.15rem; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem;">
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-size: 1.1rem;">🇨🇱</span>
-                <h4 style="font-size: 0.92rem; font-weight: 800; color: #0f172a; margin: 0;">Envíos a Regiones (Couriers Integrados)</h4>
+          <!-- Caja de Envíos a Regiones con Selector Interactivo de Couriers -->
+          <div class="stocka-cot-regional-card" style="margin-bottom: 1.5rem; padding: 1.35rem; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 18px; box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);">
+            
+            <!-- Header con Título y Tabs de Couriers -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 1rem;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; background: #f1f5f9; border-radius: 8px; font-size: 0.75rem; font-weight: 800; color: #0f172a;">CL</span>
+                  <h4 style="font-size: 0.98rem; font-weight: 800; color: #0f172a; margin: 0;">Envíos a Regiones (Couriers Integrados)</h4>
+                </div>
+                <p style="font-size: 0.8rem; color: #64748b; margin: 0;">Haz clic en cada courier para ver y comparar las tarifas preferenciales por destino:</p>
               </div>
-              <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
-                <span style="font-size: 0.7rem; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 0.15rem 0.5rem; border-radius: 6px;">Blue Express</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: #fef3c7; color: #b45309; padding: 0.15rem 0.5rem; border-radius: 6px;">Starken</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: #fee2e2; color: #b91c1c; padding: 0.15rem 0.5rem; border-radius: 6px;">Chilexpress</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: #f1f5f9; color: #475569; padding: 0.15rem 0.5rem; border-radius: 6px;">CorreosChile</span>
+
+              <!-- Selector Interactivo de Couriers -->
+              <div class="stocka-courier-tabs-container">
+                <div class="stocka-courier-tabs" id="stocka-courier-tabs">
+                  <button type="button" class="stocka-courier-tab-btn active" data-courier="starken">
+                    <span class="courier-dot dot-starken"></span>
+                    <span class="courier-name">Starken</span>
+                    <span class="courier-pill-best">⭐ Mejor Tarifa</span>
+                  </button>
+                  <button type="button" class="stocka-courier-tab-btn" data-courier="blue">
+                    <span class="courier-dot dot-blue"></span>
+                    <span class="courier-name">Blue Express</span>
+                  </button>
+                  <button type="button" class="stocka-courier-tab-btn" data-courier="chilexpress">
+                    <span class="courier-dot dot-chilexpress"></span>
+                    <span class="courier-name">Chilexpress</span>
+                  </button>
+                  <button type="button" class="stocka-courier-tab-btn" data-courier="correos">
+                    <span class="courier-dot dot-correos"></span>
+                    <span class="courier-name">CorreosChile</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <p style="font-size: 0.82rem; color: #64748b; line-height: 1.45; margin: 0 0 0.85rem 0;">
-              Para tus despachos fuera de Santiago, procesamos e imprimimos etiquetas automatizadas con los principales couriers de Chile a tarifas preferenciales por volumen:
-            </p>
-
-            <!-- Mini Grid Destinos Populares -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem;">
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Valparaíso / Viña</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.335</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Rancagua / O'Higgins</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.290</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Coquimbo / Serena</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$3.748</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Concepción / Biobío</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$4.174</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Puerto Montt / Sur</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$4.223</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.45rem 0.55rem; text-align: center;">
-                <div style="font-size: 0.68rem; color: #64748b; font-weight: 600;">Antofagasta / Norte</div>
-                <div style="font-size: 0.88rem; font-weight: 800; color: #0f172a;">~$5.294</div>
-                <div style="font-size: 0.65rem; color: #10b981; font-weight: 700;">Starken / Blue</div>
+            <!-- Barra Informativa del Courier Activo -->
+            <div id="stocka-courier-info-banner" class="stocka-courier-banner banner-starken">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <svg class="courier-banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+                  <span id="stocka-courier-desc-text" style="font-size: 0.82rem; font-weight: 600;">
+                    <strong>Starken:</strong> Mayor conveniencia en tarifas para ecommerce. Entrega a domicilio o retiro en sucursales a lo largo de todo Chile.
+                  </span>
+                </div>
+                <div id="stocka-courier-transit-tag" style="font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,0.06);">
+                  ⏱️ 1 a 2 días hábiles
+                </div>
               </div>
             </div>
 
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; border-top: 1px dashed #e2e8f0; padding-top: 0.65rem;">
-              <span style="font-size: 0.72rem; color: #94a3b8;">* Tarifas referenciales netas para paquete estándar (1 a 3 kg).</span>
-              <a href="https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0" target="_blank" style="font-size: 0.78rem; font-weight: 700; color: #5c24ff; text-decoration: underline; display: inline-flex; align-items: center; gap: 0.3rem;">
-                <span>📊 Ver tarifario completo de Couriers en Google Sheets</span>
+            <!-- Grid de Tarjetas de Destinos Mejoradas -->
+            <div class="stocka-courier-grid" id="stocka-courier-grid">
+              <!-- Card 1: Valparaíso / Viña -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Zona Centro</span>
+                  <span class="dest-name">Valparaíso / Viña</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="valparaiso">~$3.335</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="valparaiso">
+                  Starken Express
+                </div>
+              </div>
+
+              <!-- Card 2: Rancagua / O'Higgins -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Centro-Sur</span>
+                  <span class="dest-name">Rancagua / O'Higgins</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="rancagua">~$3.290</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="rancagua">
+                  Starken Express
+                </div>
+              </div>
+
+              <!-- Card 3: Coquimbo / Serena -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Norte Chico</span>
+                  <span class="dest-name">Coquimbo / La Serena</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="coquimbo">~$3.748</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="coquimbo">
+                  Starken Express
+                </div>
+              </div>
+
+              <!-- Card 4: Concepción / Biobío -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Zona Sur</span>
+                  <span class="dest-name">Concepción / Biobío</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="concepcion">~$4.174</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="concepcion">
+                  Starken Express
+                </div>
+              </div>
+
+              <!-- Card 5: Puerto Montt / Sur -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Sur Austral</span>
+                  <span class="dest-name">Puerto Montt / Sur</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="puerto_montt">~$4.223</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="puerto_montt">
+                  Starken Express
+                </div>
+              </div>
+
+              <!-- Card 6: Antofagasta / Norte -->
+              <div class="stocka-dest-card">
+                <div class="dest-card-header">
+                  <span class="dest-zone">Zona Norte</span>
+                  <span class="dest-name">Antofagasta / Calama</span>
+                </div>
+                <div class="dest-price-box">
+                  <span class="dest-price" data-dest="antofagasta">~$5.294</span>
+                  <span class="dest-iva">+ IVA</span>
+                </div>
+                <div class="dest-tag-badge" data-dest-tag="antofagasta">
+                  Starken Express
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer Strip con Google Sheets -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; border-top: 1px dashed #e2e8f0; padding-top: 0.75rem; margin-top: 0.5rem;">
+              <span style="font-size: 0.75rem; color: #64748b;">* Tarifas referenciales netas para paquete estándar (1 a 3 kg) calculadas con volumen corporativo Stocka.</span>
+              <a href="https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0" target="_blank" rel="noopener" style="font-size: 0.78rem; font-weight: 700; color: #5c24ff; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; transition: color 0.2s ease;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span style="text-decoration: underline;">Ver tarifario completo de Couriers en Google Sheets</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
               </a>
             </div>
+
           </div>
 
           <div class="stocka-cot-switch-row active" id="cot-switch-pickup">
@@ -1501,6 +1767,135 @@
         };
       }
 
+      
+      // ========================================================
+      // INTERACTIVE COURIER RATE SHOWCASE LOGIC
+      // ========================================================
+      const COURIER_DATA = {
+        starken: {
+          name: "Starken",
+          desc: "<strong>Starken:</strong> Mayor conveniencia en tarifas para ecommerce. Entrega a domicilio o retiro en sucursales a lo largo de todo Chile.",
+          transit: "⏱️ 1 a 2 días hábiles",
+          bannerClass: "banner-starken",
+          badgeColor: "#059669",
+          badgeBg: "#ecfdf5",
+          badgeBorder: "#d1fae5",
+          badgeText: "Starken Express",
+          rates: {
+            valparaiso: "~$3.335",
+            rancagua: "~$3.290",
+            coquimbo: "~$3.748",
+            concepcion: "~$4.174",
+            puerto_montt: "~$4.223",
+            antofagasta: "~$5.294"
+          }
+        },
+        blue: {
+          name: "Blue Express",
+          desc: "<strong>Blue Express:</strong> Amplia red de Puntos Pick-Up y rápida cobertura domiciliaria nacional.",
+          transit: "⏱️ 1 a 2 días hábiles",
+          bannerClass: "banner-blue",
+          badgeColor: "#0284c7",
+          badgeBg: "#f0f9ff",
+          badgeBorder: "#bae6fd",
+          badgeText: "Blue Express",
+          rates: {
+            valparaiso: "~$3.490",
+            rancagua: "~$3.450",
+            coquimbo: "~$3.920",
+            concepcion: "~$4.350",
+            puerto_montt: "~$4.480",
+            antofagasta: "~$5.580"
+          }
+        },
+        chilexpress: {
+          name: "Chilexpress",
+          desc: "<strong>Chilexpress:</strong> Máxima prioridad, alta frecuencia y velocidad de entrega nacional día siguiente.",
+          transit: "⏱️ Día Siguiente / Express",
+          bannerClass: "banner-chilexpress",
+          badgeColor: "#b91c1c",
+          badgeBg: "#fef2f2",
+          badgeBorder: "#fecaca",
+          badgeText: "Chilexpress Prioritario",
+          rates: {
+            valparaiso: "~$3.890",
+            rancagua: "~$3.850",
+            coquimbo: "~$4.390",
+            concepcion: "~$4.790",
+            puerto_montt: "~$4.950",
+            antofagasta: "~$6.190"
+          }
+        },
+        correos: {
+          name: "CorreosChile",
+          desc: "<strong>CorreosChile:</strong> Máxima cobertura geográfica en zonas rurales, extremas y de difícil acceso.",
+          transit: "⏱️ 2 a 3 días hábiles",
+          bannerClass: "banner-correos",
+          badgeColor: "#334155",
+          badgeBg: "#f8fafc",
+          badgeBorder: "#e2e8f0",
+          badgeText: "Correos Cobertura Total",
+          rates: {
+            valparaiso: "~$3.650",
+            rancagua: "~$3.590",
+            coquimbo: "~$4.120",
+            concepcion: "~$4.480",
+            puerto_montt: "~$4.690",
+            antofagasta: "~$5.790"
+          }
+        }
+      };
+
+      function updateCourierUI(courierKey) {
+        const data = COURIER_DATA[courierKey] || COURIER_DATA.starken;
+        
+        // Update active tab button
+        document.querySelectorAll('.stocka-courier-tab-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.courier === courierKey);
+        });
+
+        // Update banner
+        const banner = document.getElementById('stocka-courier-info-banner');
+        if (banner) {
+          banner.className = 'stocka-courier-banner ' + data.bannerClass;
+        }
+        const descText = document.getElementById('stocka-courier-desc-text');
+        if (descText) {
+          descText.innerHTML = data.desc;
+        }
+        const transitTag = document.getElementById('stocka-courier-transit-tag');
+        if (transitTag) {
+          transitTag.textContent = data.transit;
+        }
+
+        // Update each rate card with animation
+        Object.keys(data.rates).forEach(dest => {
+          const priceEl = document.querySelector(`[data-dest="${dest}"]`);
+          const tagEl = document.querySelector(`[data-dest-tag="${dest}"]`);
+          if (priceEl) {
+            priceEl.style.opacity = '0.3';
+            priceEl.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+              priceEl.textContent = data.rates[dest];
+              priceEl.style.opacity = '1';
+              priceEl.style.transform = 'scale(1)';
+            }, 100);
+          }
+          if (tagEl) {
+            tagEl.textContent = data.badgeText;
+            tagEl.style.color = data.badgeColor;
+            tagEl.style.background = data.badgeBg;
+            tagEl.style.borderColor = data.badgeBorder;
+          }
+        });
+      }
+
+      document.querySelectorAll('.stocka-courier-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          updateCourierUI(btn.dataset.courier);
+        });
+      });
+
       const modal = document.getElementById('stocka-cot-modal');
       const openModalBtn = document.getElementById('cot-open-modal-btn');
       const closeModalBtn = document.getElementById('stocka-cot-modal-close-btn');
@@ -1610,8 +2005,9 @@
         const grid = document.querySelector('.stocka-cot-grid');
         const summaryCol = document.querySelector('.stocka-cot-summary-col');
         const summaryCard = document.querySelector('.stocka-cot-summary-card');
+        const controlsCol = document.querySelector('.stocka-cot-controls-col');
 
-        if (!grid || !summaryCol || !summaryCard) return;
+        if (!grid || !summaryCard) return;
 
         let ticking = false;
 
@@ -1624,11 +2020,11 @@
             return;
           }
 
-          const headerOffset = 90; // Height of theme navbar + padding
+          const headerOffset = 100; // Height of theme navbar + buffer
           const gridRect = grid.getBoundingClientRect();
           const cardHeight = summaryCard.offsetHeight;
-          const colHeight = summaryCol.offsetHeight;
-          const maxTranslate = Math.max(0, colHeight - cardHeight);
+          const totalHeight = controlsCol ? controlsCol.offsetHeight : (summaryCol ? summaryCol.offsetHeight : 0);
+          const maxTranslate = Math.max(0, totalHeight - cardHeight);
 
           if (gridRect.top < headerOffset) {
             const targetY = headerOffset - gridRect.top;

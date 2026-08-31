@@ -361,6 +361,10 @@
                 
                 <div class="w-full sf-menu-links">
                   {% for link in linklists[menu].links %}
+                    {% assign mb_link_url = link.url %}
+                    {% if mb_link_url contains 'freshdesk' or link.title == 'Soporte' or link.title == 'Ayuda' %}
+                      {% assign mb_link_url = '/pages/soporte' %}
+                    {% endif %}
                     {% assign link_title_lower = link.title | downcase %}
                     {% assign link_url_lower = link.url | downcase %}
 
@@ -387,6 +391,10 @@
                     {% elsif link_title_lower contains 'nosotros' or link_title_lower contains 'empresa' %}
                       {% assign item_type = "company" %}
                       {% assign item_sub = "Conoce nuestro equipo y propuesta" %}
+                    {% elsif link_title_lower contains 'soporte' or link_title_lower contains 'ayuda' or link_url_lower contains 'freshdesk' or link_url_lower contains 'soporte' or link_url_lower contains 'support' %}
+                      {% assign item_type = "support" %}
+                      {% assign item_sub = "Seguimiento y centro de ayuda" %}
+                      {% assign item_badge = "Portal" %}
                     {% elsif link_title_lower contains 'blog' or link_title_lower contains 'noticia' %}
                       {% assign item_type = "blog" %}
                       {% assign item_sub = "Novedades y guías ecommerce" %}
@@ -394,7 +402,7 @@
 
                     {% if link.links != blank %}
                         <li class="list-none sf-link stocka-mb-item flex items-center" data-url="{{ link.url }}">
-                            <a href="{{ link.url }}" class="w-full stocka-mb-anchor relative">
+                            <a href="{{ mb_link_url }}" class="w-full stocka-mb-anchor relative">
                                 <div class="stocka-mb-anchor-left">
                                     <div class="stocka-mb-item-icon-box">
                                         {% if item_type == "fulfillment" %}
@@ -407,6 +415,8 @@
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                                         {% elsif item_type == "company" %}
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M16 10h.01"></path><path d="M16 14h.01"></path><path d="M8 10h.01"></path><path d="M8 14h.01"></path></svg>
+                                        {% elsif item_type == "support" %}
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                                         {% elsif item_type == "blog" %}
                                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
                                         {% else %}
@@ -441,7 +451,7 @@
                         </li>
                     {% else %}
                         <li class="list-none stocka-mb-item">
-                            <a href="{{ link.url }}" class="stocka-mb-anchor">
+                            <a href="{{ mb_link_url }}" class="stocka-mb-anchor">
                                 <div class="stocka-mb-anchor-left">
                                     <div class="stocka-mb-item-icon-box">
                                         {% if item_type == "fulfillment" %}

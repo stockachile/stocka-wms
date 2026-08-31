@@ -4574,6 +4574,106 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
   }
 }
 
+function getMovementCategoryInfo(referenceDoc, type) {
+  const ref = (referenceDoc || '').toLowerCase().trim();
+
+  // 1. Traslado
+  if (ref.includes('traslado')) {
+    return {
+      key: 'traslado',
+      label: 'Traslado',
+      icon: 'ri-arrow-left-right-line',
+      color: '#4f46e5',
+      bg: 'rgba(79, 70, 229, 0.1)'
+    };
+  }
+
+  // 2. Cambio
+  if (ref.startsWith('cambio') || ref.includes('cambio [') || ref.includes('reingreso por cambio') || ref.includes('salida por cambio')) {
+    return {
+      key: 'cambio',
+      label: 'Cambio',
+      icon: 'ri-repeat-line',
+      color: '#9333ea',
+      bg: 'rgba(147, 51, 234, 0.1)'
+    };
+  }
+
+  // 3. Devolución
+  if (ref.includes('devoluc') || ref.includes('devolución') || ref.includes('rma') || ref.includes('retorno')) {
+    return {
+      key: 'devolucion',
+      label: 'Devolución',
+      icon: 'ri-refund-2-line',
+      color: '#0d9488',
+      bg: 'rgba(13, 148, 136, 0.1)'
+    };
+  }
+
+  // 4. Merma / Pérdida / Baja / Daño
+  if (ref.includes('merma') || ref.includes('pérdida') || ref.includes('perdida') || ref.includes('daño') || ref.includes('dañad') || ref.includes('baja')) {
+    return {
+      key: 'merma',
+      label: 'Merma / Baja',
+      icon: 'ri-delete-bin-line',
+      color: '#e11d48',
+      bg: 'rgba(225, 29, 72, 0.1)'
+    };
+  }
+
+  // 5. Ajuste / Toma de inventario
+  if (ref.includes('ajuste') || ref.includes('toma inventario') || ref.includes('auditor') || ref.includes('cuadratura')) {
+    return {
+      key: 'ajuste',
+      label: 'Ajuste',
+      icon: 'ri-equalizer-line',
+      color: '#d97706',
+      bg: 'rgba(217, 119, 6, 0.1)'
+    };
+  }
+
+  // 6. Ingreso / Stock Inicial / Carga Masiva / Recepción
+  if (ref.includes('stock inicial') || ref.includes('carga masiva') || ref.includes('ingreso') || ref.includes('recepci') || ref.includes('oc-') || ref.includes('importac') || ref.includes('proveedor') || ref.includes('fábrica') || ref.includes('fabrica')) {
+    return {
+      key: 'ingreso',
+      label: 'Ingreso / Inicial',
+      icon: 'ri-inbox-archive-line',
+      color: '#059669',
+      bg: 'rgba(5, 150, 105, 0.1)'
+    };
+  }
+
+  // 7. Pedido / Despacho
+  if (ref.includes('pedido') || ref.includes('despacho') || ref.includes('order') || ref.includes('item removido') || ref.includes('item agregado') || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(ref)) {
+    return {
+      key: 'pedido',
+      label: 'Pedido',
+      icon: 'ri-shopping-bag-3-line',
+      color: '#2563eb',
+      bg: 'rgba(37, 99, 235, 0.1)'
+    };
+  }
+
+  // Fallback por sentido
+  if (type === 'in') {
+    return {
+      key: 'ingreso',
+      label: 'Ingreso',
+      icon: 'ri-inbox-archive-line',
+      color: '#059669',
+      bg: 'rgba(5, 150, 105, 0.1)'
+    };
+  }
+
+  return {
+    key: 'otro',
+    label: 'Otro / Manual',
+    icon: 'ri-more-line',
+    color: '#6b7280',
+    bg: 'rgba(107, 114, 128, 0.1)'
+  };
+}
+
 async function openProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements';
   let modal = document.getElementById(modalId);
@@ -4584,8 +4684,8 @@ async function openProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 1000px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
+    <div class="modal-content" style="max-width: 1120px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03);">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos
@@ -4597,9 +4697,37 @@ async function openProductMovementsModal(productId, sku, name) {
         <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
       
-      <!-- Date Filter Bar -->
-      <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+      <!-- Filter Bar -->
+      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.85rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-building-line" style="vertical-align: middle;"></i> Bodega:</label>
+            <select id="movs-warehouse" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todas las bodegas</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line" style="vertical-align: middle;"></i> Tipo:</label>
+            <select id="movs-category" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todos los tipos</option>
+              <option value="pedido">Pedido</option>
+              <option value="traslado">Traslado</option>
+              <option value="ingreso">Ingreso / Inicial</option>
+              <option value="ajuste">Ajuste</option>
+              <option value="cambio">Cambio</option>
+              <option value="devolucion">Devolución</option>
+              <option value="merma">Merma / Baja</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Sentido:</label>
+            <select id="movs-flow" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todos</option>
+              <option value="in">Ingreso (+)</option>
+              <option value="out">Salida (-)</option>
+            </select>
+          </div>
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
             <input type="date" id="movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
@@ -4608,12 +4736,18 @@ async function openProductMovementsModal(productId, sku, name) {
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
             <input type="date" id="movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
           </div>
-          <button class="btn btn-primary" id="btn-filter-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Filtrar</button>
-          <button class="btn btn-outline" id="btn-clear-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Limpiar</button>
+          <div style="display: flex; gap: 0.4rem; align-items: center;">
+            <button class="btn btn-primary" id="btn-filter-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
+              <i class="ri-filter-line"></i> Filtrar
+            </button>
+            <button class="btn btn-outline" id="btn-clear-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
+              <i class="ri-refresh-line"></i> Limpiar
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="modal-body" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;" id="movements-modal-body">
+      <div class="modal-body" style="padding: 1.25rem; max-height: 520px; overflow-y: auto;" id="movements-modal-body">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
           <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
@@ -4621,7 +4755,7 @@ async function openProductMovementsModal(productId, sku, name) {
       </div>
       
       <!-- Footer with pagination and close -->
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05); flex-wrap: wrap; gap: 1rem;">
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03); flex-wrap: wrap; gap: 1rem;">
         <div id="movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
           <!-- Dynamic pagination info and controls -->
         </div>
@@ -4633,29 +4767,31 @@ async function openProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    const { data: movements, error } = await supabase
+    // 1. Obtener todos los movimientos cronológicamente para calcular el stock acumulado
+    const { data: rawMovements, error } = await supabase
       .from('movements')
       .select(`
+        id,
         date,
         type,
         quantity,
         reference_doc,
-        warehouses (name)
+        warehouse_id,
+        warehouses (id, name)
       `)
       .eq('product_id', productId)
-      .order('date', { ascending: false });
+      .order('date', { ascending: true });
 
     if (error) throw error;
 
-    // Helper to extract UUID
+    // 2. Extraer UUIDs de pedidos para consultar número de orden amigable
     const extractUuid = (ref) => {
       if (!ref) return null;
       const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
       return match ? match[0] : null;
     };
 
-    // Lookup order names
-    const orderIds = [...new Set((movements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
+    const orderIds = [...new Set((rawMovements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
     const orderMap = {};
     if (orderIds.length > 0) {
       const { data: orders } = await supabase
@@ -4670,12 +4806,55 @@ async function openProductMovementsModal(productId, sku, name) {
       }
     }
 
-    // Store state in window
+    // 3. Procesar saldos cronológicamente
+    const warehouseBalances = {};
+    let runningTotalStock = 0;
+
+    const processedMovements = (rawMovements || []).map(m => {
+      const isIngreso = m.type === 'in';
+      const qty = Number(m.quantity) || 0;
+      const delta = isIngreso ? qty : -qty;
+      const whName = m.warehouses?.name || 'Bodega Principal';
+
+      warehouseBalances[whName] = (warehouseBalances[whName] || 0) + delta;
+      runningTotalStock += delta;
+
+      const cat = getMovementCategoryInfo(m.reference_doc, m.type);
+
+      return {
+        id: m.id,
+        date: m.date,
+        type: m.type,
+        quantity: qty,
+        reference_doc: m.reference_doc,
+        warehouse_id: m.warehouse_id,
+        warehouseName: whName,
+        stockTotalAfter: runningTotalStock,
+        warehouseStockAfter: warehouseBalances[whName],
+        category: cat
+      };
+    });
+
+    // 4. Poblar opciones de bodegas en el dropdown
+    const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
+    const whSelect = document.getElementById('movs-warehouse');
+    if (whSelect) {
+      whSelect.innerHTML = `<option value="">Todas las bodegas</option>` + 
+        availableWarehouses.map(w => `<option value="${w}">${w}</option>`).join('');
+    }
+
+    // 5. Invertir para mostrar los movimientos más recientes primero
+    processedMovements.reverse();
+
+    // 6. Guardar estado
     window.activeMovsState = {
-      allMovements: movements || [],
+      allMovements: processedMovements,
       orderMap: orderMap,
       currentPage: 1,
       pageSize: 10,
+      filterWarehouse: '',
+      filterCategory: '',
+      filterFlow: '',
       filterFrom: null,
       filterTo: null
     };
@@ -4687,8 +4866,18 @@ async function openProductMovementsModal(productId, sku, name) {
 
       const state = window.activeMovsState;
 
-      // Filter by dates
+      // Filtrado multidimensional
       let filtered = state.allMovements;
+
+      if (state.filterWarehouse) {
+        filtered = filtered.filter(m => m.warehouseName === state.filterWarehouse);
+      }
+      if (state.filterCategory) {
+        filtered = filtered.filter(m => m.category?.key === state.filterCategory);
+      }
+      if (state.filterFlow) {
+        filtered = filtered.filter(m => m.type === state.filterFlow);
+      }
       if (state.filterFrom) {
         const fromDate = new Date(state.filterFrom + 'T00:00:00');
         filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
@@ -4702,7 +4891,7 @@ async function openProductMovementsModal(productId, sku, name) {
         modalBody.innerHTML = `
           <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
             <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
-            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros.</p>
+            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros aplicados.</p>
           </div>
         `;
         pagContainer.innerHTML = '';
@@ -4721,10 +4910,12 @@ async function openProductMovementsModal(productId, sku, name) {
       // Render rows
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
-        const typeBadge = isIngreso
-          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+        const flowBadge = isIngreso
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
         
+        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
+
         const formattedDate = m.date 
           ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
           : '-';
@@ -4743,25 +4934,32 @@ async function openProductMovementsModal(productId, sku, name) {
         }
 
         return `
-          <tr style="border-bottom: 1px solid var(--color-border);">
-            <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
-            <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
-            <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
-            <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
-            <td style="padding: 0.85rem 0.5rem; color: var(--color-text-main); font-size: 0.85rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
+          <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+            <td style="padding: 0.75rem 0.6rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+            <td style="padding: 0.75rem 0.6rem; font-weight: 500;">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.6rem;">${catBadge}</td>
+            <td style="padding: 0.75rem 0.6rem;">${flowBadge}</td>
+            <td style="padding: 0.75rem 0.6rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.75rem 0.6rem; text-align: center;">
+              <div style="font-weight: 700; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
+            </td>
+            <td style="padding: 0.75rem 0.6rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
           </tr>
         `;
       }).join('');
 
       modalBody.innerHTML = `
-        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
           <thead>
-            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-              <th style="padding: 0.6rem 0.5rem; width: 25%;">Fecha / Hora</th>
-              <th style="padding: 0.6rem 0.5rem; width: 20%;">Bodega</th>
-              <th style="padding: 0.6rem 0.5rem; width: 15%;">Tipo</th>
-              <th style="padding: 0.6rem 0.5rem; text-align: center; width: 15%;">Cantidad</th>
-              <th style="padding: 0.6rem 0.5rem; width: 25%;">Referencia</th>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+              <th style="padding: 0.65rem 0.6rem; width: 18%;">Fecha / Hora</th>
+              <th style="padding: 0.65rem 0.6rem; width: 14%;">Bodega</th>
+              <th style="padding: 0.65rem 0.6rem; width: 14%;">Tipo Movimiento</th>
+              <th style="padding: 0.65rem 0.6rem; width: 10%;">Sentido</th>
+              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 10%;">Cantidad</th>
+              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 14%;">Stock Resultante</th>
+              <th style="padding: 0.65rem 0.6rem; width: 20%;">Referencia / Detalle</th>
             </tr>
           </thead>
           <tbody style="color: var(--color-text-main);">
@@ -4798,21 +4996,36 @@ async function openProductMovementsModal(productId, sku, name) {
 
     renderTable();
 
-    // Attach filter events
-    document.getElementById('btn-filter-movs')?.addEventListener('click', () => {
-      const fromVal = document.getElementById('movs-date-from')?.value;
-      const toVal = document.getElementById('movs-date-to')?.value;
-      window.activeMovsState.filterFrom = fromVal || null;
-      window.activeMovsState.filterTo = toVal || null;
+    // Attach filter event handler
+    const applyFilters = () => {
+      window.activeMovsState.filterWarehouse = document.getElementById('movs-warehouse')?.value || '';
+      window.activeMovsState.filterCategory = document.getElementById('movs-category')?.value || '';
+      window.activeMovsState.filterFlow = document.getElementById('movs-flow')?.value || '';
+      window.activeMovsState.filterFrom = document.getElementById('movs-date-from')?.value || null;
+      window.activeMovsState.filterTo = document.getElementById('movs-date-to')?.value || null;
       window.activeMovsState.currentPage = 1;
       renderTable();
-    });
+    };
+
+    document.getElementById('btn-filter-movs')?.addEventListener('click', applyFilters);
+    document.getElementById('movs-warehouse')?.addEventListener('change', applyFilters);
+    document.getElementById('movs-category')?.addEventListener('change', applyFilters);
+    document.getElementById('movs-flow')?.addEventListener('change', applyFilters);
 
     document.getElementById('btn-clear-movs')?.addEventListener('click', () => {
+      const whEl = document.getElementById('movs-warehouse');
+      const catEl = document.getElementById('movs-category');
+      const flowEl = document.getElementById('movs-flow');
       const fromEl = document.getElementById('movs-date-from');
       const toEl = document.getElementById('movs-date-to');
+      if (whEl) whEl.value = '';
+      if (catEl) catEl.value = '';
+      if (flowEl) flowEl.value = '';
       if (fromEl) fromEl.value = '';
       if (toEl) toEl.value = '';
+      window.activeMovsState.filterWarehouse = '';
+      window.activeMovsState.filterCategory = '';
+      window.activeMovsState.filterFlow = '';
       window.activeMovsState.filterFrom = null;
       window.activeMovsState.filterTo = null;
       window.activeMovsState.currentPage = 1;
@@ -4846,16 +5059,18 @@ async function renderMovements() {
 
     const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
-    // 1. Obtener la lista de movimientos para el comercio activo
+    // 1. Obtener la lista de movimientos para el comercio activo cronológicamente para calcular saldos
     let query = supabase
       .from('movements')
       .select(`
+        id,
         date,
         type,
         quantity,
         reference_doc,
+        warehouse_id,
         products!inner (id, sku, name, comercio),
-        warehouses (name)
+        warehouses (id, name)
       `);
 
     if (commerce) {
@@ -4864,12 +5079,10 @@ async function renderMovements() {
       query = query.eq('products.comercio', 'no asignado');
     }
 
-    query = query.order('date', { ascending: false });
+    query = query.order('date', { ascending: true });
 
     const { data: movements, error } = await query;
     if (error) throw error;
-
-    window.cachedMovements = movements || [];
 
     // 2. Obtener órdenes del comercio para mapear plataforma de origen y números amigables de pedido
     const { data: orders } = await supabase
@@ -4888,13 +5101,39 @@ async function renderMovements() {
     }
     window.movementOrderInfoMap = orderInfoMap;
 
-    // 3. Obtener todos los productos del catálogo del comercio activo para el selector autocomplete
+    // 3. Procesar saldos cronológicamente por producto y bodega
+    const rawMovements = movements || [];
+    const productWarehouseStock = {};
+    const productTotalStock = {};
+
+    rawMovements.forEach(m => {
+      const pId = m.products?.id || 'unknown';
+      const whName = m.warehouses?.name || 'Bodega Principal';
+      const qty = Number(m.quantity) || 0;
+      const delta = m.type === 'in' ? qty : -qty;
+
+      if (!productWarehouseStock[pId]) productWarehouseStock[pId] = {};
+      productWarehouseStock[pId][whName] = (productWarehouseStock[pId][whName] || 0) + delta;
+      productTotalStock[pId] = (productTotalStock[pId] || 0) + delta;
+
+      m._stockTotalAfter = productTotalStock[pId];
+      m._warehouseStockAfter = productWarehouseStock[pId][whName];
+      m._warehouseName = whName;
+      m._category = getMovementCategoryInfo(m.reference_doc, m.type);
+    });
+
+    window.cachedMovements = rawMovements;
+
+    // 4. Obtener todos los productos del catálogo del comercio activo para el selector autocomplete
     const { data: activeProducts } = await supabase
       .from('products')
       .select('id, sku, name')
       .eq('comercio', commerce);
 
     window.cachedActiveProducts = activeProducts || [];
+
+    // Extraer lista única de bodegas
+    const availableWarehouses = [...new Set(rawMovements.map(m => m.warehouses?.name).filter(Boolean))].sort();
 
     // Selector de comercio si el usuario tiene más de uno
     let commerceSelectorHtml = '';
@@ -4916,8 +5155,8 @@ async function renderMovements() {
       <div class="card">
         <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
           <div>
-            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Historial de Movimientos</h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Registro completo de ingresos y salidas de stock del comercio.</p>
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Historial de Movimientos 2.0</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Registro completo de movimientos, trazabilidad, saldos y operaciones de stock.</p>
           </div>
           <div>
             <button id="btn-export-movements" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
@@ -4927,29 +5166,61 @@ async function renderMovements() {
         </div>
 
         <!-- Filtros del Historial -->
-        <div class="card-body" style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); background: rgba(0,0,0,0.02); display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
-          <div style="flex: 1.2; min-width: 220px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Filtrar por Producto</label>
+        <div class="card-body" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: rgba(0,0,0,0.02); display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+          <div style="flex: 1.2; min-width: 200px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Filtrar por Producto</label>
             <div style="position: relative;">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre de producto..." style="width: 100%; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
+              <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
               <datalist id="movements-products-list">
                 ${window.cachedActiveProducts.map(p => `<option value="${p.sku} - ${p.name}"></option>`).join('')}
               </datalist>
             </div>
           </div>
 
-          <div style="flex: 0.8; min-width: 150px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Buscar SKU/Referencia</label>
+          <div style="flex: 0.9; min-width: 150px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Buscar SKU/Referencia</label>
             <div style="position: relative;">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="text" id="movs-search" class="form-input" placeholder="Filtro libre..." style="width: 100%; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
+              <input type="text" id="movs-search" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
             </div>
           </div>
+
+          <div style="width: 140px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-building-line"></i> Bodega</label>
+            <select id="movs-filter-warehouse" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todas</option>
+              ${availableWarehouses.map(w => `<option value="${w}" ${window.movementsFilterWarehouse === w ? 'selected' : ''}>${w}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="width: 140px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-filter-3-line"></i> Tipo Mov.</label>
+            <select id="movs-filter-category" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todos los tipos</option>
+              <option value="pedido" ${window.movementsFilterCategory === 'pedido' ? 'selected' : ''}>Pedido</option>
+              <option value="traslado" ${window.movementsFilterCategory === 'traslado' ? 'selected' : ''}>Traslado</option>
+              <option value="ingreso" ${window.movementsFilterCategory === 'ingreso' ? 'selected' : ''}>Ingreso / Inicial</option>
+              <option value="ajuste" ${window.movementsFilterCategory === 'ajuste' ? 'selected' : ''}>Ajuste</option>
+              <option value="cambio" ${window.movementsFilterCategory === 'cambio' ? 'selected' : ''}>Cambio</option>
+              <option value="devolucion" ${window.movementsFilterCategory === 'devolucion' ? 'selected' : ''}>Devolución</option>
+              <option value="merma" ${window.movementsFilterCategory === 'merma' ? 'selected' : ''}>Merma / Baja</option>
+              <option value="otro" ${window.movementsFilterCategory === 'otro' ? 'selected' : ''}>Otro</option>
+            </select>
+          </div>
+
+          <div style="width: 110px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Sentido</label>
+            <select id="movs-filter-flow" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todos</option>
+              <option value="in" ${window.movementsFilterFlow === 'in' ? 'selected' : ''}>Ingreso (+)</option>
+              <option value="out" ${window.movementsFilterFlow === 'out' ? 'selected' : ''}>Salida (-)</option>
+            </select>
+          </div>
           
-          <div style="width: 130px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Plataforma</label>
-            <select id="movs-filter-platform" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+          <div style="width: 120px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Plataforma</label>
+            <select id="movs-filter-platform" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
               <option value="">Todas</option>
               <option value="Manual" ${window.movementsFilterPlatform === 'Manual' ? 'selected' : ''}>Manual</option>
               <option value="Shopify" ${window.movementsFilterPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
@@ -4963,18 +5234,18 @@ async function renderMovements() {
             </select>
           </div>
 
-          <div style="width: 150px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Fecha Desde</label>
-            <input type="date" id="movs-filter-start" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterStartDate || ''}">
+          <div style="width: 135px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Desde</label>
+            <input type="date" id="movs-filter-start" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterStartDate || ''}">
           </div>
 
-          <div style="width: 150px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Fecha Hasta</label>
-            <input type="date" id="movs-filter-end" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterEndDate || ''}">
+          <div style="width: 135px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Hasta</label>
+            <input type="date" id="movs-filter-end" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterEndDate || ''}">
           </div>
 
-          <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 1rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-            Limpiar Filtros
+          <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+            <i class="ri-refresh-line" style="margin-right: 0.25rem;"></i> Limpiar
           </button>
         </div>
 
@@ -4982,34 +5253,40 @@ async function renderMovements() {
           <div class="table-responsive" style="overflow-x: auto; width: 100%;">
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
-                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th class="movements-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th class="movements-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Fecha / Hora <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="movements-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="movements-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="movements-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="movements-sortable" data-sort="category" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo Movimiento <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Sentido <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Origen <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="movements-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="movements-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Cantidad <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="movements-sortable" data-sort="reference_doc" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Referencia <span class="sort-indicator"></span></span>
+                  <th class="movements-sortable" data-sort="stockTotalAfter" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Resultante <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="reference_doc" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Referencia / Detalle <span class="sort-indicator"></span></span>
                   </th>
                 </tr>
               </thead>
-              <tbody id="movements-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+              <tbody id="movements-tbody" style="font-size: 0.88rem; color: var(--color-text);">
                 <!-- Carga dinámica -->
               </tbody>
             </table>
@@ -5026,13 +5303,12 @@ async function renderMovements() {
     if (clientSelect) {
       clientSelect.addEventListener('change', async (e) => {
         window.activeIntegrationCommerce = e.target.value;
-        // Limpiar filtros específicos al cambiar comercio
         window.movementsFilterProductId = '';
         await renderMovements();
       });
     }
 
-    // Inicializar listener de producto autocomplete
+    // Inicializar listeners de filtros
     document.getElementById('movs-product-filter')?.addEventListener('input', (e) => {
       const inputVal = e.target.value.trim();
       const matched = window.cachedActiveProducts?.find(p => 
@@ -5045,9 +5321,26 @@ async function renderMovements() {
       renderMovementsTableBody();
     });
 
-    // Inicializar listeners de filtros
     document.getElementById('movs-search')?.addEventListener('input', (e) => {
       window.movementsSearchQuery = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-warehouse')?.addEventListener('change', (e) => {
+      window.movementsFilterWarehouse = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-category')?.addEventListener('change', (e) => {
+      window.movementsFilterCategory = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-flow')?.addEventListener('change', (e) => {
+      window.movementsFilterFlow = e.target.value;
       window.movementsCurrentPage = 1;
       renderMovementsTableBody();
     });
@@ -5073,12 +5366,21 @@ async function renderMovements() {
     document.getElementById('btn-clear-movs-filters')?.addEventListener('click', () => {
       window.movementsSearchQuery = '';
       window.movementsFilterPlatform = '';
+      window.movementsFilterWarehouse = '';
+      window.movementsFilterCategory = '';
+      window.movementsFilterFlow = '';
       window.movementsFilterStartDate = '';
       window.movementsFilterEndDate = '';
       window.movementsFilterProductId = '';
       
       const search = document.getElementById('movs-search');
       if (search) search.value = '';
+      const wh = document.getElementById('movs-filter-warehouse');
+      if (wh) wh.value = '';
+      const cat = document.getElementById('movs-filter-category');
+      if (cat) cat.value = '';
+      const flow = document.getElementById('movs-filter-flow');
+      if (flow) flow.value = '';
       const platform = document.getElementById('movs-filter-platform');
       if (platform) platform.value = '';
       const start = document.getElementById('movs-filter-start');
@@ -5132,6 +5434,9 @@ async function renderMovements() {
 function applyMovementsFiltersAndSort() {
   const movements = window.cachedMovements || [];
   const search = (window.movementsSearchQuery || '').toLowerCase().trim();
+  const warehouse = window.movementsFilterWarehouse || '';
+  const category = window.movementsFilterCategory || '';
+  const flow = window.movementsFilterFlow || '';
   const platform = window.movementsFilterPlatform || '';
   const start = window.movementsFilterStartDate || '';
   const end = window.movementsFilterEndDate || '';
@@ -5158,6 +5463,8 @@ function applyMovementsFiltersAndSort() {
       originPlat = 'Jumpseller';
     }
 
+    const cat = mov._category || getMovementCategoryInfo(mov.reference_doc, mov.type);
+
     return {
       productId: mov.products?.id || '',
       date: mov.date ? new Date(mov.date) : new Date(0),
@@ -5165,10 +5472,13 @@ function applyMovementsFiltersAndSort() {
       type: mov.type || 'in',
       sku: mov.products?.sku || 'N/A',
       name: mov.products?.name || 'N/A',
-      warehouse: mov.warehouses?.name || 'N/A',
-      quantity: mov.quantity || 0,
+      warehouse: mov.warehouses?.name || mov._warehouseName || 'N/A',
+      quantity: Number(mov.quantity) || 0,
+      stockTotalAfter: mov._stockTotalAfter !== undefined ? mov._stockTotalAfter : '-',
+      warehouseStockAfter: mov._warehouseStockAfter !== undefined ? mov._warehouseStockAfter : '-',
       reference_doc: mov.reference_doc || '',
-      platform: originPlat
+      platform: originPlat,
+      category: cat
     };
   });
 
@@ -5186,12 +5496,27 @@ function applyMovementsFiltersAndSort() {
     );
   }
 
-  // 3. Filtro de Plataforma
+  // 3. Filtro por Bodega
+  if (warehouse) {
+    rows = rows.filter(r => r.warehouse === warehouse);
+  }
+
+  // 4. Filtro por Tipo de Movimiento (Categoría)
+  if (category) {
+    rows = rows.filter(r => r.category?.key === category);
+  }
+
+  // 5. Filtro por Sentido (Ingreso / Salida)
+  if (flow) {
+    rows = rows.filter(r => r.type === flow);
+  }
+
+  // 6. Filtro de Plataforma
   if (platform) {
     rows = rows.filter(r => (r.platform || '').toLowerCase() === platform.toLowerCase());
   }
 
-  // 4. Filtro de Fechas
+  // 7. Filtro de Fechas
   if (start) {
     const startDate = new Date(start);
     startDate.setHours(0, 0, 0, 0);
@@ -5203,13 +5528,18 @@ function applyMovementsFiltersAndSort() {
     rows = rows.filter(r => r.date <= endDate);
   }
 
-  // 5. Ordenamiento
+  // 8. Ordenamiento
   const col = window.movementsSortColumn || 'date';
   const asc = window.movementsSortAsc !== false;
 
   rows.sort((a, b) => {
     let valA = a[col];
     let valB = b[col];
+
+    if (col === 'category') {
+      valA = a.category?.label || '';
+      valB = b.category?.label || '';
+    }
 
     if (typeof valA === 'string') {
       valA = valA.toLowerCase();
@@ -5243,7 +5573,7 @@ function renderMovementsTableBody() {
   if (totalRows === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="10" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-exchange-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; opacity: 0.5;"></i>
           No se encontraron movimientos con los filtros aplicados.
         </td>
@@ -5260,9 +5590,11 @@ function renderMovementsTableBody() {
 
   tbody.innerHTML = pageRows.map(r => {
     const isIngreso = r.type === 'in';
-    const typeBadge = isIngreso
-      ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-      : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+    const flowBadge = isIngreso
+      ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+      : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+
+    const catBadge = `<span class="badge" style="background-color: ${r.category?.bg || 'rgba(107,114,128,0.1)'}; color: ${r.category?.color || '#4b5563'}; font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${r.category?.icon || 'ri-more-line'}"></i> ${r.category?.label || 'Otro'}</span>`;
 
     const formattedDate = r.dateStr 
       ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
@@ -5275,7 +5607,7 @@ function renderMovementsTableBody() {
     const qtyText = isIngreso ? `+${r.quantity}` : `-${r.quantity}`;
 
     const platformColor = r.platform === 'Ripley' ? '#7c3aed' : (r.platform === 'Paris' ? '#e11d48' : (r.platform === 'Shopify' ? '#96bf48' : (r.platform === 'Falabella' ? '#84cc16' : (r.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
-    const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${r.platform}</span>`;
+    const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${r.platform}</span>`;
 
     // Obtener número de pedido amigable en lugar de UUID
     let operationDoc = r.reference_doc || '-';
@@ -5287,16 +5619,25 @@ function renderMovementsTableBody() {
       }
     }
 
+    const resultingStockHtml = r.stockTotalAfter !== '-' 
+      ? `<div style="text-align: center;">
+          <span style="font-weight: 700; color: var(--color-text-main); font-size: 0.9rem;">${r.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></span>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">(${r.warehouseStockAfter} en bodega)</div>
+        </div>`
+      : `<span style="color: var(--color-text-muted);">-</span>`;
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.85rem 1.5rem;">${formattedDate}</td>
-        <td style="padding: 0.85rem 1.5rem;">${typeBadge}</td>
-        <td style="padding: 0.85rem 1.5rem;"><strong>${r.sku}</strong></td>
-        <td style="padding: 0.85rem 1.5rem;">${r.name}</td>
-        <td style="padding: 0.85rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
-        <td style="padding: 0.85rem 1.5rem;">${platformHtml}</td>
-        <td style="padding: 0.85rem 1.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
-        <td style="padding: 0.85rem 1.5rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${operationDoc}</td>
+        <td style="padding: 0.75rem 1rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+        <td style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-weight: 500;">${r.warehouse}</td>
+        <td style="padding: 0.75rem 1rem;">${catBadge}</td>
+        <td style="padding: 0.75rem 1rem;">${flowBadge}</td>
+        <td style="padding: 0.75rem 1rem;"><strong>${r.sku}</strong></td>
+        <td style="padding: 0.75rem 1rem;">${r.name}</td>
+        <td style="padding: 0.75rem 1rem;">${platformHtml}</td>
+        <td style="padding: 0.75rem 1rem; text-align: center; ${qtyStyle}">${qtyText}</td>
+        <td style="padding: 0.75rem 1rem; text-align: center;">${resultingStockHtml}</td>
+        <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${operationDoc}</td>
       </tr>
     `;
   }).join('');
@@ -5403,12 +5744,15 @@ function exportMovementsToCsv() {
 
   const csvHeaders = [
     'Fecha',
-    'Tipo',
+    'Bodega',
+    'Tipo Movimiento',
+    'Sentido',
     'SKU',
     'Producto',
-    'Bodega',
     'Plataforma Origen',
     'Cantidad',
+    'Stock Total Resultante',
+    'Stock Bodega Resultante',
     'Referencia'
   ];
 
@@ -5430,12 +5774,15 @@ function exportMovementsToCsv() {
 
     const rowData = [
       formattedDate,
+      r.warehouse,
+      r.category?.label || 'Otro',
       r.type === 'in' ? 'Ingreso' : 'Salida',
       r.sku,
       r.name,
-      r.warehouse,
       r.platform,
       r.quantity,
+      r.stockTotalAfter !== '-' ? r.stockTotalAfter : '',
+      r.warehouseStockAfter !== '-' ? r.warehouseStockAfter : '',
       operationDoc
     ];
 

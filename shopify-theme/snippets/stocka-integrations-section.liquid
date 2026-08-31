@@ -1,0 +1,370 @@
+{%- comment -%}
+  Stocka Integrations Ecosystem & WMS Connectivity Section
+  9 Cards in a 3x3 Layout with Custom API Integration Card
+{%- endcomment -%}
+
+<style>
+  .stocka-int-sec {
+    padding: 5rem 0;
+    background: #ffffff;
+    border-top: 1px solid #f1f5f9;
+  }
+  .stocka-int-header {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 3.5rem auto;
+  }
+  .stocka-int-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: rgba(92, 36, 255, 0.08);
+    color: #5c24ff;
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-int-title {
+    font-size: 2rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-int-title {
+      font-size: 2.45rem;
+    }
+  }
+  .stocka-int-desc {
+    font-size: 0.98rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .stocka-int-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin-bottom: 3.5rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-int-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 1024px) {
+    .stocka-int-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+
+  .stocka-int-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.75rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-int-card:hover {
+    border-color: #5c24ff;
+    background: #ffffff;
+    transform: translateY(-4px);
+    box-shadow: 0 16px 30px -10px rgba(92, 36, 255, 0.12);
+  }
+  .stocka-int-card.custom-api {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-color: #4338ca;
+    color: #ffffff;
+  }
+  .stocka-int-card.custom-api:hover {
+    border-color: #818cf8;
+    box-shadow: 0 20px 35px -10px rgba(92, 36, 255, 0.4);
+    transform: translateY(-4px);
+  }
+
+  .stocka-int-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.2rem;
+    min-height: 46px;
+  }
+  .stocka-int-logo-img {
+    max-height: 38px;
+    max-width: 135px;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.03));
+    transition: transform 0.2s ease;
+  }
+  .stocka-int-card:hover .stocka-int-logo-img {
+    transform: scale(1.04);
+  }
+
+  .stocka-int-status-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #059669;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    padding: 3px 8px;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+  }
+  .stocka-int-status-badge span.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    display: inline-block;
+  }
+  .stocka-int-status-badge.api-badge {
+    background: rgba(92, 36, 255, 0.25);
+    color: #c7d2fe;
+    border-color: #6366f1;
+  }
+  .stocka-int-status-badge.api-badge span.dot {
+    background: #818cf8;
+    box-shadow: 0 0 6px #818cf8;
+  }
+
+  .stocka-int-name {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.45rem 0;
+  }
+  .stocka-int-card.custom-api .stocka-int-name {
+    color: #ffffff;
+  }
+
+  .stocka-int-detail {
+    font-size: 0.86rem;
+    color: #64748b;
+    line-height: 1.5;
+    margin: 0;
+  }
+  .stocka-int-card.custom-api .stocka-int-detail {
+    color: #cbd5e1;
+  }
+
+  /* 3 Steps Flow Strip */
+  .stocka-int-flow-box {
+    background: linear-gradient(135deg, rgba(92, 36, 255, 0.03) 0%, rgba(248, 250, 252, 1) 100%);
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 24px;
+    padding: 2rem;
+  }
+  .stocka-int-flow-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-int-flow-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .stocka-int-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .stocka-int-step-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #5c24ff;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    font-weight: 900;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.3);
+  }
+  .stocka-int-step-content h4 {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.25rem 0;
+  }
+  .stocka-int-step-content p {
+    font-size: 0.82rem;
+    color: #64748b;
+    line-height: 1.45;
+    margin: 0;
+  }
+</style>
+
+<section class="stocka-int-sec" id="stocka-integraciones-anchor">
+  <div class="stocka-tf-container">
+    
+    <div class="stocka-int-header">
+      <div class="stocka-int-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        <span>ECOSISTEMA & CONECTIVIDAD WMS</span>
+      </div>
+      <h2 class="stocka-int-title">Conecta tus canales de venta y automatiza tu logística en minutos</h2>
+      <p class="stocka-int-desc">
+        El WMS de Stocka se sincroniza en tiempo real con tu tienda online y los principales marketplaces de Chile. Cada venta genera la orden de preparación en bodega de forma 100% automatizada.
+      </p>
+    </div>
+
+    <!-- Integration Cards Grid (9 Cards in 3x3 Layout) -->
+    <div class="stocka-int-grid">
+      
+      <!-- 1. Shopify -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-shopify.png' | asset_url }}" alt="Shopify & Shopify Plus" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> 100% En Vivo</span>
+          </div>
+          <h3 class="stocka-int-name">Shopify & Plus</h3>
+          <p class="stocka-int-detail">Sincronización nativa vía App y Webhooks. Rebaja automática de stock y subida de número de seguimiento al instante.</p>
+        </div>
+      </div>
+
+      <!-- 2. Mercado Libre & Flex -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-mercadolibre.png' | asset_url }}" alt="Mercado Libre & Flex" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Meli Flex Oficial</span>
+          </div>
+          <h3 class="stocka-int-name">Mercado Libre Flex</h3>
+          <p class="stocka-int-detail">Despacho el mismo día (Same Day) cumpliendo 100% con los horarios de corte para mantener tu reputación en verde.</p>
+        </div>
+      </div>
+
+      <!-- 3. WooCommerce -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-woocommerce.png' | asset_url }}" alt="WooCommerce WordPress" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> WordPress API</span>
+          </div>
+          <h3 class="stocka-int-name">WooCommerce</h3>
+          <p class="stocka-int-detail">Plugin dedicado para sincronizar catálogo, estados de pedido y stock multi-bodega en plataformas WordPress.</p>
+        </div>
+      </div>
+
+      <!-- 4. Falabella.com -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-falabella.png' | asset_url }}" alt="Falabella Seller Center" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Marketplace</span>
+          </div>
+          <h3 class="stocka-int-name">Falabella.com</h3>
+          <p class="stocka-int-detail">Procesamiento y empaque automatizado bajo los estándares de rotulación, etiquetas y SLA exigidos por Falabella.</p>
+        </div>
+      </div>
+
+      <!-- 5. Paris / Cencosud -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-paris.png' | asset_url }}" alt="Paris Cencosud Marketplace" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Marketplace</span>
+          </div>
+          <h3 class="stocka-int-name">Paris / Cencosud</h3>
+          <p class="stocka-int-detail">Emisión sincronizada de etiquetas y preparación de pedidos para el portal B2B de proveedores Cencosud.</p>
+        </div>
+      </div>
+
+      <!-- 6. Walmart Chile -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-walmart.png' | asset_url }}" alt="Walmart Marketplace Chile" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Marketplace</span>
+          </div>
+          <h3 class="stocka-int-name">Walmart Chile</h3>
+          <p class="stocka-int-detail">Integración directa de catálogo y despacho con cumplimiento de estándares de entrega Walmart Marketplace.</p>
+        </div>
+      </div>
+
+      <!-- 7. Tiendanube -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-tiendanube.png' | asset_url }}" alt="Tiendanube Ecommerce" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Conexión Ágil</span>
+          </div>
+          <h3 class="stocka-int-name">Tiendanube</h3>
+          <p class="stocka-int-detail">Sincronización automática de órdenes e inventario para tiendas online alojadas en Tiendanube.</p>
+        </div>
+      </div>
+
+      <!-- 8. Jumpseller -->
+      <div class="stocka-int-card">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka-int-jumpseller.png' | asset_url }}" alt="Jumpseller Chile" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge"><span class="dot"></span> Conexión Ágil</span>
+          </div>
+          <h3 class="stocka-int-name">Jumpseller</h3>
+          <p class="stocka-int-detail">Conexión ágil para tiendas virtuales en la plataforma chilena con sincronización de inventario en bodega.</p>
+        </div>
+      </div>
+
+      <!-- 9. Integración a Medida (API REST & ERPs) -->
+      <div class="stocka-int-card custom-api">
+        <div>
+          <div class="stocka-int-card-top">
+            <img src="{{ 'stocka.cap.png' | asset_url }}" alt="Stocka WMS API" class="stocka-int-logo-img" loading="lazy">
+            <span class="stocka-int-status-badge api-badge"><span class="dot"></span> ⚡ API Abierta</span>
+          </div>
+          <h3 class="stocka-int-name">Integración a Medida & ERPs</h3>
+          <p class="stocka-int-detail">Conecta tu ERP (SAP, Defontana, Bsale, Relbase, Laudus, Softland) o sistema propio con nuestra API REST y Webhooks en tiempo real.</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 3 Steps Process Strip -->
+    <div class="stocka-int-flow-box">
+      <div class="stocka-int-flow-grid">
+        <div class="stocka-int-step">
+          <div class="stocka-int-step-num">1</div>
+          <div class="stocka-int-step-content">
+            <h4>Conexión en 1 Clic</h4>
+            <p>Vincula tus canales de venta autorizando la app de Stocka. Tu catálogo e inventario se importan automáticamente.</p>
+          </div>
+        </div>
+        <div class="stocka-int-step">
+          <div class="stocka-int-step-num">2</div>
+          <div class="stocka-int-step-content">
+            <h4>Sincronización en Tiempo Real</h4>
+            <p>Cada vez que ingresa stock a bodega o realizas una venta, el inventario se actualiza en todos tus canales al segundo.</p>
+          </div>
+        </div>
+        <div class="stocka-int-step">
+          <div class="stocka-int-step-num">3</div>
+          <div class="stocka-int-step-content">
+            <h4>Armado y Despacho Express</h4>
+            <p>Recibida la orden, el equipo de nuestras bodegas prepara el pedido, imprime la etiqueta y lo entrega en ruta el mismo día.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>

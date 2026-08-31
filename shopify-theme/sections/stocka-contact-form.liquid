@@ -151,6 +151,106 @@
     border-radius: 50%;
     animation: spin-stocka 0.8s linear infinite;
   }
+
+  /* ========================================================
+     PREMIUM SAAS FORM INPUT STYLES
+     ======================================================== */
+  .stocka-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  .stocka-input-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
+    pointer-events: none;
+    transition: color 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stocka-input-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+  .stocka-input-wrapper:focus-within .stocka-input-icon {
+    color: #5c24ff;
+  }
+  .stocka-input.with-icon {
+    padding-left: 42px;
+  }
+  .stocka-textarea-wrapper {
+    position: relative;
+    width: 100%;
+  }
+  .stocka-textarea-icon {
+    position: absolute;
+    left: 14px;
+    top: 14px;
+    width: 18px;
+    height: 18px;
+    color: #94a3b8;
+    pointer-events: none;
+    transition: color 0.2s ease;
+  }
+  .stocka-textarea-wrapper:focus-within .stocka-textarea-icon {
+    color: #5c24ff;
+  }
+  .stocka-textarea.with-icon {
+    padding-left: 42px;
+    padding-top: 12px;
+  }
+  .stocka-step-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 0.85rem;
+    font-family: inherit;
+  }
+  .stocka-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, #5c24ff 0%, #4338ca 100%);
+    color: #ffffff;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+  .stocka-input {
+    width: 100%;
+    padding: 0.85rem 1.1rem;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    outline: none;
+    transition: all 0.2s ease;
+    font-size: 0.95rem;
+    color: #0f172a;
+    background-color: #f8fafc;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .stocka-input:hover {
+    border-color: #cbd5e1;
+    background-color: #ffffff;
+  }
+  .stocka-input:focus {
+    background-color: #ffffff;
+    border-color: #5c24ff;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12);
+  }
+
 </style>
 
 <section
@@ -195,27 +295,27 @@
             
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3" id="stocka-services-group-{{ section.id }}">
               <div class="stocka-service-pill active" data-value="Fulfillment 360">
-                <span style="font-size: 1.2rem;">📦</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                 <span>Fulfillment 360</span>
               </div>
               <div class="stocka-service-pill" data-value="Punto de Retiro">
-                <span style="font-size: 1.2rem;">🏬</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
                 <span>Punto de Retiro</span>
               </div>
               <div class="stocka-service-pill" data-value="Despachos Same Day RM">
-                <span style="font-size: 1.2rem;">⚡</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                 <span>Same Day en RM</span>
               </div>
               <div class="stocka-service-pill" data-value="Envíos a todo Chile">
-                <span style="font-size: 1.2rem;">🚚</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
                 <span>Envíos Todo Chile</span>
               </div>
               <div class="stocka-service-pill" data-value="Logística Inversa">
-                <span style="font-size: 1.2rem;">🔄</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>
                 <span>Logística Inversa</span>
               </div>
               <div class="stocka-service-pill" data-value="Vitrinas en Sucursal">
-                <span style="font-size: 1.2rem;">🛍️</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; flex-shrink: 0;"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
                 <span>Vitrinas en Sucursal</span>
               </div>
             </div>
@@ -248,83 +348,114 @@
           </div>
 
           <!-- SECCIÓN 3: Datos de Contacto -->
-          <div class="mb-6">
-            <label class="stocka-label" style="font-size: 0.92rem; margin-bottom: 0.85rem;">
-              4. Tus datos de contacto y de tu tienda
-            </label>
+          <div class="mb-6" style="margin-top: 1.75rem;">
+            <div class="stocka-step-badge">
+              <span class="stocka-step-num">4</span>
+              <span>Tus datos de contacto y de tu tienda</span>
+            </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
               <!-- Nombre -->
               <div>
                 <label for="lead-name-{{ section.id }}" class="stocka-label">Tu Nombre <span style="color: #ef4444;">*</span></label>
-                <input 
-                  type="text" 
-                  id="lead-name-{{ section.id }}" 
-                  class="stocka-input" 
-                  placeholder="Ej: Felipe" 
-                  required
-                >
+                <div class="stocka-input-wrapper">
+                  <div class="stocka-input-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  </div>
+                  <input 
+                    type="text" 
+                    id="lead-name-{{ section.id }}" 
+                    class="stocka-input with-icon" 
+                    placeholder="Ej: Felipe Trujillo" 
+                    required
+                  >
+                </div>
               </div>
 
               <!-- Correo -->
               <div>
                 <label for="lead-email-{{ section.id }}" class="stocka-label">Correo Electrónico <span style="color: #ef4444;">*</span></label>
-                <input 
-                  type="email" 
-                  id="lead-email-{{ section.id }}" 
-                  class="stocka-input" 
-                  placeholder="felipe@mail.com" 
-                  required
-                >
+                <div class="stocka-input-wrapper">
+                  <div class="stocka-input-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                  </div>
+                  <input 
+                    type="email" 
+                    id="lead-email-{{ section.id }}" 
+                    class="stocka-input with-icon" 
+                    placeholder="felipe@mitienda.cl" 
+                    required
+                  >
+                </div>
               </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
               <!-- Teléfono -->
               <div>
                 <label for="lead-phone-{{ section.id }}" class="stocka-label">Teléfono / WhatsApp <span style="color: #ef4444;">*</span></label>
-                <input 
-                  type="tel" 
-                  id="lead-phone-{{ section.id }}" 
-                  class="stocka-input" 
-                  placeholder="+56 9 876 54321" 
-                  required
-                >
+                <div class="stocka-input-wrapper">
+                  <div class="stocka-input-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                  </div>
+                  <input 
+                    type="tel" 
+                    id="lead-phone-{{ section.id }}" 
+                    class="stocka-input with-icon" 
+                    placeholder="+56 9 8765 4321" 
+                    required
+                  >
+                </div>
               </div>
 
               <!-- Nombre del Comercio -->
               <div>
                 <label for="lead-company-{{ section.id }}" class="stocka-label">Nombre de tu Tienda <span style="color: #ef4444;">*</span></label>
-                <input 
-                  type="text" 
-                  id="lead-company-{{ section.id }}" 
-                  class="stocka-input" 
-                  placeholder="Ej: Stocka Store" 
-                  required
-                >
+                <div class="stocka-input-wrapper">
+                  <div class="stocka-input-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                  </div>
+                  <input 
+                    type="text" 
+                    id="lead-company-{{ section.id }}" 
+                    class="stocka-input with-icon" 
+                    placeholder="Ej: Stocka Store" 
+                    required
+                  >
+                </div>
               </div>
 
               <!-- Web / Instagram -->
               <div>
                 <label for="lead-web-{{ section.id }}" class="stocka-label">Sitio Web o Instagram</label>
-                <input 
-                  type="text" 
-                  id="lead-web-{{ section.id }}" 
-                  class="stocka-input" 
-                  placeholder="www.mitienda.cl o @mitienda"
-                >
+                <div class="stocka-input-wrapper">
+                  <div class="stocka-input-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  </div>
+                  <input 
+                    type="text" 
+                    id="lead-web-{{ section.id }}" 
+                    class="stocka-input with-icon" 
+                    placeholder="www.mitienda.cl o @mitienda"
+                  >
+                </div>
               </div>
             </div>
 
             <!-- Comentarios Adicionales -->
-            <div class="mb-4">
+            <div class="mb-4" style="margin-top: 1rem;">
               <label for="lead-notes-{{ section.id }}" class="stocka-label">Cuéntanos un poco más de tu comercio</label>
-              <textarea 
-                id="lead-notes-{{ section.id }}" 
-                class="stocka-input" 
-                rows="3" 
-                placeholder="Háblanos de tus productos, integraciones necesarias o requerimientos de almacenamiento especiales..."
-              ></textarea>
+              <div class="stocka-textarea-wrapper">
+                <div class="stocka-textarea-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                </div>
+                <textarea 
+                  id="lead-notes-{{ section.id }}" 
+                  class="stocka-input stocka-textarea with-icon" 
+                  rows="3" 
+                  placeholder="Háblanos de tus productos, integraciones necesarias o requerimientos especiales de almacenamiento..."
+                ></textarea>
+              </div>
             </div>
           </div>
 
@@ -334,7 +465,7 @@
           <!-- Submit Button -->
           <div class="text-center pt-2">
             <button type="submit" id="stocka-submit-btn-{{ section.id }}" class="btn-submit-stocka">
-              <span id="stocka-btn-text-{{ section.id }}">Solicitar Propuesta y Recibir Presentación 🚀</span>
+              <span id="stocka-btn-text-{{ section.id }}">Solicitar Propuesta y Recibir Presentación </span>
               <div id="stocka-btn-spinner-{{ section.id }}" class="stocka-spinner" style="display: none;"></div>
             </button>
             
@@ -352,7 +483,7 @@
           </div>
           
           <h3 style="font-size: 1.6rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">
-            ¡Solicitud Recibida con Éxito! 🎉
+            ¡Solicitud Recibida con Éxito! 
           </h3>
           
           <p style="font-size: 0.95rem; color: #475569; max-width: 520px; margin: 0 auto 1.5rem auto; line-height: 1.6;">
@@ -374,7 +505,7 @@
               target="_blank" 
               style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #25d366; color: #ffffff; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.35);"
             >
-              <span>💬</span> Hablar con Asesor por WhatsApp
+              <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor; display: inline-block; vertical-align: middle; flex-shrink: 0;"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg> Hablar con Asesor por WhatsApp
             </a>
             
             <a 
@@ -382,7 +513,7 @@
               target="_blank" 
               style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #5c24ff; color: #ffffff; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(92, 36, 255, 0.35);"
             >
-              <span>📹</span> Agendar Reunión Virtual (Meet)
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 18px; height: 18px; display: inline-block; vertical-align: middle; flex-shrink: 0;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line><polygon points="10 8 16 12 10 16 10 8"></polygon></svg> Agendar Reunión Virtual (Meet)
             </a>
           </div>
         </div>
@@ -516,7 +647,7 @@
         errorDiv.textContent = err.message || 'No se pudo enviar el formulario. Por favor contáctanos directamente a contacto@stocka.cl';
         errorDiv.style.display = 'block';
         submitBtn.disabled = false;
-        btnText.textContent = 'Solicitar Propuesta y Recibir Presentación 🚀';
+        btnText.textContent = 'Solicitar Propuesta y Recibir Presentación ';
         btnSpinner.style.display = 'none';
       }
     });

@@ -1,4 +1,35 @@
 {%- comment -%}
-  Custom code before </body>
-  All custom code in this file will be kept when updating the theme
+  Custom code before </body> (Deferred 3rd party scripts for WPO)
 {%- endcomment -%}
+
+  <script>
+    (function() {
+        window.sib = {
+            equeue: [],
+            client_key: "195e4yeiekyjsnddi7ct4bn7"
+        };
+        window.sendinblue = {};
+        for (var j = ['track', 'identify', 'trackLink', 'page'], i = 0; i < j.length; i++) {
+        (function(k) {
+            window.sendinblue[k] = function() {
+                var arg = Array.prototype.slice.call(arguments);
+                (window.sib[k] || function() {
+                        var t = {};
+                        t[k] = arg;
+                        window.sib.equeue.push(t);
+                    })(arg[0], arg[1], arg[2]);
+                };
+            })(j[i]);
+        }
+        var n = document.createElement("script"),
+            i = document.getElementsByTagName("script")[0];
+            n.type = "text/javascript", n.id = "sendinblue-js",
+            n.async = true, n.src = "https://sibautomation.com/sa.js?key="+ window.sib.client_key,
+            i.parentNode.insertBefore(n, i), window.sendinblue.page();
+    })();
+  </script>
+<script>
+  window.fwSettings = { 'widget_id': 153000000065 };
+  !function(){if("function"!=typeof window.FreshworksWidget){var n=function(){n.q.push(arguments)};n.q=[],window.FreshworksWidget=n}}();
+</script>
+<script type="text/javascript" src="https://widget.freshworks.com/widgets/153000000065.js" async defer></script>

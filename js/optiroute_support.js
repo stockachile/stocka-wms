@@ -97,6 +97,10 @@ export async function renderOptirouteSupport() {
             <button id="btn-open-labels-modal" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #7c3aed; color: white; border: none; padding: 0 0.8rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Gestor y Emisión de Etiquetas Térmicas 100x150">
               <i class="ri-price-tag-3-line"></i> 🏷️ Generar Etiquetas
             </button>
+            <!-- Botón Guía de Despacho / Hoja de Ruta por Conductor -->
+            <button id="btn-open-dispatch-guide-modal" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #059669; color: white; border: none; padding: 0 0.8rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Generar e Imprimir Guía de Despacho / Hoja de Ruta por Conductor">
+              <i class="ri-file-list-3-line"></i> 📋 Guía de Despacho
+            </button>
             <!-- Botón Añadir Punto Intermedio -->
             <button id="btn-add-intermediate-point" class="btn btn-outline" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid #7c3aed; color: #7c3aed; background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Añadir un pedido intermedio a esta ruta">
               <i class="ri-add-circle-line"></i> ➕ Punto Intermedio
@@ -1986,6 +1990,16 @@ export async function renderOptirouteSupport() {
       });
     }
 
+    // Listener para Botón Guía de Despacho por Conductor
+    const btnOpenDispatchGuide = document.getElementById('btn-open-dispatch-guide-modal');
+    if (btnOpenDispatchGuide) {
+      const newBtn = btnOpenDispatchGuide.cloneNode(true);
+      btnOpenDispatchGuide.parentNode.replaceChild(newBtn, btnOpenDispatchGuide);
+      newBtn.addEventListener('click', () => {
+        openDispatchGuideModal();
+      });
+    }
+
     // Listener para Botón Añadir Punto Intermedio
     const btnAddIntermediatePoint = document.getElementById('btn-add-intermediate-point');
     if (btnAddIntermediatePoint) {
@@ -3832,6 +3846,680 @@ modal.style.position = 'fixed';
 
     lightbox.addEventListener('click', (e) => {
       if (e.target === lightbox) lightbox.remove();
+    });
+  }
+
+  // --- MÓDULO DE GUÍA DE DESPACHO / HOJA DE RUTA POR CONDUCTOR (A4) ---
+
+  const dispatchGuideStylesCss = `
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 8mm 8mm;
+    }
+    @media print {
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        font-family: 'Outfit', Arial, sans-serif;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .driver-guide-page {
+        page-break-after: always !important;
+        break-after: page !important;
+        box-shadow: none !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 4mm 4mm !important;
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      .driver-guide-page:last-child {
+        page-break-after: auto !important;
+        break-after: auto !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 15px;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    .driver-guide-page {
+      width: 100%;
+      max-width: 210mm;
+      margin: 0 auto 20px auto;
+      background: #ffffff;
+      padding: 8mm 8mm;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      box-sizing: border-box;
+    }
+    .guide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 5px;
+      margin-bottom: 6px;
+    }
+    .guide-header-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .guide-logo {
+      height: 32px;
+      width: auto;
+      object-fit: contain;
+    }
+    .guide-brand-title {
+      font-size: 10.5pt;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #0f172a;
+      line-height: 1.1;
+    }
+    .guide-brand-sub {
+      font-size: 6.5pt;
+      color: #64748b;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .guide-doc-badge {
+      text-align: right;
+    }
+    .guide-doc-title {
+      font-size: 10pt;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
+    .guide-doc-subtitle {
+      font-size: 6.8pt;
+      font-weight: 700;
+      color: #059669;
+      letter-spacing: 0.8px;
+    }
+    .guide-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .guide-meta-item {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 3px 6px;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+    }
+    .guide-meta-item.highlight-driver {
+      border-color: #059669;
+      background: #ecfdf5;
+    }
+    .guide-meta-item.highlight-total {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .guide-meta-label {
+      font-size: 5.5pt;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .guide-meta-val {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.15;
+    }
+    .guide-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7.5pt;
+      margin-bottom: 6px;
+    }
+    .guide-table thead th {
+      background: #0f172a !important;
+      color: #ffffff !important;
+      padding: 4px 5px;
+      font-size: 6.8pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      border: 1px solid #0f172a;
+    }
+    .guide-table tbody td {
+      border: 1px solid #cbd5e1;
+      padding: 3.5px 4.5px;
+      vertical-align: middle;
+      line-height: 1.2;
+      color: #1e293b;
+    }
+    .guide-table tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    .guide-order-badge {
+      font-weight: 900;
+      font-size: 8pt;
+      color: #0f172a;
+      display: inline-block;
+    }
+    .guide-int-tag {
+      background: #000000;
+      color: #ffffff;
+      font-size: 5pt;
+      font-weight: 900;
+      padding: 0.5px 2px;
+      border-radius: 2px;
+      margin-left: 2px;
+      vertical-align: middle;
+    }
+    .guide-ref-code {
+      font-family: monospace;
+      font-weight: 800;
+      font-size: 8pt;
+      color: #0f172a;
+    }
+    .guide-supplier-tag {
+      font-size: 6.5pt;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+    }
+    .guide-customer-name {
+      font-weight: 700;
+      font-size: 7.5pt;
+      color: #0f172a;
+    }
+    .guide-customer-phone {
+      font-size: 6.5pt;
+      color: #64748b;
+      font-family: monospace;
+    }
+    .guide-address-text {
+      font-size: 7.2pt;
+      color: #0f172a;
+    }
+    .guide-comuna-tag {
+      font-weight: 800;
+      font-size: 6.8pt;
+      color: #059669;
+      text-transform: uppercase;
+    }
+    .guide-notes-text {
+      font-size: 6.2pt;
+      color: #475569;
+      font-style: italic;
+    }
+    .guide-check-box {
+      border: 1px dashed #94a3b8;
+      border-radius: 3px;
+      padding: 2px 3px;
+      font-size: 5.6pt;
+      color: #64748b;
+      text-align: left;
+      min-height: 20px;
+      background: #ffffff;
+    }
+    .guide-footer-section {
+      display: flex;
+      gap: 10px;
+      margin-top: 5px;
+      border-top: 1px solid #cbd5e1;
+      padding-top: 5px;
+    }
+    .guide-comuna-summary {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .guide-section-subtitle {
+      font-size: 6.2pt;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .guide-comunas-badges {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+    }
+    .guide-c-badge {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+      font-size: 5.8pt;
+      font-weight: 700;
+      padding: 1px 3px;
+      color: #334155;
+    }
+    .guide-obs-box {
+      margin-top: 2px;
+    }
+    .guide-obs-lines {
+      height: 16px;
+      border-bottom: 1px dashed #94a3b8;
+    }
+    .guide-signatures-row {
+      display: flex;
+      gap: 10px;
+      width: 320px;
+      flex-shrink: 0;
+    }
+    .guide-sig-box {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      text-align: center;
+      padding: 2px;
+    }
+    .guide-sig-line {
+      border-bottom: 1.5px solid #0f172a;
+      margin-bottom: 3px;
+      height: 22px;
+    }
+    .guide-sig-title {
+      font-size: 6pt;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .guide-sig-sub {
+      font-size: 5.2pt;
+      color: #64748b;
+      text-align: left;
+      margin-top: 1px;
+    }
+  `;
+
+  // Agrupar envíos por Conductor / Móvil
+  function groupWaypointsByDriver(waypoints) {
+    const driverMap = new Map();
+
+    waypoints.forEach(wp => {
+      const driver = (wp.route_driver || '').trim();
+      const vehicle = (wp.route_vehicle || '').trim();
+      
+      let key = driver || vehicle || 'Sin Asignación';
+      
+      if (!driverMap.has(key)) {
+        driverMap.set(key, {
+          driverKey: key,
+          driverName: driver || key,
+          vehicleName: vehicle || (driver ? '' : 'Sin Vehículo'),
+          items: []
+        });
+      }
+      
+      const group = driverMap.get(key);
+      if (!group.vehicleName && vehicle) group.vehicleName = vehicle;
+      if (!group.driverName && driver) group.driverName = driver;
+      group.items.push(wp);
+    });
+
+    // Ordenar cada grupo por número de parada
+    driverMap.forEach(group => {
+      group.items.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+    });
+
+    return Array.from(driverMap.values());
+  }
+
+  // Generar HTML de la Guía de Despacho para un Conductor específico
+  function generateSingleDriverGuideHtml(group, routeName, options = {}) {
+    const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const formattedTime = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+
+    // Conteo de comunas
+    const comunaCounts = new Map();
+    group.items.forEach(w => {
+      const c = (w.comuna || 'Sin Comuna').trim().toUpperCase();
+      comunaCounts.set(c, (comunaCounts.get(c) || 0) + 1);
+    });
+    const comunasBadges = Array.from(comunaCounts.entries())
+      .map(([c, count]) => `<span class="guide-c-badge">📍 ${escapeHtml(c)}: <strong>${count}</strong></span>`)
+      .join('');
+    const comunasCountStr = `${comunaCounts.size} comunas`;
+
+    // Filas de la tabla de envíos
+    const rowsHtml = group.items.map((wp) => {
+      const isInt = Boolean(wp.is_intermediate || String(wp.order).includes('.'));
+      const cleanRef = escapeHtml(String(wp.reference || 'S/R'));
+      const cleanSupp = escapeHtml((wp.supplier || 'STOCKA').toUpperCase());
+      const cleanName = escapeHtml(wp.name || 'Cliente sin nombre');
+      const cleanPhone = wp.phone ? `+${String(wp.phone).replace(/\D/g, '')}` : '';
+      const cleanAddr = escapeHtml(wp.address || 'Sin Dirección');
+      const cleanComp = wp.complemento ? ` (${escapeHtml(wp.complemento)})` : '';
+      const cleanComuna = escapeHtml((wp.comuna || '').toUpperCase());
+      const cleanNotes = escapeHtml(wp.note || '');
+
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: 800;">
+            <span class="guide-order-badge">#${wp.order}</span>
+            ${isInt ? '<span class="guide-int-tag">INT</span>' : ''}
+          </td>
+          <td>
+            <div class="guide-ref-code">${cleanRef}</div>
+          </td>
+          <td>
+            <div class="guide-supplier-tag">${cleanSupp}</div>
+          </td>
+          <td>
+            <div class="guide-customer-name">${cleanName}</div>
+            ${cleanPhone ? `<div class="guide-customer-phone">${cleanPhone}</div>` : ''}
+          </td>
+          <td>
+            <div class="guide-address-text">${cleanAddr}${cleanComp}</div>
+            <div class="guide-comuna-tag">${cleanComuna}</div>
+          </td>
+          <td>
+            <div class="guide-notes-text">${cleanNotes || '-'}</div>
+          </td>
+          <td>
+            <div class="guide-check-box">
+              <span>Recibe: ________________</span><br>
+              <span>RUT/Firma: [ &nbsp; &nbsp; ]</span>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="driver-guide-page">
+        <!-- Cabecera Formal de la Guía -->
+        <div class="guide-header">
+          <div class="guide-header-brand">
+            <img src="img/newlogotransp.png" alt="Stocka" class="guide-logo" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+            <div class="guide-brand-text">
+              <div class="guide-brand-title">STOCKA LOGÍSTICA & FULFILLMENT</div>
+              <div class="guide-brand-sub">Control de Despachos y Operaciones Ecommerce • info@stocka.cl</div>
+            </div>
+          </div>
+          <div class="guide-doc-badge">
+            <div class="guide-doc-title">GUÍA DE DESPACHO / HOJA DE RUTA</div>
+            <div class="guide-doc-subtitle">MANIFIESTO DE CARGA Y ENTREGA</div>
+          </div>
+        </div>
+
+        <!-- Cuadrícula de Metadatos de la Ruta y Conductor -->
+        <div class="guide-meta-grid">
+          <div class="guide-meta-item">
+            <span class="guide-meta-label">RUTA / PLAN:</span>
+            <span class="guide-meta-val">${escapeHtml(routeName || 'Ruta Optiroute')}</span>
+          </div>
+          <div class="guide-meta-item">
+            <span class="guide-meta-label">FECHA DESPACHO:</span>
+            <span class="guide-meta-val">${formattedDate}</span>
+          </div>
+          <div class="guide-meta-item highlight-driver">
+            <span class="guide-meta-label">CONDUCTOR / MÓVIL:</span>
+            <span class="guide-meta-val">${escapeHtml(group.driverName)}</span>
+          </div>
+          <div class="guide-meta-item">
+            <span class="guide-meta-label">VEHÍCULO / PATENTE:</span>
+            <span class="guide-meta-val">${escapeHtml(group.vehicleName || 'Sin Asignación')}</span>
+          </div>
+          <div class="guide-meta-item highlight-total">
+            <span class="guide-meta-label">TOTAL CARGA ASIGNADA:</span>
+            <span class="guide-meta-val">${group.items.length} PAQUETES / PARADAS</span>
+          </div>
+          <div class="guide-meta-item">
+            <span class="guide-meta-label">HORA SALIDA / EMISIÓN:</span>
+            <span class="guide-meta-val">${formattedTime} hrs</span>
+          </div>
+        </div>
+
+        <!-- Tabla de Detalle de Carga -->
+        <table class="guide-table">
+          <thead>
+            <tr>
+              <th style="width: 38px; text-align: center;">#</th>
+              <th style="width: 95px;">N° Pedido</th>
+              <th style="width: 105px;">Comercio</th>
+              <th style="width: 155px;">Destinatario / Teléfono</th>
+              <th style="min-width: 180px;">Dirección y Comuna</th>
+              <th style="width: 110px;">Notas / Obs</th>
+              <th style="width: 125px; text-align: center;">Recepción / Firma</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <!-- Resumen de Comunas y Sección de Firmas -->
+        <div class="guide-footer-section">
+          <div class="guide-comuna-summary">
+            <div class="guide-section-subtitle">RESUMEN POR COMUNAS (${comunasCountStr})</div>
+            <div class="guide-comunas-badges">${comunasBadges}</div>
+            <div class="guide-obs-box">
+              <span class="guide-meta-label">OBSERVACIONES DEL CONDUCTOR EN RUTA:</span>
+              <div class="guide-obs-lines"></div>
+            </div>
+          </div>
+          
+          <div class="guide-signatures-row">
+            <div class="guide-sig-box">
+              <div class="guide-sig-line"></div>
+              <div class="guide-sig-title">FIRMA Y RUT CONDUCTOR</div>
+              <div class="guide-sig-sub">Nombre: ${escapeHtml(group.driverName)}</div>
+              <div class="guide-sig-sub">RUT: _______________________</div>
+            </div>
+            <div class="guide-sig-box">
+              <div class="guide-sig-line"></div>
+              <div class="guide-sig-title">CONTROL BODEGA / DESPACHADOR</div>
+              <div class="guide-sig-sub">Despachado por: ________________</div>
+              <div class="guide-sig-sub">Timbre / Visto Bueno: ___________</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Imprimir Guías de Despacho (Ventana Emergente A4)
+  function printDispatchGuides(selectedDriverKey = 'ALL', options = {}) {
+    if (!allWaypoints || allWaypoints.length === 0) {
+      alert('No hay envíos cargados en la ruta para generar la guía de despacho.');
+      return;
+    }
+
+    const driverGroups = groupWaypointsByDriver(allWaypoints);
+    const targetGroups = selectedDriverKey === 'ALL'
+      ? driverGroups
+      : driverGroups.filter(g => g.driverKey === selectedDriverKey);
+
+    if (targetGroups.length === 0) {
+      alert('No se encontraron envíos para el conductor seleccionado.');
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Por favor, permite las ventanas emergentes (popups) para poder imprimir la guía de despacho.');
+      return;
+    }
+
+    const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || allWaypoints[0]?.route_name || 'Ruta Optiroute';
+    const guidesHtml = targetGroups.map(group => generateSingleDriverGuideHtml(group, routePlanName, options)).join('');
+
+    const fullDoc = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <title>Guía de Despacho - ${routePlanName} (${targetGroups.length} Conductores) - WMS STOCKA</title>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+          ${dispatchGuideStylesCss}
+        </style>
+      </head>
+      <body>
+        ${guidesHtml}
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 350);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(fullDoc);
+    printWindow.document.close();
+  }
+
+  // Modal Gestor y Vista Previa de Guía de Despacho
+  function openDispatchGuideModal() {
+    const modalId = 'optiroute-dispatch-guide-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    if (!allWaypoints || allWaypoints.length === 0) {
+      alert('No hay envíos cargados en la ruta para generar la guía de despacho.');
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(15, 23, 42, 0.75)';
+    modal.style.zIndex = '99999';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.animation = 'fadeIn 0.2s ease';
+    modal.style.padding = '0.5rem';
+
+    const driverGroups = groupWaypointsByDriver(allWaypoints);
+    const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || allWaypoints[0]?.route_name || 'Ruta Optiroute';
+
+    let currentSelectedDriver = 'ALL';
+
+    modal.innerHTML = `
+      <div class="card" style="width: 1100px; max-width: 96vw; height: 88vh; min-height: 560px; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
+        
+        <!-- Encabezado del Modal -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-file-list-3-line" style="color: #059669; font-size: 1.3rem;"></i> Guía de Despacho / Hoja de Ruta por Conductor
+            </h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              Genera e imprime el manifiesto de entrega y detalle de carga para los repartidores (Formato A4 estándar).
+            </p>
+          </div>
+          <button id="close-guide-modal-x" style="background: none; border: none; font-size: 1.65rem; cursor: pointer; color: var(--color-text-muted); line-height: 1;">&times;</button>
+        </div>
+
+        <!-- Barra de Opciones y Selección de Conductor -->
+        <div style="padding: 0.85rem 1.4rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex: 1;">
+            <label style="font-size: 0.84rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-steering-2-line" style="color: #059669;"></i> Conductor / Móvil:
+            </label>
+            <select id="guide-modal-select-driver" class="form-input" style="font-size: 0.85rem; height: 38px; min-width: 280px; max-width: 420px; font-weight: 600; padding: 0 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+              <option value="ALL">📋 Todos los Conductores (${driverGroups.length} conductores, ${allWaypoints.length} envíos)</option>
+              ${driverGroups.map(g => `
+                <option value="${g.driverKey}">🚚 ${g.driverName} (${g.items.length} envíos) [${g.vehicleName || 'N/A'}]</option>
+              `).join('')}
+            </select>
+          </div>
+
+          <div style="display: flex; gap: 0.6rem; align-items: center;">
+            <button id="guide-modal-btn-print" class="btn btn-primary" style="padding: 0.45rem 1.1rem; font-size: 0.86rem; font-weight: 700; background: #059669; color: white; border: none; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" title="Imprimir Guía de Despacho en formato A4">
+              <i class="ri-printer-line" style="font-size: 1.1rem;"></i> 🖨️ Imprimir Guía de Despacho
+            </button>
+          </div>
+        </div>
+
+        <!-- Contenedor de Vista Previa con Scroll -->
+        <div id="guide-preview-container" style="flex: 1; overflow-y: auto; padding: 1.2rem; background: #94a3b8; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
+          <!-- Renderizado dinámico de la vista previa -->
+        </div>
+
+        <!-- Pie del Modal -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.4rem; border-top: 1px solid var(--color-border); background: var(--color-bg); flex-shrink: 0;">
+          <div style="font-size: 0.82rem; color: var(--color-text-muted);">
+            WMS STOCKA • Hoja de Ruta y Manifiesto de Carga con separación automática por conductor.
+          </div>
+          <button id="guide-modal-btn-close-footer" class="btn btn-outline" style="padding: 0.4rem 1.1rem; border-radius: var(--radius-md); font-size: 0.85rem; cursor: pointer;">
+            Cerrar
+          </button>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const previewContainer = modal.querySelector('#guide-preview-container');
+    const selectDriver = modal.querySelector('#guide-modal-select-driver');
+    const btnPrint = modal.querySelector('#guide-modal-btn-print');
+
+    function updatePreview() {
+      const selectedKey = selectDriver?.value || 'ALL';
+      const targetGroups = selectedKey === 'ALL'
+        ? driverGroups
+        : driverGroups.filter(g => g.driverKey === selectedKey);
+
+      if (targetGroups.length === 0) {
+        previewContainer.innerHTML = `
+          <div style="background: white; padding: 3rem; border-radius: 8px; text-align: center; color: #64748b;">
+            No hay datos para previsualizar.
+          </div>
+        `;
+        return;
+      }
+
+      previewContainer.innerHTML = `
+        <style>${dispatchGuideStylesCss}</style>
+        ${targetGroups.map(group => generateSingleDriverGuideHtml(group, routePlanName)).join('')}
+      `;
+    }
+
+    updatePreview();
+
+    selectDriver?.addEventListener('change', () => {
+      currentSelectedDriver = selectDriver.value;
+      updatePreview();
+    });
+
+    btnPrint?.addEventListener('click', () => {
+      printDispatchGuides(currentSelectedDriver);
+    });
+
+    const closeModal = () => modal.remove();
+    modal.querySelector('#close-guide-modal-x')?.addEventListener('click', closeModal);
+    modal.querySelector('#guide-modal-btn-close-footer')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
     });
   }
 

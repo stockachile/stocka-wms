@@ -9,6 +9,8 @@
   {% render 'stocka-contact-channels' %}
   {% render 'stocka-contact-form-embed' %}
   {% render 'stocka-contact-meeting' %}
+{%- elsif page.handle == 'preguntas-frecuentes' or page.handle == 'preguntas_frecuentes' or page.handle == 'faqs' or page.handle == 'faq' -%}
+  {% section 'stocka-master-faq-page' %}
 {%- else -%}
   {% render 'page-title', title: page.title, container: true %}
   {%- if page.content != blank -%}

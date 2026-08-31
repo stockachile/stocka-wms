@@ -2660,6 +2660,23 @@ Hemos integrado el nuevo logotipo de **Jumpseller** (`img/jumpseller.png`) para 
    - Con esto, todas las vistas generales, listas de integraciones activas e historiales de órdenes cargan directamente el archivo de imagen oficial `img/jumpseller.png` en lugar del tag de texto estilizado anterior.
    - Mantuvimos el resolvedor dinámico de detalles del pedido y la función de fallback intacta para garantizar la consistencia visual ante cualquier error de carga.
 
+---
+
+## 115. Filtro por Comercio en Facturas por Emitir (Facturación 2.0)
+
+Hemos integrado un filtro desplegable específico por **Comercio** en la tarjeta de **Facturas por Emitir** del submódulo **Tareas y Pendientes** (Dashboard de Control de Facturación):
+
+1. **Selector Desplegable de Comercio**:
+   - Se añadió un `<select id="filter-pending-commerce-select">` con la lista ordenada y única de comercios con facturas pendientes (`invoicesToEmit`), incluyendo la opción predeterminada *"Todos"*.
+2. **Buscador de Texto Específico**:
+   - El campo de búsqueda libre ahora se titula **Buscar RUT / Razón Social** (`#filter-pending-search`), permitiendo buscar rápidamente por nombre, RUT (con o sin puntos) o Razón Social sin perder la capacidad de selección por lista.
+3. **Filtrado Reactivo y Combinado**:
+   - La función [`applyPendingInvoiceFilters`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) combina de forma simultánea el comercio seleccionado en el menú desplegable, el texto de búsqueda libre, el período y el servicio.
+4. **Persistencia y Botón Limpiar**:
+   - El botón **Limpiar** (`clearPendingInvoiceFilters`) restablece todos los filtros a su estado por defecto.
+   - El estado de los filtros y la apertura del panel persisten automáticamente si el usuario registra facturas o si la vista se vuelve a renderizar.
+
+
 
 ---
 

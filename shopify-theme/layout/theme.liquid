@@ -13,34 +13,6 @@ no-js supports-no-cookies {%- if request.path == '/challenge' -%}grow-full{%- en
   data-template="{{ template.name }}"
   {% if enable_rtl %}dir="rtl"{% endif %}
 >
-  <script type="text/javascript">
-    (function() {
-        window.sib = {
-            equeue: [],
-            client_key: "195e4yeiekyjsnddi7ct4bn7"
-        };
-        /* OPTIONAL: email for identify request*/
-        // window.sib.email_id = 'example@domain.com';
-        window.sendinblue = {};
-        for (var j = ['track', 'identify', 'trackLink', 'page'], i = 0; i < j.length; i++) {
-        (function(k) {
-            window.sendinblue[k] = function() {
-                var arg = Array.prototype.slice.call(arguments);
-                (window.sib[k] || function() {
-                        var t = {};
-                        t[k] = arg;
-                        window.sib.equeue.push(t);
-                    })(arg[0], arg[1], arg[2]);
-                };
-            })(j[i]);
-        }
-        var n = document.createElement("script"),
-            i = document.getElementsByTagName("script")[0];
-            n.type = "text/javascript", n.id = "sendinblue-js",
-            n.async = !0, n.src = "https://sibautomation.com/sa.js?key="+ window.sib.client_key,
-            i.parentNode.insertBefore(n, i), window.sendinblue.page();
-    })();
-    </script>
 <head>
  {%- render 'ecom_header' -%}
  {%- render 'beae_header' -%}{% render 'pagefly-head' %}
@@ -48,19 +20,17 @@ no-js supports-no-cookies {%- if request.path == '/challenge' -%}grow-full{%- en
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=0">
 	<meta name="theme-color" content="{{ settings.color_primary }}">
-
   {% render 'preload' %}
   {% render 'SEO' %}
+  {% render 'stocka-seo-schemas' %}
   {% render 'social-meta-tags' %}
   {% render 'font-face' %}
   {% render 'critical-css' %}
   {% render 'critical-scripts' %}
   {% render 'style-tags' %}
   {% render 'custom-code-head' %}
-
   {% comment %} {% render 'content_for_header' %} {% endcomment %}
   {{ content_for_header }}
-
 {% include 'globo.formbuilder.scripts' %}
 <!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -69,16 +39,8 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','GTM-KLLKS6W');</script>
 <!-- End Google Tag Manager -->
-
   {% render 'shogun-head' %}
 </head>
-<script>
-	window.fwSettings={
-	'widget_id':153000000065
-	};
-	!function(){if("function"!=typeof window.FreshworksWidget){var n=function(){n.q.push(arguments)};n.q=[],window.FreshworksWidget=n}}() 
-</script>
-<script type='text/javascript' src='https://widget.freshworks.com/widgets/153000000065.js' async defer></script>
 <body
   id="sf-theme" style="opacity: 0;"
   class="{{ body_classes }} relative min-h-screen{% if customer %} customer-logged-in{% endif %}"
@@ -91,20 +53,16 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   {% render 'theme-data' %}
   {% section 'annoucement' %}
   {% section 'header' %}
-
   <main role="main" id="MainContent">
     {% render 'scroll-top-button' %}
     {{ content_for_layout }}
     <div id="cart-drawer-container"></div>
   </main>
-
   {% section 'footer' %}
   {% section 'mobile-sticky-bar' %}
-
   {% render 'custom-code-body' %}
   {% render 'foxkit-messenger' %}
   {% render 'script-tags' %}
-
  {%- render 'beae_footer' -%}
  {%- render "ecom_footer"-%}</body>
 </html>

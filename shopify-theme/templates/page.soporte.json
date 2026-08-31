@@ -1,0 +1,12 @@
+{
+  "layout": "theme",
+  "sections": {
+    "support_portal": {
+      "type": "stocka-support-portal",
+      "settings": {}
+    }
+  },
+  "order": [
+    "support_portal"
+  ]
+}

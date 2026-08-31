@@ -1,0 +1,724 @@
+{%- comment -%}
+  Stocka Master FAQ & Help Center 360
+  Unified knowledge base from all pages (Fulfillment, Tarifas, Contacto, Soporte)
+  with live search, category filters, and high-conversion UI
+{%- endcomment -%}
+
+<style>
+  .stocka-mf-page {
+    font-family: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+    padding-bottom: 5rem;
+  }
+  .stocka-mf-container {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-mf-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* Hero Section */
+  .stocka-mf-hero {
+    padding: 4.5rem 0 3.5rem 0;
+    text-align: center;
+    background: radial-gradient(circle at 50% 0%, rgba(92, 36, 255, 0.08) 0%, rgba(248, 250, 252, 0) 75%);
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .stocka-mf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    background: #f1f0fe;
+    border: 1.5px solid #e0dcfe;
+    color: #5c24ff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.2rem;
+  }
+  .stocka-mf-title {
+    font-size: 2.25rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.2;
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-mf-title {
+      font-size: 3rem;
+    }
+  }
+  .stocka-mf-subtitle {
+    font-size: 1.05rem;
+    color: #64748b;
+    max-width: 720px;
+    margin: 0 auto 2rem auto;
+    line-height: 1.6;
+  }
+
+  /* Live Search Box */
+  .stocka-mf-search-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .stocka-mf-search-icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    color: #94a3b8;
+    pointer-events: none;
+  }
+  .stocka-mf-search-input {
+    width: 100% !important;
+    padding: 1.05rem 1.25rem 1.05rem 52px !important;
+    border: 2px solid #e2e8f0 !important;
+    border-radius: 16px !important;
+    outline: none !important;
+    font-size: 1rem !important;
+    color: #0f172a !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.06) !important;
+    transition: all 0.25s ease !important;
+    box-sizing: border-box !important;
+    font-family: inherit !important;
+  }
+  .stocka-mf-search-input:focus {
+    border-color: #5c24ff !important;
+    box-shadow: 0 12px 30px -5px rgba(92, 36, 255, 0.2) !important;
+  }
+
+  /* Category Filter Pills */
+  .stocka-mf-cats-bar {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 2rem 0 1rem 0;
+    margin-bottom: 1.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .stocka-mf-cats-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .stocka-mf-cat-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.6rem 1.15rem;
+    border-radius: 9999px;
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #475569;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  .stocka-mf-cat-btn:hover {
+    border-color: #cbd5e1;
+    color: #0f172a;
+  }
+  .stocka-mf-cat-btn.active {
+    background: #5c24ff;
+    color: #ffffff;
+    border-color: #5c24ff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.3);
+  }
+
+  /* Accordion Item Styles */
+  .stocka-mf-accordion {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .stocka-mf-item {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .stocka-mf-item:hover {
+    border-color: #cbd5e1;
+  }
+  .stocka-mf-item.active {
+    border-color: #5c24ff;
+    box-shadow: 0 8px 25px -5px rgba(92, 36, 255, 0.08);
+  }
+
+  .stocka-mf-q {
+    width: 100%;
+    padding: 1.25rem 1.5rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    text-align: left;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-family: inherit;
+    transition: color 0.2s ease;
+  }
+  @media (max-width: 640px) {
+    .stocka-mf-q {
+      padding: 1.1rem 1.25rem;
+      font-size: 0.96rem;
+    }
+  }
+  .stocka-mf-item.active .stocka-mf-q {
+    color: #5c24ff;
+  }
+
+  .stocka-mf-q-left {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+  .stocka-mf-cat-tag {
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: #64748b;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+
+  .stocka-mf-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    transition: transform 0.25s ease, background 0.2s ease, color 0.2s ease;
+  }
+  .stocka-mf-item.active .stocka-mf-icon {
+    transform: rotate(45deg);
+    background: #5c24ff;
+    color: #ffffff;
+  }
+
+  .stocka-mf-a {
+    padding: 0 1.5rem 1.4rem 1.5rem;
+    font-size: 0.93rem;
+    color: #475569;
+    line-height: 1.65;
+    display: none;
+    animation: mfFade 0.25s ease;
+  }
+  @media (max-width: 640px) {
+    .stocka-mf-a {
+      padding: 0 1.25rem 1.25rem 1.25rem;
+      font-size: 0.88rem;
+    }
+  }
+  .stocka-mf-item.active .stocka-mf-a {
+    display: block;
+  }
+  @keyframes mfFade {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* No Results Message */
+  .stocka-mf-no-results {
+    text-align: center;
+    padding: 3.5rem 1.5rem;
+    background: #ffffff;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 20px;
+    display: none;
+  }
+
+  /* Bottom Help Cards */
+  .stocka-mf-bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin-top: 4rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-mf-bottom-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  .stocka-mf-bottom-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.75rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.25s ease;
+  }
+  .stocka-mf-bottom-card:hover {
+    transform: translateY(-3px);
+    border-color: #5c24ff;
+    box-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.08);
+  }
+</style>
+
+<div class="stocka-mf-page">
+  
+  <!-- Hero Section -->
+  <div class="stocka-mf-hero">
+    <div class="stocka-mf-container">
+      <div class="stocka-mf-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="width: 14px; height: 14px;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        <span>CENTRO DE AYUDA Y PREGUNTAS FRECUENTES</span>
+      </div>
+      <h1 class="stocka-mf-title">¿En qué podemos ayudarte hoy?</h1>
+      <p class="stocka-mf-subtitle">
+        Encuentra respuestas inmediatas sobre nuestro servicio de fulfillment 360, tarifas dinámicas, red de bodegas, integraciones y seguimiento de compras.
+      </p>
+
+      <!-- Live Search Box -->
+      <div class="stocka-mf-search-wrap">
+        <svg class="stocka-mf-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="stocka-mf-search" class="stocka-mf-search-input" placeholder="Buscar por tema: tarifas, bodegas, Same Day, Shopify...">
+      </div>
+    </div>
+  </div>
+
+  <div class="stocka-mf-container">
+    
+    <!-- Category Filter Bar -->
+    <div class="stocka-mf-cats-bar" id="stocka-mf-cats">
+      <button type="button" class="stocka-mf-cat-btn active" data-cat="all">⭐ Todas las Preguntas</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="fulfillment">📦 Fulfillment & Bodegas</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="tarifas">💰 Tarifas & Cobros</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="despachos">🚀 Despachos & Couriers</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="integracion">🔌 Integraciones & WMS</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="sucursal">🏬 Retiro & Sucursal Ñuñoa</button>
+      <button type="button" class="stocka-mf-cat-btn" data-cat="soporte">🛍️ Seguimiento & Comprador</button>
+    </div>
+
+    <!-- Master Unified Accordion -->
+    <div class="stocka-mf-accordion" id="stocka-mf-accordion">
+      
+      <!-- 1. Fulfillment 360 -->
+      <div class="stocka-mf-item active" data-cat="fulfillment">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Fulfillment</span>
+            <span>¿Qué incluye exactamente el servicio de Fulfillment 360 de Stocka?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Nos hacemos cargo de todo tu flujo operativo: recibimos tu mercadería en bodega, la almacenamos en custodia segura en nuestras bodegas ubicadas en <strong>La Reina, Recoleta y Ñuñoa</strong> con CCTV 24/7, sincronizamos tu catálogo en tiempo real, preparamos cada paquete (Pick & Pack con empaque estándar incluido) y lo despachamos el mismo día en Santiago (Same Day) o a regiones vía couriers integrados (Starken, Blue Express, Chilexpress y CorreosChile).
+        </div>
+      </div>
+
+      <!-- 2. Ubicación de Bodegas -->
+      <div class="stocka-mf-item" data-cat="fulfillment sucursal">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Bodegas</span>
+            <span>¿Dónde se encuentran ubicadas sus bodegas y centros de distribución?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Nuestra <strong>oficina y casa matriz</strong> está ubicada en <strong>Avenida Campos de Deportes 405, comuna de Ñuñoa</strong> (a pasos de Metro Estadio Nacional y Monseñor Eyzaguirre), donde tus clientes pueden elegir retirar sus compras online gratis. Además, disponemos de <strong>centros de distribución de mayor capacidad en La Reina y Recoleta</strong> para almacenamiento estratégico y gran escala.
+        </div>
+      </div>
+
+      <!-- 3. Seguridad de Productos -->
+      <div class="stocka-mf-item" data-cat="fulfillment">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Seguridad</span>
+            <span>¿Mis productos quedan seguros y protegidos en sus bodegas?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Totalmente. Nuestras instalaciones cuentan con <strong>control y seguridad permanente, circuito cerrado de televisión (CCTV) 24/7 y estrictos protocolos de custodia</strong> para que tus productos queden protegidos y en las mejores manos en todo momento.
+        </div>
+      </div>
+
+      <!-- 4. Cálculo de Tarifas -->
+      <div class="stocka-mf-item" data-cat="tarifas">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Tarifas</span>
+            <span>¿Cómo se calculan las tarifas de Fulfillment en Stocka?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Nuestras tarifas son 100% transparentes y dinámicas según volumen:
+          <ul style="margin: 0.5rem 0 0.5rem 1.25rem; padding: 0;">
+            <li><strong>Pick & Pack:</strong> Va desde $850 por pedido en tramo Enterprise (+2.500 ped/mes) hasta $1.250 en tramos iniciales.</li>
+            <li><strong>Almacenamiento:</strong> Volumen dinámico on demand desde $26.500 por m³ al mes (pagas solo por los m³ que utilizas).</li>
+            <li><strong>Despachos Same Day RM:</strong> Tarifa preferencial de $3.200 + IVA por paquete.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 5. Sin Costos Ocultos ni Amarres -->
+      <div class="stocka-mf-item" data-cat="tarifas">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Tarifas</span>
+            <span>¿Tienen costos de ingreso o permanencia mínima obligatoria?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          No. En Stocka no cobramos tarifas ocultas de ingreso ni exigimos contratos forzosos con permanencia mínima. Nuestro modelo está pensado para escalar con tu ecommerce: si aumentas o disminuyes tus ventas, tus costos se adaptan automáticamente a tu realidad sin penalizaciones.
+        </div>
+      </div>
+
+      <!-- 6. Horarios Same Day Santiago -->
+      <div class="stocka-mf-item" data-cat="despachos">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Despachos</span>
+            <span>¿En qué horario y comunas se entregan las compras Same Day en Santiago?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Las entregas el mismo día se realizan de <strong>lunes a sábado entre las 12:00 y las 21:00 hrs</strong> en 36 comunas de la Región Metropolitana. Procesamos y armamos las órdenes ingresadas antes del horario de corte (12:00 hrs) para entrega garantizada en la misma jornada.
+        </div>
+      </div>
+
+      <!-- 7. Mercado Libre Flex -->
+      <div class="stocka-mf-item" data-cat="despachos integracion">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Integraciones</span>
+            <span>¿Stocka es compatible con Mercado Libre Flex?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Sí. Contamos con integración directa para sincronizar, etiquetar y despachar tus órdenes Flex el mismo día, asegurando el cumplimiento de los tiempos de entrega y protegiendo tu <strong>reputación verde</strong> en Mercado Libre.
+        </div>
+      </div>
+
+      <!-- 8. Envíos a Regiones y Couriers -->
+      <div class="stocka-mf-item" data-cat="despachos">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Despachos</span>
+            <span>¿Cómo funcionan los envíos a regiones y qué couriers tienen integrados?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Entregamos diariamente a <strong>Starken, Blue Express, Chilexpress y CorreosChile</strong>. Al operar con el volumen corporativo de Stocka, accedes a tarifas preferenciales con descuentos por escala hacia todas las regiones de Chile, con tiempos de tránsito promedio de 24 a 48 horas hábiles en ciudades principales.
+        </div>
+      </div>
+
+      <!-- 9. Integración con Plataformas Ecommerce -->
+      <div class="stocka-mf-item" data-cat="integracion">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Integraciones</span>
+            <span>¿Qué plataformas de venta y ERPs se pueden conectar con Stocka?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Nos integramos de forma automática con: <strong>Shopify, Mercado Libre, WooCommerce, Falabella, Ripley, Paris, Walmart, Tiendanube y Jumpseller</strong>. Además, disponemos de <strong>API REST & Webhooks</strong> para conectar sistemas de facturación y ERPs como Defontana, Bsale, Softland o plataformas personalizadas.
+        </div>
+      </div>
+
+      <!-- 10. Proceso de Onboarding Rápido -->
+      <div class="stocka-mf-item" data-cat="integracion fulfillment">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Onboarding</span>
+            <span>¿Cuánto demora el proceso de onboarding para empezar a operar?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          El onboarding es muy rápido y guiado paso a paso por un asesor dedicado: 1) Coordinamos el ingreso y conteo de tu stock; 2) Vinculamos tus tiendas y canales de venta en minutos; 3) Realizamos pruebas de sincronización. ¡En <strong>solo horas</strong> tu cuenta puede estar 100% lista y configurada para empezar a operar y despachar!
+        </div>
+      </div>
+
+      <!-- 11. Portal WMS Online -->
+      <div class="stocka-mf-item" data-cat="integracion">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Tecnología WMS</span>
+            <span>¿Cómo controlo mi inventario y pedidos en el día a día?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Dispones de acceso 24/7 a nuestro software WMS en la nube (<strong>wms.stocka.cl</strong>), donde puedes visualizar tu stock en tiempo real por SKU, registrar ingresos de mercadería, monitorear los pedidos en preparación y seguir el estado de entrega de cada paquete despachado.
+        </div>
+      </div>
+
+      <!-- 12. Punto de Retiro en Ñuñoa -->
+      <div class="stocka-mf-item" data-cat="sucursal">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Retiro Presencial</span>
+            <span>¿Cómo funciona el punto de retiro presencial en Ñuñoa y qué horarios tiene?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Tus clientes pueden elegir retiro presencial gratis en nuestra casa matriz ubicada en <strong>Av. Campos de Deportes 405, Ñuñoa</strong>. Los horarios de atención son:
+          <ul style="margin: 0.5rem 0 0.5rem 1.25rem; padding: 0;">
+            <li><strong>Lunes a Viernes:</strong> 10:30 a 14:00 hrs y 15:00 a 17:00 hrs.</li>
+            <li><strong>Sábados:</strong> 10:30 a 14:00 hrs.</li>
+          </ul>
+          Contamos con estacionamiento para clientes y entrega ágil en mesón.
+        </div>
+      </div>
+
+      <!-- 13. Servicios Presenciales Adicionales (Showroom / POS) -->
+      <div class="stocka-mf-item" data-cat="sucursal tarifas">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Servicios Presenciales</span>
+            <span>¿Puedo vender de forma presencial o exhibir mis productos en su sucursal?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Sí. Ofrecemos dos servicios complementarios de alto impacto comercial:
+          <ul style="margin: 0.5rem 0 0.5rem 1.25rem; padding: 0;">
+            <li><strong>Vitrina Showroom (0,6 UF/mes):</strong> Espacio de exhibición destacado para tus productos más vendidos en nuestra tienda de Ñuñoa.</li>
+            <li><strong>Punto de Venta POS (0,2 UF/mes):</strong> Cobro con tarjeta de débito/crédito y emisión de boleta directa para compras presenciales de tus clientes.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 14. Tipo de Productos y Restricciones -->
+      <div class="stocka-mf-item" data-cat="fulfillment">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Productos</span>
+            <span>¿Existe restricción en el tipo de productos que puedo almacenar?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Almacenamos una amplia variedad de categorías: vestuario, cosmética, tecnología, calzado, suplementos, accesorios, repuestos y artículos de hogar. La única restricción actual es que <strong>no almacenamos productos perecibles que requieran refrigeración o cadena de frío</strong>, ni sustancias inflamables o peligrosas.
+        </div>
+      </div>
+
+      <!-- 15. Rastreo de Envíos para el Comprador -->
+      <div class="stocka-mf-item" data-cat="soporte">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Soporte & Tracking</span>
+            <span>¿Cómo puede un comprador final consultar el estado de su despacho?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Los consumidores pueden ingresar directamente a nuestro portal de rastreo en <strong><a href="/pages/soporte" style="color: #5c24ff; text-decoration: underline;">stocka.cl/pages/soporte</a></strong> e ingresar su correo electrónico + número de compra o el código de courier asignado para conocer en tiempo real la ubicación de su paquete.
+        </div>
+      </div>
+
+      <!-- 16. Cambios y Devoluciones -->
+      <div class="stocka-mf-item" data-cat="soporte sucursal">
+        <button type="button" class="stocka-mf-q">
+          <div class="stocka-mf-q-left">
+            <span class="stocka-mf-cat-tag">Logística Inversa</span>
+            <span>¿Cómo se gestionan las devoluciones o cambios de producto?</span>
+          </div>
+          <div class="stocka-mf-icon">+</div>
+        </button>
+        <div class="stocka-mf-a">
+          Las políticas comerciales y de garantía corresponden a cada tienda asociada. Una vez que tu comercio autoriza el cambio o devolución, el cliente puede entregar el producto en nuestra sucursal de Ñuñoa o coordinamos el retiro con el courier para reingresarlo e inspeccionarlo en bodega.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- No Results State -->
+    <div class="stocka-mf-no-results" id="stocka-mf-no-results">
+      <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔍</div>
+      <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;">No encontramos respuestas para tu búsqueda</h3>
+      <p style="font-size: 0.9rem; color: #64748b; max-width: 480px; margin: 0 auto 1.5rem auto;">
+        Intenta con otras palabras clave o contáctate directamente con nuestro equipo de atención personalizada.
+      </p>
+      <a href="https://wa.me/56939247487?text=Hola!%20Tengo%20una%20consulta%20que%20no%20encontr%C3%A9%20en%20el%20centro%20de%20ayuda" target="_blank" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.85rem 1.75rem; background: #5c24ff; color: #ffffff; border-radius: 12px; font-weight: 800; font-size: 0.95rem; text-decoration: none;">
+        <span>Hablar con un Asesor por WhatsApp</span> ➔
+      </a>
+    </div>
+
+    <!-- Bottom Action Cards Grid -->
+    <div class="stocka-mf-bottom-grid">
+      
+      <!-- Card 1: WhatsApp Comercial -->
+      <div class="stocka-mf-bottom-card">
+        <div>
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+            <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: currentColor;"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+          </div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0 0 0.4rem 0;">Contacto Comercial</h3>
+          <p style="font-size: 0.85rem; color: #64748b; line-height: 1.55; margin: 0 0 1.25rem 0;">
+            ¿Quieres cotizar para tu tienda online? Habla directamente con nuestro equipo de ventas.
+          </p>
+        </div>
+        <a href="https://wa.me/56939247487?text=Hola!%20Quiero%20cotizar%20el%20servicio%20de%20Fulfillment%20de%20Stocka" target="_blank" style="font-size: 0.88rem; font-weight: 800; color: #10b981; text-decoration: none;">
+          <span>WhatsApp Comercial (+56 9 3924 7487)</span> ➔
+        </a>
+      </div>
+
+      <!-- Card 2: WhatsApp Soporte Envíos -->
+      <div class="stocka-mf-bottom-card">
+        <div>
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: #f5f3ff; color: #5c24ff; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 24px; height: 24px;"><rect x="1" y="3" width="15" height="13" rx="2"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+          </div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0 0 0.4rem 0;">Soporte de Envíos</h3>
+          <p style="font-size: 0.85rem; color: #64748b; line-height: 1.55; margin: 0 0 1.25rem 0;">
+            Si eres comprador y necesitas asistencia con tu paquete, horario o dirección de entrega.
+          </p>
+        </div>
+        <a href="https://wa.me/56933942358?text=Hola!%20Necesito%20ayuda%20con%20el%20seguimiento%20de%20mi%20compra" target="_blank" style="font-size: 0.88rem; font-weight: 800; color: #5c24ff; text-decoration: none;">
+          <span>WhatsApp Soporte (+56 9 3394 2358)</span> ➔
+        </a>
+      </div>
+
+      <!-- Card 3: Cotizador 360 -->
+      <div class="stocka-mf-bottom-card">
+        <div>
+          <div style="width: 44px; height: 44px; border-radius: 12px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 24px; height: 24px;"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>
+          </div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0 0 0.4rem 0;">Cotizador 360 en Vivo</h3>
+          <p style="font-size: 0.85rem; color: #64748b; line-height: 1.55; margin: 0 0 1.25rem 0;">
+            Simula tu presupuesto mensual exacto ajustando tus ventas estimadas y espacio en bodega.
+          </p>
+        </div>
+        <a href="/pages/tarifas#stocka-cotizador-anchor" style="font-size: 0.88rem; font-weight: 800; color: #2563eb; text-decoration: none;">
+          <span>Simular Tarifas Online</span> ➔
+        </a>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    function initMasterFaq() {
+      const items = document.querySelectorAll('#stocka-mf-accordion .stocka-mf-item');
+      const catButtons = document.querySelectorAll('#stocka-mf-cats .stocka-mf-cat-btn');
+      const searchInput = document.getElementById('stocka-mf-search');
+      const noResultsBox = document.getElementById('stocka-mf-no-results');
+
+      let activeCategory = 'all';
+      let searchQuery = '';
+
+      // Accordion click toggle
+      items.forEach(item => {
+        const qBtn = item.querySelector('.stocka-mf-q');
+        if (qBtn) {
+          qBtn.addEventListener('click', () => {
+            const wasActive = item.classList.contains('active');
+            // Toggle clicked item
+            if (wasActive) {
+              item.classList.remove('active');
+            } else {
+              item.classList.add('active');
+            }
+          });
+        }
+      });
+
+      // Category filter buttons
+      catButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          catButtons.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeCategory = btn.dataset.cat;
+          filterFaqs();
+        });
+      });
+
+      // Live search input
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          searchQuery = e.target.value.toLowerCase().trim();
+          filterFaqs();
+        });
+      }
+
+      function filterFaqs() {
+        let visibleCount = 0;
+
+        items.forEach(item => {
+          const itemCats = (item.dataset.cat || '').split(' ');
+          const qText = item.querySelector('.stocka-mf-q')?.textContent.toLowerCase() || '';
+          const aText = item.querySelector('.stocka-mf-a')?.textContent.toLowerCase() || '';
+
+          const matchesCategory = activeCategory === 'all' || itemCats.includes(activeCategory);
+          const matchesSearch = !searchQuery || qText.includes(searchQuery) || aText.includes(searchQuery);
+
+          if (matchesCategory && matchesSearch) {
+            item.style.display = 'block';
+            visibleCount++;
+          } else {
+            item.style.display = 'none';
+          }
+        });
+
+        if (noResultsBox) {
+          noResultsBox.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initMasterFaq);
+    } else {
+      initMasterFaq();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Stocka Master FAQ",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Stocka Master FAQ"
+    }
+  ]
+}
+{% endschema %}

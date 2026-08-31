@@ -1,0 +1,531 @@
+{%- comment -%}
+  Stocka Intelligent Search & Navigation Hub
+  Designed specifically for B2B logistics, fulfillment quotes, tracking & help resources
+{%- endcomment -%}
+
+<style>
+  .stocka-sr-page {
+    font-family: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+    min-height: 80vh;
+    padding-bottom: 5rem;
+  }
+  .stocka-sr-container {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-sr-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* Hero Section */
+  .stocka-sr-hero {
+    padding: 4.5rem 0 3.5rem 0;
+    text-align: center;
+    background: radial-gradient(circle at 50% 0%, rgba(92, 36, 255, 0.08) 0%, rgba(248, 250, 252, 0) 75%);
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .stocka-sr-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    background: #f1f0fe;
+    border: 1.5px solid #e0dcfe;
+    color: #5c24ff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1.2rem;
+  }
+  .stocka-sr-title {
+    font-size: 2.25rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.2;
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.02em;
+  }
+  @media (min-width: 768px) {
+    .stocka-sr-title {
+      font-size: 3rem;
+    }
+  }
+  .stocka-sr-subtitle {
+    font-size: 1.05rem;
+    color: #64748b;
+    max-width: 680px;
+    margin: 0 auto 2rem auto;
+    line-height: 1.6;
+  }
+
+  /* Search Input Form */
+  .stocka-sr-form-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .stocka-sr-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  .stocka-sr-search-icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    color: #94a3b8;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .stocka-sr-input {
+    width: 100% !important;
+    padding: 1.05rem 1.25rem 1.05rem 52px !important;
+    border: 2px solid #e2e8f0 !important;
+    border-radius: 16px !important;
+    outline: none !important;
+    font-size: 1rem !important;
+    color: #0f172a !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.06) !important;
+    transition: all 0.25s ease !important;
+    box-sizing: border-box !important;
+    font-family: inherit !important;
+    position: relative !important;
+    z-index: 1 !important;
+  }
+  .stocka-sr-input:focus {
+    border-color: #5c24ff !important;
+    box-shadow: 0 12px 30px -5px rgba(92, 36, 255, 0.2) !important;
+  }
+
+  /* Quick Search Suggested Chips */
+  .stocka-sr-chips-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+  }
+  .stocka-sr-chip-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #64748b;
+  }
+  .stocka-sr-chip {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .stocka-sr-chip:hover {
+    border-color: #5c24ff;
+    color: #5c24ff;
+    background: #f5f3ff;
+  }
+
+  /* Dynamic Results Container */
+  .stocka-sr-results-sec {
+    margin-top: 3rem;
+  }
+  .stocka-sr-sec-heading {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 1.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Solution Cards Grid */
+  .stocka-sr-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-sr-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .stocka-sr-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.75rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.25s ease;
+    text-decoration: none;
+    color: inherit;
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-sr-card:hover {
+    border-color: #5c24ff;
+    transform: translateY(-4px);
+    box-shadow: 0 15px 35px -8px rgba(92, 36, 255, 0.12);
+  }
+  .stocka-sr-card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.15rem;
+    font-size: 1.4rem;
+  }
+  .stocka-sr-card-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 0.45rem 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .stocka-sr-card-desc {
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.55;
+    margin: 0 0 1.25rem 0;
+  }
+  .stocka-sr-card-link {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #5c24ff;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: auto;
+  }
+
+  /* Help Contact Box */
+  .stocka-sr-contact-card {
+    margin-top: 3.5rem;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-radius: 24px;
+    padding: 2.25rem 2rem;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.3);
+  }
+  .stocka-sr-btn-wa {
+    background: #10b981;
+    color: #ffffff !important;
+    font-weight: 800;
+    font-size: 0.95rem;
+    padding: 0.9rem 1.65rem;
+    border-radius: 12px;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+  }
+  .stocka-sr-btn-wa:hover {
+    background: #059669;
+    transform: translateY(-2px);
+  }
+</style>
+
+<div class="stocka-sr-page">
+  
+  <!-- Hero Section -->
+  <div class="stocka-sr-hero">
+    <div class="stocka-sr-container">
+      <div class="stocka-sr-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="width: 14px; height: 14px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span>BUSCADOR DE SERVICIOS Y RECURSOS STOCKA</span>
+      </div>
+      <h1 class="stocka-sr-title">¿Qué estás buscando?</h1>
+      <p class="stocka-sr-subtitle">
+        Encuentra rápidamente cotizaciones de fulfillment, seguimiento de envíos, integraciones ecommerce, preguntas frecuentes o contacto directo.
+      </p>
+
+      <!-- Search Input Form -->
+      <div class="stocka-sr-form-wrap">
+        <form action="/search" method="GET" id="stocka-sr-form">
+          <div class="stocka-sr-input-wrap">
+            <svg class="stocka-sr-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input 
+              type="text" 
+              name="q" 
+              id="stocka-sr-input" 
+              class="stocka-sr-input" 
+              placeholder="Escribe lo que buscas: tarifas, rastreo, Same Day, Shopify, bodegas..." 
+              value="{{ search.terms | escape }}"
+              autocomplete="off"
+            >
+          </div>
+        </form>
+
+        <!-- Quick Sugggested Chips -->
+        <div class="stocka-sr-chips-wrap">
+          <span class="stocka-sr-chip-label">Búsquedas frecuentes:</span>
+          <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-sr-chip">💰 Cotizar Tarifas</a>
+          <a href="/pages/soporte" class="stocka-sr-chip">🚚 Rastrear Pedido</a>
+          <a href="/pages/fulfillment_para_ecommerce" class="stocka-sr-chip">📦 Servicios Fulfillment</a>
+          <a href="/pages/preguntas-frecuentes" class="stocka-sr-chip">❓ Preguntas Frecuentes</a>
+          <a href="/pages/contacto" class="stocka-sr-chip">📞 Hablar con Ventas</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="stocka-sr-container">
+    
+    <!-- Solutions Grid -->
+    <div class="stocka-sr-results-sec" id="stocka-sr-solutions-sec">
+      <h2 class="stocka-sr-sec-heading">
+        <span id="stocka-sr-results-title">Servicios Principales y Soluciones Rápidas</span>
+      </h2>
+
+      <div class="stocka-sr-grid" id="stocka-sr-grid">
+        
+        <!-- Card 1: Tarifas y Cotizador 360 -->
+        <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-sr-card" data-keywords="tarifas precios cotizador cotizar costo cobro pick pack almacenamiento m3 simulator simulador valores cuanto vale presupuesto">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #eff6ff; color: #2563eb;">
+              💰
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Tarifas & Cotizador 360 en Vivo</span>
+              <span style="font-size: 0.75rem; background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">Simulador</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              Simula tu tarifa exacta de Pick & Pack (desde $850), almacenamiento dinámico on demand por m³ y despachos Same Day en Santiago ($3.200 + IVA).
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #2563eb;">
+            <span>Abrir Cotizador Online</span> ➔
+          </div>
+        </a>
+
+        <!-- Card 2: Portal de Soporte y Rastreo -->
+        <a href="/pages/soporte" class="stocka-sr-card" data-keywords="seguimiento rastreo rastrear tracking estado pedido compra donde esta mi paquete orden correo courier starken blue chilexpress entrega despacho">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #f5f3ff; color: #5c24ff;">
+              🚚
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Rastreo de Pedidos & Soporte al Consumidor</span>
+              <span style="font-size: 0.75rem; background: #f5f3ff; color: #5c24ff; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">En Vivo</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              ¿Compraste en una tienda online y Stocka gestionó el despacho? Consulta el estado en tiempo real con tu correo y número de orden.
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #5c24ff;">
+            <span>Rastrear mi Envío</span> ➔
+          </div>
+        </a>
+
+        <!-- Card 3: Fulfillment para Ecommerce -->
+        <a href="/pages/fulfillment_para_ecommerce" class="stocka-sr-card" data-keywords="fulfillment servicio bodegas almacenamiento la reina recoleta ñuñoa pick pack recepcion inventario stock wms ecommerce tiendas">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #ecfdf5; color: #059669;">
+              📦
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Fulfillment 360 para Ecommerce</span>
+              <span style="font-size: 0.75rem; background: #ecfdf5; color: #059669; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">Solución B2B</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              Almacenamiento seguro en nuestra red de bodegas (La Reina, Recoleta y Ñuñoa), preparación automatizada de pedidos y entregas el mismo día.
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #059669;">
+            <span>Conocer el Servicio</span> ➔
+          </div>
+        </a>
+
+        <!-- Card 4: Centro Maestro de Preguntas Frecuentes -->
+        <a href="/pages/preguntas-frecuentes" class="stocka-sr-card" data-keywords="preguntas frecuentes faq dudas ayuda integraciones shopify mercado libre flex woocommerce erp corte horarios retiro garantia">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #fdf4ff; color: #c026d3;">
+              ❓
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Centro de Preguntas Frecuentes</span>
+              <span style="font-size: 0.75rem; background: #fdf4ff; color: #c026d3; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">Centro de Ayuda</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              Respuestas completas sobre horarios de corte (12:00 hrs), entregas de 12:00 a 21:00 hrs, sincronización con canales y retiro presencial en casa matriz.
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #c026d3;">
+            <span>Ver Preguntas Frecuentes</span> ➔
+          </div>
+        </a>
+
+        <!-- Card 5: Plataforma WMS Clientes -->
+        <a href="https://wms.stocka.cl/" target="_blank" rel="noopener" class="stocka-sr-card" data-keywords="wms software plataforma sistema login ingresar acceso clientes panel portal inventario stock sku reportes">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #f8fafc; color: #0f172a; border: 1px solid #e2e8f0;">
+              🖥️
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Acceso al Software WMS</span>
+              <span style="font-size: 0.75rem; background: #f1f5f9; color: #0f172a; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">Clientes</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              Portal en la nube 24/7 para clientes Stocka. Control de stock por SKU en tiempo real, creación de ingresos y monitoreo de despachos.
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #0f172a;">
+            <span>Ingresar a wms.stocka.cl</span> ➔
+          </div>
+        </a>
+
+        <!-- Card 6: Contacto y Sucursal -->
+        <a href="/pages/contacto" class="stocka-sr-card" data-keywords="contacto reunion sucursal direccion donde estan campos de deportes 405 ñuñoa mapa telefono ventas felipe felipe.tp@stocka.cl">
+          <div>
+            <div class="stocka-sr-card-icon" style="background: #fffbeb; color: #d97706;">
+              📍
+            </div>
+            <h3 class="stocka-sr-card-title">
+              <span>Contacto Comercial & Sucursal</span>
+              <span style="font-size: 0.75rem; background: #fffbeb; color: #d97706; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">Atención</span>
+            </h3>
+            <p class="stocka-sr-card-desc">
+              Oficina y casa matriz en Campos de Deportes 405, Ñuñoa. Agenda una reunión comercial o visítanos en nuestro horario de atención.
+            </p>
+          </div>
+          <div class="stocka-sr-card-link" style="color: #d97706;">
+            <span>Ver Datos de Contacto</span> ➔
+          </div>
+        </a>
+
+      </div>
+    </div>
+
+    <!-- Direct Assistance Contact Card -->
+    <div class="stocka-sr-contact-card">
+      <div style="max-width: 580px;">
+        <h3 style="font-size: 1.45rem; font-weight: 800; color: #ffffff; margin: 0 0 0.5rem 0;">¿No encontraste lo que necesitas?</h3>
+        <p style="font-size: 0.92rem; color: #cbd5e1; margin: 0; line-height: 1.55;">
+          Nuestro equipo de ejecutivos comerciales y soporte logístico está disponible para ayudarte por WhatsApp en minutos.
+        </p>
+      </div>
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <a href="https://wa.me/56939247487?text=Hola!%20Busco%20informaci%C3%B3n%20sobre%20el%20servicio%20de%20Stocka" target="_blank" class="stocka-sr-btn-wa">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+          <span>WhatsApp Ventas</span>
+        </a>
+        <a href="https://wa.me/56933942358?text=Hola!%20Necesito%20asistencia%20con%20un%20despacho" target="_blank" class="stocka-sr-btn-wa" style="background: #5c24ff;">
+          <span>WhatsApp Soporte</span>
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    function initSearchPortal() {
+      const searchInput = document.getElementById('stocka-sr-input');
+      const searchForm = document.getElementById('stocka-sr-form');
+      const cards = document.querySelectorAll('#stocka-sr-grid .stocka-sr-card');
+      const resultsTitle = document.getElementById('stocka-sr-results-title');
+
+      function filterCards(query) {
+        const cleanQuery = (query || '').toLowerCase().trim();
+        let matchCount = 0;
+
+        if (!cleanQuery) {
+          if (resultsTitle) resultsTitle.textContent = 'Servicios Principales y Soluciones Rápidas';
+          cards.forEach(card => card.style.display = 'flex');
+          return;
+        }
+
+        if (resultsTitle) resultsTitle.textContent = 'Resultados sugeridos para "' + cleanQuery + '"';
+
+        cards.forEach(card => {
+          const text = card.textContent.toLowerCase();
+          const keywords = (card.dataset.keywords || '').toLowerCase();
+          if (text.includes(cleanQuery) || keywords.includes(cleanQuery)) {
+            card.style.display = 'flex';
+            matchCount++;
+          } else {
+            card.style.display = 'none';
+          }
+        });
+
+        // If no direct card match, show all cards so the user is never stranded
+        if (matchCount === 0) {
+          if (resultsTitle) resultsTitle.textContent = 'No encontramos coincidencia exacta para "' + cleanQuery + '". Revisa nuestras opciones principales:';
+          cards.forEach(card => card.style.display = 'flex');
+        }
+      }
+
+      if (searchInput) {
+        // Initial filter if URL already has query
+        if (searchInput.value.trim()) {
+          filterCards(searchInput.value);
+        }
+
+        searchInput.addEventListener('input', (e) => {
+          filterCards(e.target.value);
+        });
+      }
+
+      if (searchForm) {
+        searchForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (searchInput) filterCards(searchInput.value);
+        });
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initSearchPortal);
+    } else {
+      initSearchPortal();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Stocka Search Portal",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Stocka Search Portal"
+    }
+  ]
+}
+{% endschema %}
