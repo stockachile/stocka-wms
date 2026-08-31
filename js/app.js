@@ -6279,7 +6279,10 @@ async function renderOrders() {
           <i class="ri-checkbox-multiple-line" style="color: var(--color-primary); font-size: 1.2rem;"></i>
           <span>Seleccionados: <strong id="selected-orders-count" style="color: var(--color-primary);">0</strong> pedidos</span>
         </div>
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button id="btn-bulk-preview-export" class="btn btn-primary" style="background: #2e7d32; border: none; color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;" title="Previsualizar y copiar datos estructurados para Excel o Google Sheets">
+            <i class="ri-file-copy-2-line"></i> Previsualizar y Copiar
+          </button>
           <button id="btn-bulk-export-shopify" class="btn btn-primary" style="background: #96bf48; border: none; color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
             <i class="ri-download-2-line"></i> Exportar Formato Shopify (CSV)
           </button>
@@ -6355,6 +6358,7 @@ async function renderOrders() {
 
     // Listeners para acciones por lote (Bulk Actions)
     setTimeout(() => {
+      const btnPreview = document.getElementById('btn-bulk-preview-export');
       const btnExport = document.getElementById('btn-bulk-export-shopify');
       const btnPrint = document.getElementById('btn-bulk-print-labels');
       const btnMark = document.getElementById('btn-bulk-mark-exported');
@@ -6364,6 +6368,14 @@ async function renderOrders() {
         const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
         return Array.from(checkboxes).map(cb => cb.getAttribute('data-order-id'));
       };
+
+      if (btnPreview) {
+        btnPreview.addEventListener('click', () => {
+          const ids = getSelectedIds();
+          if (ids.length === 0) return;
+          window.previewAndCopyClientExportData(ids);
+        });
+      }
 
       if (btnPrint) {
         btnPrint.addEventListener('click', () => {
@@ -27276,18 +27288,11 @@ window.toggleSelectAllClientOrders = function(checked) {
   window.updateClientOrdersBulkSelection();
 };
 
-window.exportShopifyOrdersCsv = function(selectedOrderIds) {
-  const allOrders = window.clientLoadedOrders || [];
-  const selectedOrders = allOrders.filter(o => selectedOrderIds.includes(o.id));
-  
-  if (selectedOrders.length === 0) {
-    alert("No hay pedidos seleccionados.");
-    return;
-  }
-  
-  // Ordenar de forma cronológica ascendente (el más antiguo primero)
-  selectedOrders.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  
+// =========================================================================
+// EXPORTACIÓN & PREVISUALIZACIÓN DE PEDIDOS CLIENTE (FORMATO SHOPIFY / PLANILLA)
+// =========================================================================
+
+async function buildClientShopifyExportDataset(selectedOrders) {
   const shopifyHeaders = [
     "Name", "Email", "Financial Status", "Paid at", "Fulfillment Status", "Fulfilled at", 
     "Accepts Marketing", "Currency", "Subtotal", "Shipping", "Taxes", "Total", 
@@ -27306,11 +27311,11 @@ window.exportShopifyOrdersCsv = function(selectedOrderIds) {
     "Duties", "Billing Province Name", "Shipping Province Name", "Payment ID", 
     "Payment Terms Name", "Next Payment Due At", "Payment References"
   ];
-  
-  const csvRows = [];
-  csvRows.push(shopifyHeaders.join(","));
-  
-  selectedOrders.forEach(order => {
+
+  const sortedOrders = [...selectedOrders].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const exportRows = [];
+
+  sortedOrders.forEach(order => {
     const raw = order.raw_shopify_data || {};
     
     // Determinar line items
@@ -27341,7 +27346,6 @@ window.exportShopifyOrdersCsv = function(selectedOrderIds) {
       }];
     }
     
-    // Mapear shipping / billing details de raw o fallback de WMS
     const shippingName = raw.shipping_address ? `${raw.shipping_address.first_name || ''} ${raw.shipping_address.last_name || ''}`.trim() : (order.customer_name || "");
     const shippingAddr1 = raw.shipping_address?.address1 || (order.shipping_address || "");
     const shippingAddr2 = raw.shipping_address?.address2 || (order.shipping_complement || "");
@@ -27362,10 +27366,9 @@ window.exportShopifyOrdersCsv = function(selectedOrderIds) {
     const billingCountry = raw.billing_address?.country_code || shippingCountry;
     const billingPhone = raw.billing_address?.phone || shippingPhone;
     
-    const orderName = raw.name || order.external_order_number || `#${order.id.split('-')[0]}`;
+    let orderName = raw.name || order.external_order_number || `#${order.id.split('-')[0]}`;
     const email = raw.email || order.customer_email || "";
     
-    // Normalizar estado financiero / pago
     const rawPayStatus = String(raw.financial_status || order.payment_status || '').toLowerCase().trim();
     let finStatus = 'pending';
     if (['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'].includes(rawPayStatus)) {
@@ -27486,16 +27489,223 @@ window.exportShopifyOrdersCsv = function(selectedOrderIds) {
         "Next Payment Due At": "",
         "Payment References": ""
       };
-      
-      const csvRow = shopifyHeaders.map(h => {
-        const val = rowData[h] !== undefined ? String(rowData[h]) : "";
-        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-          return `"${val.replace(/"/g, '""')}"`;
-        }
-        return val;
-      }).join(",");
-      csvRows.push(csvRow);
+
+      exportRows.push(rowData);
     });
+  });
+
+  return {
+    headers: shopifyHeaders,
+    rows: exportRows,
+    orderCount: selectedOrders.length,
+    rowCount: exportRows.length,
+    selectedOrders
+  };
+}
+
+window.previewAndCopyClientExportData = async function(selectedOrderIds) {
+  const ids = Array.isArray(selectedOrderIds) ? selectedOrderIds : [selectedOrderIds];
+  if (ids.length === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Ningún pedido seleccionado',
+      text: 'Selecciona al menos un pedido con los checkboxes para previsualizar y copiar sus datos de exportación.',
+      confirmButtonColor: '#2e7d32'
+    });
+    return;
+  }
+  
+  const allOrders = window.clientLoadedOrders || [];
+  const selectedOrders = allOrders.filter(o => ids.includes(o.id));
+  
+  if (selectedOrders.length === 0) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Datos no encontrados',
+      text: 'No se encontraron los datos en memoria de los pedidos seleccionados.',
+      confirmButtonColor: '#2e7d32'
+    });
+    return;
+  }
+
+  Swal.fire({
+    title: 'Generando previsualización...',
+    html: `Procesando estructura de planilla para <strong>${selectedOrders.length}</strong> pedido(s)...`,
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  try {
+    const dataset = await buildClientShopifyExportDataset(selectedOrders);
+    window._currentClientExportDataset = dataset;
+    
+    const headers = dataset.headers;
+    const rows = dataset.rows;
+
+    const tableHeaderHtml = headers.map(h => `
+      <th style="padding: 8px 12px; border: 1px solid var(--color-border); text-align: left; font-size: 0.75rem; font-weight: 700; color: var(--color-primary); background: var(--color-bg); position: sticky; top: 0; z-index: 2; white-space: nowrap;">
+        ${h}
+      </th>
+    `).join('');
+
+    const tableRowsHtml = rows.map((row, idx) => `
+      <tr class="client-export-preview-row" style="${idx % 2 === 0 ? 'background: var(--color-surface);' : 'background: var(--color-bg);'} transition: background 0.15s;">
+        ${headers.map(h => {
+          const val = row[h] !== undefined && row[h] !== null ? String(row[h]) : '';
+          const isHighlighted = ['Name', 'Lineitem sku', 'Lineitem quantity', 'Financial Status', 'Shipping Name'].includes(h);
+          return `
+            <td style="padding: 6px 10px; border: 1px solid var(--color-border); font-family: monospace; font-size: 0.75rem; white-space: nowrap; ${isHighlighted ? 'font-weight: 600; color: var(--color-text-main);' : 'color: var(--color-text-muted);'}" title="${val.replace(/"/g, '&quot;')}">
+              ${val.length > 40 ? val.substring(0, 40) + '…' : val}
+            </td>
+          `;
+        }).join('')}
+      </tr>
+    `).join('');
+
+    Swal.fire({
+      title: `<div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%;">
+        <span style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);"><i class="ri-table-line" style="color: #2e7d32; margin-right: 0.35rem;"></i> Previsualización y Copia de Exportación</span>
+        <div style="display: flex; gap: 0.4rem; font-size: 0.75rem;">
+          <span style="background: rgba(46, 125, 50, 0.1); color: #2e7d32; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700;">${dataset.orderCount} Pedidos</span>
+          <span style="background: rgba(33, 150, 243, 0.1); color: #1976d2; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700;">${dataset.rowCount} Filas / Items</span>
+        </div>
+      </div>`,
+      html: `
+        <div style="text-align: left; font-size: 0.85rem;">
+          <!-- Barra de Acciones de Copia y Descarga -->
+          <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.75rem;">
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+              <button type="button" onclick="window.copyClientExportDataToClipboard(true)" class="btn" style="background: #2e7d32; color: white; border: none; font-weight: 700; font-size: 0.8rem; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" title="Copiar encabezados y datos con formato para Excel / Google Sheets">
+                <i class="ri-file-copy-line"></i> Copiar Todo (Con Encabezados)
+              </button>
+              <button type="button" onclick="window.copyClientExportDataToClipboard(false)" class="btn" style="background: #1976d2; color: white; border: none; font-weight: 700; font-size: 0.8rem; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" title="Copiar solo las filas de datos sin los encabezados de columna">
+                <i class="ri-clipboard-line"></i> Copiar Solo Datos (Sin Encabezados)
+              </button>
+              <button type="button" onclick="window.downloadClientExportDataCsv()" class="btn btn-outline" style="border: 1px solid #96bf48; color: #55791a; background: rgba(150,191,72,0.08); font-weight: 700; font-size: 0.8rem; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-download-2-line"></i> Descargar CSV
+              </button>
+              <button type="button" onclick="window.markOrdersAsExported(${JSON.stringify(ids)})" class="btn btn-outline" style="border: 1px solid var(--color-border); color: var(--color-text-main); font-weight: 600; font-size: 0.8rem; padding: 0.35rem 0.65rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-check-double-line"></i> Marcar Exportado
+              </button>
+            </div>
+            <div>
+              <input type="text" id="client-export-preview-search" placeholder="🔍 Filtrar en la tabla..." oninput="window.filterClientExportPreviewTable(this.value)" style="padding: 0.3rem 0.6rem; font-size: 0.775rem; border: 1px solid var(--color-border); border-radius: 4px; width: 180px; background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <!-- Mensaje de Feedback de Copiado -->
+          <div id="client-export-copy-feedback" style="display: none; margin-bottom: 0.75rem; padding: 0.45rem 0.75rem; background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; border-radius: 4px; font-weight: 600; font-size: 0.8rem; animation: fadeIn 0.2s;"></div>
+
+          <!-- Contenedor Tabla con Scroll -->
+          <div style="max-height: 480px; overflow: auto; border: 1px solid var(--color-border); border-radius: 6px; box-shadow: inset 0 0 4px rgba(0,0,0,0.03);">
+            <table id="client-export-preview-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr>${tableHeaderHtml}</tr>
+              </thead>
+              <tbody id="client-export-preview-tbody">
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top: 0.4rem; display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+            <span>ℹ️ Formato 100% compatible con la planilla Shopify / Excel. Al copiar, simplemente pega con <strong>Ctrl + V</strong> en tu hoja de cálculo.</span>
+            <span id="client-export-preview-count-label">Mostrando ${dataset.rowCount} filas</span>
+          </div>
+        </div>
+      `,
+      width: '95vw',
+      customClass: {
+        popup: 'wms-export-preview-modal'
+      },
+      showConfirmButton: false,
+      showCloseButton: true
+    });
+  } catch (err) {
+    console.error("Error al generar previsualización de exportación:", err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error de Previsualización',
+      text: err.message || 'No se pudieron generar los datos para previsualizar.'
+    });
+  }
+};
+
+window.copyClientExportDataToClipboard = async function(includeHeaders = true) {
+  if (!window._currentClientExportDataset || !window._currentClientExportDataset.rows) return;
+  const { headers, rows } = window._currentClientExportDataset;
+  
+  const lines = [];
+  if (includeHeaders) {
+    lines.push(headers.join("\t"));
+  }
+  
+  rows.forEach(r => {
+    const line = headers.map(h => {
+      let val = r[h] !== undefined && r[h] !== null ? String(r[h]) : "";
+      return val.replace(/[\r\n\t]+/g, " ").trim();
+    }).join("\t");
+    lines.push(line);
+  });
+  
+  const tsvText = lines.join("\r\n");
+  
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(tsvText);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = tsvText;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    
+    const feedbackEl = document.getElementById("client-export-copy-feedback");
+    if (feedbackEl) {
+      feedbackEl.style.display = "block";
+      feedbackEl.innerHTML = `✅ <strong>¡${rows.length} filas copiadas al portapapeles!</strong> (${includeHeaders ? 'Con' : 'Sin'} encabezados). Pega directamente con <strong>Ctrl + V</strong> en Excel o Google Sheets.`;
+      setTimeout(() => {
+        if (feedbackEl) feedbackEl.style.display = "none";
+      }, 6000);
+    } else {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `¡${rows.length} filas copiadas!`,
+        text: 'Listo para pegar en Excel o Google Sheets (Ctrl+V)',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  } catch (err) {
+    console.error("Error al copiar al portapapeles:", err);
+    alert("No se pudo copiar al portapapeles: " + err.message);
+  }
+};
+
+window.downloadClientExportDataCsv = function() {
+  if (!window._currentClientExportDataset || !window._currentClientExportDataset.rows) return;
+  const { headers, rows } = window._currentClientExportDataset;
+  
+  const csvRows = [];
+  csvRows.push(headers.join(","));
+  
+  rows.forEach(r => {
+    const csvRow = headers.map(h => {
+      let val = r[h] !== undefined && r[h] !== null ? String(r[h]) : "";
+      if (h === "Name" && val && /^\d+$/.test(val)) {
+        val = `'${val}`;
+      }
+      if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    }).join(",");
+    csvRows.push(csvRow);
   });
   
   const csvContent = "\ufeff" + csvRows.join("\n");
@@ -27507,6 +27717,44 @@ window.exportShopifyOrdersCsv = function(selectedOrderIds) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+};
+
+window.filterClientExportPreviewTable = function(searchTerm) {
+  const term = (searchTerm || '').toLowerCase().trim();
+  const tbody = document.getElementById('client-export-preview-tbody');
+  const countLabel = document.getElementById('client-export-preview-count-label');
+  if (!tbody) return;
+  
+  const rows = tbody.querySelectorAll('tr.client-export-preview-row');
+  let visibleCount = 0;
+  
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    if (!term || text.includes(term)) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  if (countLabel) {
+    countLabel.textContent = `Mostrando ${visibleCount} de ${rows.length} filas`;
+  }
+};
+
+window.exportShopifyOrdersCsv = async function(selectedOrderIds) {
+  const allOrders = window.clientLoadedOrders || [];
+  const selectedOrders = allOrders.filter(o => selectedOrderIds.includes(o.id));
+  
+  if (selectedOrders.length === 0) {
+    alert("No hay pedidos seleccionados.");
+    return;
+  }
+  
+  const dataset = await buildClientShopifyExportDataset(selectedOrders);
+  window._currentClientExportDataset = dataset;
+  window.downloadClientExportDataCsv();
 };
 
 window.markOrdersAsExported = async function(selectedOrderIds) {
