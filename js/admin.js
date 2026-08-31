@@ -1048,6 +1048,280 @@ window.bulkCreateLightDataLabels = async function(btn) {
   }
 };
 
+// Función global para sincronizar tracking desde LightData (individual o masivo)
+window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
+  let ids = customOrderIds ? (Array.isArray(customOrderIds) ? customOrderIds : [customOrderIds]) : Array.from(window.wmsSelectedOrderIds || []);
+  
+  if (ids.length === 0) {
+    // Si no hay pedidos seleccionados, consultar si desea sincronizar todos los pedidos con operador ALPHA pendientes de tracking
+    const alphaPendingOrders = (window.loadedOrders || []).filter(o => {
+      const isAlpha = (o.operador === 'ALPHA' || o.courier === 'LIGHTDATA' || o.courier === 'PENDIENTE_LIGHTDATA');
+      const hasTracking = !!o.tracking_number && o.tracking_number.trim() !== '' && !o.tracking_number.toUpperCase().includes('RECIBELO') && !o.tracking_number.toUpperCase().includes('WELIVERY');
+      return isAlpha && !hasTracking;
+    });
+
+    if (alphaPendingOrders.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Ningún pedido seleccionado',
+        text: 'Selecciona al menos un pedido con las casillas de verificación para buscar y sincronizar su tracking desde LightData.',
+        confirmButtonColor: '#7117eb'
+      });
+      return;
+    }
+
+    const { isConfirmed } = await Swal.fire({
+      icon: 'question',
+      title: 'Sincronizar Pedidos ALPHA',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p>No tienes pedidos seleccionados con checkbox, pero se detectaron <strong>${alphaPendingOrders.length}</strong> pedidos con operador ALPHA sin tracking asignado.</p>
+          <p>¿Deseas buscar en LightData y sincronizar el tracking para estos <strong>${alphaPendingOrders.length}</strong> pedidos?</p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: `Sí, sincronizar ${alphaPendingOrders.length} pedidos`,
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#7117eb'
+    });
+
+    if (!isConfirmed) return;
+    ids = alphaPendingOrders.map(o => o.id);
+  }
+
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  if (selectedOrders.length === 0) return;
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Buscando...`;
+  }
+
+  Swal.fire({
+    title: 'Buscando en LightData...',
+    html: `Consultando registros y números de seguimiento para <strong>${selectedOrders.length}</strong> pedido(s)...`,
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    // 1. Recopilar candidatos de referencias por orden
+    const allRefs = new Set();
+    const orderRefMap = new Map();
+
+    selectedOrders.forEach(o => {
+      const candidates = [];
+      const ext = (o.external_order_number || '').trim();
+      const uuid = (o.id || '').trim();
+      const shortId = uuid.split('-')[0];
+
+      if (ext) {
+        candidates.push(ext);
+        const noHash = ext.replace(/#/g, '').trim();
+        if (noHash) candidates.push(noHash);
+        
+        const numOnly = ext.replace(/^[^0-9]+/i, '').trim();
+        if (numOnly && numOnly.length >= 3) candidates.push(numOnly);
+      }
+      if (uuid) candidates.push(uuid);
+      if (shortId) candidates.push(shortId);
+
+      const cleanPhone = (o.customer_phone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone.length >= 8) {
+        candidates.push(cleanPhone.slice(-8));
+      }
+
+      orderRefMap.set(o.id, candidates.filter(Boolean));
+      candidates.forEach(c => allRefs.add(c));
+    });
+
+    // 2. Traer registros de lightdata_envios y envios_unificados
+    const commerces = [...new Set(selectedOrders.map(o => (o.comercio || '').trim()).filter(Boolean))];
+    
+    let ldQuery = supabase
+      .from('lightdata_envios')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (commerces.length > 0) {
+      ldQuery = ldQuery.in('comercio', commerces);
+    }
+
+    const { data: ldEnvios, error: ldErr } = await ldQuery.limit(3000);
+    if (ldErr) throw ldErr;
+
+    const { data: euData } = await supabase
+      .from('envios_unificados')
+      .select('*')
+      .eq('source_table', 'lightdata_envios')
+      .in('pedido_referencia', Array.from(allRefs));
+
+    const ldList = ldEnvios || [];
+    const euList = euData || [];
+
+    // 3. Cruzar cada orden con los envíos de LightData
+    let syncedCount = 0;
+    const syncedOrders = [];
+    const notFoundOrders = [];
+
+    for (const order of selectedOrders) {
+      const candidates = orderRefMap.get(order.id) || [];
+      const orderComm = (order.comercio || '').toUpperCase().trim();
+      const orderPhone = (order.customer_phone || '').replace(/[^0-9]/g, '');
+      const orderEmail = (order.customer_email || '').toLowerCase().trim();
+
+      // Buscar en lightdata_envios
+      let match = ldList.find(e => {
+        const eComm = (e.comercio || '').toUpperCase().trim();
+        if (orderComm && eComm && orderComm !== eComm && eComm !== 'NO ASIGNADO' && eComm !== 'STOCKA STORE TEST') {
+          return false;
+        }
+
+        const eTracking = (e.tracking || '').trim();
+        const eId = String(e.id || '').trim();
+        const rawRef = (e.raw_data && e.raw_data[2]) ? String(e.raw_data[2]).trim() : '';
+
+        // Match por referencia
+        for (const cand of candidates) {
+          if (!cand) continue;
+          const candNorm = cand.replace(/#/g, '').toUpperCase();
+          if (rawRef && (rawRef.toUpperCase() === cand.toUpperCase() || rawRef.replace(/#/g, '').toUpperCase() === candNorm)) return true;
+          if (eTracking && (eTracking.toUpperCase() === cand.toUpperCase() || eTracking.replace(/#/g, '').toUpperCase() === candNorm)) return true;
+          if (eId && eId === cand) return true;
+        }
+
+        // Match por teléfono (últimos 8 dígitos)
+        if (orderPhone && orderPhone.length >= 8 && e.telefono_destino) {
+          const ePhone = String(e.telefono_destino).replace(/[^0-9]/g, '');
+          if (ePhone.length >= 8 && ePhone.slice(-8) === orderPhone.slice(-8)) {
+            return true;
+          }
+        }
+
+        // Match por email
+        if (orderEmail && orderEmail.length > 5 && e.email_cliente_destino) {
+          if (e.email_cliente_destino.toLowerCase().trim() === orderEmail) {
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      // Fallback buscar en envios_unificados
+      if (!match) {
+        const euMatch = euList.find(s => candidates.includes(s.pedido_referencia));
+        if (euMatch) {
+          match = {
+            id: euMatch.id?.replace('lightdata_envios:', '') || euMatch.tracking,
+            tracking: euMatch.tracking,
+            tracking_url: euMatch.tracking_url,
+            status: euMatch.status,
+            raw_data: euMatch.raw_data
+          };
+        }
+      }
+
+      if (match) {
+        const trackingNum = match.tracking || (match.raw_data ? match.raw_data[1] : null) || String(match.id);
+        let trackingUrl = match.tracking_url || (match.raw_data ? match.raw_data[31] : null);
+        if (!trackingUrl && match.id) {
+          trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${match.id}`;
+        }
+
+        const rawLd = {
+          did: match.id,
+          id: match.id,
+          tracking: trackingNum,
+          tracking_url: trackingUrl,
+          status: match.status || 'EN PREPARACIÓN',
+          raw_data: match.raw_data || null
+        };
+
+        const updatePayload = {
+          tracking_number: trackingNum,
+          tracking_url: trackingUrl,
+          courier: 'LIGHTDATA',
+          operador: 'ALPHA',
+          raw_lightdata_data: rawLd
+        };
+
+        const { error: updErr } = await supabase
+          .from('orders')
+          .update(updatePayload)
+          .eq('id', order.id);
+
+        if (!updErr) {
+          Object.assign(order, updatePayload);
+          syncedCount++;
+          syncedOrders.push({
+            orderNumber: order.external_order_number || order.id.split('-')[0],
+            tracking: trackingNum,
+            status: match.status
+          });
+        }
+      } else {
+        notFoundOrders.push(order.external_order_number || order.id.split('-')[0]);
+      }
+    }
+
+    // Re-renderizar vista
+    window.applyWmsFiltersAndRender();
+
+    // Mostrar resultado al usuario
+    if (syncedCount > 0) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Sincronización LightData Completada',
+        html: `
+          <div style="text-align: left; font-size: 0.9rem;">
+            <p style="color: var(--color-success); font-weight: 700; margin-bottom: 0.75rem;">
+              ✅ ${syncedCount} de ${selectedOrders.length} pedidos vinculados con LightData y asignados a operador ALPHA.
+            </p>
+            <div style="max-height: 160px; overflow-y: auto; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem; font-family: monospace; font-size: 0.8rem; border: 1px solid var(--color-border);">
+              ${syncedOrders.map(s => `<div style="padding: 0.2rem 0; border-bottom: 1px dashed var(--color-border); display: flex; justify-content: space-between;"><span><strong>${s.orderNumber}</strong> ➔ ${s.tracking}</span> <span style="font-weight:600; color:var(--color-primary);">${s.status || 'OK'}</span></div>`).join('')}
+            </div>
+            ${notFoundOrders.length > 0 ? `
+              <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.5rem;">
+                ℹ️ ${notFoundOrders.length} pedidos no se encontraron en la base de datos de LightData: <em>${notFoundOrders.join(', ')}</em>
+              </p>
+            ` : ''}
+          </div>
+        `,
+        confirmButtonColor: '#7117eb'
+      });
+    } else {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Sin coincidencias en LightData',
+        html: `
+          <div style="text-align: left; font-size: 0.9rem;">
+            <p>No se encontraron envíos registrados en LightData para los <strong>${selectedOrders.length}</strong> pedidos seleccionados.</p>
+            <p style="color: var(--color-text-muted); font-size: 0.8rem;">Asegúrate de que las etiquetas hayan sido creadas previamente en Alpha / LightData o que se haya importado el reporte más reciente.</p>
+          </div>
+        `,
+        confirmButtonColor: '#7117eb'
+      });
+    }
+  } catch (err) {
+    console.error("Error sincronizando con LightData:", err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error de Sincronización',
+      text: err.message || 'Ocurrió un error al buscar en LightData.',
+      confirmButtonColor: '#7117eb'
+    });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
 // Global function to toggle table action menus
 window.toggleTableActionMenu = function(event, btn) {
   event.stopPropagation();
@@ -2383,9 +2657,12 @@ async function renderAdminOrders() {
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <button id="wms-bulk-print-labels-btn" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
+            </button>
+            <button onclick="window.bulkSyncLightDataTracking(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05);" title="Buscar y vincular tracking de LightData para pedidos seleccionados">
+              <i class="ri-radar-line"></i> Sincronizar LightData
             </button>
             <button onclick="window.refreshWmsOrders(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-refresh-line"></i> Actualizar
@@ -4095,6 +4372,9 @@ function renderWmsBulkActionsBar() {
           </button>
           <button onclick="window.bulkCreateLightDataLabels(this)" class="btn" style="background: #e91e63; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-barcode-box-line"></i> Etiqueta Alpha
+          </button>
+          <button onclick="window.bulkSyncLightDataTracking(this)" class="btn" style="background: #7117eb; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Buscar y vincular tracking de LightData para los pedidos seleccionados">
+            <i class="ri-radar-line"></i> Sincronizar LightData
           </button>
           <button onclick="window.bulkSetWmsOrderBillingPeriod()" class="btn" style="background: #9c27b0; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-price-tag-3-line"></i> Asignar Facturación
@@ -13191,6 +13471,106 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
 
 window.openAdminProductDimensionsModal = openAdminProductDimensionsModal;
 
+function getMovementCategoryInfo(referenceDoc, type) {
+  const ref = (referenceDoc || '').toLowerCase().trim();
+
+  // 1. Traslado
+  if (ref.includes('traslado')) {
+    return {
+      key: 'traslado',
+      label: 'Traslado',
+      icon: 'ri-arrow-left-right-line',
+      color: '#4f46e5',
+      bg: 'rgba(79, 70, 229, 0.1)'
+    };
+  }
+
+  // 2. Cambio
+  if (ref.startsWith('cambio') || ref.includes('cambio [') || ref.includes('reingreso por cambio') || ref.includes('salida por cambio')) {
+    return {
+      key: 'cambio',
+      label: 'Cambio',
+      icon: 'ri-repeat-line',
+      color: '#9333ea',
+      bg: 'rgba(147, 51, 234, 0.1)'
+    };
+  }
+
+  // 3. Devolución
+  if (ref.includes('devoluc') || ref.includes('devolución') || ref.includes('rma') || ref.includes('retorno')) {
+    return {
+      key: 'devolucion',
+      label: 'Devolución',
+      icon: 'ri-refund-2-line',
+      color: '#0d9488',
+      bg: 'rgba(13, 148, 136, 0.1)'
+    };
+  }
+
+  // 4. Merma / Pérdida / Baja / Daño
+  if (ref.includes('merma') || ref.includes('pérdida') || ref.includes('perdida') || ref.includes('daño') || ref.includes('dañad') || ref.includes('baja')) {
+    return {
+      key: 'merma',
+      label: 'Merma / Baja',
+      icon: 'ri-delete-bin-line',
+      color: '#e11d48',
+      bg: 'rgba(225, 29, 72, 0.1)'
+    };
+  }
+
+  // 5. Ajuste / Toma de inventario
+  if (ref.includes('ajuste') || ref.includes('toma inventario') || ref.includes('auditor') || ref.includes('cuadratura')) {
+    return {
+      key: 'ajuste',
+      label: 'Ajuste',
+      icon: 'ri-equalizer-line',
+      color: '#d97706',
+      bg: 'rgba(217, 119, 6, 0.1)'
+    };
+  }
+
+  // 6. Ingreso / Stock Inicial / Carga Masiva / Recepción
+  if (ref.includes('stock inicial') || ref.includes('carga masiva') || ref.includes('ingreso') || ref.includes('recepci') || ref.includes('oc-') || ref.includes('importac') || ref.includes('proveedor') || ref.includes('fábrica') || ref.includes('fabrica')) {
+    return {
+      key: 'ingreso',
+      label: 'Ingreso / Inicial',
+      icon: 'ri-inbox-archive-line',
+      color: '#059669',
+      bg: 'rgba(5, 150, 105, 0.1)'
+    };
+  }
+
+  // 7. Pedido / Despacho
+  if (ref.includes('pedido') || ref.includes('despacho') || ref.includes('order') || ref.includes('item removido') || ref.includes('item agregado') || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(ref)) {
+    return {
+      key: 'pedido',
+      label: 'Pedido',
+      icon: 'ri-shopping-bag-3-line',
+      color: '#2563eb',
+      bg: 'rgba(37, 99, 235, 0.1)'
+    };
+  }
+
+  // Fallback por sentido
+  if (type === 'in') {
+    return {
+      key: 'ingreso',
+      label: 'Ingreso',
+      icon: 'ri-inbox-archive-line',
+      color: '#059669',
+      bg: 'rgba(5, 150, 105, 0.1)'
+    };
+  }
+
+  return {
+    key: 'otro',
+    label: 'Otro / Manual',
+    icon: 'ri-more-line',
+    color: '#6b7280',
+    bg: 'rgba(107, 114, 128, 0.1)'
+  };
+}
+
 async function openAdminProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements-admin';
   let modal = document.getElementById(modalId);
@@ -13201,8 +13581,8 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 1000px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
+    <div class="modal-content" style="max-width: 1120px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03);">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos
@@ -13214,9 +13594,37 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
       
-      <!-- Date Filter Bar -->
-      <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+      <!-- Filter Bar -->
+      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.85rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-building-line" style="vertical-align: middle;"></i> Bodega:</label>
+            <select id="admin-movs-warehouse" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todas las bodegas</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line" style="vertical-align: middle;"></i> Tipo:</label>
+            <select id="admin-movs-category" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todos los tipos</option>
+              <option value="pedido">Pedido</option>
+              <option value="traslado">Traslado</option>
+              <option value="ingreso">Ingreso / Inicial</option>
+              <option value="ajuste">Ajuste</option>
+              <option value="cambio">Cambio</option>
+              <option value="devolucion">Devolución</option>
+              <option value="merma">Merma / Baja</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Sentido:</label>
+            <select id="admin-movs-flow" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+              <option value="">Todos</option>
+              <option value="in">Ingreso (+)</option>
+              <option value="out">Salida (-)</option>
+            </select>
+          </div>
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
             <input type="date" id="admin-movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
@@ -13225,12 +13633,18 @@ async function openAdminProductMovementsModal(productId, sku, name) {
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
             <input type="date" id="admin-movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
           </div>
-          <button class="btn btn-primary" id="admin-btn-filter-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Filtrar</button>
-          <button class="btn btn-outline" id="admin-btn-clear-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Limpiar</button>
+          <div style="display: flex; gap: 0.4rem; align-items: center;">
+            <button class="btn btn-primary" id="admin-btn-filter-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
+              <i class="ri-filter-line"></i> Filtrar
+            </button>
+            <button class="btn btn-outline" id="admin-btn-clear-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
+              <i class="ri-refresh-line"></i> Limpiar
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="modal-body" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;" id="movements-modal-body-admin">
+      <div class="modal-body" style="padding: 1.25rem; max-height: 520px; overflow-y: auto;" id="movements-modal-body-admin">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
           <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
@@ -13238,7 +13652,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       </div>
       
       <!-- Footer with pagination and close -->
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05); flex-wrap: wrap; gap: 1rem;">
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03); flex-wrap: wrap; gap: 1rem;">
         <div id="admin-movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
           <!-- Dynamic pagination info and controls -->
         </div>
@@ -13250,29 +13664,31 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    const { data: movements, error } = await supabase
+    // 1. Obtener todos los movimientos cronológicamente para calcular el stock acumulado
+    const { data: rawMovements, error } = await supabase
       .from('movements')
       .select(`
+        id,
         date,
         type,
         quantity,
         reference_doc,
-        warehouses (name)
+        warehouse_id,
+        warehouses (id, name)
       `)
       .eq('product_id', productId)
-      .order('date', { ascending: false });
+      .order('date', { ascending: true });
 
     if (error) throw error;
 
-    // Helper to extract UUID
+    // 2. Extraer UUIDs de pedidos para consultar número de orden amigable
     const extractUuid = (ref) => {
       if (!ref) return null;
       const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
       return match ? match[0] : null;
     };
 
-    // Lookup order names
-    const orderIds = [...new Set((movements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
+    const orderIds = [...new Set((rawMovements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
     const orderMap = {};
     if (orderIds.length > 0) {
       const { data: orders } = await supabase
@@ -13287,12 +13703,55 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       }
     }
 
-    // Store state in window
+    // 3. Procesar saldos cronológicamente
+    const warehouseBalances = {};
+    let runningTotalStock = 0;
+
+    const processedMovements = (rawMovements || []).map(m => {
+      const isIngreso = m.type === 'in';
+      const qty = Number(m.quantity) || 0;
+      const delta = isIngreso ? qty : -qty;
+      const whName = m.warehouses?.name || 'Bodega Principal';
+
+      warehouseBalances[whName] = (warehouseBalances[whName] || 0) + delta;
+      runningTotalStock += delta;
+
+      const cat = getMovementCategoryInfo(m.reference_doc, m.type);
+
+      return {
+        id: m.id,
+        date: m.date,
+        type: m.type,
+        quantity: qty,
+        reference_doc: m.reference_doc,
+        warehouse_id: m.warehouse_id,
+        warehouseName: whName,
+        stockTotalAfter: runningTotalStock,
+        warehouseStockAfter: warehouseBalances[whName],
+        category: cat
+      };
+    });
+
+    // 4. Poblar opciones de bodegas en el dropdown
+    const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
+    const whSelect = document.getElementById('admin-movs-warehouse');
+    if (whSelect) {
+      whSelect.innerHTML = `<option value="">Todas las bodegas</option>` + 
+        availableWarehouses.map(w => `<option value="${w}">${w}</option>`).join('');
+    }
+
+    // 5. Invertir para mostrar los movimientos más recientes primero
+    processedMovements.reverse();
+
+    // 6. Guardar estado
     window.activeAdminMovsState = {
-      allMovements: movements || [],
+      allMovements: processedMovements,
       orderMap: orderMap,
       currentPage: 1,
       pageSize: 10,
+      filterWarehouse: '',
+      filterCategory: '',
+      filterFlow: '',
       filterFrom: null,
       filterTo: null
     };
@@ -13304,8 +13763,18 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
       const state = window.activeAdminMovsState;
 
-      // Filter by dates
+      // Filtrado multidimensional
       let filtered = state.allMovements;
+
+      if (state.filterWarehouse) {
+        filtered = filtered.filter(m => m.warehouseName === state.filterWarehouse);
+      }
+      if (state.filterCategory) {
+        filtered = filtered.filter(m => m.category?.key === state.filterCategory);
+      }
+      if (state.filterFlow) {
+        filtered = filtered.filter(m => m.type === state.filterFlow);
+      }
       if (state.filterFrom) {
         const fromDate = new Date(state.filterFrom + 'T00:00:00');
         filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
@@ -13319,7 +13788,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         modalBody.innerHTML = `
           <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
             <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
-            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros.</p>
+            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros aplicados.</p>
           </div>
         `;
         pagContainer.innerHTML = '';
@@ -13338,10 +13807,12 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       // Render rows
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
-        const typeBadge = isIngreso
-          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+        const flowBadge = isIngreso
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
         
+        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
+
         const formattedDate = m.date 
           ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
           : '-';
@@ -13360,25 +13831,32 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         }
 
         return `
-          <tr style="border-bottom: 1px solid var(--color-border);">
-            <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
-            <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
-            <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
-            <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
-            <td style="padding: 0.85rem 0.5rem; color: var(--color-text-main); font-size: 0.85rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
+          <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+            <td style="padding: 0.75rem 0.6rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+            <td style="padding: 0.75rem 0.6rem; font-weight: 500;">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.6rem;">${catBadge}</td>
+            <td style="padding: 0.75rem 0.6rem;">${flowBadge}</td>
+            <td style="padding: 0.75rem 0.6rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.75rem 0.6rem; text-align: center;">
+              <div style="font-weight: 700; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
+            </td>
+            <td style="padding: 0.75rem 0.6rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
           </tr>
         `;
       }).join('');
 
       modalBody.innerHTML = `
-        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
           <thead>
-            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-              <th style="padding: 0.6rem 0.5rem; width: 25%;">Fecha / Hora</th>
-              <th style="padding: 0.6rem 0.5rem; width: 20%;">Bodega</th>
-              <th style="padding: 0.6rem 0.5rem; width: 15%;">Tipo</th>
-              <th style="padding: 0.6rem 0.5rem; text-align: center; width: 15%;">Cantidad</th>
-              <th style="padding: 0.6rem 0.5rem; width: 25%;">Referencia</th>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+              <th style="padding: 0.65rem 0.6rem; width: 18%;">Fecha / Hora</th>
+              <th style="padding: 0.65rem 0.6rem; width: 14%;">Bodega</th>
+              <th style="padding: 0.65rem 0.6rem; width: 14%;">Tipo Movimiento</th>
+              <th style="padding: 0.65rem 0.6rem; width: 10%;">Sentido</th>
+              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 10%;">Cantidad</th>
+              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 14%;">Stock Resultante</th>
+              <th style="padding: 0.65rem 0.6rem; width: 20%;">Referencia / Detalle</th>
             </tr>
           </thead>
           <tbody style="color: var(--color-text-main);">
@@ -13415,21 +13893,36 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
     renderTable();
 
-    // Attach filter events
-    document.getElementById('admin-btn-filter-movs')?.addEventListener('click', () => {
-      const fromVal = document.getElementById('admin-movs-date-from')?.value;
-      const toVal = document.getElementById('admin-movs-date-to')?.value;
-      window.activeAdminMovsState.filterFrom = fromVal || null;
-      window.activeAdminMovsState.filterTo = toVal || null;
+    // Attach filter event handler
+    const applyFilters = () => {
+      window.activeAdminMovsState.filterWarehouse = document.getElementById('admin-movs-warehouse')?.value || '';
+      window.activeAdminMovsState.filterCategory = document.getElementById('admin-movs-category')?.value || '';
+      window.activeAdminMovsState.filterFlow = document.getElementById('admin-movs-flow')?.value || '';
+      window.activeAdminMovsState.filterFrom = document.getElementById('admin-movs-date-from')?.value || null;
+      window.activeAdminMovsState.filterTo = document.getElementById('admin-movs-date-to')?.value || null;
       window.activeAdminMovsState.currentPage = 1;
       renderTable();
-    });
+    };
+
+    document.getElementById('admin-btn-filter-movs')?.addEventListener('click', applyFilters);
+    document.getElementById('admin-movs-warehouse')?.addEventListener('change', applyFilters);
+    document.getElementById('admin-movs-category')?.addEventListener('change', applyFilters);
+    document.getElementById('admin-movs-flow')?.addEventListener('change', applyFilters);
 
     document.getElementById('admin-btn-clear-movs')?.addEventListener('click', () => {
+      const whEl = document.getElementById('admin-movs-warehouse');
+      const catEl = document.getElementById('admin-movs-category');
+      const flowEl = document.getElementById('admin-movs-flow');
       const fromEl = document.getElementById('admin-movs-date-from');
       const toEl = document.getElementById('admin-movs-date-to');
+      if (whEl) whEl.value = '';
+      if (catEl) catEl.value = '';
+      if (flowEl) flowEl.value = '';
       if (fromEl) fromEl.value = '';
       if (toEl) toEl.value = '';
+      window.activeAdminMovsState.filterWarehouse = '';
+      window.activeAdminMovsState.filterCategory = '';
+      window.activeAdminMovsState.filterFlow = '';
       window.activeAdminMovsState.filterFrom = null;
       window.activeAdminMovsState.filterTo = null;
       window.activeAdminMovsState.currentPage = 1;
@@ -29290,7 +29783,8 @@ function renderDashboardPendingView() {
   if (!content) return;
   
   // Persist filter state across re-renders
-  const prevCommerce = document.getElementById('filter-pending-commerce')?.value || '';
+  const prevCommerceSelect = document.getElementById('filter-pending-commerce-select')?.value || '';
+  const prevSearch = document.getElementById('filter-pending-search')?.value || '';
   const prevPeriod = document.getElementById('filter-pending-period')?.value || '';
   const prevService = document.getElementById('filter-pending-service')?.value || '';
   const prevFiltersVisible = document.getElementById('pending-invoices-filters')?.style.display !== 'none';
@@ -29468,21 +29962,28 @@ function renderDashboardPendingView() {
         </div>
         <div id="pending-invoices-filters" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
           <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1.2; min-width: 180px;">
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Comercio</label>
+              <select id="filter-pending-commerce-select" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
+                <option value="">Todos</option>
+                ${commerceOptions}
+              </select>
+            </div>
             <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1.5; min-width: 200px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Buscar Comercio / RUT / Razón Social</label>
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Buscar RUT / Razón Social</label>
               <div style="position: relative; display: flex; align-items: center; width: 100%;">
                 <i class="ri-search-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
-                <input type="text" id="filter-pending-commerce" oninput="applyPendingInvoiceFilters()" placeholder="Buscar por nombre, RUT o Razón Social..." style="padding: 0.4rem 0.6rem 0.4rem 1.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none; width: 100%; box-sizing: border-box; height: 32px;">
+                <input type="text" id="filter-pending-search" oninput="applyPendingInvoiceFilters()" placeholder="Buscar por RUT, Razón Social o texto..." style="padding: 0.4rem 0.6rem 0.4rem 1.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none; width: 100%; box-sizing: border-box; height: 32px;">
               </div>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 150px;">
               <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Periodo</label>
               <select id="filter-pending-period" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
                 <option value="">Todos</option>
                 ${periodOptions}
               </select>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 150px;">
               <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Servicio</label>
               <select id="filter-pending-service" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
                 <option value="">Todos</option>
@@ -29588,15 +30089,17 @@ function renderDashboardPendingView() {
   `;
 
   // Restore persisted filter state
-  const cSel = document.getElementById('filter-pending-commerce');
+  const cSel = document.getElementById('filter-pending-commerce-select');
+  const sInp = document.getElementById('filter-pending-search');
   const pSel = document.getElementById('filter-pending-period');
   const sSel = document.getElementById('filter-pending-service');
   const filtersDiv = document.getElementById('pending-invoices-filters');
-  if (cSel && prevCommerce) cSel.value = prevCommerce;
+  if (cSel && prevCommerceSelect) cSel.value = prevCommerceSelect;
+  if (sInp && prevSearch) sInp.value = prevSearch;
   if (pSel && prevPeriod) pSel.value = prevPeriod;
   if (sSel && prevService) sSel.value = prevService;
   if (filtersDiv && prevFiltersVisible) filtersDiv.style.display = 'block';
-  if (prevCommerce || prevPeriod || prevService) applyPendingInvoiceFilters();
+  if (prevCommerceSelect || prevSearch || prevPeriod || prevService) applyPendingInvoiceFilters();
 }
 
 // === Copy amount to clipboard utility ===
@@ -29702,11 +30205,12 @@ window.togglePendingFilters = function() {
 
 // === Apply filters on pending invoices table ===
 window.applyPendingInvoiceFilters = function() {
-  const commerceVal = document.getElementById('filter-pending-commerce')?.value || '';
+  const commerceSelectVal = document.getElementById('filter-pending-commerce-select')?.value || '';
+  const searchVal = document.getElementById('filter-pending-search')?.value || '';
   const periodVal = document.getElementById('filter-pending-period')?.value || '';
   const serviceVal = document.getElementById('filter-pending-service')?.value || '';
   
-  const cleanCommerceVal = commerceVal.trim().toLowerCase();
+  const cleanSearchVal = searchVal.trim().toLowerCase();
   
   const table = document.getElementById('pending-invoices-table');
   if (!table) return;
@@ -29715,15 +30219,23 @@ window.applyPendingInvoiceFilters = function() {
   let visibleCount = 0;
   
   rows.forEach(row => {
-    const matchCommerce = !cleanCommerceVal || 
-      (row.dataset.commerce || '').toLowerCase().includes(cleanCommerceVal) ||
-      (row.dataset.rut || '').replace(/\./g, '').toLowerCase().includes(cleanCommerceVal.replace(/\./g, '')) ||
-      (row.dataset.razon || '').toLowerCase().includes(cleanCommerceVal);
-      
-    const matchPeriod = !periodVal || row.dataset.period === periodVal;
-    const matchService = !serviceVal || row.dataset.service === serviceVal;
+    const rowCommerce = row.dataset.commerce || '';
+    const rowRut = row.dataset.rut || '';
+    const rowRazon = row.dataset.razon || '';
+    const rowPeriod = row.dataset.period || '';
+    const rowService = row.dataset.service || '';
     
-    if (matchCommerce && matchPeriod && matchService) {
+    const matchCommerceSelect = !commerceSelectVal || rowCommerce === commerceSelectVal;
+    
+    const matchSearch = !cleanSearchVal || 
+      rowCommerce.toLowerCase().includes(cleanSearchVal) ||
+      rowRut.replace(/\./g, '').toLowerCase().includes(cleanSearchVal.replace(/\./g, '')) ||
+      rowRazon.toLowerCase().includes(cleanSearchVal);
+      
+    const matchPeriod = !periodVal || rowPeriod === periodVal;
+    const matchService = !serviceVal || rowService === serviceVal;
+    
+    if (matchCommerceSelect && matchSearch && matchPeriod && matchService) {
       row.style.display = '';
       visibleCount++;
     } else {
@@ -29743,10 +30255,12 @@ window.applyPendingInvoiceFilters = function() {
 
 // === Clear all pending invoice filters ===
 window.clearPendingInvoiceFilters = function() {
-  const commerce = document.getElementById('filter-pending-commerce');
+  const cSel = document.getElementById('filter-pending-commerce-select');
+  const sInp = document.getElementById('filter-pending-search');
   const period = document.getElementById('filter-pending-period');
   const service = document.getElementById('filter-pending-service');
-  if (commerce) commerce.value = '';
+  if (cSel) cSel.value = '';
+  if (sInp) sInp.value = '';
   if (period) period.value = '';
   if (service) service.value = '';
   applyPendingInvoiceFilters();
@@ -37780,7 +38294,12 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       title: 'Editar Courier y N° Seguimiento',
       html: `
         <div style="text-align: left; font-size: 0.9rem;">
-          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Modifica manualmente el courier asignado y/o el número de seguimiento para este pedido.</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.825rem;">Modifica el courier y/o tracking para este pedido.</p>
+            <button type="button" onclick="window.bulkSyncLightDataTracking(this, ['${order.id}'])" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm);">
+              <i class="ri-radar-line"></i> Buscar en LightData
+            </button>
+          </div>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Courier</label>
           <input id="swal-edit-courier" class="swal2-input" type="text" value="${currentCourier}" placeholder="Ej: CARRIER EXTERNO, CHILEXPRESS..." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
