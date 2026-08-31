@@ -343,19 +343,22 @@ async function syncOrders(integration) {
         .select('id, product_id, quantity, warehouse_id')
         .eq('order_id', orderId);
 
-      // Cargar relaciones de packs del catálogo para no borrar componentes expandidos
+      // Cargar relaciones de packs del catálogo para desglosar packs de forma precisa
       const { data: packRelations } = await supabase
         .from('product_pack_items')
-        .select('pack_product_id, member_product_id');
+        .select('pack_product_id, member_product_id, quantity');
       
       const packMembersMap = new Map();
       (packRelations || []).forEach(pr => {
         if (!packMembersMap.has(pr.pack_product_id)) packMembersMap.set(pr.pack_product_id, []);
-        packMembersMap.get(pr.pack_product_id).push(pr.member_product_id);
+        packMembersMap.get(pr.pack_product_id).push({
+          member_product_id: pr.member_product_id,
+          quantity: pr.quantity || 1
+        });
       });
 
-      const existingMap = new Map((existingItems || []).map(i => [i.product_id, i]));
-      const processedProductIds = new Set();
+      // 1. Calcular el desglose total de productos físicos esperados para la orden
+      const expectedQuantities = new Map(); // product_id -> total_quantity
       const lineItems = order.line_items || [];
 
       for (const item of lineItems) {
@@ -399,52 +402,59 @@ async function syncOrders(integration) {
         }
 
         if (product) {
-          processedProductIds.add(product.id);
-
-          // Si el producto es un pack o tiene miembros, registrar también sus componentes para que no sean eliminados
-          const packMembers = packMembersMap.get(product.id) || [];
-          packMembers.forEach(memberId => processedProductIds.add(memberId));
-
-          const existing = existingMap.get(product.id);
-          const hasComponentsInOrder = packMembers.length > 0 && packMembers.some(memberId => existingMap.has(memberId));
-
-          if (existing) {
-            // Si cambio la cantidad o la bodega, actualizar el registro existente
-            if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
-              const { error: updErr } = await supabase
-                .from('order_items')
-                .update({
-                  quantity: item.quantity,
-                  warehouse_id: warehouseId || existing.warehouse_id
-                })
-                .eq('id', existing.id);
-
-              if (updErr) {
-                console.error(`Error actualizando item SKU ${item.sku} en order_items:`, updErr.message);
-              }
+          const packMembers = packMembersMap.get(product.id);
+          if (product.is_pack && packMembers && packMembers.length > 0) {
+            for (const pm of packMembers) {
+              const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+              expectedQuantities.set(pm.member_product_id, currentQty + (item.quantity * pm.quantity));
             }
-          } else if (!hasComponentsInOrder) {
-            // Si es un item nuevo y no ha sido expandido previamente como pack, insertarlo
-            const { error: itemErr } = await supabase
-              .from('order_items')
-              .insert([{
-                order_id: orderId,
-                product_id: product.id,
-                warehouse_id: warehouseId,
-                quantity: item.quantity
-              }]);
+          } else {
+            const currentQty = expectedQuantities.get(product.id) || 0;
+            expectedQuantities.set(product.id, currentQty + item.quantity);
+          }
+        }
+      }
 
-            if (itemErr) {
-              console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr.message);
+      // 2. Conciliar contra existingItems consolidando duplicados
+      const existingByProduct = new Map(); // product_id -> Array<existingItem>
+      (existingItems || []).forEach(i => {
+        if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
+        existingByProduct.get(i.product_id).push(i);
+      });
+
+      for (const [prodId, expQty] of expectedQuantities.entries()) {
+        const rows = existingByProduct.get(prodId) || [];
+        if (rows.length === 0) {
+          // No existe, insertar
+          await supabase.from('order_items').insert([{
+            order_id: orderId,
+            product_id: prodId,
+            warehouse_id: warehouseId,
+            quantity: expQty
+          }]);
+        } else {
+          // Si existe una o más filas, mantener solo la primera con la cantidad total esperada y eliminar duplicados
+          const primaryRow = rows[0];
+          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
+            await supabase.from('order_items').update({
+              quantity: expQty,
+              warehouse_id: warehouseId || primaryRow.warehouse_id
+            }).eq('id', primaryRow.id);
+          }
+          if (rows.length > 1) {
+            for (let k = 1; k < rows.length; k++) {
+              await supabase.from('order_items').delete().eq('id', rows[k].id);
             }
           }
         }
       }
 
-      // Eliminar unicamente los items que ya no vienen en la orden sincronizada y no son componentes de packs
-      for (const [prodId, existingItem] of existingMap.entries()) {
-        if (!processedProductIds.has(prodId)) {
-          await supabase.from('order_items').delete().eq('id', existingItem.id);
+      // 3. Eliminar productos en la BD que ya no están en expectedQuantities
+      for (const [prodId, rows] of existingByProduct.entries()) {
+        if (!expectedQuantities.has(prodId)) {
+          for (const r of rows) {
+            await supabase.from('order_items').delete().eq('id', r.id);
+          }
         }
       }
     }
