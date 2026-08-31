@@ -1229,7 +1229,8 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       }
 
       if (match) {
-        const trackingNum = match.tracking || (match.raw_data ? match.raw_data[1] : null) || String(match.id);
+        // En LightData el identificador real de tracking para seguimiento y etiquetas es el ID interno (did)
+        const trackingNum = String(match.id || match.did || (match.raw_data ? match.raw_data[0] : null) || match.tracking);
         let trackingUrl = match.tracking_url || (match.raw_data ? match.raw_data[31] : null);
         if (!trackingUrl && match.id) {
           trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${match.id}`;

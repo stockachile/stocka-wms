@@ -291,16 +291,16 @@ async function syncLightData() {
             raw_lightdata_data: shipmentPayload
           };
 
-          if (tracking && !dbOrder.tracking_number) {
-            updatePayload.tracking_number = tracking;
+          if (!dbOrder.tracking_number) {
+            updatePayload.tracking_number = id || tracking;
           }
 
-          if (tracking && !dbOrder.tracking_url && shipmentPayload.tracking_url) {
+          if (!dbOrder.tracking_url && shipmentPayload.tracking_url) {
             updatePayload.tracking_url = shipmentPayload.tracking_url;
           }
 
-          if (dbOrder.courier !== 'CARRIER EXTERNO') {
-            updatePayload.courier = 'CARRIER EXTERNO';
+          if (dbOrder.courier !== 'LIGHTDATA') {
+            updatePayload.courier = 'LIGHTDATA';
           }
 
           const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
