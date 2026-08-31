@@ -487,10 +487,14 @@
       const commerceEmails = await getCommerceNotificationEmails(comercio);
       const recipients = [...commerceEmails];
 
-      // Si no se encuentran correos de clientes, registrar advertencia
+      // Si no se encuentran correos de clientes, asegurar entrega a administración en creación
       if (recipients.length === 0) {
         console.warn(`[Inbound Notifications] No se encontraron correos de usuarios para el comercio "${comercio}".`);
-        return { success: false, reason: 'No recipients found for commerce' };
+        if (event === 'created') {
+          recipients.push('stockachile@gmail.com');
+        } else {
+          return { success: false, reason: 'No recipients found for commerce' };
+        }
       }
 
       const shortCode = declarationId ? `#ING-${declarationId.substring(0, 8).toUpperCase()}` : '#ING-STOCKA';
@@ -523,21 +527,20 @@
         brevoPayload.bcc = [{ email: 'stockachile@gmail.com', name: 'Stocka Operaciones' }];
       }
 
-      // Adjuntar archivo PDF o comprobante si existe
-      if (fileBase64 && fileName) {
-        brevoPayload.attachment = [
-          {
-            content: fileBase64,
-            name: fileName
-          }
-        ];
-      } else if (decData.file_base64 && decData.file_name && decData.file_name.endsWith('.pdf')) {
-        brevoPayload.attachment = [
-          {
-            content: decData.file_base64,
-            name: decData.file_name
-          }
-        ];
+      // Adjuntar archivo PDF o comprobante sanitizando cualquier prefijo data:...;base64,
+      let rawBase64 = fileBase64 || (decData.file_base64 && decData.file_name ? decData.file_base64 : null);
+      let rawName = fileName || decData.file_name || null;
+
+      if (rawBase64 && rawName) {
+        const cleanContent = rawBase64.includes('base64,') ? rawBase64.split('base64,')[1].trim() : rawBase64.trim();
+        if (cleanContent) {
+          brevoPayload.attachment = [
+            {
+              content: cleanContent,
+              name: rawName
+            }
+          ];
+        }
       }
 
       // 4. Enviar mediante Brevo API
