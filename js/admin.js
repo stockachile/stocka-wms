@@ -1176,7 +1176,10 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       // Buscar en lightdata_envios
       let match = ldList.find(e => {
         const eComm = (e.comercio || '').toUpperCase().trim();
-        if (orderComm && eComm && orderComm !== eComm && eComm !== 'NO ASIGNADO' && eComm !== 'STOCKA STORE TEST') {
+        const eEmpresa = (e.empresa_comercio || '').toUpperCase().trim();
+        const isStockaGeneric = eEmpresa.includes('STOCKA') || eComm.includes('STOCKA') || eComm === 'NO ASIGNADO' || eComm === '';
+        
+        if (orderComm && eComm && orderComm !== eComm && !isStockaGeneric) {
           return false;
         }
 
@@ -1184,12 +1187,12 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         const eId = String(e.id || '').trim();
         const rawRef = (e.raw_data && e.raw_data[2]) ? String(e.raw_data[2]).trim() : '';
 
-        // Match por referencia
+        // Match por referencia directa o por número limpio
         for (const cand of candidates) {
           if (!cand) continue;
           const candNorm = cand.replace(/#/g, '').toUpperCase();
-          if (rawRef && (rawRef.toUpperCase() === cand.toUpperCase() || rawRef.replace(/#/g, '').toUpperCase() === candNorm)) return true;
-          if (eTracking && (eTracking.toUpperCase() === cand.toUpperCase() || eTracking.replace(/#/g, '').toUpperCase() === candNorm)) return true;
+          if (rawRef && (rawRef.toUpperCase() === cand.toUpperCase() || rawRef.replace(/#/g, '').toUpperCase() === candNorm || (cand.length >= 3 && rawRef.replace(/#/g, '').endsWith(cand)))) return true;
+          if (eTracking && (eTracking.toUpperCase() === cand.toUpperCase() || eTracking.replace(/#/g, '').toUpperCase() === candNorm || (cand.length >= 3 && eTracking.replace(/#/g, '').endsWith(cand)))) return true;
           if (eId && eId === cand) return true;
         }
 
@@ -1288,6 +1291,11 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
               <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.5rem;">
                 ℹ️ ${notFoundOrders.length} pedidos no se encontraron en la base de datos de LightData: <em>${notFoundOrders.join(', ')}</em>
               </p>
+              <div style="margin-top: 0.75rem; text-align: center;">
+                <button onclick="window.triggerLightDataPortalSync()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; border-color: #7117eb; color: #7117eb; font-weight: 600; cursor: pointer;">
+                  <i class="ri-download-cloud-2-line"></i> Descargar reporte actualizado desde LightData
+                </button>
+              </div>
             ` : ''}
           </div>
         `,
@@ -1300,10 +1308,17 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         html: `
           <div style="text-align: left; font-size: 0.9rem;">
             <p>No se encontraron envíos registrados en LightData para los <strong>${selectedOrders.length}</strong> pedidos seleccionados.</p>
-            <p style="color: var(--color-text-muted); font-size: 0.8rem;">Asegúrate de que las etiquetas hayan sido creadas previamente en Alpha / LightData o que se haya importado el reporte más reciente.</p>
+            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 1rem;">Si acabas de crear las etiquetas en el portal de Alpha, es posible que el reporte aún no se haya descargado a la base de datos.</p>
+            <div style="text-align: center;">
+              <button onclick="window.triggerLightDataPortalSync()" class="btn btn-primary" style="background: #7117eb; border: none; font-size: 0.85rem; padding: 0.4rem 0.8rem; font-weight: 600; cursor: pointer;">
+                <i class="ri-download-cloud-2-line"></i> Descargar reporte desde LightData ahora
+              </button>
+            </div>
           </div>
         `,
-        confirmButtonColor: '#7117eb'
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Cerrar'
       });
     }
   } catch (err) {
@@ -1319,6 +1334,48 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
     }
+  }
+};
+
+window.triggerLightDataPortalSync = async function() {
+  Swal.fire({
+    title: 'Descargando desde LightData...',
+    text: 'Solicitando la sincronización del reporte más reciente de LightData...',
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ platform: 'LightData' })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Error al iniciar descarga.');
+    }
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Descarga en proceso',
+      text: 'Se ha iniciado la descarga del reporte desde LightData en segundo plano. En unos 20-30 segundos presiona "Sincronizar LightData" nuevamente para vincular los pedidos.',
+      confirmButtonColor: '#7117eb'
+    });
+  } catch (err) {
+    console.error(err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al solicitar sincronización',
+      text: err.message,
+      confirmButtonColor: '#7117eb'
+    });
   }
 };
 
