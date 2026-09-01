@@ -21790,7 +21790,53 @@ window.getClientDocCardHtml = function(name, url, idx = 1) {
   `;
 };
 
-window.renderBillingClient = async function() {
+window.getPeriodYearAndMonth = function(period) {
+  let year = period?.period_year;
+  let month = period?.period_month;
+  if (!year || !month) {
+    const parts = (period?.name || '').trim().split(' ');
+    if (parts.length >= 2) {
+      year = parseInt(parts[parts.length - 1]);
+      const mStr = parts[0].toUpperCase();
+      const monthsMap = {
+        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+        'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+      };
+      month = monthsMap[mStr] || 1;
+    }
+  }
+  return {
+    year: year || new Date().getFullYear(),
+    month: month || 1
+  };
+};
+
+window.getClientResolvedCompanies = async function() {
+  const companyList = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  if (companyList.length === 0) return [];
+  
+  let mappings = [];
+  try {
+    const { data: mappingsData } = await supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name');
+    if (mappingsData) mappings = mappingsData;
+  } catch (err) {
+    console.warn('Advertencia al cargar mappings en app.js:', err);
+  }
+
+  const uniqueBillingNames = new Set();
+  companyList.forEach(c => {
+    const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+    const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+    uniqueBillingNames.add(nameToUse);
+  });
+  
+  return Array.from(uniqueBillingNames);
+};
+
+window.renderBillingClient = async function(targetPeriodId = null, mode = 'annual') {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
   
@@ -21799,12 +21845,433 @@ window.renderBillingClient = async function() {
   // Ejecutar limpieza de comprobantes antiguos en segundo plano
   cleanOldReceiptsJS().catch(e => console.warn(e));
   Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
-  
+
+  if (mode === 'detail' && targetPeriodId) {
+    await window.renderClientPeriodDetailView(targetPeriodId);
+    return;
+  }
+
+  await window.renderClientAnnualView();
+};
+
+window.renderClientAnnualView = async function(selectedYear = null) {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  const currentYear = new Date().getFullYear();
+  const yearToLoad = selectedYear || window.currentClientSelectedYear || currentYear;
+  window.currentClientSelectedYear = yearToLoad;
+  window.currentClientBillingViewMode = 'annual';
+
   appContent.innerHTML = `
     <div class="billing-client-header-container">
       <div>
         <h3 class="billing-client-title">Mis Facturas</h3>
-        <p class="billing-client-subtitle">Historial mensual y estado de facturación de tus comercios asociados</p>
+        <p class="billing-client-subtitle">Resumen anual y estado de facturación de tus comercios asociados</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <!-- Selector de Año -->
+        <div class="billing-period-highlight-box">
+          <label for="client-annual-year-select" class="billing-period-badge">
+            <i class="ri-calendar-line"></i>
+            <span>AÑO</span>
+          </label>
+          <div class="billing-period-select-wrap">
+            <select id="client-annual-year-select" class="billing-period-select-styled" onchange="loadClientAnnualBillingData(parseInt(this.value))">
+              <option value="${yearToLoad}">${yearToLoad}</option>
+            </select>
+            <i class="ri-arrow-down-s-line billing-period-chevron"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 5 Tarjetas de Resumen Anual -->
+    <div class="billing-summary-grid-annual">
+      <!-- Tarjeta 1: Total Facturado Año -->
+      <div class="billing-summary-card">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado Año</span>
+        </div>
+        <span class="billing-summary-value" id="summary-annual-facturado">$0</span>
+      </div>
+
+      <!-- Tarjeta 2: Total Pagado Año -->
+      <div class="billing-summary-card card-paid">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado</span>
+        </div>
+        <span class="billing-summary-value" id="summary-annual-pagado" style="color: var(--color-success);">$0</span>
+      </div>
+
+      <!-- Tarjeta 3: Saldo Pendiente Año -->
+      <div class="billing-summary-card card-pending">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-alert-line"></i> Saldo Pendiente</span>
+        </div>
+        <span class="billing-summary-value" id="summary-annual-pendiente" style="color: var(--color-warning);">$0</span>
+      </div>
+
+      <!-- Tarjeta 4: Con Atraso -->
+      <div class="billing-summary-card card-overdue">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Con Atraso</span>
+        </div>
+        <span class="billing-summary-value" id="summary-annual-atrasado" style="color: var(--color-danger);">$0</span>
+      </div>
+
+      <!-- Tarjeta 5: Datos de Pago -->
+      <div class="billing-summary-card card-bank-info">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: #6366f1;">
+            <i class="ri-bank-card-line"></i> Datos de Pago
+          </span>
+          <button type="button" class="btn-copy-bank-compact" onclick="copyClientBankDetails(this)" title="Copiar datos bancarios para transferencia">
+            <i class="ri-file-copy-line"></i> <span>Copiar</span>
+          </button>
+        </div>
+        <div class="billing-bank-info-compact">
+          <div class="bank-line-item">
+            <strong>STOCKA SPA</strong> <span class="bank-dot">•</span> RUT <strong>77.524.557-3</strong>
+          </div>
+          <div class="bank-line-item">
+            <strong>Scotiabank</strong> <span class="bank-dot">•</span> Cta Cte <strong>992369965</strong>
+          </div>
+          <div class="bank-line-item bank-email">
+            <i class="ri-mail-line"></i> finanzas@stocka.cl
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Tabla Resumen Anual de Períodos -->
+    <div class="card" style="margin-top: 0.5rem;">
+      <div class="card-header" style="padding: 0.85rem 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
+            <i class="ri-calendar-check-line" style="color: var(--color-primary);"></i>
+            Historial de Períodos - Año <span id="annual-table-year-label">${yearToLoad}</span>
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+            Haz clic en cualquier período para ver el detalle de cobros, facturas emitidas y comprobantes
+          </p>
+        </div>
+      </div>
+      <div class="card-body table-responsive" id="client-annual-periods-table-container" style="padding: 0;">
+        <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+          Cargando períodos del año ${yearToLoad}...
+        </div>
+      </div>
+    </div>
+  `;
+
+  await initClientAnnualYearSelect(yearToLoad);
+  await loadClientAnnualBillingData(yearToLoad);
+};
+
+async function initClientAnnualYearSelect(selectedYear) {
+  const select = document.getElementById('client-annual-year-select');
+  if (!select) return;
+
+  try {
+    const { data: periods, error } = await supabase
+      .from('billing_periods')
+      .select('name, period_year, period_month')
+      .order('name', { ascending: false });
+
+    if (error) throw error;
+
+    const yearsSet = new Set();
+    const currentYear = new Date().getFullYear();
+    yearsSet.add(currentYear);
+
+    (periods || []).forEach(p => {
+      const { year } = getPeriodYearAndMonth(p);
+      if (year) yearsSet.add(year);
+    });
+
+    const yearsList = Array.from(yearsSet).sort((a, b) => b - a);
+
+    select.innerHTML = yearsList.map(y => `<option value="${y}" ${y === selectedYear ? 'selected' : ''}>${y}</option>`).join('');
+  } catch (err) {
+    console.error('Error initializing client annual year select:', err);
+  }
+}
+
+window.loadClientAnnualBillingData = async function(year) {
+  const container = document.getElementById('client-annual-periods-table-container');
+  if (!container) return;
+
+  const yearLabel = document.getElementById('annual-table-year-label');
+  if (yearLabel) yearLabel.textContent = year;
+  window.currentClientSelectedYear = year;
+
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Obteniendo períodos del año ${year}...
+    </div>
+  `;
+
+  try {
+    const resolvedCompanyList = await getClientResolvedCompanies();
+    if (resolvedCompanyList.length === 0) {
+      updateAnnualSummaryCards(0, 0, 0, 0);
+      container.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-error-warning-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-warning);"></i>
+          No tienes comercios asociados en tu perfil de usuario. Contacta a soporte.
+        </div>
+      `;
+      return;
+    }
+
+    // 1. Obtener todos los períodos del sistema
+    const { data: allPeriods, error: pError } = await supabase
+      .from('billing_periods')
+      .select('*')
+      .order('name', { ascending: false });
+
+    if (pError) throw pError;
+
+    // Filtrar períodos del año seleccionado y ordenar por mes descendente (los más recientes primero)
+    const yearPeriods = (allPeriods || []).filter(p => {
+      const { year: pYear } = getPeriodYearAndMonth(p);
+      return pYear === year;
+    }).sort((a, b) => {
+      const { month: ma } = getPeriodYearAndMonth(a);
+      const { month: mb } = getPeriodYearAndMonth(b);
+      return mb - ma;
+    });
+
+    if (yearPeriods.length === 0) {
+      updateAnnualSummaryCards(0, 0, 0, 0);
+      container.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          No se registran períodos de facturación para el año ${year}.
+        </div>
+      `;
+      return;
+    }
+
+    const yearPeriodIds = yearPeriods.map(p => p.id);
+
+    // 2. Obtener billing_records de todos los períodos del año para los comercios del cliente
+    const { data: records, error: rError } = await supabase
+      .from('billing_records')
+      .select('*')
+      .in('period_id', yearPeriodIds)
+      .in('comercio', resolvedCompanyList);
+
+    if (rError) throw rError;
+
+    // 3. Agregar métricas anuales
+    let annualFacturado = 0;
+    let annualPagado = 0;
+    let annualAtrasado = 0;
+
+    // Mapear por período
+    const periodStatsMap = {};
+    yearPeriods.forEach(p => {
+      periodStatsMap[p.id] = {
+        period: p,
+        records: [],
+        totalFacturado: 0,
+        totalPagado: 0,
+        saldoPendiente: 0,
+        atrasado: 0,
+        fulfStatus: 'Sin movimientos',
+        envStatus: 'Sin movimientos',
+        fulfTotal: 0,
+        envTotal: 0,
+        hasOverdue: false
+      };
+    });
+
+    (records || []).forEach(r => {
+      const pStats = periodStatsMap[r.period_id];
+      if (!pStats) return;
+
+      pStats.records.push(r);
+      const recTotalFulf = r.total_fulfillment || 0;
+      const recTotalEnv = r.enviame || 0;
+      const recPagadoFulf = r.abono_fulfillment || 0;
+      const recPagadoEnv = r.abono_enviame || 0;
+      const recTotal = recTotalFulf + recTotalEnv;
+      const recPagado = recPagadoFulf + recPagadoEnv;
+      const pendFulf = recTotalFulf - recPagadoFulf;
+      const pendEnv = recTotalEnv - recPagadoEnv;
+      const recPendiente = recTotal - recPagado;
+
+      pStats.totalFacturado += recTotal;
+      pStats.totalPagado += recPagado;
+      pStats.saldoPendiente += recPendiente;
+      pStats.fulfTotal += recTotalFulf;
+      pStats.envTotal += recTotalEnv;
+
+      annualFacturado += recTotal;
+      annualPagado += recPagado;
+
+      // Evaluar atraso Fulfillment
+      const isFulfOverdue = r.pago_fulfillment === 'Atrasado' || 
+        (r.fecha_limite && new Date(r.fecha_limite + 'T23:59:59') < new Date() && !['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_fulfillment) && pendFulf > 0);
+
+      // Evaluar atraso Envíame
+      const isEnvOverdue = r.pago_enviame === 'Atrasado' || 
+        (r.fecha_limite_enviame && new Date(r.fecha_limite_enviame + 'T23:59:59') < new Date() && !['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_enviame) && pendEnv > 0);
+
+      if (isFulfOverdue) {
+        annualAtrasado += Math.max(0, pendFulf);
+        pStats.atrasado += Math.max(0, pendFulf);
+        pStats.hasOverdue = true;
+      }
+      if (isEnvOverdue) {
+        annualAtrasado += Math.max(0, pendEnv);
+        pStats.atrasado += Math.max(0, pendEnv);
+        pStats.hasOverdue = true;
+      }
+
+      if (r.pago_fulfillment && r.pago_fulfillment !== 'Por solicitar') {
+        pStats.fulfStatus = r.pago_fulfillment;
+      } else if (pStats.fulfStatus === 'Sin movimientos' && r.pago_fulfillment) {
+        pStats.fulfStatus = r.pago_fulfillment;
+      }
+
+      if (r.pago_enviame && r.pago_enviame !== 'Por solicitar') {
+        pStats.envStatus = r.pago_enviame;
+      } else if (pStats.envStatus === 'Sin movimientos' && r.pago_enviame) {
+        pStats.envStatus = r.pago_enviame;
+      }
+    });
+
+    const annualPendiente = annualFacturado - annualPagado;
+    updateAnnualSummaryCards(annualFacturado, annualPagado, annualPendiente, annualAtrasado);
+
+    // Renderizar tabla
+    let rowsHtml = '';
+    yearPeriods.forEach(p => {
+      const stats = periodStatsMap[p.id];
+      const facturado = stats.totalFacturado;
+      const pagado = stats.totalPagado;
+      const pendiente = stats.saldoPendiente;
+      const hasRecords = stats.records.length > 0;
+
+      // Determinar estado global del período
+      let globalStatusBadge = '';
+      if (!hasRecords || facturado === 0) {
+        globalStatusBadge = `<span class="client-badge client-badge-gray">Sin movimientos</span>`;
+      } else if (pendiente <= 0) {
+        globalStatusBadge = `<span class="client-badge client-badge-green"><i class="ri-checkbox-circle-fill"></i> Pagado</span>`;
+      } else if (stats.hasOverdue) {
+        globalStatusBadge = `<span class="client-badge client-badge-red"><i class="ri-alert-fill"></i> Atrasado</span>`;
+      } else if (pagado > 0) {
+        globalStatusBadge = `<span class="client-badge client-badge-teal"><i class="ri-pie-chart-line"></i> Abono</span>`;
+      } else {
+        globalStatusBadge = `<span class="client-badge client-badge-yellow"><i class="ri-time-line"></i> Pendiente</span>`;
+      }
+
+      // Estado de período activo / cerrado
+      const isPeriodActive = p.status === 'activo';
+      const periodStatusPill = isPeriodActive
+        ? `<span style="font-size: 0.65rem; background: rgba(37, 99, 235, 0.12); color: var(--color-primary); font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 50px; border: 1px solid rgba(37, 99, 235, 0.25); text-transform: uppercase;">Activo</span>`
+        : `<span style="font-size: 0.65rem; background: rgba(148, 163, 184, 0.12); color: var(--color-text-muted); font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 50px; text-transform: uppercase;">Cerrado</span>`;
+
+      rowsHtml += `
+        <tr class="annual-period-row" onclick="renderClientPeriodDetailView('${p.id}')">
+          <td style="padding: 0.85rem 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+                <i class="ri-calendar-event-line"></i>
+              </div>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main); display: block;">${p.name}</strong>
+                ${periodStatusPill}
+              </div>
+            </div>
+          </td>
+          <td style="padding: 0.85rem 1rem; font-weight: 700; color: var(--color-text-main); font-size: 0.88rem;">
+            ${window.formatCLP(facturado)}
+          </td>
+          <td style="padding: 0.85rem 1rem; font-weight: 700; color: var(--color-success); font-size: 0.88rem;">
+            ${window.formatCLP(pagado)}
+          </td>
+          <td style="padding: 0.85rem 1rem; font-weight: 700; color: ${pendiente > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)'}; font-size: 0.88rem;">
+            ${window.formatCLP(pendiente)}
+          </td>
+          <td style="padding: 0.85rem 1rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+              <span class="client-badge ${getClientStatusClass(stats.fulfStatus)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto; width: fit-content;">${stats.fulfStatus}</span>
+              ${stats.fulfTotal > 0 ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">${window.formatCLP(stats.fulfTotal)}</span>` : ''}
+            </div>
+          </td>
+          <td style="padding: 0.85rem 1rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+              <span class="client-badge ${getClientStatusClass(stats.envStatus)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto; width: fit-content;">${stats.envStatus}</span>
+              ${stats.envTotal > 0 ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">${window.formatCLP(stats.envTotal)}</span>` : ''}
+            </div>
+          </td>
+          <td style="padding: 0.85rem 1rem; text-align: center;">
+            ${globalStatusBadge}
+          </td>
+          <td style="padding: 0.85rem 1rem; text-align: right;">
+            <button type="button" class="btn-period-view-detail" onclick="event.stopPropagation(); renderClientPeriodDetailView('${p.id}')">
+              <span>Ver Detalle</span>
+              <i class="ri-arrow-right-line"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+
+    container.innerHTML = `
+      <table class="data-table annual-periods-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead>
+          <tr style="background: var(--color-bg); border-bottom: 1.5px solid var(--color-border);">
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-calendar-line"></i> Período</th>
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-bill-line"></i> Total Facturado</th>
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-checkbox-circle-line"></i> Total Pagado</th>
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-alert-line"></i> Saldo Pendiente</th>
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-box-3-line"></i> Fulfillment</th>
+            <th style="padding: 0.75rem 1rem; text-align: left; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-truck-line"></i> Envíame</th>
+            <th style="padding: 0.75rem 1rem; text-align: center; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;"><i class="ri-shield-check-line"></i> Estado General</th>
+            <th style="padding: 0.75rem 1rem; text-align: right; font-weight: 700; color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+  } catch (err) {
+    console.error('Error loading client annual billing data:', err);
+    container.innerHTML = `
+      <div style="padding: 2rem; color: var(--color-danger); text-align: center;">
+        <strong>Error al consultar períodos anuales:</strong> ${err.message}
+      </div>
+    `;
+  }
+};
+
+window.renderClientPeriodDetailView = async function(periodId) {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+  
+  window.currentClientSelectedPeriodId = periodId;
+  window.currentClientBillingViewMode = 'detail';
+  
+  appContent.innerHTML = `
+    <div class="billing-client-header-container">
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <button type="button" class="btn-back-annual" onclick="renderClientAnnualView(window.currentClientSelectedYear)" title="Volver al Resumen Anual">
+          <i class="ri-arrow-left-line"></i>
+          <span>Volver al Resumen Anual</span>
+        </button>
+        <div>
+          <h3 class="billing-client-title" id="client-detail-title">Detalle del Período</h3>
+          <p class="billing-client-subtitle">Desglose de servicios, documentos y estados de pago</p>
+        </div>
       </div>
       <div class="billing-period-highlight-box">
         <label for="client-period-select" class="billing-period-badge">
@@ -21820,7 +22287,7 @@ window.renderBillingClient = async function() {
       </div>
     </div>
     
-    <!-- Tarjetas de Resumen Compactas (4 Tarjetas en 1 fila) -->
+    <!-- Tarjetas de Resumen Mensual (4 Tarjetas) -->
     <div class="billing-summary-grid">
       <!-- Tarjeta 1: Total Facturado -->
       <div class="billing-summary-card">
@@ -21870,12 +22337,12 @@ window.renderBillingClient = async function() {
       </div>
     </div>
     
-    <!-- Tabla de Facturación -->
+    <!-- Detalle de Cobros Card -->
     <div class="card" style="margin-top: 0.5rem;">
       <div class="card-header" style="padding: 0.75rem 1rem;">
         <h3 id="client-table-header-title" style="display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem;"><i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Detalle de Cobros</h3>
       </div>
-      <div class="card-body table-responsive" id="client-billing-table-body" style="padding: 0;">
+      <div class="card-body table-responsive" id="client-billing-table-body" style="padding: 0.75rem 1.25rem 1.25rem 1.25rem;">
         <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
           Cargando datos...
@@ -21883,11 +22350,12 @@ window.renderBillingClient = async function() {
       </div>
     </div>
   `;
-  
-  await initClientPeriodSelect();
+
+  await initClientPeriodSelect(periodId);
+  await loadClientBillingData(periodId);
 };
 
-async function initClientPeriodSelect() {
+async function initClientPeriodSelect(targetPeriodId = null) {
   const select = document.getElementById('client-period-select');
   if (!select) return;
   
@@ -21901,26 +22369,19 @@ async function initClientPeriodSelect() {
     
     if (!periods || periods.length === 0) {
       select.innerHTML = '<option value="">No hay periodos</option>';
-      document.getElementById('client-billing-table-body').innerHTML = `
-        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-          No se registran periodos de facturación creados en el sistema.
-        </div>
-      `;
-      document.getElementById('client-reports-table-body').innerHTML = `
-        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
-          No hay avisos de pago para mostrar.
-        </div>
-      `;
       return;
     }
     
-    // Seleccionar automáticamente el primer periodo activo, de lo contrario el más reciente
     const activePeriod = periods.find(p => p.status === 'activo');
-    const defaultPeriodId = activePeriod ? activePeriod.id : periods[0].id;
+    const defaultPeriodId = targetPeriodId || (activePeriod ? activePeriod.id : periods[0].id);
     
     select.innerHTML = periods.map(p => `<option value="${p.id}" ${p.id === defaultPeriodId ? 'selected' : ''}>${p.name}</option>`).join('');
     
-    loadClientBillingData(defaultPeriodId);
+    const titleEl = document.getElementById('client-detail-title');
+    const selectedP = periods.find(p => p.id === defaultPeriodId);
+    if (titleEl && selectedP) {
+      titleEl.textContent = `Detalle de Facturación - ${selectedP.name}`;
+    }
   } catch (err) {
     console.error('Error initializing client period select:', err);
     select.innerHTML = '<option value="">Error al cargar</option>';
@@ -21932,6 +22393,13 @@ window.loadClientBillingData = async function(periodId) {
   const tableContainer = document.getElementById('client-billing-table-body');
   const reportsContainer = document.getElementById('client-reports-table-body');
   if (!tableContainer || !periodId) return;
+
+  const periodSelect = document.getElementById('client-period-select');
+  if (periodSelect && periodSelect.options[periodSelect.selectedIndex]) {
+    const pName = periodSelect.options[periodSelect.selectedIndex].text;
+    const titleEl = document.getElementById('client-detail-title');
+    if (titleEl && pName) titleEl.textContent = `Detalle de Facturación - ${pName}`;
+  }
   
   tableContainer.innerHTML = `
     <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
@@ -22688,6 +23156,18 @@ function updateSummaryCards(facturado, pagado, pendiente) {
   if (peEl) peEl.textContent = window.formatCLP(pendiente);
 }
 
+function updateAnnualSummaryCards(facturado, pagado, pendiente, atrasado) {
+  const fEl = document.getElementById('summary-annual-facturado');
+  const pEl = document.getElementById('summary-annual-pagado');
+  const peEl = document.getElementById('summary-annual-pendiente');
+  const aEl = document.getElementById('summary-annual-atrasado');
+
+  if (fEl) fEl.textContent = window.formatCLP(facturado);
+  if (pEl) pEl.textContent = window.formatCLP(pagado);
+  if (peEl) peEl.textContent = window.formatCLP(pendiente);
+  if (aEl) aEl.textContent = window.formatCLP(atrasado);
+}
+
 window.copyClientBankDetails = function(btn) {
   const textToCopy = `STOCKA SPA
 RUT: 77.524.557-3
@@ -22867,6 +23347,29 @@ function injectClientBillingStyles() {
       color: var(--color-primary);
     }
 
+    /* 5-Card Annual Summary Grid */
+    .billing-summary-grid-annual {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr) 1.55fr;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
+    }
+    @media (max-width: 1350px) {
+      .billing-summary-grid-annual {
+        grid-template-columns: repeat(2, 1fr) 1fr 1fr;
+      }
+    }
+    @media (max-width: 1100px) {
+      .billing-summary-grid-annual {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 580px) {
+      .billing-summary-grid-annual {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* 4-Card Compact Summary Grid: Totales más compactos y Datos de Pago más ancha */
     .billing-summary-grid {
       display: grid;
@@ -22921,21 +23424,98 @@ function injectClientBillingStyles() {
       top: 0; left: 0; width: 100%; height: 3px;
       background: var(--color-primary);
     }
-    .billing-summary-card.card-paid::before,
-    .billing-summary-card:nth-child(2)::before {
+    .billing-summary-card.card-paid::before {
       background: var(--color-success);
     }
-    .billing-summary-card.card-pending::before,
-    .billing-summary-card:nth-child(3)::before {
+    .billing-summary-card.card-pending::before {
       background: var(--color-warning);
     }
-    .billing-summary-card.card-bank-info::before,
-    .billing-summary-card:nth-child(4)::before {
+    .billing-summary-card.card-overdue::before {
+      background: var(--color-danger);
+    }
+    .billing-summary-card.card-bank-info::before {
       background: linear-gradient(90deg, #6366f1, #8b5cf6);
     }
     .billing-summary-card:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    }
+
+    /* Button to return to Annual Summary */
+    .btn-back-annual {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.38rem 0.9rem;
+      border-radius: 50px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--color-primary);
+      background: rgba(37, 99, 235, 0.08);
+      border: 1.5px solid rgba(37, 99, 235, 0.3);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-back-annual:hover {
+      background: var(--color-primary);
+      color: #ffffff;
+      border-color: var(--color-primary);
+      transform: translateX(-2px);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+
+    /* Button in Annual Table Row */
+    .btn-period-view-detail {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-primary);
+      background: rgba(37, 99, 235, 0.08);
+      border: 1px solid rgba(37, 99, 235, 0.25);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn-period-view-detail:hover {
+      background: var(--color-primary);
+      color: #ffffff;
+      border-color: var(--color-primary);
+      transform: translateX(2px);
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+    }
+
+    /* Annual Table Row Hover & Styling */
+    .annual-period-row {
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .annual-period-row:hover {
+      background-color: rgba(37, 99, 235, 0.05) !important;
+    }
+    [data-theme="dark"] .annual-period-row:hover {
+      background-color: rgba(37, 99, 235, 0.12) !important;
+    }
+    [data-theme="dark"] .btn-back-annual {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(96, 165, 250, 0.35);
+      color: #93c5fd;
+    }
+    [data-theme="dark"] .btn-back-annual:hover {
+      background: var(--color-primary);
+      color: #ffffff;
+    }
+    [data-theme="dark"] .btn-period-view-detail {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(96, 165, 250, 0.35);
+      color: #93c5fd;
+    }
+    [data-theme="dark"] .btn-period-view-detail:hover {
+      background: var(--color-primary);
+      color: #ffffff;
     }
     .billing-summary-card-top {
       display: flex;
