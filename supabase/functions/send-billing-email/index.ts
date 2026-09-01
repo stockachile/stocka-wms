@@ -341,6 +341,41 @@ serve(async (req) => {
       recipientEmails.push(...validEmails)
     }
 
+    if (recipientEmails.length === 0 && (emailType.startsWith('stock_inbound_') || emailType === 'onboarding_catalog_ready')) {
+      const targetCom = payload.comercio || commerceName;
+      if (targetCom) {
+        const targetLower = targetCom.trim().toLowerCase();
+        const { data: profs } = await supabaseClient
+          .from('profiles')
+          .select('email, comercio, role');
+        if (profs) {
+          profs.forEach((p: any) => {
+            if (!p.email || p.role === 'admin' || !p.comercio) return;
+            const coms = p.comercio.split(',').map((c: string) => c.trim().toLowerCase());
+            if (coms.includes(targetLower)) {
+              const em = p.email.trim().toLowerCase();
+              if (em.includes('@') && !recipientEmails.includes(em)) {
+                recipientEmails.push(em);
+              }
+            }
+          });
+        }
+        const { data: addConf } = await supabaseClient
+          .from('comercios_adicional_config')
+          .select('email_colaborador')
+          .eq('comercio', targetCom)
+          .maybeSingle();
+        if (addConf && addConf.email_colaborador) {
+          addConf.email_colaborador.split(/[,;\s]+/).forEach((em: string) => {
+            const clean = em.trim().toLowerCase();
+            if (clean.includes('@') && !recipientEmails.includes(clean)) {
+              recipientEmails.push(clean);
+            }
+          });
+        }
+      }
+    }
+
     if (recipientEmails.length === 0 && !isSystemNotif) {
       return new Response(JSON.stringify({ error: `El comercio '${commerceName}' no tiene correos de facturación configurados ni se especificaron destinatarios.` }), {
         status: 400,
@@ -1486,6 +1521,69 @@ serve(async (req) => {
         arrivalInfo = `Plazo estimado: ${payload.estimatedArrivalPeriod || payload.estimated_arrival_period}`;
       }
 
+      let decProducts: any[] = payload.productsList || payload.products_list || [];
+      let decFileBase64 = payload.fileBase64 || payload.file_base64 || null;
+      let decFileName = payload.fileName || payload.file_name || null;
+
+      if (decId && (decProducts.length === 0 || !decFileBase64)) {
+        try {
+          const { data: dbDec } = await supabaseClient
+            .from('stock_declarations')
+            .select('products_list, file_base64, file_name')
+            .eq('id', decId)
+            .maybeSingle();
+          if (dbDec) {
+            if (decProducts.length === 0 && dbDec.products_list) decProducts = dbDec.products_list;
+            if (!decFileBase64 && dbDec.file_base64) {
+              decFileBase64 = dbDec.file_base64;
+              decFileName = dbDec.file_name;
+            }
+          }
+        } catch (dbDecErr) {
+          console.error("Error fetching db declaration in edge function:", dbDecErr);
+        }
+      }
+
+      if (decFileBase64 && decFileName && !payload.fileBase64) {
+        payload.fileBase64 = decFileBase64.includes('base64,') ? decFileBase64.split('base64,')[1].trim() : decFileBase64.trim();
+        payload.fileName = decFileName;
+      }
+
+      let productsTableHtml = '';
+      if (Array.isArray(decProducts) && decProducts.length > 0) {
+        let rowsHtml = '';
+        decProducts.slice(0, 50).forEach((p: any, idx: number) => {
+          rowsHtml += `
+            <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12.5px;">
+              <td style="padding: 7px 10px; color: #64748b; text-align: center;">${idx + 1}</td>
+              <td style="padding: 7px 10px; font-weight: 600; color: #1e293b; font-family: monospace;">${p.sku || '-'}</td>
+              <td style="padding: 7px 10px; color: #334155;">${p.name || p.title || 'Sin descripción'}</td>
+              <td style="padding: 7px 10px; text-align: right; font-weight: 700; color: #0f766e;">${(p.qty || p.quantity || 0).toLocaleString('es-CL')}</td>
+            </tr>
+          `;
+        });
+        productsTableHtml = `
+          <div style="margin-top: 20px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+            <div style="background-color: #f8fafc; padding: 10px 14px; font-size: 13px; font-weight: 700; color: #334155; border-bottom: 1px solid #e2e8f0;">
+              📦 Resumen de Productos Declarados (${decProducts.length} ítems)
+            </div>
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="background-color: #f1f5f9; font-size: 11.5px; color: #475569; text-transform: uppercase;">
+                  <th style="padding: 6px 10px; text-align: center; width: 35px;">#</th>
+                  <th style="padding: 6px 10px; width: 110px;">SKU</th>
+                  <th style="padding: 6px 10px;">Producto</th>
+                  <th style="padding: 6px 10px; text-align: right; width: 70px;">Cant.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
       emailSubject = `[NUEVO INGRESO DE STOCK ${shortCode}] ${decCommerce} - ${decTitle}`;
       headerGradient = 'linear-gradient(135deg, #0d9488, #0f766e)';
       emailTitle = 'Nuevo Ingreso de Stock Creado';
@@ -1510,6 +1608,8 @@ serve(async (req) => {
             <tr><td style="padding: 8px 0; font-weight: 600;">Notas del Cliente:</td><td style="padding: 8px 0; font-style: italic;">${notes}</td></tr>
           </table>
         </div>
+
+        ${productsTableHtml}
       `;
 
       mainNoticeHtml = `

@@ -19755,22 +19755,8 @@ window.renderDeclarations = async function() {
               console.error('Error generating/updating PDF:', pdfErr);
             }
 
-            // Enviar notificación automática por correo del nuevo ingreso a los usuarios del comercio
-            if (window.sendStockInboundNotification) {
-              window.sendStockInboundNotification({
-                event: 'created',
-                declarationId: decId,
-                comercio: commerce,
-                title: title,
-                decData: {
-                  ...insertData,
-                  id: decId
-                },
-                productsList: parsedProducts,
-                fileBase64: pdfBase64 || clientUploadedFileBase64,
-                fileName: pdfBase64 ? `comprobante_ingreso_${decId.substring(0, 8).toUpperCase()}.pdf` : clientUploadedFileName
-              }).catch(e => console.warn('Error enviando notificación de nuevo ingreso:', e));
-            }
+            // La notificación automática de nuevo ingreso es gestionada 100% de forma infalible
+            // por el Database Trigger de PostgreSQL (tr_stock_declaration_created_notify) en Supabase
 
             alert('¡Declaración de ingreso de stock creada con éxito!');
             form.reset();
