@@ -1,6 +1,6 @@
 {%- comment -%}
-  Stocka Structured Data JSON-LD Schemas for Google SEO
-  Includes Organization, LogisticsService, LocalBusiness, Services & FAQPage
+  Stocka Structured Data JSON-LD Schemas for Google SEO & Sitelinks
+  Includes Organization, LogisticsService, LocalBusiness, SiteNavigationElement, WebSite & FAQPage
 {%- endcomment -%}
 
 <script type="application/ld+json">
@@ -20,7 +20,7 @@
         "caption": "Stocka Fulfillment Chile"
       },
       "image": "https://stocka.cl/cdn/shop/files/Fulfillment_Ecommerce.png",
-      "description": "Solución de Fulfillment integral para ecommerce en Chile. Almacenamiento, armado de pedidos (Pick & Pack) y despachos Same Day en Santiago y a regiones.",
+      "description": "Solución de Fulfillment 360 integral para ecommerce en Chile. Almacenamiento seguro en La Reina, Recoleta y Ñuñoa, Pick & Pack express y despachos Same Day.",
       "telephone": "+56939247487",
       "email": "contacto@stocka.cl",
       "priceRange": "$$",
@@ -67,6 +67,66 @@
       ]
     },
     {
+      "@type": "WebSite",
+      "@id": "https://stocka.cl/#website",
+      "url": "https://stocka.cl",
+      "name": "Stocka Fulfillment",
+      "description": "Fulfillment para Ecommerce, Bodegaje y Despachos en Chile",
+      "publisher": {
+        "@id": "https://stocka.cl/#organization"
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://stocka.cl/search?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    },
+    {
+      "@type": "ItemList",
+      "@id": "https://stocka.cl/#sitenavigation",
+      "name": "Navegación Principal Stocka",
+      "itemListElement": [
+        {
+          "@type": "SiteNavigationElement",
+          "position": 1,
+          "name": "Tarifas y Cotizador en Vivo",
+          "description": "Calcula online el costo de Pick & Pack, almacenamiento por m3 y despachos Same Day.",
+          "url": "https://stocka.cl/pages/tarifas"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 2,
+          "name": "Fulfillment para Ecommerce",
+          "description": "Servicio integral de bodegaje, armado de paquetes y sincronización con Shopify y Mercado Libre.",
+          "url": "https://stocka.cl/pages/fulfillment_para_ecommerce"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 3,
+          "name": "Rastreo de Pedidos",
+          "description": "Portal de seguimiento en tiempo real para compras online entregadas por Stocka.",
+          "url": "https://stocka.cl/pages/soporte"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 4,
+          "name": "Preguntas Frecuentes",
+          "description": "Centro de ayuda con respuestas sobre bodegas, horarios de corte, integraciones y entregas.",
+          "url": "https://stocka.cl/pages/preguntas-frecuentes"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 5,
+          "name": "Contacto y Sucursal",
+          "description": "Oficina central en Campos de Deportes 405, Ñuñoa. Atención comercial y asesoría.",
+          "url": "https://stocka.cl/pages/contacto"
+        }
+      ]
+    },
+    {
       "@type": "Service",
       "@id": "https://stocka.cl/#service-fulfillment",
       "name": "Fulfillment 360 y Pick & Pack para Ecommerce",
@@ -74,7 +134,7 @@
         "@id": "https://stocka.cl/#organization"
       },
       "serviceType": "Ecommerce Fulfillment & Order Preparation",
-      "description": "Recepción de inventario, armado fotográfico de pedidos, etiquetado y empaque estándar para tiendas Shopify, Mercado Libre, WooCommerce y Falabella.",
+      "description": "Recepción de inventario, armado de pedidos, etiquetado y empaque estándar para tiendas Shopify, Mercado Libre, WooCommerce y Falabella.",
       "areaServed": {
         "@type": "Country",
         "name": "Chile"
@@ -94,7 +154,7 @@
         "@id": "https://stocka.cl/#organization"
       },
       "serviceType": "Ecommerce Warehousing & Storage",
-      "description": "Bodegaje flexible por metro cúbico real utilizado con seguridad CCTV 24/7 y control de inventario online.",
+      "description": "Bodegaje flexible por metro cúbico real utilizado con seguridad CCTV 24/7 y control de inventario online en La Reina, Recoleta y Ñuñoa.",
       "areaServed": {
         "@type": "Country",
         "name": "Chile"
@@ -114,7 +174,7 @@
         "@id": "https://stocka.cl/#organization"
       },
       "serviceType": "Same Day Delivery & Courier Integration",
-      "description": "Envíos el mismo día en 36 comunas de Santiago y tarifas preferenciales a regiones con Starken, Blue Express y Chilexpress.",
+      "description": "Envíos el mismo día en 36 comunas de Santiago (12 a 21 hrs) y tarifas preferenciales a regiones con Starken, Blue Express y Chilexpress.",
       "areaServed": {
         "@type": "Country",
         "name": "Chile"
@@ -125,21 +185,12 @@
         "priceCurrency": "CLP",
         "description": "Tarifa plana de despacho Same Day en Santiago desde $3.200 + IVA."
       }
-    },
-    {
-      "@type": "WebSite",
-      "@id": "https://stocka.cl/#website",
-      "url": "https://stocka.cl",
-      "name": "Stocka Fulfillment",
-      "publisher": {
-        "@id": "https://stocka.cl/#organization"
-      }
     }
   ]
 }
 </script>
 
-{%- if template.name == 'page' and page.handle == 'tarifas' or template.name == 'page' and page.handle == 'contacto' or template.name == 'page' and page.handle == 'soporte' or template.name == 'page' and page.handle == 'support' or request.page_type == 'index' -%}
+{%- if template.name == 'page' and page.handle == 'tarifas' or template.name == 'page' and page.handle == 'preguntas-frecuentes' or template.name == 'page' and page.handle == 'faqs' or request.page_type == 'index' -%}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -147,10 +198,10 @@
   "mainEntity": [
     {
       "@type": "Question",
-      "name": "¿Qué incluye el servicio de Fulfillment de Stocka?",
+      "name": "¿Qué incluye el servicio de Fulfillment 360 de Stocka?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Stocka se encarga de todo el proceso operativo: recibimos tu mercadería, la almacenamos en nuestras bodegas de La Reina, Recoleta y Ñuñoa, sincronizamos tu tienda online (Shopify, Mercado Libre, WooCommerce), preparamos cada paquete (Pick & Pack) y lo despachamos el mismo día en Santiago o a regiones vía couriers integrados."
+        "text": "Stocka se encarga de todo el flujo operativo: recepción de stock, almacenamiento en custodia segura en La Reina, Recoleta y Ñuñoa con CCTV 24/7, sincronización de tiendas online, armado de pedidos (Pick & Pack) y despachos Same Day en Santiago o a regiones vía couriers integrados."
       }
     },
     {
@@ -158,31 +209,31 @@
       "name": "¿Cómo se calculan las tarifas de Fulfillment en Stocka?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Nuestras tarifas son 100% transparentes y dinámicas según volumen: el armado (Pick & Pack) va desde $850 por pedido en tramo Enterprise, el almacenamiento desde $26.500 por m³ al mes, y los despachos Same Day en Santiago a tarifa plana de $3.200 + IVA."
+        "text": "Nuestras tarifas son 100% transparentes y dinámicas: Pick & Pack desde $850 por paquete en tramo Enterprise, almacenamiento por volumen dinámico on demand desde $26.500 por m³ al mes y despachos Same Day en Santiago a tarifa plana de $3.200 + IVA."
       }
     },
     {
       "@type": "Question",
-      "name": "¿Stocka es compatible con Mercado Libre Flex y Shopify?",
+      "name": "¿Cuáles son los horarios de corte para despachos Same Day en Santiago?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Sí, contamos con sincronización automática para procesar y despachar pedidos Flex el mismo día cumpliendo con las métricas de reputación verde de Mercado Libre, además de integración directa con Shopify, Falabella, Ripley y más."
+        "text": "El horario de corte es a las 12:00 hrs. Las compras ingresadas antes de ese horario se entregan de lunes a sábado entre las 12:00 y las 21:00 hrs en 36 comunas de la Región Metropolitana."
       }
     },
     {
       "@type": "Question",
-      "name": "¿Dónde está ubicada la bodega y punto de retiros de Stocka?",
+      "name": "¿Dónde están ubicadas las bodegas y punto de retiro de Stocka?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Nuestra oficina y casa matriz está ubicada en Av. Campos de Deportes 405, Ñuñoa (punto de retiro presencial), y contamos con centros de distribución de mayor capacidad en La Reina y Recoleta."
+        "text": "Nuestra oficina y casa matriz está ubicada en Av. Campos de Deportes 405, Ñuñoa (con punto de retiro presencial gratis para clientes), y contamos con centros de distribución de mayor capacidad estratégica en La Reina y Recoleta."
       }
     },
     {
       "@type": "Question",
-      "name": "¿Cuáles son los tiempos de entrega para envíos a regiones?",
+      "name": "¿Cuánto demora el proceso de onboarding para empezar a operar?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Trabajamos con Starken, Blue Express, Chilexpress y CorreosChile con tiempos de tránsito promedio de 24 a 48 horas hábiles en ciudades principales de la zona central y sur, y tarifas preferenciales por volumen corporativo."
+        "text": "El onboarding es ultra rápido y guiado paso a paso: en solo horas tu cuenta e integraciones con Shopify, Mercado Libre o WooCommerce pueden estar 100% listas y configuradas para despachar."
       }
     }
   ]

@@ -24064,30 +24064,143 @@ function showSuspensionBanner(pausedComercios) {
   if (document.getElementById('billing-suspension-banner')) return;
   const mainContent = document.querySelector('.main-content');
   if (!mainContent) return;
+
+  if (!document.getElementById('billing-suspension-banner-style')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'billing-suspension-banner-style';
+    styleEl.innerHTML = `
+      @keyframes pulseAlertIcon {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45); }
+        50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+      }
+      .billing-suspension-banner {
+        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 45%, #991b1b 100%);
+        color: #ffffff;
+        padding: 0.95rem 1.75rem;
+        min-height: 62px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem;
+        border-bottom: 2px solid #7f1d1d;
+        box-shadow: 0 4px 16px rgba(185, 28, 28, 0.35);
+        position: relative;
+        overflow: hidden;
+        box-sizing: border-box;
+        z-index: 100;
+      }
+      .paused-banner-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1.5px solid rgba(255, 255, 255, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        color: #ffffff;
+        flex-shrink: 0;
+        animation: pulseAlertIcon 2.5s infinite ease-in-out;
+      }
+      .btn-paused-banner-billing {
+        background: #ffffff !important;
+        color: #b91c1c !important;
+        border: none !important;
+        border-radius: 50px !important;
+        padding: 0.52rem 1.25rem !important;
+        font-size: 0.82rem !important;
+        font-weight: 800 !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 0.45rem !important;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
+        transition: all 0.2s ease !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.03em !important;
+        white-space: nowrap !important;
+      }
+      .btn-paused-banner-billing:hover {
+        background: #fef2f2 !important;
+        color: #991b1b !important;
+        transform: translateY(-1px) scale(1.02) !important;
+        box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3) !important;
+      }
+      @media (max-width: 860px) {
+        .billing-suspension-banner {
+          flex-direction: column !important;
+          align-items: flex-start !important;
+          padding: 0.85rem 1.15rem !important;
+          gap: 0.85rem !important;
+        }
+        .btn-paused-banner-billing {
+          width: 100% !important;
+          justify-content: center !important;
+        }
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
   
   const banner = document.createElement('div');
   banner.id = 'billing-suspension-banner';
-  banner.style.cssText = `
-    background-color: #ef4444; 
-    color: white; 
-    padding: 0.75rem 1.5rem; 
-    text-align: center; 
-    font-weight: 500; 
-    font-size: 0.9rem;
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    gap: 0.5rem;
-    border-bottom: 2px solid #b91c1c;
-  `;
+  banner.className = 'billing-suspension-banner';
   banner.innerHTML = `
-    <i class="ri-error-warning-fill" style="font-size: 1.25rem;"></i>
-    <span><strong>Servicio Pausado:</strong> El comercio <strong>${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado. Por favor regularizar a la brevedad con nuestra área de finanzas a <a href="mailto:finanzas@stocka.cl" style="color: white; text-decoration: underline; font-weight: 700;">finanzas@stocka.cl</a>.</span>
+    <!-- Decoración de fondo suave -->
+    <div style="position: absolute; right: -20px; top: -30px; width: 140px; height: 140px; background: rgba(255, 255, 255, 0.06); border-radius: 50%; pointer-events: none;"></div>
+    <div style="position: absolute; left: 25%; bottom: -40px; width: 180px; height: 100px; background: rgba(0, 0, 0, 0.08); border-radius: 50%; pointer-events: none;"></div>
+
+    <div style="display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 0; z-index: 1;">
+      <!-- Icono de alerta -->
+      <div class="paused-banner-icon">
+        <i class="ri-error-warning-fill"></i>
+      </div>
+
+      <!-- Texto y detalles -->
+      <div style="display: flex; flex-direction: column; gap: 0.2rem; line-height: 1.35;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.7rem; font-weight: 800; padding: 0.12rem 0.55rem; border-radius: 4px; letter-spacing: 0.05em; text-transform: uppercase;">
+            Servicio Pausado
+          </span>
+          <span style="font-size: 0.9rem; font-weight: 600; color: #ffffff;">
+            El comercio <strong style="font-weight: 800; text-decoration: underline; text-underline-offset: 3px; color: #ffffff;">${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado.
+          </span>
+        </div>
+        <div style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.9); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <span>Por favor regularizar a la brevedad con nuestra área de finanzas:</span>
+          <a href="mailto:finanzas@stocka.cl" style="color: #ffffff; font-weight: 700; text-decoration: none; background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; transition: background 0.2s;">
+            <i class="ri-mail-line"></i> finanzas@stocka.cl
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón de Acceso Rápido a Facturación -->
+    <div style="z-index: 1; flex-shrink: 0;">
+      <button type="button" class="btn-paused-banner-billing" onclick="window.navigateToBilling()">
+        <i class="ri-bill-line" style="font-size: 1.05rem;"></i>
+        <span>Ir a Facturación</span>
+        <i class="ri-arrow-right-line" style="font-size: 0.95rem;"></i>
+      </button>
+    </div>
   `;
   mainContent.insertBefore(banner, mainContent.firstChild);
 }
 
 window.showSuspensionBanner = showSuspensionBanner;
+
+window.navigateToBilling = function() {
+  const billingNavItem = document.querySelector('[data-view="billing"]');
+  if (billingNavItem) {
+    billingNavItem.click();
+  } else if (typeof window.renderBillingClient === 'function') {
+    const viewTitle = document.getElementById('view-title');
+    if (viewTitle) viewTitle.textContent = 'Facturación';
+    window.renderBillingClient();
+  }
+};
 
 async function renderInboxPage() {
   const appContent = document.getElementById('app-content');

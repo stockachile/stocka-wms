@@ -911,13 +911,41 @@
           </div>
 
           <div class="form-group" style="margin-top: 1.25rem;">
-            <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance *</label>
-            <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)" required></textarea>
+            <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance</label>
+            <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)"></textarea>
           </div>
 
           <div class="form-group">
             <label class="form-label" style="font-weight: 600;">Comentarios / Notas Finales de Recepción</label>
             <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
+          </div>
+
+          <!-- Control de Facturación del Ingreso (Solo Admin) -->
+          <div class="form-group" style="background: var(--color-surface); padding: 1rem 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); margin-top: 1rem; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.5rem;">
+              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main); font-size: 0.9rem;">
+                <i class="ri-money-dollar-circle-line" style="color: var(--color-success); font-size: 1.15rem;"></i> Estado de Facturación del Ingreso
+              </label>
+              <button type="button" class="btn btn-sm" id="btn-quick-save-billing" onclick="window.saveDeclarationBillingDirect()" style="font-size: 0.78rem; padding: 0.35rem 0.85rem; background: var(--color-success); color: white; border: none; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                <i class="ri-save-line"></i> Guardar Facturación
+              </button>
+            </div>
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.35;">
+              Establece si el costo (estimado / real) de este ingreso de stock ya fue incorporado en la liquidación o facturación del comercio.
+            </p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; align-items: center;">
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Estado de Cobro</label>
+                <select id="manage-dec-billing-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; background: var(--color-bg); border-radius: 6px;">
+                  <option value="Pendiente">⏳ Pendiente de Facturación</option>
+                  <option value="Facturado">✅ Incluido en Facturación (Facturado)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Referencia / N° Factura (Opcional)</label>
+                <input type="text" id="manage-dec-billing-notes" class="form-input" placeholder="Ej. Factura #4582 / Cobro Septiembre" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); border-radius: 6px;">
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;">
@@ -928,7 +956,7 @@
           <button type="button" class="btn btn-outline" onclick="exportDeclarationToPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-primary); color: var(--color-primary);" title="Comprobante general del ingreso">
             <i class="ri-file-pdf-line"></i> Comprobante PDF
           </button>
-          <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-manage-declaration"><i class="ri-save-line"></i> Guardar Cambios</button>
         </div>
       </form>
     </div>
@@ -1560,7 +1588,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.2"></script>
-  <script type="module" src="./js/admin.js?v=1.0.50"></script>
+  <script type="module" src="./js/admin.js?v=1.0.52"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script src="./js/manifests.js"></script>

@@ -4,24 +4,53 @@
 
 {%- capture seo_title -%}
   {%- if request.page_type == 'index' -%}
-    Stocka | Fulfillment para tu Ecommerce en Chile | Bodegaje y Despachos
-  {%- elsif template.name == 'page' and page.handle == 'tarifas' -%}
-    Tarifas y Precios de Fulfillment en Chile | Stocka Logística
-  {%- elsif template.name == 'page' and page.handle == 'soporte' or template.name == 'page' and page.handle == 'support' -%}
-    Rastrea tu pedido y consulta el estado de despacho de tus compras online preparadas por Stocka Fulfillment. Seguimiento Same Day en Santiago y envíos a regiones con Starken, Blue Express y Chilexpress.
-  {%- elsif template.name == 'page' and page.handle == 'tarifas' -%}
-    Conoce las tarifas de fulfillment para ecommerce en Chile: almacenamiento desde $26.500/m³, pick & pack desde $850/pedido y despachos Same Day en Santiago. Cotiza online con Stocka.
-  {%- elsif template.name == 'page' and page.handle == 'soporte' or template.name == 'page' and page.handle == 'support' -%}
-    Consulta el estado de tu compra en tiendas asociadas a Stocka Fulfillment. Rastrea tu despacho Same Day o envíos a regiones con Starken, Blue Express y Chilexpress.
-  {%- elsif template.name == 'page' and page.handle == 'contacto' -%}
-    Contáctanos para externalizar la logística de tu ecommerce en Chile. Visita nuestra bodega y casa matriz en Ñuñoa o agenda una videollamada comercial 1 a 1 vía Google Meet.
+    Stocka | Fulfillment para Ecommerce y Despachos en Chile
+  {%- elsif template.name == 'page' and page.handle == 'tarifas' or page.handle == 'cotizador' -%}
+    Tarifas y Cotizador de Fulfillment 360 | Stocka
+  {%- elsif template.name == 'page' and page.handle == 'fulfillment_para_ecommerce' or page.handle == 'fulfillment-para-ecommerce' or page.handle == 'cotizaserviciofulfillment' or page.handle == 'fulfillment' -%}
+    Servicio de Fulfillment 360 para Ecommerce en Chile | Stocka
+  {%- elsif template.name == 'page' and page.handle == 'soporte' or page.handle == 'support' -%}
+    Rastreo de Pedidos y Soporte de Envíos | Stocka
+  {%- elsif template.name == 'page' and page.handle == 'preguntas-frecuentes' or page.handle == 'preguntas_frecuentes' or page.handle == 'faqs' or page.handle == 'faq' -%}
+    Preguntas Frecuentes y Centro de Ayuda | Stocka
+  {%- elsif template.name == 'page' and page.handle == 'contacto' or page.handle == 'contact' -%}
+    Contacto Comercial y Sucursal Ñuñoa | Stocka
+  {%- elsif template.name == 'search' or request.page_type == 'search' -%}
+    Buscador de Servicios y Recursos | Stocka Fulfillment
+  {%- elsif template.name == 'page' and page.handle == 'almacenaje' -%}
+    Almacenamiento y Custodia de Mercadería en Santiago | Stocka
+  {%- elsif page_title != blank -%}
+    {{ page_title | escape }} | Stocka
+  {%- else -%}
+    Stocka | Fulfillment para Ecommerce en Chile
+  {%- endif -%}
+{%- endcapture -%}
+
+{%- capture seo_description -%}
+  {%- if request.page_type == 'index' -%}
+    Fulfillment 360 para ecommerce en Chile. Almacenamiento seguro en La Reina, Recoleta y Ñuñoa, Pick & Pack desde $850 y despachos Same Day. ¡Cotiza online!
+  {%- elsif template.name == 'page' and page.handle == 'tarifas' or page.handle == 'cotizador' -%}
+    Conoce nuestras tarifas transparentes de fulfillment: Pick & Pack desde $850, almacenamiento on demand por m³ y despachos Same Day $3.200. Simula tu costo en vivo.
+  {%- elsif template.name == 'page' and page.handle == 'fulfillment_para_ecommerce' or page.handle == 'fulfillment-para-ecommerce' or page.handle == 'cotizaserviciofulfillment' or page.handle == 'fulfillment' -%}
+    Externaliza tu logística con Stocka: recepción, custodia segura 24/7 en La Reina, Recoleta y Ñuñoa, preparación de pedidos y despachos a todo Chile. Onboarding en horas.
+  {%- elsif template.name == 'page' and page.handle == 'soporte' or page.handle == 'support' -%}
+    Rastrea tu compra online en tiempo real con tu número de orden y correo electrónico. Seguimiento Same Day en Santiago y couriers a regiones (Starken, Blue, Chilexpress).
+  {%- elsif template.name == 'page' and page.handle == 'preguntas-frecuentes' or page.handle == 'preguntas_frecuentes' or page.handle == 'faqs' or page.handle == 'faq' -%}
+    Resuelve dudas sobre bodegas en La Reina y Recoleta, horarios de corte (12:00 hrs), entregas de 12 a 21 hrs, integración con Shopify y Mercado Libre Flex.
+  {%- elsif template.name == 'page' and page.handle == 'contacto' or page.handle == 'contact' -%}
+    Agenda una reunión con nuestro equipo o visítanos en nuestra casa matriz en Campos de Deportes 405, Ñuñoa. Atención personalizada y soporte comercial para tu tienda.
+  {%- elsif template.name == 'search' or request.page_type == 'search' -%}
+    Encuentra rápidamente cotizaciones de fulfillment, seguimiento de compras, integraciones tecnológicas con tiendas online o asistencia directa con Stocka.
+  {%- elsif template.name == 'page' and page.handle == 'almacenaje' -%}
+    Bodegaje flexible por metro cúbico real utilizado con seguridad CCTV 24/7 y control de inventario online para tu ecommerce en Santiago de Chile.
   {%- elsif page_description != blank -%}
     {{ page_description | escape }}
   {%- else -%}
-    Solución integral de fulfillment para ecommerce en Chile. Almacenamiento, preparación de pedidos y despachos a todo Chile.
+    Fulfillment integral para tiendas online en Chile. Bodegaje, preparación de pedidos y despachos Same Day en Santiago y a regiones.
   {%- endif -%}
 {%- endcapture -%}
 
 <title>{{ seo_title | strip }}</title>
 <meta name="description" content="{{ seo_description | strip }}">
 <link rel="canonical" href="{{ canonical_url | replace: 'http://', 'https://' }}">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">

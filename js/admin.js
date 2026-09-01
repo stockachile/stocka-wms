@@ -23197,6 +23197,51 @@ window.downloadBase64File = function(base64, filename) {
   }
 };
 
+window.adminDeclarationTab = window.adminDeclarationTab || 'active';
+window.adminDeclarationSearchTerm = window.adminDeclarationSearchTerm || '';
+window.adminDeclarationMerchantFilter = window.adminDeclarationMerchantFilter || 'all';
+window.adminDeclarationBillingFilter = window.adminDeclarationBillingFilter || 'all';
+
+window.toggleDeclarationBillingStatus = async function(id, currentStatus) {
+  try {
+    const newStatus = currentStatus === 'Facturado' ? 'Pendiente' : 'Facturado';
+    const updatePayload = {
+      billing_status: newStatus,
+      updated_at: new Date().toISOString()
+    };
+    if (newStatus === 'Facturado') {
+      updatePayload.billed_at = new Date().toISOString();
+    }
+
+    let { error } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .eq('id', id);
+
+    if (error && error.message && error.message.includes('billing_status')) {
+      alert('Nota: Ejecuta el script SQL en Supabase para habilitar la columna billing_status en la base de datos.');
+      return;
+    }
+    if (error) throw error;
+
+    if (window.Swal) {
+      window.Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: newStatus === 'Facturado' ? 'success' : 'info',
+        title: newStatus === 'Facturado' ? 'Ingreso marcado como Facturado' : 'Ingreso marcado como Pendiente',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+
+    renderDeclarationsAdmin();
+  } catch (err) {
+    console.error('Error toggling billing status:', err);
+    alert('Error al actualizar estado de facturación: ' + (err.message || err));
+  }
+};
+
 window.renderDeclarationsAdmin = async function() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando declaraciones de ingreso...</p>';
@@ -23210,19 +23255,84 @@ window.renderDeclarationsAdmin = async function() {
 
     if (error) throw error;
 
-    // Filter declarations based on tab
+    // Extraer lista única de comercios ordenados alfabéticamente
+    const uniqueMerchants = Array.from(new Set(
+      (declarations || [])
+        .map(d => (d.comercio || '').trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+    // Aplicar pipeline de filtros: Pestaña (Activos/Completados) + Comercio + Facturación + Búsqueda por texto
     const filteredDeclarations = (declarations || []).filter(dec => {
       const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
       if (window.adminDeclarationTab === 'completed') {
-        return isCompleted;
+        if (!isCompleted) return false;
       } else {
-        return !isCompleted;
+        if (isCompleted) return false;
       }
+
+      // Filtro por Comercio
+      if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
+        if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) {
+          return false;
+        }
+      }
+
+      // Filtro por Estado de Facturación
+      if (window.adminDeclarationBillingFilter && window.adminDeclarationBillingFilter !== 'all') {
+        const bStatus = dec.billing_status || 'Pendiente';
+        if (bStatus !== window.adminDeclarationBillingFilter) {
+          return false;
+        }
+      }
+
+      // Búsqueda por Texto (con lupa)
+      if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
+        const q = window.adminDeclarationSearchTerm.trim().toLowerCase();
+        const id = (dec.id || '').toLowerCase();
+        const shortCode = (`#ing-${id.substring(0, 8)}`).toLowerCase();
+        const title = (dec.title || '').toLowerCase();
+        const com = (dec.comercio || '').toLowerCase();
+        const company = (dec.profiles?.company_name || '').toLowerCase();
+        const user = (dec.profiles?.full_name || dec.profiles?.email || '').toLowerCase();
+        const carrier = (dec.carrier_info || '').toLowerCase();
+        const method = (dec.delivery_method || '').toLowerCase();
+        const notes = (dec.notes || '').toLowerCase();
+        const adminNotes = (dec.admin_notes || '').toLowerCase();
+        const billingNotes = (dec.billing_notes || '').toLowerCase();
+        const warehouse = (dec.warehouses?.name || '').toLowerCase();
+        
+        let productsMatch = false;
+        if (Array.isArray(dec.products_list)) {
+          productsMatch = dec.products_list.some(p => 
+            (p.sku && p.sku.toLowerCase().includes(q)) || 
+            (p.name && p.name.toLowerCase().includes(q))
+          );
+        }
+
+        const matches = id.includes(q) ||
+          shortCode.includes(q) ||
+          title.includes(q) ||
+          com.includes(q) ||
+          company.includes(q) ||
+          user.includes(q) ||
+          carrier.includes(q) ||
+          method.includes(q) ||
+          notes.includes(q) ||
+          adminNotes.includes(q) ||
+          billingNotes.includes(q) ||
+          warehouse.includes(q) ||
+          productsMatch;
+
+        if (!matches) return false;
+      }
+
+      return true;
     });
 
     let rowsHtml = '';
     if (filteredDeclarations.length === 0) {
-      rowsHtml = `<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos ${window.adminDeclarationTab === 'completed' ? 'completadas' : 'activas'}.</td></tr>`;
+      rowsHtml = `<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>No se encontraron declaraciones de ingresos que coincidan con los filtros aplicados.</td></tr>`;
     } else {
       filteredDeclarations.forEach(dec => {
         let statusBadge = '';
@@ -23251,10 +23361,10 @@ window.renderDeclarationsAdmin = async function() {
 
         let etaText = '';
         if (dec.estimated_arrival_type === 'exact') {
-          const [y, m, d] = dec.estimated_arrival_date.split('-');
-          etaText = `${d}/${m}/${y}`;
+          const [y, m, d] = (dec.estimated_arrival_date || '').split('-');
+          etaText = y && m && d ? `${d}/${m}/${y}` : (dec.estimated_arrival_date || '—');
         } else {
-          etaText = dec.estimated_arrival_period;
+          etaText = dec.estimated_arrival_period || '—';
         }
 
         let qtyReceivedText = '—';
@@ -23269,6 +23379,22 @@ window.renderDeclarationsAdmin = async function() {
         }
 
         const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+
+        // Estado de Facturación
+        const billingStatus = dec.billing_status || 'Pendiente';
+        const isBilled = billingStatus === 'Facturado';
+        const billingBadgeHtml = isBilled
+          ? `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Facturado')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Facturado. Clic para alternar a Pendiente">
+               <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                 <i class="ri-checkbox-circle-fill" style="font-size: 0.85rem;"></i> Facturado
+               </span>
+               ${dec.billing_notes ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
+             </button>`
+          : `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Pendiente')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Pendiente de facturación. Clic para marcar como Facturado">
+               <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                 <i class="ri-time-line" style="font-size: 0.85rem;"></i> Pendiente
+               </span>
+             </button>`;
 
         rowsHtml += `
           <tr style="transition: background-color 0.2s;">
@@ -23325,6 +23451,7 @@ window.renderDeclarationsAdmin = async function() {
                 <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
               </div>
             </td>
+            <td style="font-size: 0.85rem;">${billingBadgeHtml}</td>
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
             <td style="font-size: 0.85rem;">${statusBadge}</td>
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -23339,6 +23466,9 @@ window.renderDeclarationsAdmin = async function() {
                   </button>
                   <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
                     <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
+                  </button>
+                  <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
+                    <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
                   </button>
                   <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
                     <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
@@ -23365,16 +23495,70 @@ window.renderDeclarationsAdmin = async function() {
       });
     }
 
+    // Opciones para el selector de comercios
+    const merchantOptionsHtml = uniqueMerchants.map(m => {
+      const isSelected = window.adminDeclarationMerchantFilter === m ? 'selected' : '';
+      return `<option value="${m}" ${isSelected}>🏢 ${m}</option>`;
+    }).join('');
+
     appContent.innerHTML = `
       <div class="card">
-        <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h3>Gestión de Ingresos de Stock</h3>
-            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica y recepciona los ingresos declarados por los clientes.</p>
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica, recepciona y audita la facturación de los ingresos declarados.</p>
           </div>
           <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
             <i class="ri-refresh-line"></i> Actualizar
           </button>
+        </div>
+
+        <!-- Toolbar de Búsqueda y Filtros de Administración -->
+        <div style="padding: 0.75rem 1.5rem 1rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+          <!-- Buscador por texto con lupa -->
+          <div style="position: relative; flex: 1; min-width: 280px; max-width: 440px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.05rem;"></i>
+            <input 
+              type="text" 
+              id="admin-dec-search-input" 
+              class="form-input" 
+              placeholder="Buscar por #ING, título, comercio, SKU, notas..." 
+              value="${window.adminDeclarationSearchTerm || ''}"
+              style="padding-left: 2.35rem; padding-right: 2rem; height: 38px; font-size: 0.85rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
+            >
+            ${window.adminDeclarationSearchTerm ? `
+            <button type="button" id="btn-clear-admin-dec-search" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-muted); cursor: pointer; padding: 2px 4px; font-size: 0.9rem;" title="Limpiar búsqueda">
+              <i class="ri-close-circle-fill"></i>
+            </button>
+            ` : ''}
+          </div>
+
+          <!-- Filtros de Comercio y Facturación -->
+          <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+            <!-- Filtro de Comercio -->
+            <div style="min-width: 180px;">
+              <select id="admin-dec-merchant-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
+                <option value="all" ${window.adminDeclarationMerchantFilter === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
+                ${merchantOptionsHtml}
+              </select>
+            </div>
+
+            <!-- Filtro de Facturación -->
+            <div style="min-width: 180px;">
+              <select id="admin-dec-billing-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
+                <option value="all" ${window.adminDeclarationBillingFilter === 'all' ? 'selected' : ''}>💵 Facturación: Todos</option>
+                <option value="Pendiente" ${window.adminDeclarationBillingFilter === 'Pendiente' ? 'selected' : ''}>⏳ Pendientes de Cobro</option>
+                <option value="Facturado" ${window.adminDeclarationBillingFilter === 'Facturado' ? 'selected' : ''}>✅ Facturados (Incluidos)</option>
+              </select>
+            </div>
+
+            <!-- Contador de resultados -->
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap; padding-left: 0.25rem;">
+              <span class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 5px 8px; border-radius: 6px;">
+                ${filteredDeclarations.length} ${filteredDeclarations.length === 1 ? 'ingreso' : 'ingresos'}
+              </span>
+            </div>
+          </div>
         </div>
         
         <div class="tabs-container" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); padding: 0 1.5rem; margin-bottom: 0.5rem;">
@@ -23397,6 +23581,7 @@ window.renderDeclarationsAdmin = async function() {
                 <th>Bultos</th>
                 <th>Volumen (m³)</th>
                 <th>Costos (Est. / Real)</th>
+                <th>Facturación</th>
                 <th>Método Envío</th>
                 <th>Estado</th>
                 <th>Recibido / Incidencias</th>
@@ -23411,6 +23596,47 @@ window.renderDeclarationsAdmin = async function() {
       </div>
     `;
 
+    // Event listeners para la barra de búsqueda y filtros
+    const searchInput = document.getElementById('admin-dec-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        window.adminDeclarationSearchTerm = e.target.value;
+        renderDeclarationsAdmin();
+        setTimeout(() => {
+          const inputAfter = document.getElementById('admin-dec-search-input');
+          if (inputAfter) {
+            inputAfter.focus();
+            inputAfter.setSelectionRange(inputAfter.value.length, inputAfter.value.length);
+          }
+        }, 30);
+      });
+    }
+
+    const clearSearchBtn = document.getElementById('btn-clear-admin-dec-search');
+    if (clearSearchBtn) {
+      clearSearchBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.adminDeclarationSearchTerm = '';
+        renderDeclarationsAdmin();
+      });
+    }
+
+    const merchantSelect = document.getElementById('admin-dec-merchant-select');
+    if (merchantSelect) {
+      merchantSelect.addEventListener('change', (e) => {
+        window.adminDeclarationMerchantFilter = e.target.value;
+        renderDeclarationsAdmin();
+      });
+    }
+
+    const billingSelect = document.getElementById('admin-dec-billing-select');
+    if (billingSelect) {
+      billingSelect.addEventListener('change', (e) => {
+        window.adminDeclarationBillingFilter = e.target.value;
+        renderDeclarationsAdmin();
+      });
+    }
+
     // Tab buttons event listeners
     const activeTabBtn = document.getElementById('tab-admin-active-declarations');
     const completedTabBtn = document.getElementById('tab-admin-completed-declarations');
@@ -23418,23 +23644,11 @@ window.renderDeclarationsAdmin = async function() {
       activeTabBtn.addEventListener('click', (e) => {
         e.preventDefault();
         window.adminDeclarationTab = 'active';
-        activeTabBtn.style.borderBottom = '2px solid var(--color-primary)';
-        activeTabBtn.style.color = 'var(--color-primary)';
-        activeTabBtn.style.fontWeight = '600';
-        completedTabBtn.style.borderBottom = '2px solid transparent';
-        completedTabBtn.style.color = 'var(--color-text-muted)';
-        completedTabBtn.style.fontWeight = '500';
         renderDeclarationsAdmin();
       });
       completedTabBtn.addEventListener('click', (e) => {
         e.preventDefault();
         window.adminDeclarationTab = 'completed';
-        completedTabBtn.style.borderBottom = '2px solid var(--color-primary)';
-        completedTabBtn.style.color = 'var(--color-primary)';
-        completedTabBtn.style.fontWeight = '600';
-        activeTabBtn.style.borderBottom = '2px solid transparent';
-        activeTabBtn.style.color = 'var(--color-text-muted)';
-        activeTabBtn.style.fontWeight = '500';
         renderDeclarationsAdmin();
       });
     }
@@ -23486,7 +23700,7 @@ function renderStatusActionButtons(currentStatus) {
   if (!container || !statusInput) return;
   
   container.innerHTML = '';
-  statusInput.value = ''; // Reset target status
+  statusInput.value = currentStatus; // Initialize with current status by default
 
   let actionsHtml = '';
   
@@ -23546,10 +23760,13 @@ function renderStatusActionButtons(currentStatus) {
   container.innerHTML = actionsHtml;
 
   if (submitBtn) {
+    submitBtn.style.display = 'inline-flex';
+    submitBtn.style.alignItems = 'center';
+    submitBtn.style.gap = '0.4rem';
     if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias') {
-      submitBtn.style.display = 'none';
+      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios / Facturación';
     } else {
-      submitBtn.style.display = 'inline-block';
+      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
     }
   }
 
@@ -24057,6 +24274,16 @@ window.manageDeclaration = async function(id) {
       }
     };
 
+    // Cargar estado de facturación
+    const billingStatusEl = document.getElementById('manage-dec-billing-status');
+    if (billingStatusEl) {
+      billingStatusEl.value = dec.billing_status || 'Pendiente';
+    }
+    const billingNotesEl = document.getElementById('manage-dec-billing-notes');
+    if (billingNotesEl) {
+      billingNotesEl.value = dec.billing_notes || '';
+    }
+
     // Renderizar botones de acción según el estado actual de la declaración
     renderStatusActionButtons(dec.status);
 
@@ -24190,16 +24417,91 @@ window.manageDeclaration = async function(id) {
   }
 };
 
+window.saveDeclarationBillingDirect = async function() {
+  const id = document.getElementById('manage-dec-id')?.value;
+  if (!id) return;
+  
+  const billingStatus = document.getElementById('manage-dec-billing-status')?.value || 'Pendiente';
+  const billingNotes = document.getElementById('manage-dec-billing-notes')?.value?.trim() || '';
+  const adminNotes = document.getElementById('manage-dec-admin-notes')?.value?.trim() || '';
+
+  const saveBtn = document.getElementById('btn-quick-save-billing');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+  }
+
+  try {
+    const updatePayload = {
+      billing_status: billingStatus,
+      billing_notes: billingNotes,
+      admin_notes: adminNotes,
+      updated_at: new Date().toISOString()
+    };
+    if (billingStatus === 'Facturado') {
+      updatePayload.billed_at = new Date().toISOString();
+    }
+
+    let { error } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .eq('id', id);
+
+    if (error && error.message && error.message.includes('billing_status')) {
+      console.warn('Column billing_status not yet in SQL schema, falling back without billing columns:', error);
+      delete updatePayload.billing_status;
+      delete updatePayload.billing_notes;
+      delete updatePayload.billed_at;
+      const resFallback = await supabase
+        .from('stock_declarations')
+        .update(updatePayload)
+        .eq('id', id);
+      if (resFallback.error) throw resFallback.error;
+    } else if (error) {
+      throw error;
+    }
+
+    if (window.Swal) {
+      window.Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Estado de facturación guardado exitosamente',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    } else {
+      alert('¡Estado de facturación guardado exitosamente!');
+    }
+
+    // Actualizar vista de tabla
+    if (typeof window.renderDeclarationsAdmin === 'function') {
+      window.renderDeclarationsAdmin();
+    }
+  } catch (err) {
+    console.error('Error saving billing status directly:', err);
+    alert('Error al guardar estado de facturación: ' + (err.message || err));
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Facturación';
+    }
+  }
+};
+
 // Event Delegation for managing declarations form submission
 document.addEventListener('submit', async (e) => {
   if (e.target && e.target.id === 'form-manage-declaration') {
     e.preventDefault();
 
     const id = document.getElementById('manage-dec-id').value;
-    const status = document.getElementById('manage-dec-status').value;
+    let status = document.getElementById('manage-dec-status').value;
+    if (!status && window.currentDeclarationEditing) {
+      status = window.currentDeclarationEditing.status;
+    }
     let qtyReceived = parseInt(document.getElementById('manage-dec-qty-received').value);
     let qtyIncidents = parseInt(document.getElementById('manage-dec-qty-incidents').value);
-    const stageComment = document.getElementById('manage-dec-stage-comment').value.trim();
+    let stageComment = document.getElementById('manage-dec-stage-comment').value.trim();
     const adminNotes = document.getElementById('manage-dec-admin-notes').value.trim();
     const alertContainer = document.getElementById('modal-dec-alert-container');
 
@@ -24231,8 +24533,11 @@ document.addEventListener('submit', async (e) => {
     }
 
     if (!stageComment) {
-      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El comentario de la etapa / notas de avance es obligatorio.</div>';
-      return;
+      if (status === 'Recibido Conforme' || status === 'Recibido con Incidencias') {
+        stageComment = 'Actualización de facturación / notas de recepción por Admin';
+      } else {
+        stageComment = `Actualización de estado / datos: ${status}`;
+      }
     }
 
     // Validar volumen confirmado si el estado requiere confirmación de recepción
@@ -24298,6 +24603,9 @@ document.addEventListener('submit', async (e) => {
       const updatedHistory = [...existingHistory, newHistoryEntry];
  
       // 2. Ejecutar actualización
+      const billingStatus = document.getElementById('manage-dec-billing-status')?.value || 'Pendiente';
+      const billingNotes = document.getElementById('manage-dec-billing-notes')?.value?.trim() || '';
+
       const updateData = {
         status: status,
         quantity_received: qtyReceived,
@@ -24305,9 +24613,15 @@ document.addEventListener('submit', async (e) => {
         incidents_list: status === 'Recibido con Incidencias' ? incidentsList : [],
         history: updatedHistory,
         admin_notes: adminNotes,
+        billing_status: billingStatus,
+        billing_notes: billingNotes,
         real_cost: realCost,
         updated_at: new Date().toISOString()
       };
+
+      if (billingStatus === 'Facturado' && latestDec.billing_status !== 'Facturado') {
+        updateData.billed_at = new Date().toISOString();
+      }
 
       if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing_id === id) {
         updateData.products_list = window.currentDeclarationProductsEditing.map(item => {
@@ -24331,12 +24645,24 @@ document.addEventListener('submit', async (e) => {
         updateData.warehouse_id = warehouseId;
       }
 
-      const { error } = await supabase
+      let { error } = await supabase
         .from('stock_declarations')
         .update(updateData)
         .eq('id', id);
 
-      if (error) throw error;
+      if (error && error.message && error.message.includes('billing_status')) {
+        console.warn('Column billing_status not yet in SQL schema, falling back without billing columns:', error);
+        delete updateData.billing_status;
+        delete updateData.billing_notes;
+        delete updateData.billed_at;
+        const resFallback = await supabase
+          .from('stock_declarations')
+          .update(updateData)
+          .eq('id', id);
+        if (resFallback.error) throw resFallback.error;
+      } else if (error) {
+        throw error;
+      }
 
       // 2.5 Actualizar inventario físico de productos si el ingreso es finalizado
       const isTransitioningToFinal = 
@@ -25936,25 +26262,127 @@ function showSuspensionBanner(pausedComercios) {
   if (document.getElementById('billing-suspension-banner')) return;
   const mainContent = document.querySelector('.main-content');
   if (!mainContent) return;
+
+  if (!document.getElementById('billing-suspension-banner-style')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'billing-suspension-banner-style';
+    styleEl.innerHTML = `
+      @keyframes pulseAlertIcon {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45); }
+        50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+      }
+      .billing-suspension-banner {
+        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 45%, #991b1b 100%);
+        color: #ffffff;
+        padding: 0.95rem 1.75rem;
+        min-height: 62px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.25rem;
+        border-bottom: 2px solid #7f1d1d;
+        box-shadow: 0 4px 16px rgba(185, 28, 28, 0.35);
+        position: relative;
+        overflow: hidden;
+        box-sizing: border-box;
+        z-index: 100;
+      }
+      .paused-banner-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1.5px solid rgba(255, 255, 255, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        color: #ffffff;
+        flex-shrink: 0;
+        animation: pulseAlertIcon 2.5s infinite ease-in-out;
+      }
+      .btn-paused-banner-billing {
+        background: #ffffff !important;
+        color: #b91c1c !important;
+        border: none !important;
+        border-radius: 50px !important;
+        padding: 0.52rem 1.25rem !important;
+        font-size: 0.82rem !important;
+        font-weight: 800 !important;
+        cursor: pointer !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 0.45rem !important;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
+        transition: all 0.2s ease !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.03em !important;
+        white-space: nowrap !important;
+      }
+      .btn-paused-banner-billing:hover {
+        background: #fef2f2 !important;
+        color: #991b1b !important;
+        transform: translateY(-1px) scale(1.02) !important;
+        box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3) !important;
+      }
+      @media (max-width: 860px) {
+        .billing-suspension-banner {
+          flex-direction: column !important;
+          align-items: flex-start !important;
+          padding: 0.85rem 1.15rem !important;
+          gap: 0.85rem !important;
+        }
+        .btn-paused-banner-billing {
+          width: 100% !important;
+          justify-content: center !important;
+        }
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
   
   const banner = document.createElement('div');
   banner.id = 'billing-suspension-banner';
-  banner.style.cssText = `
-    background-color: #ef4444; 
-    color: white; 
-    padding: 0.75rem 1.5rem; 
-    text-align: center; 
-    font-weight: 500; 
-    font-size: 0.9rem;
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    gap: 0.5rem;
-    border-bottom: 2px solid #b91c1c;
-  `;
+  banner.className = 'billing-suspension-banner';
   banner.innerHTML = `
-    <i class="ri-error-warning-fill" style="font-size: 1.25rem;"></i>
-    <span><strong>Servicio Pausado:</strong> El comercio <strong>${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado. Por favor regularizar a la brevedad con nuestra área de finanzas a <a href="mailto:finanzas@stocka.cl" style="color: white; text-decoration: underline; font-weight: 700;">finanzas@stocka.cl</a>.</span>
+    <!-- Decoración de fondo suave -->
+    <div style="position: absolute; right: -20px; top: -30px; width: 140px; height: 140px; background: rgba(255, 255, 255, 0.06); border-radius: 50%; pointer-events: none;"></div>
+    <div style="position: absolute; left: 25%; bottom: -40px; width: 180px; height: 100px; background: rgba(0, 0, 0, 0.08); border-radius: 50%; pointer-events: none;"></div>
+
+    <div style="display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 0; z-index: 1;">
+      <!-- Icono de alerta -->
+      <div class="paused-banner-icon">
+        <i class="ri-error-warning-fill"></i>
+      </div>
+
+      <!-- Texto y detalles -->
+      <div style="display: flex; flex-direction: column; gap: 0.2rem; line-height: 1.35;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; font-size: 0.7rem; font-weight: 800; padding: 0.12rem 0.55rem; border-radius: 4px; letter-spacing: 0.05em; text-transform: uppercase;">
+            Servicio Pausado
+          </span>
+          <span style="font-size: 0.9rem; font-weight: 600; color: #ffffff;">
+            El comercio <strong style="font-weight: 800; text-decoration: underline; text-underline-offset: 3px; color: #ffffff;">${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado.
+          </span>
+        </div>
+        <div style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.9); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <span>Por favor regularizar a la brevedad con nuestra área de finanzas:</span>
+          <a href="mailto:finanzas@stocka.cl" style="color: #ffffff; font-weight: 700; text-decoration: none; background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.3); padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; transition: background 0.2s;">
+            <i class="ri-mail-line"></i> finanzas@stocka.cl
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón de Acceso Rápido a Facturación -->
+    <div style="z-index: 1; flex-shrink: 0;">
+      <button type="button" class="btn-paused-banner-billing" onclick="window.navigateToBilling ? window.navigateToBilling() : (document.querySelector('[data-view=\\'admin-billing\\']') || document.querySelector('[data-view=\\'billing\\']'))?.click()">
+        <i class="ri-bill-line" style="font-size: 1.05rem;"></i>
+        <span>Ir a Facturación</span>
+        <i class="ri-arrow-right-line" style="font-size: 0.95rem;"></i>
+      </button>
+    </div>
   `;
   mainContent.insertBefore(banner, mainContent.firstChild);
 }
