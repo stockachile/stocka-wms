@@ -26613,6 +26613,85 @@ window.filterObservationsGrid = function() {
   container.innerHTML = html;
 };
 
+window.getPeriodSortKey = function(p) {
+  let year = p.period_year;
+  let month = p.period_month;
+  if (!year || !month) {
+    const parts = (p.name || '').trim().split(/\s+/);
+    const monthMap = {
+      'ENERO': 1, 'ENE': 1,
+      'FEBRERO': 2, 'FEB': 2,
+      'MARZO': 3, 'MAR': 3,
+      'ABRIL': 4, 'ABR': 4,
+      'MAYO': 5, 'MAY': 5,
+      'JUNIO': 6, 'JUN': 6,
+      'JULIO': 7, 'JUL': 7,
+      'AGOSTO': 8, 'AGO': 8,
+      'SEPTIEMBRE': 9, 'SEP': 9, 'SETIEMBRE': 9,
+      'OCTUBRE': 10, 'OCT': 10,
+      'NOVIEMBRE': 11, 'NOV': 11,
+      'DICIEMBRE': 12, 'DIC': 12
+    };
+    if (parts.length >= 2) {
+      const mStr = parts[0].toUpperCase();
+      month = month || monthMap[mStr] || 1;
+      year = year || parseInt(parts[1], 10) || 2026;
+    } else {
+      month = month || 1;
+      year = year || 2026;
+    }
+  }
+  return (year || 2026) * 100 + (month || 1);
+};
+
+window.sortBillingPeriodsList = function(periodsList, sortOption) {
+  const sorted = [...periodsList];
+  switch (sortOption) {
+    case 'chrono_asc':
+      sorted.sort((a, b) => window.getPeriodSortKey(a) - window.getPeriodSortKey(b));
+      break;
+    case 'name_asc':
+      sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
+      break;
+    case 'name_desc':
+      sorted.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'es', { sensitivity: 'base' }));
+      break;
+    case 'created_desc':
+      sorted.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      break;
+    case 'created_asc':
+      sorted.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      break;
+    case 'chrono_desc':
+    default:
+      sorted.sort((a, b) => window.getPeriodSortKey(b) - window.getPeriodSortKey(a));
+      break;
+  }
+  return sorted;
+};
+
+window.handleBillingPeriodSortChange = function(sortValue) {
+  localStorage.setItem('wms_billing_period_sort', sortValue);
+  loadBillingPeriods();
+};
+
+window.expandAllBillingPeriods = async function() {
+  const cards = document.querySelectorAll('.billing-period-card');
+  for (const card of cards) {
+    if (!card.classList.contains('active')) {
+      const periodId = card.getAttribute('data-period-id');
+      await togglePeriodCollapse(periodId, card);
+    }
+  }
+};
+
+window.collapseAllBillingPeriods = function() {
+  const cards = document.querySelectorAll('.billing-period-card');
+  cards.forEach(card => {
+    card.classList.remove('active');
+  });
+};
+
 async function loadBillingPeriods() {
   const container = document.getElementById('periods-list-container');
   if (!container) return;
@@ -26620,8 +26699,7 @@ async function loadBillingPeriods() {
   try {
     const { data: periods, error } = await supabase
       .from('billing_periods')
-      .select('*')
-      .order('name', { ascending: false }); // Ordenar descendentemente por nombre (ej: JUNIO 2026 antes que MAYO 2026)
+      .select('*');
       
     if (error) throw error;
     
@@ -26637,12 +26715,34 @@ async function loadBillingPeriods() {
       return;
     }
     
-    // Agrupar periodos según el estado
-    const activePeriods = periods.filter(p => p.status === 'activo');
-    const inProcessPeriods = periods.filter(p => p.status === 'en_proceso');
-    const upcomingPeriods = periods.filter(p => p.status === 'proximo');
+    const currentSort = localStorage.getItem('wms_billing_period_sort') || 'chrono_desc';
+
+    // Agrupar periodos según el estado y aplicar el orden seleccionado
+    const activePeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'activo'), currentSort);
+    const inProcessPeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'en_proceso'), currentSort);
+    const upcomingPeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'proximo'), currentSort);
     
-    let html = '';
+    let html = `
+      <div class="periods-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.35rem; color: var(--color-primary); font-weight: 600; font-size: 0.88rem;">
+            <i class="ri-sort-desc" style="font-size: 1.15rem;"></i>
+            <span>Ordenar Periodos:</span>
+          </div>
+          <select id="billing-period-sort-select" class="form-input" style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); width: auto; margin: 0;" onchange="window.handleBillingPeriodSortChange(this.value)">
+            <option value="chrono_desc" ${currentSort === 'chrono_desc' ? 'selected' : ''}>📅 Más reciente primero (Cronológico Descendente)</option>
+            <option value="chrono_asc" ${currentSort === 'chrono_asc' ? 'selected' : ''}>📅 Más antiguo primero (Cronológico Ascendente)</option>
+            <option value="name_asc" ${currentSort === 'name_asc' ? 'selected' : ''}>🔤 Alfabético (A - Z)</option>
+            <option value="name_desc" ${currentSort === 'name_desc' ? 'selected' : ''}>🔤 Alfabético (Z - A)</option>
+            <option value="created_desc" ${currentSort === 'created_desc' ? 'selected' : ''}>🕒 Creados recientemente</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-outline btn-sm" onclick="window.expandAllBillingPeriods()" style="font-size: 0.8rem; padding: 0.3rem 0.65rem;" title="Expandir todos los periodos"><i class="ri-expand-vertical-line"></i> Expandir todos</button>
+          <button class="btn btn-outline btn-sm" onclick="window.collapseAllBillingPeriods()" style="font-size: 0.8rem; padding: 0.3rem 0.65rem;" title="Colapsar todos los periodos"><i class="ri-collapse-vertical-line"></i> Colapsar todos</button>
+        </div>
+      </div>
+    `;
     
     // 1. Periodo Activo
     html += renderPeriodGroupSection('Periodo Activo', activePeriods, 'activo');
@@ -26671,6 +26771,7 @@ async function loadBillingPeriods() {
     `;
   }
 }
+window.loadBillingPeriods = loadBillingPeriods;
 
 function renderPeriodGroupSection(title, list, groupStatus) {
   if (list.length === 0) return '';
