@@ -238,7 +238,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     item: flatItemName || 'Sin Nombre',
     cantidad: flatQuantity || 1,
     raw_jumpseller_data: order,
-    created_at: new Date(order.created_at).toISOString()
+    created_at: order.created_at ? new Date(order.created_at.replace ? order.created_at.replace(' ', 'T') : order.created_at).toISOString() : new Date().toISOString()
   };
 
   let localOrderId = null;
@@ -473,7 +473,8 @@ async function handleProductSave(merchantId: string, comercio: string, product: 
   } else {
     // Si tiene variantes, guardamos cada una de ellas
     for (const vItem of product.variants) {
-      const v = vItem.variant;
+      const v = vItem ? (vItem.variant || vItem) : null;
+      if (!v) continue;
       let variantSku = v.sku || `JS-${product.id}-${v.id}`;
       let cleanSku = variantSku.trim().replace(/\s+/g, '');
       let mappedSku = skuMap[cleanSku] || cleanSku;
