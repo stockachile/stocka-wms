@@ -24046,6 +24046,7 @@ async function checkBillingSuspension(companyStr) {
     
     const resolvedList = Array.from(billingComercios);
     
+    // 1. Verificar si el comercio está oficialmente pausado
     const { data: statuses, error } = await supabase
       .from('commerce_billing_status')
       .select('comercio, al_dia')
@@ -24055,98 +24056,185 @@ async function checkBillingSuspension(companyStr) {
     
     const pausedComercios = statuses?.filter(s => !s.al_dia).map(s => s.comercio) || [];
     if (pausedComercios.length > 0) {
+      const existingWarning = document.getElementById('billing-overdue-warning-banner');
+      if (existingWarning) existingWarning.remove();
       showSuspensionBanner(pausedComercios);
+      return;
+    }
+
+    // 2. Si no está pausado, verificar si tiene registros con pagos atrasados
+    const { data: records, error: rError } = await supabase
+      .from('billing_records')
+      .select('id, comercio, total_fulfillment, abono_fulfillment, pago_fulfillment, fecha_limite, enviame, abono_enviame, pago_enviame, fecha_limite_enviame')
+      .in('comercio', resolvedList);
+
+    if (rError) throw rError;
+
+    let totalOverdueAmount = 0;
+    const overdueComerciosSet = new Set();
+    const now = new Date();
+
+    (records || []).forEach(r => {
+      const pendFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const pendEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+
+      const isFulfOverdue = r.pago_fulfillment === 'Atrasado' || 
+        (r.fecha_limite && new Date(r.fecha_limite + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_fulfillment) && pendFulf > 0);
+
+      const isEnvOverdue = r.pago_enviame === 'Atrasado' || 
+        (r.fecha_limite_enviame && new Date(r.fecha_limite_enviame + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_enviame) && pendEnv > 0);
+
+      if (isFulfOverdue && pendFulf > 0) {
+        totalOverdueAmount += pendFulf;
+        overdueComerciosSet.add(r.comercio);
+      }
+      if (isEnvOverdue && pendEnv > 0) {
+        totalOverdueAmount += pendEnv;
+        overdueComerciosSet.add(r.comercio);
+      }
+    });
+
+    if (totalOverdueAmount > 0) {
+      showOverdueWarningBanner(Array.from(overdueComerciosSet), totalOverdueAmount);
+    } else {
+      const existingWarning = document.getElementById('billing-overdue-warning-banner');
+      if (existingWarning) existingWarning.remove();
     }
   } catch (err) {
-    console.error('Error checking billing suspension:', err);
+    console.error('Error checking billing suspension/overdue:', err);
   }
 }
 
 window.checkBillingSuspension = checkBillingSuspension;
+
+function injectSuspensionBannerStyles() {
+  if (document.getElementById('billing-suspension-banner-style')) return;
+  const styleEl = document.createElement('style');
+  styleEl.id = 'billing-suspension-banner-style';
+  styleEl.innerHTML = `
+    @keyframes pulseAlertIcon {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45); }
+      50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+    }
+    .billing-suspension-banner {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 45%, #991b1b 100%);
+      color: #ffffff;
+      padding: 0.95rem 1.75rem;
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.25rem;
+      border-bottom: 2px solid #7f1d1d;
+      box-shadow: 0 4px 16px rgba(185, 28, 28, 0.35);
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+      z-index: 100;
+    }
+    .billing-warning-banner {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 45%, #b45309 100%);
+      color: #ffffff;
+      padding: 0.95rem 1.75rem;
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.25rem;
+      border-bottom: 2px solid #92400e;
+      box-shadow: 0 4px 16px rgba(217, 119, 6, 0.35);
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+      z-index: 100;
+    }
+    .paused-banner-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.18);
+      border: 1.5px solid rgba(255, 255, 255, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.35rem;
+      color: #ffffff;
+      flex-shrink: 0;
+      animation: pulseAlertIcon 2.5s infinite ease-in-out;
+    }
+    .btn-paused-banner-billing {
+      background: #ffffff !important;
+      color: #b91c1c !important;
+      border: none !important;
+      border-radius: 50px !important;
+      padding: 0.52rem 1.25rem !important;
+      font-size: 0.82rem !important;
+      font-weight: 800 !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.45rem !important;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
+      transition: all 0.2s ease !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.03em !important;
+      white-space: nowrap !important;
+    }
+    .btn-paused-banner-billing:hover {
+      background: #fef2f2 !important;
+      color: #991b1b !important;
+      transform: translateY(-1px) scale(1.02) !important;
+      box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3) !important;
+    }
+    .btn-warning-banner-billing {
+      background: #ffffff !important;
+      color: #b45309 !important;
+      border: none !important;
+      border-radius: 50px !important;
+      padding: 0.52rem 1.25rem !important;
+      font-size: 0.82rem !important;
+      font-weight: 800 !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 0.45rem !important;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.2) !important;
+      transition: all 0.2s ease !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.03em !important;
+      white-space: nowrap !important;
+    }
+    .btn-warning-banner-billing:hover {
+      background: #fffbeb !important;
+      color: #92400e !important;
+      transform: translateY(-1px) scale(1.02) !important;
+      box-shadow: 0 5px 16px rgba(0, 0, 0, 0.25) !important;
+    }
+    @media (max-width: 860px) {
+      .billing-suspension-banner,
+      .billing-warning-banner {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        padding: 0.85rem 1.15rem !important;
+        gap: 0.85rem !important;
+      }
+      .btn-paused-banner-billing,
+      .btn-warning-banner-billing {
+        width: 100% !important;
+        justify-content: center !important;
+      }
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
 
 function showSuspensionBanner(pausedComercios) {
   if (document.getElementById('billing-suspension-banner')) return;
   const mainContent = document.querySelector('.main-content');
   if (!mainContent) return;
 
-  if (!document.getElementById('billing-suspension-banner-style')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'billing-suspension-banner-style';
-    styleEl.innerHTML = `
-      @keyframes pulseAlertIcon {
-        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45); }
-        50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(255, 255, 255, 0); }
-        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-      }
-      .billing-suspension-banner {
-        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 45%, #991b1b 100%);
-        color: #ffffff;
-        padding: 0.95rem 1.75rem;
-        min-height: 62px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1.25rem;
-        border-bottom: 2px solid #7f1d1d;
-        box-shadow: 0 4px 16px rgba(185, 28, 28, 0.35);
-        position: relative;
-        overflow: hidden;
-        box-sizing: border-box;
-        z-index: 100;
-      }
-      .paused-banner-icon {
-        width: 38px;
-        height: 38px;
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.18);
-        border: 1.5px solid rgba(255, 255, 255, 0.35);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.35rem;
-        color: #ffffff;
-        flex-shrink: 0;
-        animation: pulseAlertIcon 2.5s infinite ease-in-out;
-      }
-      .btn-paused-banner-billing {
-        background: #ffffff !important;
-        color: #b91c1c !important;
-        border: none !important;
-        border-radius: 50px !important;
-        padding: 0.52rem 1.25rem !important;
-        font-size: 0.82rem !important;
-        font-weight: 800 !important;
-        cursor: pointer !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        gap: 0.45rem !important;
-        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25) !important;
-        transition: all 0.2s ease !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.03em !important;
-        white-space: nowrap !important;
-      }
-      .btn-paused-banner-billing:hover {
-        background: #fef2f2 !important;
-        color: #991b1b !important;
-        transform: translateY(-1px) scale(1.02) !important;
-        box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3) !important;
-      }
-      @media (max-width: 860px) {
-        .billing-suspension-banner {
-          flex-direction: column !important;
-          align-items: flex-start !important;
-          padding: 0.85rem 1.15rem !important;
-          gap: 0.85rem !important;
-        }
-        .btn-paused-banner-billing {
-          width: 100% !important;
-          justify-content: center !important;
-        }
-      }
-    `;
-    document.head.appendChild(styleEl);
-  }
+  injectSuspensionBannerStyles();
   
   const banner = document.createElement('div');
   banner.id = 'billing-suspension-banner';
@@ -24193,7 +24281,63 @@ function showSuspensionBanner(pausedComercios) {
   mainContent.insertBefore(banner, mainContent.firstChild);
 }
 
+function showOverdueWarningBanner(overdueComercios, totalOverdueAmount = 0) {
+  if (document.getElementById('billing-overdue-warning-banner') || document.getElementById('billing-suspension-banner')) return;
+  const mainContent = document.querySelector('.main-content');
+  if (!mainContent) return;
+
+  injectSuspensionBannerStyles();
+
+  const comerciosText = overdueComercios.length > 0 ? overdueComercios.join(', ') : 'tus comercios';
+  const amountText = totalOverdueAmount > 0 ? ` por un total de <strong>${window.formatCLP ? window.formatCLP(totalOverdueAmount) : '$' + totalOverdueAmount.toLocaleString('es-CL')}</strong>` : '';
+
+  const banner = document.createElement('div');
+  banner.id = 'billing-overdue-warning-banner';
+  banner.className = 'billing-warning-banner';
+  banner.innerHTML = `
+    <!-- Decoración de fondo suave -->
+    <div style="position: absolute; right: -20px; top: -30px; width: 140px; height: 140px; background: rgba(255, 255, 255, 0.08); border-radius: 50%; pointer-events: none;"></div>
+    <div style="position: absolute; left: 25%; bottom: -40px; width: 180px; height: 100px; background: rgba(0, 0, 0, 0.06); border-radius: 50%; pointer-events: none;"></div>
+
+    <div style="display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 0; z-index: 1;">
+      <!-- Icono de alerta con pulso ámbar -->
+      <div class="paused-banner-icon">
+        <i class="ri-alert-fill"></i>
+      </div>
+
+      <!-- Texto y detalles -->
+      <div style="display: flex; flex-direction: column; gap: 0.2rem; line-height: 1.35;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.3); color: #ffffff; font-size: 0.7rem; font-weight: 800; padding: 0.12rem 0.55rem; border-radius: 4px; letter-spacing: 0.05em; text-transform: uppercase;">
+            Saldos Pendientes
+          </span>
+          <span style="font-size: 0.9rem; font-weight: 600; color: #ffffff;">
+            Tienes pagos con atraso${amountText} en <strong style="font-weight: 800; text-decoration: underline; text-underline-offset: 3px; color: #ffffff;">${comerciosText}</strong>.
+          </span>
+        </div>
+        <div style="font-size: 0.8rem; color: rgba(255, 255, 255, 0.95); display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <span>El servicio podría ser pausado en breve de mantenerse esta situación. Regulariza con finanzas:</span>
+          <a href="mailto:finanzas@stocka.cl" style="color: #ffffff; font-weight: 700; text-decoration: none; background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.35); padding: 0.1rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; transition: background 0.2s;">
+            <i class="ri-mail-line"></i> finanzas@stocka.cl
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón de Acceso Rápido a Facturación -->
+    <div style="z-index: 1; flex-shrink: 0;">
+      <button type="button" class="btn-warning-banner-billing" onclick="window.navigateToBilling()">
+        <i class="ri-bill-line" style="font-size: 1.05rem;"></i>
+        <span>Ir a Facturación</span>
+        <i class="ri-arrow-right-line" style="font-size: 0.95rem;"></i>
+      </button>
+    </div>
+  `;
+  mainContent.insertBefore(banner, mainContent.firstChild);
+}
+
 window.showSuspensionBanner = showSuspensionBanner;
+window.showOverdueWarningBanner = showOverdueWarningBanner;
 
 window.navigateToBilling = function() {
   const billingNavItem = document.querySelector('[data-view="billing"]');
