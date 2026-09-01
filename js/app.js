@@ -23374,25 +23374,33 @@ function injectClientBillingStyles() {
       }
     }
     .billing-summary-card {
-      background: linear-gradient(145deg, var(--color-surface) 0%, rgba(30, 41, 59, 0.25) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: var(--radius-md);
-      padding: 0.5rem 0.8rem;
+      background: var(--color-surface, #ffffff);
+      border: 1px solid var(--color-border, #e2e8f0);
+      border-radius: 10px;
+      padding: 0.65rem 0.95rem;
       display: flex;
       flex-direction: column;
       justify-content: center;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-      backdrop-filter: blur(10px);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
       position: relative;
       overflow: hidden;
-      min-height: 72px;
+      min-height: 76px;
       box-sizing: border-box;
     }
-    [data-theme="light"] .billing-summary-card {
-      background: var(--color-surface);
-      border-color: var(--color-border);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    .billing-summary-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+      border-color: rgba(37, 99, 235, 0.3);
+    }
+    [data-theme="dark"] .billing-summary-card {
+      background: var(--color-surface, #1e293b);
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    }
+    [data-theme="dark"] .billing-summary-card:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      border-color: rgba(96, 165, 250, 0.35);
     }
     [data-theme="dark"] .billing-period-highlight-box {
       background: rgba(15, 23, 42, 0.85);
@@ -23407,24 +23415,20 @@ function injectClientBillingStyles() {
     .billing-summary-card::before {
       content: '';
       position: absolute;
-      top: 0; left: 0; width: 100%; height: 3px;
-      background: var(--color-primary);
+      top: 0; left: 0; width: 100%; height: 3.5px;
+      background: var(--color-primary, #2563eb);
     }
     .billing-summary-card.card-paid::before {
-      background: var(--color-success);
+      background: var(--color-success, #10b981);
     }
     .billing-summary-card.card-pending::before {
-      background: var(--color-warning);
+      background: var(--color-warning, #f59e0b);
     }
     .billing-summary-card.card-overdue::before {
-      background: var(--color-danger);
+      background: var(--color-danger, #ef4444);
     }
     .billing-summary-card.card-bank-info::before {
       background: linear-gradient(90deg, #6366f1, #8b5cf6);
-    }
-    .billing-summary-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
     }
 
     /* Button to return to Annual Summary */
