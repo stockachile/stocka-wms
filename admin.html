@@ -545,30 +545,540 @@
 
   <!-- Modal Crear Pedido -->
   <div class="modal-overlay" id="modal-order">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 1100px; width: 95%;">
       <div class="modal-header">
-        <h3>Crear Nuevo Pedido</h3>
+        <h3 style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-add-box-line" style="color: var(--color-primary);"></i> Crear Nuevo Pedido Manual</h3>
         <button class="modal-close" data-close="modal-order">&times;</button>
       </div>
-      <form id="form-new-order">
-        <div class="modal-body">
-          <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-            El sistema descontará automáticamente el stock de la bodega que tenga mayor disponibilidad. Podremos re-asignarlo internamente si es necesario.
-          </p>
-          <div class="form-group">
-            <label class="form-label">Seleccionar Producto</label>
-            <select id="order-product" class="form-input" required>
-              <option value="">Cargando productos...</option>
-            </select>
+      <form id="form-new-order" novalidate>
+        <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding: 1.5rem;">
+          
+          <!-- Wizard Step Indicator -->
+          <div class="wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
+            <div class="wizard-step-tab active" id="wizard-tab-1" style="flex: 1; text-align: center; font-weight: bold; color: var(--color-primary); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15);">1</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Datos de Contacto</span>
+            </div>
+            <div class="wizard-step-line" id="wizard-line-1" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="wizard-step-tab" id="wizard-tab-2" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s;">2</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Detalle del Pedido</span>
+            </div>
+            <div class="wizard-step-line" id="wizard-line-2" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="wizard-step-tab" id="wizard-tab-3" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s;">3</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Envío y Cotización</span>
+            </div>
+            <div class="wizard-step-line" id="wizard-line-3" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="wizard-step-tab" id="wizard-tab-4" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s;">4</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Resumen y Confirmación</span>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Cantidad a pedir</label>
-            <input type="number" id="order-qty" class="form-input" value="1" min="1" required>
+
+          <!-- STEP 1: CONTACT DATA -->
+          <div id="wizard-step-1" class="wizard-step-container">
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+              Completa los datos del destinatario. Puedes buscar en el historial de clientes o copiar los datos de envío de algún pedido previo para agilizar el proceso.
+            </p>
+            
+            <!-- Selector de Comercio (Admin) -->
+            <div id="order-commerce-select-container" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; box-shadow: var(--shadow-sm);">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
+                <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Seleccionar Comercio Asignado <span style="color: var(--color-danger);">*</span>
+              </label>
+              <select id="order-select-commerce" class="form-input" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                <!-- Opciones dinámicas en JS -->
+              </select>
+            </div>
+
+            <!-- Autocompletado desde Base de Datos -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
+                <i class="ri-user-search-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Buscar Cliente Histórico o Pedido Anterior
+              </label>
+              <div style="position: relative; width: 100%;">
+                <input type="text" id="order-customer-search-db" class="form-input" placeholder="🔍 Escribe nombre o correo del cliente para buscar..." style="font-size: 0.85rem; padding: 0.5rem 0.75rem;" autocomplete="off">
+                <div id="order-customer-dropdown-list-db" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;">
+                  <!-- Resultados dinámicos -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Formulario de Despacho -->
+            <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem;">
+              <h4 style="margin: 0 0 0.25rem 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-map-pin-user-line"></i> Datos de Despacho
+              </h4>
+              
+              <!-- Selector de Flujo mediante Tarjetas -->
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 0.5rem;">
+                <input type="radio" name="order-flow-type" id="order-flow-despacho" value="despacho" checked style="display: none;">
+                <input type="radio" name="order-flow-type" id="order-flow-retiro" value="retiro" style="display: none;">
+                <input type="radio" name="order-flow-type" id="order-flow-full" value="full" style="display: none;">
+
+                <label for="order-flow-despacho" id="card-flow-despacho" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 2px solid var(--color-primary); background: rgba(var(--color-primary-rgb), 0.04); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-truck-line" style="font-size: 1.4rem; color: var(--color-primary); margin-bottom: 0.25rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Despacho</span>
+                  <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Envío estándar</span>
+                </label>
+
+                <label for="order-flow-retiro" id="card-flow-retiro" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Retiro</span>
+                  <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Retiro en Oficina</span>
+                </label>
+
+                <label for="order-flow-full" id="card-flow-full" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-archive-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">FULL Meli</span>
+                  <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Bodega ML</span>
+                </label>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Nombre del Destinatario <span style="color: var(--color-danger);">*</span></label>
+                <input type="text" id="order-cust-name" class="form-input" placeholder="Ej: Juan Pérez" required style="font-size: 0.85rem;">
+              </div>
+
+              <div id="group-order-email-phone" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Email <span style="color: var(--color-danger);">*</span></label>
+                  <input type="email" id="order-cust-email" class="form-input" placeholder="juan@correo.com" required style="font-size: 0.85rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Teléfono <span style="color: var(--color-danger);">*</span></label>
+                  <input type="text" id="order-cust-phone" class="form-input" placeholder="+56912345678" required style="font-size: 0.85rem;">
+                </div>
+              </div>
+
+              <div id="group-order-address" class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Dirección de Despacho <span style="color: var(--color-danger);">*</span></label>
+                <input type="text" id="order-cust-address" class="form-input" placeholder="Calle, Número, Villa/Población" required style="font-size: 0.85rem;">
+              </div>
+
+              <div id="group-order-city-complement" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group" style="margin: 0; position: relative;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Comuna / Ciudad <span style="color: var(--color-danger);">*</span></label>
+                  <div style="position: relative; width: 100%;">
+                    <input type="text" id="order-cust-city" class="form-input" placeholder="🔍 Escribe para buscar comuna..." required style="font-size: 0.85rem;" autocomplete="off">
+                    <div id="order-cust-city-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;">
+                      <!-- Se cargará dinámicamente con las comunas del cotizador -->
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Casa/Depto/Block</label>
+                  <input type="text" id="order-cust-complement" class="form-input" placeholder="Depto 402, Block B" style="font-size: 0.85rem;">
+                </div>
+              </div>
+            </div>
           </div>
+
+          <!-- STEP 2: ORDER ITEMS & PHYSICAL DIMENSIONS -->
+          <div id="wizard-step-2" class="wizard-step-container" style="display: none;">
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+              Selecciona los productos requeridos desde el catálogo del comercio e indica las cantidades. Calcularemos automáticamente el volumen estimado de tu despacho.
+            </p>
+            
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem;">
+              <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+              </h4>
+
+              <!-- Selector de Producto -->
+              <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
+                <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px; position: relative;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Seleccionar Producto</label>
+                  <div style="position: relative; width: 100%;">
+                    <input type="text" id="order-product-search" class="form-input" placeholder="🔍 Escribe SKU o nombre para buscar..." style="font-size: 0.85rem; padding: 0.45rem 0.6rem; width: 100%; box-sizing: border-box;" autocomplete="off">
+                    <input type="hidden" id="order-product" value="">
+                    <div id="order-product-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;">
+                      <div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+                        Cargando productos...
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="form-group" style="margin: 0; width: 90px;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Cantidad</label>
+                  <input type="number" id="order-qty" class="form-input" value="1" min="1" style="font-size: 0.85rem; text-align: center;">
+                </div>
+                <button type="button" onclick="window.addAdminNewOrderItem()" class="btn btn-primary" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; cursor: pointer; color: white; display: flex; align-items: center; gap: 0.25rem; height: 36px; border: none; font-weight: 600;"><i class="ri-add-line"></i> Añadir</button>
+              </div>
+
+              <!-- Tabla de ítems -->
+              <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--color-bg);">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-align: left; background: var(--color-surface-hover);">
+                      <th style="padding: 0.5rem 0.75rem;">SKU</th>
+                      <th style="padding: 0.5rem 0.75rem;">Nombre Producto</th>
+                      <th style="padding: 0.5rem 0.75rem; text-align: center; width: 80px;">Cant</th>
+                      <th style="padding: 0.5rem 0.75rem; text-align: right; width: 100px;">Precio Unit</th>
+                      <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Total</th>
+                      <th style="padding: 0.5rem 0.75rem; text-align: center; width: 50px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="client-new-order-items-tbody">
+                    <!-- Carga dinámica en JS -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Resumen y totales -->
+              <div style="display: flex; justify-content: flex-end; gap: 2rem; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); padding-top: 0.5rem; border-top: 1px solid var(--color-border);">
+                <span>Total Unidades: <span id="client-new-order-total-qty" style="color: var(--color-primary);">0</span></span>
+                <span>Total Pedido: <span id="client-new-order-total-val" style="color: var(--color-primary);">$0</span></span>
+              </div>
+            </div>
+
+            <!-- Panel de Peso y Volumen Estimados -->
+            <div style="margin-top: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+              
+              <!-- Card 1: Volumen Total Estimado -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: flex-start; gap: 0.75rem;">
+                <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1.3rem;"></i>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 1;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Volumen Total Estimado</span>
+                  <div style="display: flex; align-items: baseline; gap: 0.25rem;">
+                    <!-- Input oculto pero accesible para JS -->
+                    <input type="number" id="order-total-volume-estimated" style="display: none;" value="0.00000">
+                    <span id="order-total-volume-display" style="font-size: 1.4rem; font-weight: bold; color: var(--color-text-main); font-family: monospace;">0.00000</span>
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">m³</span>
+                  </div>
+                  <small style="font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.25;">Calculado sumando el volumen unitario de cada producto del catálogo.</small>
+                </div>
+              </div>
+
+              <!-- Card 2: Peso Aproximado para Cotizar -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: flex-start; gap: 0.75rem;">
+                <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <i class="ri-scales-3-line" style="color: var(--color-primary); font-size: 1.3rem;"></i>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 1;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Peso Aproximado para Cotizar <span style="color: var(--color-danger);">*</span></span>
+                  <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.1rem;">
+                    <input type="number" id="order-total-weight-input" class="form-input" min="0.1" step="0.1" style="font-size: 1.1rem; font-weight: bold; width: 110px; text-align: right; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-family: monospace;" value="" placeholder="Ej: 2.5">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">Kg</span>
+                  </div>
+                  <small style="font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.25;">Indica un peso estimado en kg para cotizar en el siguiente paso.</small>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- STEP 3: SHIPPING TYPE & LIVE QUOTING -->
+          <div id="wizard-step-3" class="wizard-step-container" style="display: none;">
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+              Selecciona el tipo de entrega y obtén la cotización del despacho en base a la ubicación y características del paquete.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+              
+              <!-- Columna Izquierda: Configuración del Despacho -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-truck-line"></i> Modalidad de Envío
+                </h4>
+                
+                <!-- Domicilio o Sucursal -->
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Tipo de Entrega</label>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                    <!-- Card 1: Domicilio -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="domicilio" checked style="display: none;">
+                      <i class="ri-home-4-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">A Domicilio</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Entrega en dirección</span>
+                      </div>
+                    </label>
+
+                    <!-- Card 2: Sucursal -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="sucursal" style="display: none;">
+                      <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">En Sucursal</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Retiro en courier</span>
+                      </div>
+                    </label>
+
+                    <!-- Card 3: Punto STOCKA -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="punto_stocka" style="display: none;">
+                      <i class="ri-map-pin-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Punto STOCKA</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Retiro Ñuñoa (Gratis)</span>
+                      </div>
+                    </label>
+
+                    <!-- Card 4: Transporte Propio -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="transporte_propio" style="display: none;">
+                      <i class="ri-truck-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Transporte Propio</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo asociado</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Panel Sucursal (Condicional) -->
+                <div id="order-sucursal-panel" style="display: none; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); flex-direction: column; gap: 0.75rem;">
+                  <div style="font-size: 0.78rem; color: var(--color-warning, #d97706); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-alert-line"></i> Por ahora solo se permite retiro en sucursales Starken y Chilexpress.
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; font-weight: 600;">Courier de Sucursal <span style="color: var(--color-danger);">*</span></label>
+                    <select id="order-sucursal-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem;">
+                      <option value="" disabled selected>Selecciona un Courier...</option>
+                      <option value="STARKEN">Starken</option>
+                      <option value="CHILEXPRESS">Chilexpress</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; font-weight: 600;">Dirección / Nombre de la Sucursal <span style="color: var(--color-danger);">*</span></label>
+                    <input type="text" id="order-sucursal-details" class="form-input" placeholder="Ej: Sucursal Providencia Pedro de Valdivia" style="font-size: 0.8rem;">
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; font-weight: 600;">Número de Referencia (Opcional)</label>
+                    <input type="text" id="order-sucursal-ref" class="form-input" placeholder="Ej: ST-998877" style="font-size: 0.8rem;">
+                  </div>
+                </div>
+
+                <!-- Panel Punto STOCKA (Condicional) -->
+                <div id="order-punto-stocka-panel" style="display: none; background: rgba(34, 197, 94, 0.05); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(34, 197, 94, 0.2); flex-direction: column; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-main);">
+                  <div style="font-weight: 700; color: #22c55e; display: flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-checkbox-circle-line"></i> Retiro en local sin costo de envío
+                  </div>
+                  <div style="font-weight: 600;">Dirección de retiro:</div>
+                  <div style="background: var(--color-bg); padding: 0.4rem; border-radius: var(--radius-xs); border: 1px solid var(--color-border); font-family: monospace;">Avenida Campo de Deportes 405, Ñuñoa</div>
+                  <div style="font-weight: 600;">Horarios:</div>
+                  <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+                    • Lunes a Viernes: 10:30 a 14:00 hrs y 15:00 a 17:00 hrs<br>
+                    • Sábado: 10:30 a 14:00 hrs
+                  </div>
+                </div>
+
+                <!-- Cobertura y Zona Detectada -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600;" id="order-coverage-badge">
+                  <!-- Dinámico en JS -->
+                </div>
+
+                <!-- Pagado / Por Pagar (Condicional para Regiones) -->
+                <div class="form-group" id="order-payment-condition-group" style="margin: 0; display: none;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Condición de Envío</label>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                    <!-- Card 1: Pagado -->
+                    <label class="payment-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-payment" value="pagado" checked style="display: none;">
+                      <i class="ri-wallet-3-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Envío Pagado</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Prepagado (Costo en sistema)</span>
+                      </div>
+                    </label>
+
+                    <!-- Card 2: Por Pagar -->
+                    <label class="payment-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-payment" value="por_pagar" style="display: none;">
+                      <i class="ri-hand-coin-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Por Pagar</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Cobro en Destino ($0 sistema)</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+
+                <!-- Canal de Origen e ID Externo -->
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Canal de Origen</label>
+                  <select id="order-cust-origen" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
+                    <option value="Manual" selected>Manual</option>
+                    <option value="Shopify">Shopify</option>
+                    <option value="WooCommerce">WooCommerce</option>
+                    <option value="Jumpseller">Jumpseller</option>
+                    <option value="Tiendanube">Tiendanube</option>
+                    <option value="MercadoLibre">Mercado Libre</option>
+                    <option value="Falabella">Falabella</option>
+                    <option value="Paris">Paris</option>
+                    <option value="Ripley">Ripley</option>
+                  </select>
+                </div>
+
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Número de Pedido</label>
+                  <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; cursor: pointer;">
+                      <input type="checkbox" id="order-number-auto" checked style="cursor: pointer;"> Generar automáticamente por sistema
+                    </label>
+                    <input type="text" id="order-cust-external-id" class="form-input" placeholder="Ej: #9401" style="font-size: 0.85rem; display: none;">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Columna Derecha: Cotización y Tarifas -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-calculator-line"></i> Detalle de Cotización
+                </h4>
+
+                <!-- Selección de Operador / Courier -->
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Seleccionar Courier / Servicio</label>
+                  <div id="order-courier-options-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Se carga dinámicamente en JS -->
+                  </div>
+                </div>
+
+                <!-- Panel de Desglose de Precios -->
+                <div style="margin-top: auto; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+                    <span>Valor Neto Despacho:</span>
+                    <span id="order-quote-net" style="font-weight: 600;">$0</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+                    <span>IVA (19%):</span>
+                    <span id="order-quote-tax" style="font-weight: 600;">$0</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700; border-top: 1px solid var(--color-border); padding-top: 0.5rem; margin-top: 0.25rem;">
+                    <span>Total Despacho:</span>
+                    <span id="order-quote-total" style="color: var(--color-primary);">$0</span>
+                  </div>
+                </div>
+
+                <div style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; line-height: 1.3;">
+                  * Nota: Si se selecciona "Envío por Pagar", la cotización mostrada es referencial y se registrará en el sistema con costo $0, puesto que el destinatario paga directamente al operador al recibir el pedido.
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- STEP 4: SUMMARY & CONFIRMATION -->
+          <div id="wizard-step-4" class="wizard-step-container" style="display: none;">
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+              Revisa el resumen del pedido antes de confirmar la creación. Verifica que los datos del destinatario, productos y cobros de despacho sean correctos.
+            </p>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+              
+              <!-- Columna Izquierda: Información de Destinatario y Despacho -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-user-line"></i> Datos del Pedido
+                </h4>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem;">
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Comercio Originador:</span>
+                    <span id="summary-commerce" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Destinatario:</span>
+                    <span id="summary-name" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Email:</span>
+                    <span id="summary-email" style="color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Teléfono:</span>
+                    <span id="summary-phone" style="color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Dirección:</span>
+                    <span id="summary-address" style="color: var(--color-text-main); text-align: right; max-width: 60%;">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Depto/Block/Casa:</span>
+                    <span id="summary-complement" style="color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Comuna / Ciudad:</span>
+                    <span id="summary-city" style="font-weight: bold; color: var(--color-primary);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Canal de Origen:</span>
+                    <span id="summary-origin" style="color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Número de Pedido:</span>
+                    <span id="summary-external-id" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Entrega / Courier:</span>
+                    <span id="summary-shipping-type" style="font-weight: bold; color: var(--color-primary);">--</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Columna Derecha: Productos y Totales -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-shopping-cart-line"></i> Productos y Cobros
+                </h4>
+                
+                <!-- Tabla de Productos del Resumen -->
+                <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                    <thead>
+                      <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+                        <th style="padding: 0.4rem 0.5rem; font-weight: 600;">SKU</th>
+                        <th style="padding: 0.4rem 0.5rem; font-weight: 600;">Producto</th>
+                        <th style="padding: 0.4rem 0.5rem; font-weight: 600; text-align: center;">Cant</th>
+                      </tr>
+                    </thead>
+                    <tbody id="summary-items-tbody">
+                      <!-- Renderizado Dinámico -->
+                    </tbody>
+                  </table>
+                </div>
+                
+                <!-- Totales Financieros -->
+                <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.82rem;">
+                  <div style="display: flex; justify-content: space-between; color: var(--color-text-muted);">
+                    <span>Total Estimado Peso/Vol:</span>
+                    <span id="summary-totals-weight-vol" style="font-weight: 600;">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; color: var(--color-text-muted); border-top: 1px dashed var(--color-border); padding-top: 0.4rem; margin-top: 0.25rem;">
+                    <span>Neto Despacho:</span>
+                    <span id="summary-shipping-net" style="font-weight: 600;">$0</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; color: var(--color-text-muted);">
+                    <span>IVA Despacho (19%):</span>
+                    <span id="summary-shipping-tax" style="font-weight: 600;">$0</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700; border-top: 1px solid var(--color-border); padding-top: 0.5rem; margin-top: 0.25rem;">
+                    <span>Despacho Total:</span>
+                    <span id="summary-shipping-total" style="color: var(--color-primary);">$0</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; width: 100%; box-sizing: border-box;">
           <button type="button" class="btn btn-outline" data-close="modal-order">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;">Confirmar Pedido</button>
+          
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="btn-wizard-prev" class="btn btn-outline" style="display: none; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-line"></i> Atrás</button>
+            <button type="button" id="btn-wizard-next" class="btn btn-primary" style="background-color: var(--color-accent, #3b82f6); color: white; font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">Siguiente <i class="ri-arrow-right-line"></i></button>
+            <button type="submit" id="btn-wizard-submit" class="btn btn-primary" style="background-color: var(--color-accent, #3b82f6); color: white; font-weight: 600; display: none; align-items: center; gap: 0.25rem;">Confirmar Pedido <i class="ri-check-line"></i></button>
+          </div>
         </div>
       </form>
     </div>
@@ -1588,7 +2098,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.2"></script>
-  <script type="module" src="./js/admin.js?v=1.0.50"></script>
+  <script type="module" src="./js/admin.js?v=1.0.51"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script src="./js/manifests.js"></script>

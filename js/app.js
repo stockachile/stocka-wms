@@ -17730,6 +17730,7 @@ window.checkSystemCommunications = async function(userId) {
 
     // 2. Fetch active Popup
     const { data: popups } = await supabase.from('system_popups').select('*').eq('is_active', true).order('created_at', { ascending: false });
+    let popupShown = false;
     if (popups && popups.length > 0) {
       const popup = popups.find(p => {
         const target = p.target_role || 'all';
@@ -17739,7 +17740,46 @@ window.checkSystemCommunications = async function(userId) {
       if (popup) {
         const { data: readPopup } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'popup').eq('entity_id', popup.id);
         if (!readPopup || readPopup.length === 0) {
+          popupShown = true;
           window.showSystemPopupModal(popup, userId);
+        }
+      }
+    }
+
+    // 3. Fetch latest News / Blog Announcement Popup
+    const { data: newsList } = await supabase
+      .from('dashboard_news')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (newsList && newsList.length > 0) {
+      const latestNews = newsList.find(n => {
+        const target = n.target_role || 'all';
+        return target === 'all' || target === roleToUse;
+      });
+
+      if (latestNews) {
+        const localRead = localStorage.getItem(`wms_news_read_${latestNews.id}_${userId}`);
+        const sessionReadLater = sessionStorage.getItem(`wms_news_read_later_${latestNews.id}_${userId}`);
+
+        if (!localRead && !sessionReadLater) {
+          const { data: readNews } = await supabase
+            .from('user_notification_reads')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('entity_type', 'news')
+            .eq('entity_id', latestNews.id);
+
+          if (!readNews || readNews.length === 0) {
+            setTimeout(() => {
+              if (!document.getElementById('system-popup-modal') && !document.getElementById('news-login-popup-modal')) {
+                window.showNewsLoginPopupModal(latestNews, userId);
+              }
+            }, popupShown ? 1500 : 600);
+          } else {
+            localStorage.setItem(`wms_news_read_${latestNews.id}_${userId}`, 'true');
+          }
         }
       }
     }
@@ -17853,6 +17893,138 @@ window.dismissSystemPopup = async function(popupId, userId) {
   const modal = document.getElementById('system-popup-modal');
   if (modal) modal.remove();
   await supabase.from('user_notification_reads').insert([{ user_id: userId, entity_type: 'popup', entity_id: popupId }]);
+};
+
+window.showNewsLoginPopupModal = function(newsItem, userId) {
+  const modalId = 'news-login-popup-modal';
+  if (document.getElementById(modalId)) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = modalId;
+  overlay.className = 'modal-overlay active';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100vw';
+  overlay.style.height = '100vh';
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.65)';
+  overlay.style.backdropFilter = 'blur(5px)';
+  overlay.style.zIndex = '999998';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+
+  const cat = newsItem.category || 'Actualización';
+  let badgeClass = 'news-tag-update';
+  let badgeIcon = 'ri-rocket-line';
+  if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+  else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+  else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+  else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+  else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = newsItem.body || '';
+  const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+  const pubDate = newsItem.created_at ? new Date(newsItem.created_at).toLocaleDateString('es-CL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }) : 'Reciente';
+
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width: 720px; width: 92%; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); animation: zoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+      
+      <!-- Top announcement ribbon -->
+      <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: #fff; padding: 0.65rem 1.25rem; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; letter-spacing: 0.3px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-megaphone-fill" style="font-size: 1.1rem; color: #93c5fd;"></i>
+          <span>NUEVO COMUNICADO WMS</span>
+        </div>
+        <button id="btn-news-popup-close-x" style="background: rgba(255,255,255,0.15); border: none; color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1rem; transition: background 0.2s;" title="Leer después"><i class="ri-close-line"></i></button>
+      </div>
+
+      <!-- Header with tags -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+          ${newsItem.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Noticia Destacada</span>` : ''}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-time-line"></i> ${readTime} min de lectura
+        </div>
+      </div>
+
+      <!-- Body with cover image and typography -->
+      <div class="modal-body" style="padding: 1.5rem 1.75rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        ${newsItem.cover_image ? `
+          <div style="margin-bottom: 1.25rem; border-radius: var(--radius-md); overflow: hidden; max-height: 260px; border: 1px solid var(--color-border); background-color: var(--color-bg);">
+            <img src="${newsItem.cover_image}" alt="${newsItem.title}" style="width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in;" onclick="window.openNewsImageLightbox('${newsItem.cover_image}')">
+          </div>
+        ` : ''}
+
+        <h1 style="margin: 0 0 0.4rem 0; font-size: 1.5rem; color: var(--color-text-main); font-weight: 800; line-height: 1.3;">
+          ${newsItem.title}
+        </h1>
+
+        ${newsItem.subtitle ? `
+          <h2 style="margin: 0 0 0.85rem 0; font-size: 1.05rem; color: var(--color-primary); font-weight: 600; line-height: 1.4;">
+            ${newsItem.subtitle}
+          </h2>
+        ` : ''}
+
+        <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.78rem; color: var(--color-text-muted); padding-bottom: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+          <span><i class="ri-calendar-event-line"></i> ${pubDate}</span>
+          <span><i class="ri-user-smile-line"></i> Equipo STOCKA</span>
+        </div>
+
+        <div class="blog-article-content" style="font-size: 0.925rem; line-height: 1.7; color: var(--color-text-main);">
+          ${newsItem.body || ''}
+        </div>
+      </div>
+
+      <!-- Footer with requested action buttons -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+          <i class="ri-information-line"></i> Disponible también en el sidebar de noticias del WMS.
+        </div>
+        <div style="display: flex; gap: 0.6rem; align-items: center;">
+          <button id="btn-news-read-later" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.45rem 0.95rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <i class="ri-history-line"></i> Leer después
+          </button>
+          <button id="btn-news-mark-read" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.45rem 1.15rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; background-color: #10b981; border-color: #10b981; color: #fff;">
+            <i class="ri-check-double-line"></i> Marcar como leído
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const closeReadLater = () => {
+    sessionStorage.setItem(`wms_news_read_later_${newsItem.id}_${userId}`, 'true');
+    overlay.remove();
+  };
+
+  const markAsRead = async () => {
+    localStorage.setItem(`wms_news_read_${newsItem.id}_${userId}`, 'true');
+    overlay.remove();
+    try {
+      await supabase.from('user_notification_reads').insert([
+        { user_id: userId, entity_type: 'news', entity_id: newsItem.id }
+      ]);
+    } catch (e) {
+      console.warn('Could not record news read in DB, saved to localStorage', e);
+    }
+  };
+
+  document.getElementById('btn-news-popup-close-x')?.addEventListener('click', closeReadLater);
+  document.getElementById('btn-news-read-later')?.addEventListener('click', closeReadLater);
+  document.getElementById('btn-news-mark-read')?.addEventListener('click', markAsRead);
 };
 
 // ==========================================

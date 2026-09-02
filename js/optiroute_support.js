@@ -3849,7 +3849,7 @@ modal.style.position = 'fixed';
     });
   }
 
-  // --- MÓDULO DE GUÍA DE DESPACHO / HOJA DE RUTA POR CONDUCTOR (A4) ---
+  // --- MÓDULO DE GUÍA DE DESPACHO Y ACTA RESUMEN DE ENTREGA POR CONDUCTOR ---
 
   const dispatchGuideStylesCss = `
     @page {
@@ -3865,6 +3865,23 @@ modal.style.position = 'fixed';
         font-family: 'Outfit', Arial, sans-serif;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
+      }
+      .driver-summary-act-page {
+        page-break-after: always !important;
+        break-after: page !important;
+        height: 275mm !important;
+        max-height: 275mm !important;
+        box-shadow: none !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 6mm 6mm !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      .driver-summary-act-page:last-child {
+        page-break-after: auto !important;
+        break-after: auto !important;
       }
       .driver-guide-page {
         page-break-after: always !important;
@@ -3892,6 +3909,27 @@ modal.style.position = 'fixed';
       background: #f1f5f9;
       color: #0f172a;
     }
+
+    /* Estilo del Acta Resumen de 1 Hoja (Garantizado 1 Página) */
+    .driver-summary-act-page {
+      width: 100%;
+      max-width: 210mm;
+      min-height: 270mm;
+      max-height: 278mm;
+      margin: 0 auto 20px auto;
+      background: #ffffff;
+      padding: 8mm 9mm;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+    }
+
+    /* Estilo de la Guía Detallada */
     .driver-guide-page {
       width: 100%;
       max-width: 210mm;
@@ -3903,6 +3941,7 @@ modal.style.position = 'fixed';
       box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       box-sizing: border-box;
     }
+
     .guide-header {
       display: flex;
       justify-content: space-between;
@@ -3917,12 +3956,12 @@ modal.style.position = 'fixed';
       gap: 10px;
     }
     .guide-logo {
-      height: 32px;
+      height: 34px;
       width: auto;
       object-fit: contain;
     }
     .guide-brand-title {
-      font-size: 10.5pt;
+      font-size: 11pt;
       font-weight: 800;
       letter-spacing: 0.5px;
       color: #0f172a;
@@ -3938,7 +3977,7 @@ modal.style.position = 'fixed';
       text-align: right;
     }
     .guide-doc-title {
-      font-size: 10pt;
+      font-size: 10.5pt;
       font-weight: 900;
       color: #0f172a;
       letter-spacing: 0.5px;
@@ -3946,8 +3985,8 @@ modal.style.position = 'fixed';
       line-height: 1.1;
     }
     .guide-doc-subtitle {
-      font-size: 6.8pt;
-      font-weight: 700;
+      font-size: 7.5pt;
+      font-weight: 800;
       color: #059669;
       letter-spacing: 0.8px;
     }
@@ -4089,7 +4128,7 @@ modal.style.position = 'fixed';
       gap: 2px;
     }
     .guide-section-subtitle {
-      font-size: 6.2pt;
+      font-size: 6.5pt;
       font-weight: 800;
       color: #0f172a;
       text-transform: uppercase;
@@ -4147,7 +4186,110 @@ modal.style.position = 'fixed';
       text-align: left;
       margin-top: 1px;
     }
+
+    /* Estilos Específicos del Acta Resumen de 1 Hoja */
+    .act-summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex: 1;
+    }
+    .act-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 6px 8px;
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+    }
+    .act-card-title {
+      font-size: 7.2pt;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 3px;
+    }
+    .act-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7pt;
+    }
+    .act-table th {
+      text-align: left;
+      font-size: 6pt;
+      color: #64748b;
+      padding: 2px 4px;
+      border-bottom: 1px solid #cbd5e1;
+      text-transform: uppercase;
+    }
+    .act-table td {
+      padding: 2.5px 4px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+    }
+    .act-table tr:last-child td {
+      border-bottom: none;
+    }
+    .act-declaration-box {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 6.8pt;
+      line-height: 1.35;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+    .act-signatures-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 6px;
+    }
+    .act-sig-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 8px;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 90px;
+    }
+    .act-sig-line {
+      border-bottom: 1.5px solid #0f172a;
+      margin-bottom: 4px;
+      height: 35px;
+    }
+    .act-return-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 4px 8px;
+      background: #f8fafc;
+      font-size: 6.2pt;
+      color: #475569;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
   `;
+
+  // Generador determinístico del Número de Guía de Despacho asociado al Conductor
+  function getDriverGuideNumber(group, routeName) {
+    const rawRoute = String(routeName || 'RUTA').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const rawDriver = String(group.driverName || 'COND').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const now = new Date();
+    const dStr = now.getFullYear().toString().slice(-2) + 
+      String(now.getMonth() + 1).padStart(2, '0') + 
+      String(now.getDate()).padStart(2, '0');
+    
+    return `GD-${dStr}-${rawRoute.slice(0, 8)}-${rawDriver.slice(0, 6)}`;
+  }
 
   // Agrupar envíos por Conductor / Móvil
   function groupWaypointsByDriver(waypoints) {
@@ -4182,13 +4324,228 @@ modal.style.position = 'fixed';
     return Array.from(driverMap.values());
   }
 
-  // Generar HTML de la Guía de Despacho para un Conductor específico
+  // Generar HTML del Acta Resumen de Carga (1 Hoja para Firma Conductor)
+  function generateDriverSummaryActHtml(group, routeName, options = {}) {
+    const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const formattedTime = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    const guideNumber = getDriverGuideNumber(group, routeName);
+
+    // 1. Desglose por Comercio
+    const supplierCounts = new Map();
+    group.items.forEach(w => {
+      const s = (w.supplier || 'STOCKA').trim().toUpperCase();
+      supplierCounts.set(s, (supplierCounts.get(s) || 0) + 1);
+    });
+    const suppliersList = Array.from(supplierCounts.entries())
+      .map(([supplier, count]) => ({
+        supplier,
+        count,
+        pct: ((count / group.items.length) * 100).toFixed(0)
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // 2. Desglose por Comuna
+    const comunaCounts = new Map();
+    const comunaRanges = new Map();
+    group.items.forEach(w => {
+      const c = (w.comuna || 'Sin Comuna').trim().toUpperCase();
+      comunaCounts.set(c, (comunaCounts.get(c) || 0) + 1);
+      if (!comunaRanges.has(c)) comunaRanges.set(c, []);
+      comunaRanges.get(c).push(w.order);
+    });
+    const comunasList = Array.from(comunaCounts.entries())
+      .map(([comuna, count]) => {
+        const orders = comunaRanges.get(comuna) || [];
+        const minO = orders[0];
+        const maxO = orders[orders.length - 1];
+        const rangeStr = orders.length > 1 ? `#${minO} - #${maxO}` : `#${minO}`;
+        return { comuna, count, rangeStr };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return `
+      <div class="driver-summary-act-page">
+        <!-- Encabezado Formal -->
+        <div>
+          <div class="guide-header">
+            <div class="guide-header-brand">
+              <img src="img/newlogotransp.png" alt="Stocka" class="guide-logo" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+              <div class="guide-brand-text">
+                <div class="guide-brand-title">STOCKA LOGÍSTICA & FULFILLMENT</div>
+                <div class="guide-brand-sub">Control y Recepción de Carga Ecommerce • info@stocka.cl</div>
+              </div>
+            </div>
+            <div class="guide-doc-badge">
+              <div class="guide-doc-title">ACTA DE ENTREGA Y RECEPCIÓN DE CARGA</div>
+              <div class="guide-doc-subtitle" style="font-size: 8.5pt; color: #059669; font-weight: 900; font-family: monospace;">N° ${guideNumber}</div>
+            </div>
+          </div>
+
+          <!-- Cuadrícula de Metadatos -->
+          <div class="guide-meta-grid" style="margin-bottom: 8px;">
+            <div class="guide-meta-item">
+              <span class="guide-meta-label">RUTA / PLAN OPTIROUTE:</span>
+              <span class="guide-meta-val">${escapeHtml(routeName || 'Ruta Optiroute')}</span>
+            </div>
+            <div class="guide-meta-item">
+              <span class="guide-meta-label">FECHA DE EMISIÓN:</span>
+              <span class="guide-meta-val">${formattedDate} - ${formattedTime} hrs</span>
+            </div>
+            <div class="guide-meta-item highlight-driver">
+              <span class="guide-meta-label">CONDUCTOR / MÓVIL ASIGNADO:</span>
+              <span class="guide-meta-val">${escapeHtml(group.driverName)}</span>
+            </div>
+            <div class="guide-meta-item">
+              <span class="guide-meta-label">VEHÍCULO / PATENTE:</span>
+              <span class="guide-meta-val">${escapeHtml(group.vehicleName || 'Sin Asignación')}</span>
+            </div>
+            <div class="guide-meta-item highlight-total">
+              <span class="guide-meta-label">TOTAL BULTOS / PAQUETES:</span>
+              <span class="guide-meta-val">${group.items.length} PAQUETES</span>
+            </div>
+            <div class="guide-meta-item">
+              <span class="guide-meta-label">ESTADO DE CARGA:</span>
+              <span class="guide-meta-val" style="color: #059669;">DESPACHADO EN RUTA</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tablas de Resumen (Comercios y Comunas) -->
+        <div class="act-summary-grid">
+          
+          <!-- Resumen por Comercio -->
+          <div class="act-card">
+            <div class="act-card-title">
+              <span>🏢 Desglose por Comercio / Tienda</span>
+              <span style="color: #059669;">${suppliersList.length} Comercios</span>
+            </div>
+            <table class="act-table">
+              <thead>
+                <tr>
+                  <th>Comercio</th>
+                  <th style="text-align: right; width: 60px;">Envíos</th>
+                  <th style="text-align: right; width: 45px;">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${suppliersList.map(s => `
+                  <tr>
+                    <td style="font-weight: 700;">${escapeHtml(s.supplier)}</td>
+                    <td style="text-align: right; font-weight: 800; font-family: monospace;">${s.count}</td>
+                    <td style="text-align: right; color: #64748b;">${s.pct}%</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="border-top: 1.5px solid #cbd5e1; font-weight: 900;">
+                  <td style="padding-top: 3px;">TOTAL BULTOS:</td>
+                  <td style="text-align: right; padding-top: 3px; font-family: monospace; font-size: 7.5pt; color: #2563eb;">${group.items.length}</td>
+                  <td style="text-align: right; padding-top: 3px; color: #2563eb;">100%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <!-- Resumen por Comuna -->
+          <div class="act-card">
+            <div class="act-card-title">
+              <span>📍 Desglose por Comuna de Destino</span>
+              <span style="color: #059669;">${comunasList.length} Comunas</span>
+            </div>
+            <table class="act-table">
+              <thead>
+                <tr>
+                  <th>Comuna</th>
+                  <th style="text-align: right; width: 55px;">Envíos</th>
+                  <th style="text-align: right; width: 65px;">Paradas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${comunasList.map(c => `
+                  <tr>
+                    <td style="font-weight: 700;">${escapeHtml(c.comuna)}</td>
+                    <td style="text-align: right; font-weight: 800; font-family: monospace;">${c.count}</td>
+                    <td style="text-align: right; color: #64748b; font-family: monospace; font-size: 6.5pt;">${c.rangeStr}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="border-top: 1.5px solid #cbd5e1; font-weight: 900;">
+                  <td style="padding-top: 3px;">TOTAL DESTINOS:</td>
+                  <td style="text-align: right; padding-top: 3px; font-family: monospace; font-size: 7.5pt; color: #059669;">${group.items.length}</td>
+                  <td style="text-align: right; padding-top: 3px; color: #059669;">#1 - #${group.items[group.items.length - 1]?.order || ''}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+        </div>
+
+        <!-- Declaración de Conformidad y Responsabilidad -->
+        <div class="act-declaration-box">
+          <strong>DECLARACIÓN DE RECEPCIÓN CONFORME Y CUSTODIA:</strong><br>
+          Por medio de la presente acta, el conductor individualizado declara haber recibido a su entera conformidad la cantidad total de 
+          <strong>${group.items.length} bultos/paquetes</strong> individualizados en el detalle de la 
+          <strong>Guía de Despacho N° ${guideNumber}</strong>, en óptimas condiciones y sellados para su distribución. Se compromete a la custodia, correcta entrega a los destinatarios finales y rendición de novedades en el centro de operaciones de Stocka SpA.
+        </div>
+
+        <!-- Observaciones de Salida -->
+        <div style="margin-bottom: 8px; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 4px 8px; font-size: 6.5pt; color: #475569;">
+          <strong>OBSERVACIONES DE DESPACHO / NOVEDADES DE CARGA:</strong> ____________________________________________________________________________________
+        </div>
+
+        <!-- Firmas Formales (Conductor y Despachador) -->
+        <div class="act-signatures-grid">
+          <!-- Firma Conductor -->
+          <div class="act-sig-card">
+            <div>
+              <span style="font-size: 6.8pt; font-weight: 800; color: #0f172a; text-transform: uppercase;">1. CONDUCTOR RECEPTOR DE CARGA</span>
+            </div>
+            <div>
+              <div class="act-sig-line"></div>
+              <div style="font-size: 6.2pt; color: #1e293b;"><strong>Nombre:</strong> ${escapeHtml(group.driverName)}</div>
+              <div style="font-size: 6.2pt; color: #1e293b;"><strong>RUT:</strong> ___________________________ &nbsp;&nbsp; <strong>Fono:</strong> ___________________</div>
+              <div style="font-size: 5.8pt; color: #64748b; margin-top: 2px;">Declaro recepción conforme de la carga individualizada.</div>
+            </div>
+          </div>
+
+          <!-- Firma Bodega -->
+          <div class="act-sig-card">
+            <div>
+              <span style="font-size: 6.8pt; font-weight: 800; color: #0f172a; text-transform: uppercase;">2. CONTROL BODEGA / DESPACHO STOCKA</span>
+            </div>
+            <div>
+              <div class="act-sig-line"></div>
+              <div style="font-size: 6.2pt; color: #1e293b;"><strong>Despachado por:</strong> __________________________________________</div>
+              <div style="font-size: 6.2pt; color: #1e293b;"><strong>Fecha/Hora Salida:</strong> ${formattedDate} ${formattedTime} hrs &nbsp; <strong>V°B°:</strong> [ &nbsp; ]</div>
+              <div style="font-size: 5.8pt; color: #64748b; margin-top: 2px;">Timbre y validación de bultos físicos despachados.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fila de Cierre y Retorno al Centro de Operaciones -->
+        <div class="act-return-box">
+          <span><strong>CONTROL DE RETORNO •</strong> Hora Llegada: ____:____ hrs</span>
+          <span><strong>Entregados:</strong> ____</span>
+          <span><strong>Devueltos / Novedades:</strong> ____</span>
+          <span><strong>Firma Cierre Bodega:</strong> ____________________________</span>
+        </div>
+
+      </div>
+    `;
+  }
+
+  // Generar HTML de la Guía Detallada de Despacho (con listado de pedidos)
   function generateSingleDriverGuideHtml(group, routeName, options = {}) {
     const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     
     const now = new Date();
     const formattedDate = now.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const formattedTime = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    const guideNumber = getDriverGuideNumber(group, routeName);
 
     // Conteo de comunas
     const comunaCounts = new Map();
@@ -4259,7 +4616,7 @@ modal.style.position = 'fixed';
           </div>
           <div class="guide-doc-badge">
             <div class="guide-doc-title">GUÍA DE DESPACHO / HOJA DE RUTA</div>
-            <div class="guide-doc-subtitle">MANIFIESTO DE CARGA Y ENTREGA</div>
+            <div class="guide-doc-subtitle" style="font-size: 8pt; color: #059669; font-weight: 900; font-family: monospace;">N° ${guideNumber}</div>
           </div>
         </div>
 
@@ -4339,8 +4696,8 @@ modal.style.position = 'fixed';
     `;
   }
 
-  // Imprimir Guías de Despacho (Ventana Emergente A4)
-  function printDispatchGuides(selectedDriverKey = 'ALL', options = {}) {
+  // Imprimir Guías de Despacho o Actas Resumen (Ventana Emergente A4)
+  function printDispatchGuides(selectedDriverKey = 'ALL', docType = 'SUMMARY', options = {}) {
     if (!allWaypoints || allWaypoints.length === 0) {
       alert('No hay envíos cargados en la ruta para generar la guía de despacho.');
       return;
@@ -4358,26 +4715,42 @@ modal.style.position = 'fixed';
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert('Por favor, permite las ventanas emergentes (popups) para poder imprimir la guía de despacho.');
+      alert('Por favor, permite las ventanas emergentes (popups) para poder imprimir el documento.');
       return;
     }
 
     const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || allWaypoints[0]?.route_name || 'Ruta Optiroute';
-    const guidesHtml = targetGroups.map(group => generateSingleDriverGuideHtml(group, routePlanName, options)).join('');
+    
+    let renderedPagesHtml = '';
+    targetGroups.forEach(group => {
+      if (docType === 'SUMMARY') {
+        renderedPagesHtml += generateDriverSummaryActHtml(group, routePlanName, options);
+      } else if (docType === 'DETAILED') {
+        renderedPagesHtml += generateSingleDriverGuideHtml(group, routePlanName, options);
+      } else {
+        // BOTH
+        renderedPagesHtml += generateDriverSummaryActHtml(group, routePlanName, options);
+        renderedPagesHtml += generateSingleDriverGuideHtml(group, routePlanName, options);
+      }
+    });
+
+    const docTitle = docType === 'SUMMARY' 
+      ? `Acta Resumen Despacho - ${routePlanName}`
+      : `Guía de Despacho - ${routePlanName}`;
 
     const fullDoc = `
       <!DOCTYPE html>
       <html lang="es">
       <head>
         <meta charset="utf-8">
-        <title>Guía de Despacho - ${routePlanName} (${targetGroups.length} Conductores) - WMS STOCKA</title>
+        <title>${docTitle} (${targetGroups.length} Conductores) - WMS STOCKA</title>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
         <style>
           ${dispatchGuideStylesCss}
         </style>
       </head>
       <body>
-        ${guidesHtml}
+        ${renderedPagesHtml}
         <script>
           window.onload = function() {
             setTimeout(function() {
@@ -4394,7 +4767,7 @@ modal.style.position = 'fixed';
     printWindow.document.close();
   }
 
-  // Modal Gestor y Vista Previa de Guía de Despacho
+  // Modal Gestor y Vista Previa de Guía de Despacho y Acta Resumen
   function openDispatchGuideModal() {
     const modalId = 'optiroute-dispatch-guide-modal';
     const existing = document.getElementById(modalId);
@@ -4421,40 +4794,58 @@ modal.style.position = 'fixed';
     const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || allWaypoints[0]?.route_name || 'Ruta Optiroute';
 
     let currentSelectedDriver = 'ALL';
+    let currentDocType = 'SUMMARY'; // 'SUMMARY' (Acta 1 hoja por defecto), 'DETAILED', 'BOTH'
 
     modal.innerHTML = `
-      <div class="card" style="width: 1100px; max-width: 96vw; height: 88vh; min-height: 560px; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
+      <div class="card" style="width: 1150px; max-width: 96vw; height: 90vh; min-height: 580px; max-height: 95vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
         
         <!-- Encabezado del Modal -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.4rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0;">
           <div>
-            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
-              <i class="ri-file-list-3-line" style="color: #059669; font-size: 1.3rem;"></i> Guía de Despacho / Hoja de Ruta por Conductor
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-file-list-3-line" style="color: #059669; font-size: 1.3rem;"></i> Guía de Despacho y Acta Resumen por Conductor
             </h3>
-            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
-              Genera e imprime el manifiesto de entrega y detalle de carga para los repartidores (Formato A4 estándar).
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Genera e imprime el acta resumen de 1 hoja para firma de recepción o la guía detallada de paradas.
             </p>
           </div>
           <button id="close-guide-modal-x" style="background: none; border: none; font-size: 1.65rem; cursor: pointer; color: var(--color-text-muted); line-height: 1;">&times;</button>
         </div>
 
-        <!-- Barra de Opciones y Selección de Conductor -->
-        <div style="padding: 0.85rem 1.4rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; flex-shrink: 0;">
-          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex: 1;">
-            <label style="font-size: 0.84rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-              <i class="ri-steering-2-line" style="color: #059669;"></i> Conductor / Móvil:
-            </label>
-            <select id="guide-modal-select-driver" class="form-input" style="font-size: 0.85rem; height: 38px; min-width: 280px; max-width: 420px; font-weight: 600; padding: 0 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
-              <option value="ALL">📋 Todos los Conductores (${driverGroups.length} conductores, ${allWaypoints.length} envíos)</option>
-              ${driverGroups.map(g => `
-                <option value="${g.driverKey}">🚚 ${g.driverName} (${g.items.length} envíos) [${g.vehicleName || 'N/A'}]</option>
-              `).join('')}
-            </select>
+        <!-- Barra de Opciones: Conductor y Tipo de Documento -->
+        <div style="padding: 0.75rem 1.4rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.65rem; flex-shrink: 0;">
+          
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <!-- Selector de Conductor -->
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main);">
+                <i class="ri-steering-2-line" style="color: #059669;"></i> Conductor:
+              </label>
+              <select id="guide-modal-select-driver" class="form-input" style="font-size: 0.82rem; height: 36px; min-width: 240px; font-weight: 600; padding: 0 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+                <option value="ALL">📋 Todos los Conductores (${driverGroups.length} conductores, ${allWaypoints.length} envíos)</option>
+                ${driverGroups.map(g => `
+                  <option value="${g.driverKey}">🚚 ${g.driverName} (${g.items.length} envíos) [${g.vehicleName || 'N/A'}]</option>
+                `).join('')}
+              </select>
+            </div>
+
+            <!-- Selector de Tipo de Documento -->
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main);">
+                <i class="ri-article-line" style="color: #2563eb;"></i> Documento:
+              </label>
+              <select id="guide-modal-select-type" class="form-input" style="font-size: 0.82rem; height: 36px; min-width: 250px; font-weight: 600; padding: 0 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+                <option value="SUMMARY">📄 Acta Resumen 1 Hoja (Para Firma Conductor)</option>
+                <option value="DETAILED">📋 Guía Detallada (Lista Completa de Pedidos)</option>
+                <option value="BOTH">📑 Ambos (Acta Resumen + Guía Detallada)</option>
+              </select>
+            </div>
           </div>
 
-          <div style="display: flex; gap: 0.6rem; align-items: center;">
-            <button id="guide-modal-btn-print" class="btn btn-primary" style="padding: 0.45rem 1.1rem; font-size: 0.86rem; font-weight: 700; background: #059669; color: white; border: none; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" title="Imprimir Guía de Despacho en formato A4">
-              <i class="ri-printer-line" style="font-size: 1.1rem;"></i> 🖨️ Imprimir Guía de Despacho
+          <!-- Botones de Impresión Rápida -->
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button id="guide-modal-btn-print-active" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.84rem; font-weight: 700; background: #059669; color: white; border: none; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 0.35rem; transition: all 0.2s;" title="Imprimir el documento seleccionado">
+              <i class="ri-printer-line" style="font-size: 1rem;"></i> 🖨️ Imprimir Selección
             </button>
           </div>
         </div>
@@ -4466,10 +4857,10 @@ modal.style.position = 'fixed';
 
         <!-- Pie del Modal -->
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.4rem; border-top: 1px solid var(--color-border); background: var(--color-bg); flex-shrink: 0;">
-          <div style="font-size: 0.82rem; color: var(--color-text-muted);">
-            WMS STOCKA • Hoja de Ruta y Manifiesto de Carga con separación automática por conductor.
+          <div style="font-size: 0.8rem; color: var(--color-text-muted);">
+            WMS STOCKA • El Acta Resumen (1 página) y la Guía Detallada comparten el mismo <strong>N° de Guía de Despacho</strong>.
           </div>
-          <button id="guide-modal-btn-close-footer" class="btn btn-outline" style="padding: 0.4rem 1.1rem; border-radius: var(--radius-md); font-size: 0.85rem; cursor: pointer;">
+          <button id="guide-modal-btn-close-footer" class="btn btn-outline" style="padding: 0.4rem 1.1rem; border-radius: var(--radius-md); font-size: 0.84rem; cursor: pointer;">
             Cerrar
           </button>
         </div>
@@ -4481,10 +4872,12 @@ modal.style.position = 'fixed';
 
     const previewContainer = modal.querySelector('#guide-preview-container');
     const selectDriver = modal.querySelector('#guide-modal-select-driver');
-    const btnPrint = modal.querySelector('#guide-modal-btn-print');
+    const selectType = modal.querySelector('#guide-modal-select-type');
+    const btnPrint = modal.querySelector('#guide-modal-btn-print-active');
 
     function updatePreview() {
       const selectedKey = selectDriver?.value || 'ALL';
+      const docType = selectType?.value || 'SUMMARY';
       const targetGroups = selectedKey === 'ALL'
         ? driverGroups
         : driverGroups.filter(g => g.driverKey === selectedKey);
@@ -4498,10 +4891,19 @@ modal.style.position = 'fixed';
         return;
       }
 
-      previewContainer.innerHTML = `
-        <style>${dispatchGuideStylesCss}</style>
-        ${targetGroups.map(group => generateSingleDriverGuideHtml(group, routePlanName)).join('')}
-      `;
+      let html = `<style>${dispatchGuideStylesCss}</style>`;
+      targetGroups.forEach(group => {
+        if (docType === 'SUMMARY') {
+          html += generateDriverSummaryActHtml(group, routePlanName);
+        } else if (docType === 'DETAILED') {
+          html += generateSingleDriverGuideHtml(group, routePlanName);
+        } else {
+          html += generateDriverSummaryActHtml(group, routePlanName);
+          html += generateSingleDriverGuideHtml(group, routePlanName);
+        }
+      });
+
+      previewContainer.innerHTML = html;
     }
 
     updatePreview();
@@ -4511,8 +4913,13 @@ modal.style.position = 'fixed';
       updatePreview();
     });
 
+    selectType?.addEventListener('change', () => {
+      currentDocType = selectType.value;
+      updatePreview();
+    });
+
     btnPrint?.addEventListener('click', () => {
-      printDispatchGuides(currentSelectedDriver);
+      printDispatchGuides(currentSelectedDriver, currentDocType);
     });
 
     const closeModal = () => modal.remove();

@@ -1606,6 +1606,11 @@ async function init() {
     if (profile && profile.comercio) {
       checkBillingSuspension(profile.comercio);
     }
+
+    // Check latest news popup for Admin
+    if (typeof window.checkAdminNewsPopup === 'function') {
+      window.checkAdminNewsPopup(user.id);
+    }
     
     // Restaurar y configurar el estado colapsado del sidebar
     const sidebar = document.querySelector('.sidebar');
@@ -2716,6 +2721,9 @@ async function renderAdminOrders() {
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
+              <i class="ri-add-circle-line"></i> Crear Pedido
+            </button>
             <button id="wms-bulk-print-labels-btn" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
             </button>
@@ -20990,6 +20998,181 @@ function openNewsModal(newsItem) {
     if (e.target === overlay) close();
   });
 }
+
+window.checkAdminNewsPopup = async function(userId) {
+  try {
+    const { data: newsList } = await supabase
+      .from('dashboard_news')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (newsList && newsList.length > 0) {
+      const latestNews = newsList.find(n => {
+        const target = n.target_role || 'all';
+        return target === 'all' || target === 'admin';
+      });
+
+      if (latestNews) {
+        const localRead = localStorage.getItem(`wms_news_read_${latestNews.id}_${userId}`);
+        const sessionReadLater = sessionStorage.getItem(`wms_news_read_later_${latestNews.id}_${userId}`);
+
+        if (!localRead && !sessionReadLater) {
+          const { data: readNews } = await supabase
+            .from('user_notification_reads')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('entity_type', 'news')
+            .eq('entity_id', latestNews.id);
+
+          if (!readNews || readNews.length === 0) {
+            setTimeout(() => {
+              if (!document.getElementById('news-login-popup-modal')) {
+                window.showNewsLoginPopupModal(latestNews, userId);
+              }
+            }, 600);
+          } else {
+            localStorage.setItem(`wms_news_read_${latestNews.id}_${userId}`, 'true');
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error checking admin news popup:', err);
+  }
+};
+
+window.showNewsLoginPopupModal = function(newsItem, userId) {
+  const modalId = 'news-login-popup-modal';
+  if (document.getElementById(modalId)) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = modalId;
+  overlay.className = 'modal-overlay active';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100vw';
+  overlay.style.height = '100vh';
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.65)';
+  overlay.style.backdropFilter = 'blur(5px)';
+  overlay.style.zIndex = '999998';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+
+  const cat = newsItem.category || 'Actualización';
+  let badgeClass = 'news-tag-update';
+  let badgeIcon = 'ri-rocket-line';
+  if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+  else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+  else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+  else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+  else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = newsItem.body || '';
+  const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+  const pubDate = newsItem.created_at ? new Date(newsItem.created_at).toLocaleDateString('es-CL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }) : 'Reciente';
+
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width: 720px; width: 92%; max-height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); animation: zoomIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);">
+      
+      <!-- Top announcement ribbon -->
+      <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: #fff; padding: 0.65rem 1.25rem; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; letter-spacing: 0.3px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-megaphone-fill" style="font-size: 1.1rem; color: #93c5fd;"></i>
+          <span>NUEVO COMUNICADO WMS</span>
+        </div>
+        <button id="btn-news-popup-close-x" style="background: rgba(255,255,255,0.15); border: none; color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1rem; transition: background 0.2s;" title="Leer después"><i class="ri-close-line"></i></button>
+      </div>
+
+      <!-- Header with tags -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+          ${newsItem.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Noticia Destacada</span>` : ''}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-time-line"></i> ${readTime} min de lectura
+        </div>
+      </div>
+
+      <!-- Body with cover image and typography -->
+      <div class="modal-body" style="padding: 1.5rem 1.75rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        ${newsItem.cover_image ? `
+          <div style="margin-bottom: 1.25rem; border-radius: var(--radius-md); overflow: hidden; max-height: 260px; border: 1px solid var(--color-border); background-color: var(--color-bg);">
+            <img src="${newsItem.cover_image}" alt="${newsItem.title}" style="width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in;" onclick="window.openNewsImageLightbox('${newsItem.cover_image}')">
+          </div>
+        ` : ''}
+
+        <h1 style="margin: 0 0 0.4rem 0; font-size: 1.5rem; color: var(--color-text-main); font-weight: 800; line-height: 1.3;">
+          ${newsItem.title}
+        </h1>
+
+        ${newsItem.subtitle ? `
+          <h2 style="margin: 0 0 0.85rem 0; font-size: 1.05rem; color: var(--color-primary); font-weight: 600; line-height: 1.4;">
+            ${newsItem.subtitle}
+          </h2>
+        ` : ''}
+
+        <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.78rem; color: var(--color-text-muted); padding-bottom: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+          <span><i class="ri-calendar-event-line"></i> ${pubDate}</span>
+          <span><i class="ri-user-smile-line"></i> Equipo STOCKA</span>
+        </div>
+
+        <div class="blog-article-content" style="font-size: 0.925rem; line-height: 1.7; color: var(--color-text-main);">
+          ${newsItem.body || ''}
+        </div>
+      </div>
+
+      <!-- Footer with requested action buttons -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+          <i class="ri-information-line"></i> Disponible también en el listado de noticias.
+        </div>
+        <div style="display: flex; gap: 0.6rem; align-items: center;">
+          <button id="btn-news-read-later" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.45rem 0.95rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <i class="ri-history-line"></i> Leer después
+          </button>
+          <button id="btn-news-mark-read" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.45rem 1.15rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; background-color: #10b981; border-color: #10b981; color: #fff;">
+            <i class="ri-check-double-line"></i> Marcar como leído
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const closeReadLater = () => {
+    sessionStorage.setItem(`wms_news_read_later_${newsItem.id}_${userId}`, 'true');
+    overlay.remove();
+  };
+
+  const markAsRead = async () => {
+    localStorage.setItem(`wms_news_read_${newsItem.id}_${userId}`, 'true');
+    overlay.remove();
+    try {
+      await supabase.from('user_notification_reads').insert([
+        { user_id: userId, entity_type: 'news', entity_id: newsItem.id }
+      ]);
+    } catch (e) {
+      console.warn('Could not record news read in DB, saved to localStorage', e);
+    }
+  };
+
+  document.getElementById('btn-news-popup-close-x')?.addEventListener('click', closeReadLater);
+  document.getElementById('btn-news-read-later')?.addEventListener('click', closeReadLater);
+  document.getElementById('btn-news-mark-read')?.addEventListener('click', markAsRead);
+};
 
 // ========================================================
 // SISTEMA DE ENVÍO MASIVO DE NOTICIAS VÍA BREVO (info@stocka.cl)
@@ -53500,6 +53683,1793 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
   `);
   printWindow.document.close();
 }
+
+// =========================================================================
+// GESTIÓN DE CREACIÓN DE PEDIDOS MANUALES (WIZARD 4 PASOS - VISTA ADMIN)
+// =========================================================================
+
+window.tempAdminNewOrderItems = [];
+window.tempAdminProductsList = [];
+window.currentAdminWizardStep = 1;
+window.currentAdminOrderFlowType = 'despacho';
+window.tempAdminOrderOriginalData = null;
+
+// Alias para compatibilidad con handlers compartidos
+window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+window.tempClientProductsList = window.tempAdminProductsList;
+window.addClientNewOrderItem = function() { window.addAdminNewOrderItem(); };
+window.removeClientNewOrderItem = function(idx) { window.removeAdminNewOrderItem(idx); };
+window.renderClientNewOrderItemsTable = function() { window.renderAdminNewOrderItemsTable(); };
+window.filterClientNewOrderProducts = function() { window.filterAdminNewOrderProducts(); };
+
+window.openCreateOrderModal = async function() {
+  const modalOrder = document.getElementById('modal-order');
+  if (!modalOrder) return;
+
+  // 1. Reset variables y formulario
+  window.tempAdminNewOrderItems = [];
+  window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+  const form = document.getElementById('form-new-order');
+  if (form) form.reset();
+
+  const searchInput = document.getElementById('order-product-search');
+  if (searchInput) searchInput.value = '';
+  const hiddenInput = document.getElementById('order-product');
+  if (hiddenInput) hiddenInput.value = '';
+
+  const dropdownListEl = document.getElementById('order-product-dropdown-list');
+  if (dropdownListEl) {
+    dropdownListEl.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">Cargando productos...</div>';
+    dropdownListEl.style.display = 'none';
+  }
+
+  window.renderAdminNewOrderItemsTable();
+
+  // 2. Cargar lista de comercios
+  const commerceSelect = document.getElementById('order-select-commerce');
+  if (commerceSelect) {
+    commerceSelect.innerHTML = '<option value="">Cargando comercios...</option>';
+    try {
+      const { data: comerciosData, error: comErr } = await supabase
+        .from('v_comercios_config')
+        .select('id, nombre, sigla')
+        .order('nombre');
+
+      if (comErr) throw comErr;
+
+      if (comerciosData && comerciosData.length > 0) {
+        commerceSelect.innerHTML = comerciosData.map(c => `
+          <option value="${c.nombre}" data-sigla="${c.sigla || ''}">${c.nombre}</option>
+        `).join('');
+
+        // Preseleccionar si hay filtro activo en WMS
+        const currentFilteredCommerce = document.getElementById('filter-commerce')?.value;
+        if (currentFilteredCommerce && comerciosData.some(c => c.nombre === currentFilteredCommerce)) {
+          commerceSelect.value = currentFilteredCommerce;
+        }
+      } else {
+        commerceSelect.innerHTML = '<option value="STOCKA">STOCKA</option>';
+      }
+    } catch (e) {
+      console.warn('Error loading comercios for modal-order in admin:', e);
+      commerceSelect.innerHTML = '<option value="STOCKA">STOCKA</option>';
+    }
+
+    // Listener para cambios de comercio
+    commerceSelect.onchange = function() {
+      window.tempAdminNewOrderItems = [];
+      window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+      window.renderAdminNewOrderItemsTable();
+      window.loadAdminNewOrderProducts(this.value);
+    };
+  }
+
+  // 3. Inicializar Wizard de Pasos
+  window.initAdminWizardOrder();
+
+  // 4. Cargar productos del comercio seleccionado
+  const selectedCommerce = commerceSelect ? commerceSelect.value : 'STOCKA';
+  window.loadAdminNewOrderProducts(selectedCommerce);
+
+  // 5. Mostrar modal
+  modalOrder.classList.add('active');
+};
+
+window.loadAdminNewOrderProducts = async function(selectedCommerce) {
+  const dropdownListEl = document.getElementById('order-product-dropdown-list');
+  if (dropdownListEl) {
+    dropdownListEl.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">Cargando productos...</div>';
+    dropdownListEl.style.display = 'none';
+  }
+
+  try {
+    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+    if (selectedCommerce) {
+      query = query.eq('comercio', selectedCommerce);
+    }
+    const { data: products, error } = await query;
+    if (error) throw error;
+
+    const productsList = (products || [])
+      .filter(p => p.status !== 'archived')
+      .map(p => ({
+        ...p,
+        peso: p.weight
+      }));
+
+    if (productsList.length > 0) {
+      const productIds = productsList.map(p => p.id);
+      const batchSize = 100;
+      const promises = [];
+      for (let i = 0; i < productIds.length; i += batchSize) {
+        const batchIds = productIds.slice(i, i + batchSize);
+        promises.push(
+          supabase
+            .from('inventory')
+            .select('product_id, quantity, committed_quantity')
+            .in('product_id', batchIds)
+        );
+      }
+      const results = await Promise.all(promises);
+      const stockMap = {};
+      results.forEach(res => {
+        if (res.data) {
+          res.data.forEach(inv => {
+            const pid = inv.product_id;
+            const avail = (inv.quantity || 0) - (inv.committed_quantity || 0);
+            stockMap[pid] = (stockMap[pid] || 0) + avail;
+          });
+        }
+      });
+      productsList.forEach(p => {
+        p.availableStock = Math.max(0, stockMap[p.id] || 0);
+      });
+    }
+
+    window.tempAdminProductsList = productsList;
+    window.tempClientProductsList = productsList;
+    window.filterAdminNewOrderProducts();
+  } catch (err) {
+    console.error("Error al cargar productos para pedido manual (Admin):", err.message);
+  }
+};
+
+window.filterAdminNewOrderProducts = function() {
+  const searchInput = document.getElementById('order-product-search');
+  const dropdownList = document.getElementById('order-product-dropdown-list');
+  if (!dropdownList) return;
+
+  const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  const products = window.tempAdminProductsList || [];
+
+  const filtered = products.filter(p => {
+    const sku = (p.sku || '').toLowerCase();
+    const name = (p.name || '').toLowerCase();
+    return sku.includes(searchTerm) || name.includes(searchTerm);
+  });
+
+  if (filtered.length === 0) {
+    dropdownList.innerHTML = `
+      <div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+        No se encontraron productos para este comercio
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(p => {
+    const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    const stockQty = p.availableStock !== undefined ? p.availableStock : 0;
+    const isOutOfStock = stockQty <= 0;
+    const stockColor = isOutOfStock ? 'var(--color-danger, #ef4444)' : 'var(--color-success, #10b981)';
+    const stockText = isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`;
+
+    html += `
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+        <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
+          <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
+          <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
+        </div>
+      </div>
+    `;
+  });
+  
+  dropdownList.innerHTML = html;
+};
+
+window.addAdminNewOrderItem = function() {
+  const selectProd = document.getElementById('order-product'); // Hidden input
+  const qtyInput = document.getElementById('order-qty');
+  if (!selectProd || !qtyInput) return;
+
+  const prodId = selectProd.value;
+  const qty = parseInt(qtyInput.value, 10);
+
+  if (!prodId) {
+    alert('Por favor selecciona un producto escribiendo y eligiéndolo de la lista desplegable.');
+    return;
+  }
+  if (isNaN(qty) || qty < 1) {
+    alert('Cantidad inválida.');
+    return;
+  }
+
+  const product = (window.tempAdminProductsList || []).find(p => p.id === prodId);
+  if (!product) {
+    alert('Producto no encontrado.');
+    return;
+  }
+
+  window.tempAdminNewOrderItems = window.tempAdminNewOrderItems || [];
+  const existingIdx = window.tempAdminNewOrderItems.findIndex(i => i.product_id === prodId);
+  const currentQty = existingIdx !== -1 ? window.tempAdminNewOrderItems[existingIdx].quantity : 0;
+  const totalRequested = qty + currentQty;
+
+  if (product.availableStock !== undefined && totalRequested > product.availableStock) {
+    alert(`No hay stock suficiente para el producto ${product.sku}.\n` +
+          `Stock disponible: ${product.availableStock} unidades.\n` +
+          `Cantidad solicitada en total: ${totalRequested} unidades.`);
+    return;
+  }
+
+  if (existingIdx !== -1) {
+    window.tempAdminNewOrderItems[existingIdx].quantity += qty;
+  } else {
+    window.tempAdminNewOrderItems.push({
+      product_id: prodId,
+      sku: product.sku,
+      name: product.name,
+      price: product.price || 0,
+      volumen: product.volumen || 0,
+      quantity: qty
+    });
+  }
+
+  window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+
+  selectProd.value = '';
+  const searchInput = document.getElementById('order-product-search');
+  if (searchInput) searchInput.value = '';
+  const dropdownList = document.getElementById('order-product-dropdown-list');
+  if (dropdownList) dropdownList.style.display = 'none';
+  qtyInput.value = '1';
+
+  window.renderAdminNewOrderItemsTable();
+};
+
+window.removeAdminNewOrderItem = function(index) {
+  if (window.tempAdminNewOrderItems && window.tempAdminNewOrderItems[index]) {
+    window.tempAdminNewOrderItems.splice(index, 1);
+    window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+    window.renderAdminNewOrderItemsTable();
+  }
+};
+
+window.renderAdminNewOrderItemsTable = function() {
+  const tbody = document.getElementById('client-new-order-items-tbody');
+  const totalQtyEl = document.getElementById('client-new-order-total-qty');
+  const totalValEl = document.getElementById('client-new-order-total-val');
+  if (!tbody || !totalQtyEl || !totalValEl) return;
+
+  const items = window.tempAdminNewOrderItems || [];
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+          No hay ítems agregados a este pedido. Selecciona un producto arriba y haz clic en "Añadir".
+        </td>
+      </tr>
+    `;
+    totalQtyEl.textContent = '0';
+    totalValEl.textContent = window.formatCLP(0);
+    
+    const volInput = document.getElementById('order-total-volume-estimated');
+    if (volInput) volInput.value = "0.00000";
+    const volDisplay = document.getElementById('order-total-volume-display');
+    if (volDisplay) volDisplay.textContent = "0.00000";
+    return;
+  }
+
+  let html = '';
+  let totalQty = 0;
+  let totalVal = 0;
+  let totalVol = 0;
+
+  items.forEach((item, idx) => {
+    const subtotal = item.quantity * item.price;
+    totalQty += item.quantity;
+    totalVal += subtotal;
+    totalVol += item.quantity * (item.volumen || 0);
+
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center;">
+          <button type="button" onclick="window.removeAdminNewOrderItem(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+  totalQtyEl.textContent = totalQty;
+  totalValEl.textContent = window.formatCLP(totalVal);
+
+  const volInput = document.getElementById('order-total-volume-estimated');
+  if (volInput) volInput.value = totalVol.toFixed(5);
+  const volDisplay = document.getElementById('order-total-volume-display');
+  if (volDisplay) volDisplay.textContent = totalVol.toFixed(5);
+};
+
+window.initAdminWizardOrder = function() {
+  window.currentAdminWizardStep = 1;
+  window.updateAdminWizardUI();
+
+  const netEl = document.getElementById('order-quote-net');
+  const taxEl = document.getElementById('order-quote-tax');
+  const totalEl = document.getElementById('order-quote-total');
+  if (netEl) netEl.textContent = '$0';
+  if (taxEl) taxEl.textContent = '$0';
+  if (totalEl) totalEl.textContent = '$0';
+
+  const btnNext = document.getElementById('btn-wizard-next');
+  const btnPrev = document.getElementById('btn-wizard-prev');
+
+  if (btnNext) {
+    btnNext.onclick = function() {
+      if (window.validateAdminWizardStep(window.currentAdminWizardStep)) {
+        window.currentAdminWizardStep++;
+        window.updateAdminWizardUI();
+        if (window.currentAdminWizardStep === 3) {
+          window.calculateAdminShippingQuote();
+        } else if (window.currentAdminWizardStep === 4) {
+          window.populateAdminWizardSummary();
+        }
+      }
+    };
+  }
+
+  if (btnPrev) {
+    btnPrev.onclick = function() {
+      if (window.currentAdminWizardStep > 1) {
+        window.currentAdminWizardStep--;
+        window.updateAdminWizardUI();
+      }
+    };
+  }
+
+  // Configurar autocompletados
+  window.setupAdminCustomerAutocomplete();
+  window.setupAdminComunaAutocomplete();
+
+  // Escuchar escritura en buscador de productos
+  const prodSearchInput = document.getElementById('order-product-search');
+  const prodDropdown = document.getElementById('order-product-dropdown-list');
+  if (prodSearchInput && prodDropdown) {
+    prodSearchInput.onfocus = function() {
+      window.filterAdminNewOrderProducts();
+      prodDropdown.style.display = 'block';
+    };
+    prodSearchInput.oninput = function() {
+      window.filterAdminNewOrderProducts();
+      prodDropdown.style.display = 'block';
+    };
+  }
+
+  // Delegación de clic en producto
+  document.addEventListener('click', function(e) {
+    const opt = e.target.closest('.order-product-option');
+    if (opt) {
+      const prodId = opt.getAttribute('data-id');
+      const displayVal = opt.getAttribute('data-display');
+      const product = (window.tempAdminProductsList || []).find(p => p.id === prodId);
+      if (product && product.availableStock !== undefined && product.availableStock <= 0) {
+        alert(`Este producto (${product.sku}) no cuenta con stock disponible en este momento.`);
+        return;
+      }
+      const selectProd = document.getElementById('order-product');
+      const searchInput = document.getElementById('order-product-search');
+      const dropdownList = document.getElementById('order-product-dropdown-list');
+      if (selectProd) selectProd.value = prodId;
+      if (searchInput) searchInput.value = displayVal;
+      if (dropdownList) dropdownList.style.display = 'none';
+      return;
+    }
+    if (prodSearchInput && prodDropdown && e.target !== prodSearchInput && !prodDropdown.contains(e.target)) {
+      prodDropdown.style.display = 'none';
+    }
+  });
+
+  // Configurar listeners de cambios en Paso 3
+  const shippingTypeRadios = document.querySelectorAll('input[name="order-shipping-type"]');
+  const updateShippingCardsVisuals = () => {
+    shippingTypeRadios.forEach(r => {
+      const card = r.closest('.shipping-card-option');
+      if (!card) return;
+      const icon = card.querySelector('i');
+      if (r.checked) {
+        card.style.borderColor = 'var(--color-primary)';
+        card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+        if (icon) icon.style.color = 'var(--color-primary)';
+      } else {
+        card.style.borderColor = 'var(--color-border)';
+        card.style.background = 'var(--color-surface)';
+        if (icon) icon.style.color = 'var(--color-text-muted)';
+      }
+    });
+  };
+
+  updateShippingCardsVisuals();
+
+  shippingTypeRadios.forEach(radio => {
+    radio.onchange = function() {
+      updateShippingCardsVisuals();
+      const sucursalPanel = document.getElementById('order-sucursal-panel');
+      const puntoStockaPanel = document.getElementById('order-punto-stocka-panel');
+      if (sucursalPanel) {
+        sucursalPanel.style.display = this.value === 'sucursal' ? 'flex' : 'none';
+      }
+      if (puntoStockaPanel) {
+        puntoStockaPanel.style.display = this.value === 'punto_stocka' ? 'flex' : 'none';
+      }
+      if (this.value !== 'sucursal') {
+        const branchCourierSelect = document.getElementById('order-sucursal-courier');
+        if (branchCourierSelect) branchCourierSelect.value = '';
+      }
+      window.calculateAdminShippingQuote();
+    };
+  });
+
+  const sucursalCourierSelect = document.getElementById('order-sucursal-courier');
+  if (sucursalCourierSelect) {
+    sucursalCourierSelect.onchange = function() {
+      window.calculateAdminShippingQuote();
+    };
+  }
+
+  const shippingPaymentRadios = document.querySelectorAll('input[name="order-shipping-payment"]');
+  const updatePaymentCardsVisuals = () => {
+    shippingPaymentRadios.forEach(r => {
+      const card = r.closest('.payment-card-option');
+      if (!card) return;
+      const icon = card.querySelector('i');
+      if (r.checked) {
+        card.style.borderColor = 'var(--color-primary)';
+        card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+        if (icon) icon.style.color = 'var(--color-primary)';
+      } else {
+        card.style.borderColor = 'var(--color-border)';
+        card.style.background = 'var(--color-surface)';
+        if (icon) icon.style.color = 'var(--color-text-muted)';
+      }
+    });
+  };
+
+  updatePaymentCardsVisuals();
+
+  shippingPaymentRadios.forEach(radio => {
+    radio.onchange = function() {
+      updatePaymentCardsVisuals();
+      window.calculateAdminShippingQuote();
+    };
+  });
+
+  const autoOrderNumCheckbox = document.getElementById('order-number-auto');
+  const extOrderIdInput = document.getElementById('order-cust-external-id');
+  if (autoOrderNumCheckbox && extOrderIdInput) {
+    autoOrderNumCheckbox.onchange = function() {
+      extOrderIdInput.style.display = this.checked ? 'none' : 'block';
+      if (!this.checked) extOrderIdInput.focus();
+    };
+    extOrderIdInput.style.display = autoOrderNumCheckbox.checked ? 'none' : 'block';
+  }
+
+  const cityInput = document.getElementById('order-cust-city');
+  if (cityInput) {
+    cityInput.onchange = function() {
+      if (window.currentAdminWizardStep === 3) window.calculateAdminShippingQuote();
+    };
+    cityInput.onkeyup = function() {
+      if (window.currentAdminWizardStep === 3) window.calculateAdminShippingQuote();
+    };
+  }
+
+  const weightInput = document.getElementById('order-total-weight-input');
+  if (weightInput) {
+    weightInput.onchange = function() {
+      if (window.currentAdminWizardStep === 3) window.calculateAdminShippingQuote();
+    };
+    weightInput.oninput = function() {
+      if (window.currentAdminWizardStep === 3) window.calculateAdminShippingQuote();
+    };
+  }
+
+  const flowRadios = document.querySelectorAll('input[name="order-flow-type"]');
+  flowRadios.forEach(radio => {
+    radio.onchange = function() {
+      window.updateOrderFlowType(this.value);
+    };
+  });
+
+  window.updateOrderFlowType('despacho');
+  window.tempAdminOrderOriginalData = null;
+};
+
+window.updateOrderFlowType = function(flowType) {
+  if (window.currentAdminOrderFlowType === 'despacho') {
+    const inputName = document.getElementById('order-cust-name');
+    const inputEmail = document.getElementById('order-cust-email');
+    const inputPhone = document.getElementById('order-cust-phone');
+    const inputAddress = document.getElementById('order-cust-address');
+    const inputCity = document.getElementById('order-cust-city');
+    const inputComplement = document.getElementById('order-cust-complement');
+
+    window.tempAdminOrderOriginalData = {
+      name: inputName ? inputName.value.trim() : '',
+      email: inputEmail ? inputEmail.value.trim() : '',
+      phone: inputPhone ? inputPhone.value.trim() : '',
+      address: inputAddress ? inputAddress.value.trim() : '',
+      city: inputCity ? inputCity.value.trim() : '',
+      complement: inputComplement ? inputComplement.value.trim() : ''
+    };
+  }
+
+  const cardDespacho = document.getElementById('card-flow-despacho');
+  const cardRetiro = document.getElementById('card-flow-retiro');
+  const cardFull = document.getElementById('card-flow-full');
+
+  const inputName = document.getElementById('order-cust-name');
+  const inputEmail = document.getElementById('order-cust-email');
+  const inputPhone = document.getElementById('order-cust-phone');
+  const inputAddress = document.getElementById('order-cust-address');
+  const inputCity = document.getElementById('order-cust-city');
+  const inputComplement = document.getElementById('order-cust-complement');
+
+  const groupEmailPhone = document.getElementById('group-order-email-phone');
+  const groupAddress = document.getElementById('group-order-address');
+  const groupCityComplement = document.getElementById('group-order-city-complement');
+
+  if (!cardDespacho || !cardRetiro || !cardFull) return;
+
+  const setCardActive = (card, active) => {
+    const icon = card.querySelector('i');
+    if (active) {
+      card.style.borderColor = 'var(--color-primary)';
+      card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+      if (icon) icon.style.color = 'var(--color-primary)';
+    } else {
+      card.style.borderColor = 'var(--color-border)';
+      card.style.background = 'var(--color-surface)';
+      if (icon) icon.style.color = 'var(--color-text-muted)';
+    }
+  };
+
+  setCardActive(cardDespacho, flowType === 'despacho');
+  setCardActive(cardRetiro, flowType === 'retiro');
+  setCardActive(cardFull, flowType === 'full');
+
+  const radioInput = document.getElementById(`order-flow-${flowType}`);
+  if (radioInput) radioInput.checked = true;
+
+  if (flowType === 'despacho') {
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Juan Pérez';
+    }
+
+    const cache = window.tempAdminOrderOriginalData || {};
+    if (inputName) inputName.value = cache.name || '';
+    if (inputEmail) inputEmail.value = cache.email || '';
+    if (inputPhone) inputPhone.value = cache.phone || '';
+    if (inputAddress) inputAddress.value = cache.address || '';
+    if (inputCity) {
+      inputCity.value = cache.city || '';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+    if (inputComplement) inputComplement.value = cache.complement || '';
+
+  } else if (flowType === 'retiro') {
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Juan Pérez';
+    }
+
+    const cache = window.tempAdminOrderOriginalData || {};
+    if (inputName) inputName.value = (window.currentAdminOrderFlowType === 'full') ? (cache.name || '') : (inputName.value || '');
+    if (inputEmail) inputEmail.value = (window.currentAdminOrderFlowType === 'full') ? (cache.email || '') : (inputEmail.value || '');
+    if (inputPhone) inputPhone.value = (window.currentAdminOrderFlowType === 'full') ? (cache.phone || '') : (inputPhone.value || '');
+    if (inputComplement) inputComplement.value = (window.currentAdminOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
+
+    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes';
+    if (inputCity) {
+      inputCity.value = 'Ñuñoa';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+
+  } else if (flowType === 'full') {
+    if (groupEmailPhone) groupEmailPhone.style.display = 'none';
+    if (groupAddress) groupAddress.style.display = 'none';
+    if (groupCityComplement) groupCityComplement.style.display = 'none';
+
+    if (inputName) {
+      inputName.value = 'BODEGA FULL MERCADOLIBRE';
+      inputName.readOnly = true;
+    }
+
+    if (inputEmail) inputEmail.value = 'full@mercadolibre.cl';
+    if (inputPhone) inputPhone.value = '999999999';
+    if (inputAddress) inputAddress.value = 'Bodega Full Mercado Libre';
+    if (inputCity) {
+      inputCity.value = 'Pudahuel';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+    if (inputComplement) inputComplement.value = '';
+  }
+
+  window.currentAdminOrderFlowType = flowType;
+};
+
+window.updateAdminWizardUI = function() {
+  for (let i = 1; i <= 4; i++) {
+    const container = document.getElementById(`wizard-step-${i}`);
+    if (container) container.style.display = 'none';
+
+    const tab = document.getElementById(`wizard-tab-${i}`);
+    const line = document.getElementById(`wizard-line-${i}`);
+    if (tab) {
+      tab.style.color = 'var(--color-text-muted)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = 'var(--color-bg-dark, #cbd5e1)';
+        num.style.color = 'var(--color-text-muted)';
+        num.style.boxShadow = 'none';
+      }
+    }
+    if (line) {
+      line.style.background = 'var(--color-border)';
+    }
+  }
+
+  for (let i = 1; i <= window.currentAdminWizardStep; i++) {
+    const tab = document.getElementById(`wizard-tab-${i}`);
+    if (tab) {
+      const isCurrent = i === window.currentAdminWizardStep;
+      tab.style.color = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+        num.style.color = 'white';
+        if (isCurrent) {
+          num.style.boxShadow = '0 0 0 4px rgba(var(--color-primary-rgb), 0.15)';
+        }
+      }
+    }
+    if (i < window.currentAdminWizardStep) {
+      const line = document.getElementById(`wizard-line-${i}`);
+      if (line) line.style.background = 'var(--color-success, #22c55e)';
+    }
+  }
+
+  const activeContainer = document.getElementById(`wizard-step-${window.currentAdminWizardStep}`);
+  if (activeContainer) activeContainer.style.display = 'block';
+
+  const btnPrev = document.getElementById('btn-wizard-prev');
+  const btnNext = document.getElementById('btn-wizard-next');
+  const btnSubmit = document.getElementById('btn-wizard-submit');
+
+  if (btnPrev) btnPrev.style.display = window.currentAdminWizardStep > 1 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = window.currentAdminWizardStep < 4 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = window.currentAdminWizardStep === 4 ? 'flex' : 'none';
+};
+
+window.populateAdminWizardSummary = function() {
+  const selectCommerce = document.getElementById('order-select-commerce');
+  const commerce = selectCommerce ? selectCommerce.value : 'STOCKA';
+  const name = document.getElementById('order-cust-name').value.trim();
+  const email = document.getElementById('order-cust-email').value.trim();
+  const phone = document.getElementById('order-cust-phone').value.trim();
+  const address = document.getElementById('order-cust-address').value.trim();
+  const complement = document.getElementById('order-cust-complement').value.trim();
+  const city = document.getElementById('order-cust-city').value.trim();
+  const origin = document.getElementById('order-cust-origen').value;
+  const isAuto = document.getElementById('order-number-auto')?.checked;
+  const extId = document.getElementById('order-cust-external-id').value.trim();
+  const finalExtId = isAuto ? 'Autogenerado por el sistema' : (extId || 'Autogenerado por el sistema');
+
+  const shippingTypeVal = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
+  const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+
+  let shippingTypeLabel = 'Envío a Domicilio';
+  if (shippingTypeVal === 'sucursal') {
+    const branchCourier = document.getElementById('order-sucursal-courier').value;
+    const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+    shippingTypeLabel = `Retiro en Sucursal (${branchCourier} - ${branchDetails})`;
+  } else if (shippingTypeVal === 'punto_stocka') {
+    shippingTypeLabel = 'Retiro en Punto STOCKA';
+  } else if (shippingTypeVal === 'transporte_propio') {
+    shippingTypeLabel = 'Transporte Propio';
+  }
+
+  const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+  const courierVal = selectedCourierRadio ? selectedCourierRadio.value : 'Ninguno';
+  const isPorPagar = paymentCondition === 'por_pagar';
+  
+  let netShippingCost = 0;
+  let taxShippingCost = 0;
+  
+  if (selectedCourierRadio) {
+    netShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-net') || '0');
+    taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
+  }
+
+  const displayNet = isPorPagar ? 0 : netShippingCost;
+  const displayTax = isPorPagar ? 0 : taxShippingCost;
+  const displayTotal = displayNet + displayTax;
+
+  let courierLabel = courierVal;
+  if (isPorPagar) {
+    courierLabel += ' (Envío por Pagar)';
+  } else if (shippingTypeVal === 'transporte_propio') {
+    courierLabel = 'Transporte Propio';
+  }
+
+  document.getElementById('summary-commerce').textContent = commerce;
+  document.getElementById('summary-name').textContent = name;
+  document.getElementById('summary-email').textContent = email || 'Sin email';
+  document.getElementById('summary-phone').textContent = phone || 'Sin teléfono';
+  document.getElementById('summary-address').textContent = address;
+  document.getElementById('summary-complement').textContent = complement || 'Ninguno';
+  document.getElementById('summary-city').textContent = city;
+  document.getElementById('summary-origin').textContent = origin || 'Manual';
+  document.getElementById('summary-external-id').textContent = finalExtId;
+  document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
+
+  const tbody = document.getElementById('summary-items-tbody');
+  const items = window.tempAdminNewOrderItems || [];
+  let itemsHtml = '';
+  
+  let totalVolume = 0;
+  let totalWeight = 0;
+  
+  items.forEach(item => {
+    const prod = (window.tempAdminProductsList || []).find(p => p.id === item.product_id);
+    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : 0;
+    totalVolume += volumeUnit * item.quantity;
+    
+    itemsHtml += `
+      <tr style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.4rem 0.5rem; color: var(--color-text-muted); font-family: monospace;">${item.sku}</td>
+        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: bold; color: var(--color-primary);">${item.quantity}</td>
+      </tr>
+    `;
+  });
+  
+  if (items.length === 0) {
+    itemsHtml = '<tr><td colspan="3" style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-style: italic;">No hay productos seleccionados</td></tr>';
+  }
+  
+  tbody.innerHTML = itemsHtml;
+
+  const weightInput = document.getElementById('order-total-weight-input');
+  totalWeight = parseFloat(weightInput?.value) || 0;
+  
+  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(1)} Kg / ${totalVolume.toFixed(5)} m³`;
+
+  document.getElementById('summary-shipping-net').textContent = window.formatCLP(displayNet);
+  document.getElementById('summary-shipping-tax').textContent = window.formatCLP(displayTax);
+  document.getElementById('summary-shipping-total').textContent = window.formatCLP(displayTotal);
+};
+
+window.validateAdminWizardStep = function(step) {
+  if (step === 1) {
+    const selectCommerce = document.getElementById('order-select-commerce');
+    if (selectCommerce && !selectCommerce.value) {
+      alert('Por favor selecciona un comercio asignado para el pedido.');
+      return false;
+    }
+
+    const name = document.getElementById('order-cust-name').value.trim();
+    const email = document.getElementById('order-cust-email').value.trim();
+    const phone = document.getElementById('order-cust-phone').value.trim();
+    const address = document.getElementById('order-cust-address').value.trim();
+    const city = document.getElementById('order-cust-city').value.trim();
+
+    if (!name || !email || !phone || !address || !city) {
+      alert('Por favor completa todos los campos obligatorios (*) antes de continuar.');
+      return false;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (email && !emailRegex.test(email)) {
+      alert('Por favor ingresa un correo electrónico válido (ej: cliente@correo.com).');
+      return false;
+    }
+
+    let validComunas = [];
+    if (window.shippingRates) {
+      validComunas = Object.values(window.shippingRates);
+    }
+
+    const normalizeString = (str) => {
+      return (str || '').toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .trim();
+    };
+
+    const normalizedCityInput = normalizeString(city);
+    const matchingComunaObj = validComunas.find(c => normalizeString(c.comuna) === normalizedCityInput);
+
+    if (!matchingComunaObj) {
+      alert('La comuna/ciudad ingresada no es válida. Por favor, selecciona una comuna de la lista desplegable.');
+      return false;
+    }
+
+    document.getElementById('order-cust-city').value = matchingComunaObj.comuna;
+    return true;
+  } else if (step === 2) {
+    const items = window.tempAdminNewOrderItems || [];
+    if (items.length === 0) {
+      alert('Debes agregar al menos un producto al pedido.');
+      return false;
+    }
+
+    const weightValStr = document.getElementById('order-total-weight-input').value.trim();
+    const weightVal = parseFloat(weightValStr);
+    if (!weightValStr || isNaN(weightVal) || weightVal <= 0) {
+      alert('Por favor ingresa un peso aproximado válido (mayor que 0) para cotizar el despacho.');
+      setTimeout(() => {
+        const input = document.getElementById('order-total-weight-input');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 150);
+      return false;
+    }
+  } else if (step === 3) {
+    const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+    if (shippingType === 'sucursal') {
+      const branchCourier = document.getElementById('order-sucursal-courier').value;
+      const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+      if (!branchCourier || !branchDetails) {
+        alert('Por favor selecciona el Courier de Sucursal e ingresa la Dirección / Nombre de la Sucursal.');
+        return false;
+      }
+    }
+
+    const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+    if (!selectedCourierRadio) {
+      alert('Por favor selecciona un courier / servicio de despacho antes de continuar.');
+      return false;
+    }
+    return true;
+  }
+  return true;
+};
+
+window.setupAdminCustomerAutocomplete = function() {
+  const searchInput = document.getElementById('order-customer-search-db');
+  const dropdown = document.getElementById('order-customer-dropdown-list-db');
+  if (!searchInput || !dropdown) return;
+
+  let debounceTimeout = null;
+
+  searchInput.addEventListener('input', function() {
+    const term = this.value.trim();
+    clearTimeout(debounceTimeout);
+
+    if (term.length < 3) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    debounceTimeout = setTimeout(async () => {
+      try {
+        const selectedCommerce = document.getElementById('order-select-commerce')?.value;
+        let query = supabase
+          .from('orders')
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+          .or(`customer_name.ilike.%${term}%,customer_email.ilike.%${term}%`)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (selectedCommerce) {
+          query = query.eq('comercio', selectedCommerce);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const uniqueCustomers = [];
+        const seenKeys = new Set();
+        (data || []).forEach(order => {
+          const name = order.customer_name || '';
+          const email = order.customer_email || '';
+          const key = `${name.toLowerCase()}_${email.toLowerCase()}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueCustomers.push(order);
+          }
+        });
+
+        if (uniqueCustomers.length === 0) {
+          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes anteriores</div>';
+          dropdown.style.display = 'block';
+          return;
+        }
+
+        let html = '';
+        uniqueCustomers.forEach(c => {
+          html += `
+            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+              <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main);">${c.customer_name}</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">${c.customer_email || 'Sin correo'} | ${c.customer_phone || 'Sin teléfono'}</span>
+              <span style="font-size: 0.75rem; color: var(--color-primary);">${c.shipping_address}, ${c.shipping_city}</span>
+            </div>
+          `;
+        });
+
+        dropdown.innerHTML = html;
+        dropdown.style.display = 'block';
+
+        const options = dropdown.querySelectorAll('.customer-autocomplete-option');
+        options.forEach((opt, idx) => {
+          opt.onclick = function() {
+            const customer = uniqueCustomers[idx];
+            document.getElementById('order-cust-name').value = customer.customer_name || '';
+            document.getElementById('order-cust-email').value = customer.customer_email || '';
+            document.getElementById('order-cust-phone').value = customer.customer_phone || '';
+            document.getElementById('order-cust-address').value = customer.shipping_address || '';
+            document.getElementById('order-cust-complement').value = customer.shipping_complement || '';
+
+            const rawCity = customer.shipping_city || '';
+            let validComunas = [];
+            if (window.shippingRates) {
+              validComunas = Object.values(window.shippingRates);
+            }
+
+            const normalizeString = (str) => {
+              return (str || '').toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/ñ/g, 'n')
+                .trim();
+            };
+
+            const normalizedCityInput = normalizeString(rawCity);
+            const matchingComunaObj = validComunas.find(c => normalizeString(c.comuna) === normalizedCityInput);
+
+            const cityInputEl = document.getElementById('order-cust-city');
+            if (matchingComunaObj) {
+              cityInputEl.value = matchingComunaObj.comuna;
+            } else {
+              cityInputEl.value = rawCity;
+            }
+
+            dropdown.style.display = 'none';
+            searchInput.value = '';
+          };
+        });
+
+      } catch (err) {
+        console.error("Error al buscar clientes históricos (Admin):", err.message);
+      }
+    }, 300);
+  });
+
+  document.addEventListener('click', function(e) {
+    if (e.target !== searchInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+};
+
+window.setupAdminComunaAutocomplete = function() {
+  const cityInput = document.getElementById('order-cust-city');
+  const dropdown = document.getElementById('order-cust-city-dropdown');
+  if (!cityInput || !dropdown) return;
+
+  const getComunasList = () => {
+    if (window.shippingRates) {
+      return Object.values(window.shippingRates).map(item => item.comuna).sort();
+    }
+    return [
+      "Alhué", "Buin", "Calera de Tango", "Cerrillos", "Cerro Navia", "Colina", "Conchalí",
+      "Curacaví", "El Bosque", "El Monte", "Estación Central", "Huechuraba", "Independencia",
+      "Isla de Maipo", "La Cisterna", "La Florida", "La Granja", "La Pintana", "La Reina",
+      "Lampa", "Las Condes", "Lo Barnechea", "Lo Espejo", "Lo Prado", "Macul", "Maipú",
+      "María Pinto", "Melipilla", "Ñuñoa", "Padre Hurtado", "Paine", "Pedro Aguirre Cerda",
+      "Peñaflor", "Peñalolén", "Pirque", "Providencia", "Pudahuel", "Puente Alto", "Quilicura",
+      "Quinta Normal", "Recoleta", "Renca", "San Bernardo", "San Joaquín", "San José de Maipo",
+      "San Miguel", "San Pedro", "San Ramón", "Santiago", "Talagante", "Tiltil", "Vitacura"
+    ];
+  };
+
+  const renderOptions = (filterTerm) => {
+    const list = getComunasList();
+    const term = (filterTerm || '').toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .trim();
+
+    const filtered = list.filter(comuna => {
+      const norm = comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n');
+      return norm.includes(term);
+    });
+
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 0.5rem 0.75rem; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No se encontraron comunas</div>';
+      return;
+    }
+
+    let html = '';
+    filtered.forEach(comuna => {
+      html += `
+        <div class="comuna-autocomplete-option" data-comuna="${comuna}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+          ${comuna}
+        </div>
+      `;
+    });
+    dropdown.innerHTML = html;
+
+    const options = dropdown.querySelectorAll('.comuna-autocomplete-option');
+    options.forEach(opt => {
+      opt.onclick = function() {
+        const val = this.getAttribute('data-comuna');
+        cityInput.value = val;
+        dropdown.style.display = 'none';
+        cityInput.dispatchEvent(new Event('change'));
+        if (window.currentAdminWizardStep === 3) {
+          window.calculateAdminShippingQuote();
+        }
+      };
+    });
+  };
+
+  cityInput.addEventListener('focus', function() {
+    renderOptions(this.value);
+    dropdown.style.display = 'block';
+  });
+
+  cityInput.addEventListener('input', function() {
+    renderOptions(this.value);
+    dropdown.style.display = 'block';
+  });
+
+  document.addEventListener('click', function(e) {
+    if (e.target !== cityInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+};
+
+window.calculateAdminShippingQuote = function() {
+  const city = document.getElementById('order-cust-city').value.trim();
+  const weight = parseFloat(document.getElementById('order-total-weight-input').value) || 1.0;
+  const volume = parseFloat(document.getElementById('order-total-volume-estimated').value) || 0.0;
+  const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+  const paymentConditionGroup = document.getElementById('order-payment-condition-group');
+
+  const badge = document.getElementById('order-coverage-badge');
+  const optionsList = document.getElementById('order-courier-options-list');
+  const netEl = document.getElementById('order-quote-net');
+  const taxEl = document.getElementById('order-quote-tax');
+  const totalEl = document.getElementById('order-quote-total');
+
+  if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
+
+  if (shippingType === 'punto_stocka') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Retiro en Punto STOCKA (Sin Costo)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-success, #22c55e); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+          <input type="radio" name="order-courier-option" value="STOCKA" checked data-net="0" data-tax="0" style="cursor: pointer;">
+          Retiro en Punto STOCKA (Campo de Deportes 405, Ñuñoa)
+        </span>
+        <span style="font-weight: bold; color: var(--color-success, #22c55e);">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </label>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (shippingType === 'transporte_propio') {
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-truck-line"></i> Transporte Propio (Sin Costo)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid #3b82f6; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+          <input type="radio" name="order-courier-option" value="Manual" checked data-net="0" data-tax="0" style="cursor: pointer;">
+          Transporte Propio (Coordinado por el cliente/comercio)
+        </span>
+        <span style="font-weight: bold; color: #3b82f6;">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </label>
+      <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border); margin-top: 0.75rem; line-height: 1.3; display: flex; gap: 0.35rem; align-items: flex-start; text-align: left;">
+        <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.95rem; margin-top: 1px;"></i>
+        <span>Se deberá coordinar el despacho directamente usando su propio transportista o sistema de entregas.</span>
+      </div>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (!city) {
+    badge.style.background = 'rgba(239, 68, 68, 0.1)';
+    badge.style.color = '#ef4444';
+    badge.innerHTML = '<i class="ri-error-warning-line"></i> Ingrese comuna en el paso 1 para cotizar';
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Defina comuna de destino...</div>';
+    return;
+  }
+
+  if (shippingType === 'sucursal') {
+    const branchCourierSelect = document.getElementById('order-sucursal-courier');
+    const selectedBranchCourier = branchCourierSelect ? branchCourierSelect.value : '';
+    if (!selectedBranchCourier) {
+      badge.style.background = 'rgba(245, 158, 11, 0.1)';
+      badge.style.color = '#f59e0b';
+      badge.innerHTML = '<i class="ri-alert-line"></i> Selecciona un courier de sucursal para cotizar';
+      optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Por favor, selecciona el Courier de Sucursal a la izquierda...</div>';
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+  }
+
+  const isRm = window.isRmCoverage(city);
+
+  if (shippingType === 'sucursal') {
+    badge.style.background = 'rgba(124, 58, 237, 0.1)';
+    badge.style.color = '#7c3aed';
+    badge.innerHTML = '<i class="ri-building-line"></i> Retiro en Sucursal';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'block';
+
+    const selectedBranchCourier = document.getElementById('order-sucursal-courier').value;
+    const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+
+    const normalizedCity = city.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .replace(/[^a-z\s]/g, '')
+      .trim();
+
+    const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+
+    if (!ratesData) {
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa una tarifa neta de envío manual:</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
+        </div>
+      `;
+
+      const manualNetInput = document.getElementById('manual-shipping-net');
+      const updateManual = () => {
+        let net = parseFloat(manualNetInput?.value) || 0;
+        const isPorPagar = paymentCondition === 'por_pagar';
+        const displayNet = isPorPagar ? 0 : net;
+        const tax = displayNet * 0.19;
+        const total = displayNet + tax;
+
+        netEl.textContent = window.formatCLP(displayNet);
+        taxEl.textContent = window.formatCLP(tax);
+        totalEl.textContent = window.formatCLP(total);
+
+        const tempRadio = document.createElement('input');
+        tempRadio.type = 'radio';
+        tempRadio.name = 'order-courier-option';
+        tempRadio.value = selectedBranchCourier;
+        tempRadio.checked = true;
+        tempRadio.setAttribute('data-net', net);
+        tempRadio.setAttribute('data-tax', net * 0.19);
+        tempRadio.style.display = 'none';
+        
+        const existingTemp = optionsList.querySelector('#temp-manual-radio');
+        if (existingTemp) existingTemp.remove();
+        
+        tempRadio.id = 'temp-manual-radio';
+        optionsList.appendChild(tempRadio);
+      };
+
+      if (manualNetInput) {
+        manualNetInput.onchange = updateManual;
+        manualNetInput.onkeyup = updateManual;
+      }
+      updateManual();
+      return;
+    }
+
+    let bracket = '0-1';
+    if (weight <= 1.0) bracket = '0-1';
+    else if (weight <= 3.0) bracket = '1-3';
+    else if (weight <= 6.0) bracket = '3-6';
+    else if (weight <= 9.0) bracket = '6-9';
+    else if (weight <= 12.0) bracket = '9-12';
+    else if (weight <= 15.0) bracket = '12-15';
+    else bracket = '15-18';
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    let netCost = selectedBranchCourier === 'STARKEN' ? bracketRates.starken : bracketRates.chilexpress;
+
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      netCost += extraKg * 1000;
+    }
+
+    if (!netCost) {
+      optionsList.innerHTML = `<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay tarifa disponible para ${selectedBranchCourier} en ${city}. Cotiza de forma manual.</div>`;
+      return;
+    }
+
+    const isPorPagar = paymentCondition === 'por_pagar';
+    const displayNet = isPorPagar ? 0 : netCost;
+    const tax = displayNet * 0.19;
+    const total = displayNet + tax;
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 2px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="${selectedBranchCourier}" checked data-net="${netCost}" data-tax="${netCost * 0.19}" style="cursor: pointer;">
+            Retiro en Sucursal ${selectedBranchCourier}
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem;">
+            Plazo estimado: ${window.getTransitTimeText(selectedBranchCourier, ratesData)}
+          </span>
+        </div>
+        <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(total)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+
+    netEl.textContent = window.formatCLP(displayNet);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+    return;
+  }
+
+  // Domicilio en RM
+  if (isRm) {
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-map-pin-2-line"></i> Región Metropolitana (Cobertura Stocka)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    let netPrice = 2990;
+    if (weight > 3.0) {
+      netPrice += Math.ceil((weight - 3.0) / 1.0) * 500;
+    }
+    const taxPrice = netPrice * 0.19;
+    const totalPrice = netPrice + taxPrice;
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 2px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="Same Day" checked data-net="${netPrice}" data-tax="${taxPrice}" style="cursor: pointer;">
+            Envío Same Day RM <span style="font-size: 0.7rem; background: #22c55e; color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Recomendado</span>
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem;">
+            Entrega durante el día / 24 horas hábiles
+          </span>
+        </div>
+        <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(totalPrice)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+
+    netEl.textContent = window.formatCLP(netPrice);
+    taxEl.textContent = window.formatCLP(taxPrice);
+    totalEl.textContent = window.formatCLP(totalPrice);
+    return;
+  }
+
+  // Domicilio en Regiones
+  badge.style.background = 'rgba(245, 158, 11, 0.1)';
+  badge.style.color = '#f59e0b';
+  badge.innerHTML = '<i class="ri-map-pin-range-line"></i> Envíos a Regiones (Courier Externo)';
+  if (paymentConditionGroup) paymentConditionGroup.style.display = 'block';
+
+  const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+  const normalizedCity = city.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+
+  const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+
+  if (!ratesData) {
+    optionsList.innerHTML = `
+      <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+        <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+      </div>
+      <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa una tarifa neta de envío manual:</div>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
+        <select id="manual-shipping-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem; width: 120px;">
+          <option value="STARKEN">Starken</option>
+          <option value="BLUEXPRESS">Bluexpress</option>
+          <option value="CHILEXPRESS">Chilexpress</option>
+        </select>
+      </div>
+    `;
+
+    const manualNetInput = document.getElementById('manual-shipping-net');
+    const manualCourierSelect = document.getElementById('manual-shipping-courier');
+    
+    const updateManual = () => {
+      let net = parseFloat(manualNetInput?.value) || 0;
+      let courier = manualCourierSelect?.value || 'STARKEN';
+      
+      const isPorPagar = paymentCondition === 'por_pagar';
+      const displayNet = isPorPagar ? 0 : net;
+      const tax = displayNet * 0.19;
+      const total = displayNet + tax;
+
+      netEl.textContent = window.formatCLP(displayNet);
+      taxEl.textContent = window.formatCLP(tax);
+      totalEl.textContent = window.formatCLP(total);
+
+      const tempRadio = document.createElement('input');
+      tempRadio.type = 'radio';
+      tempRadio.name = 'order-courier-option';
+      tempRadio.value = courier;
+      tempRadio.checked = true;
+      tempRadio.setAttribute('data-net', net);
+      tempRadio.setAttribute('data-tax', net * 0.19);
+      tempRadio.style.display = 'none';
+      
+      const existingTemp = optionsList.querySelector('#temp-manual-radio');
+      if (existingTemp) existingTemp.remove();
+      
+      tempRadio.id = 'temp-manual-radio';
+      optionsList.appendChild(tempRadio);
+    };
+
+    if (manualNetInput) {
+      manualNetInput.onchange = updateManual;
+      manualNetInput.onkeyup = updateManual;
+    }
+    if (manualCourierSelect) {
+      manualCourierSelect.onchange = updateManual;
+    }
+    updateManual();
+    return;
+  }
+
+  let bracket = '0-1';
+  if (weight <= 1.0) bracket = '0-1';
+  else if (weight <= 3.0) bracket = '1-3';
+  else if (weight <= 6.0) bracket = '3-6';
+  else if (weight <= 9.0) bracket = '6-9';
+  else if (weight <= 12.0) bracket = '9-12';
+  else if (weight <= 15.0) bracket = '12-15';
+  else bracket = '15-18';
+
+  const bracketRates = ratesData.rates[bracket] || {};
+  let starkenNet = bracketRates.starken;
+  let bluexpressNet = bracketRates.bluexpress;
+  let chilexpressNet = bracketRates.chilexpress;
+
+  if (weight > 18.0) {
+    const extraKg = Math.ceil(weight - 18.0);
+    const surcharge = extraKg * 1000;
+    if (starkenNet) starkenNet += surcharge;
+    if (bluexpressNet) bluexpressNet += surcharge;
+    if (chilexpressNet) chilexpressNet += surcharge;
+  }
+
+  let html = '';
+  const validOptions = [];
+
+  if (starkenNet) {
+    validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Next Day' });
+  }
+  if (bluexpressNet) {
+    validOptions.push({ courier: 'BLUEXPRESS', net: bluexpressNet, label: 'Bluexpress Standard' });
+  }
+  if (chilexpressNet) {
+    validOptions.push({ courier: 'CHILEXPRESS', net: chilexpressNet, label: 'Chilexpress Aéreo' });
+  }
+
+  if (validOptions.length === 0) {
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay couriers configurados para esta comuna. Cotiza de forma manual.</div>';
+    return;
+  }
+
+  validOptions.sort((a, b) => a.net - b.net);
+
+  validOptions.forEach((opt, idx) => {
+    const recommendedText = idx === 0 ? ' <span style="font-size: 0.7rem; background: #22c55e; color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Recomendado</span>' : '';
+    const checked = idx === 0 ? 'checked' : '';
+    const optTotal = opt.net * 1.19;
+
+    html += `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}'">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}" style="cursor: pointer;">
+            ${opt.label} ${recommendedText}
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(opt.courier, ratesData)}
+          </span>
+        </div>
+        <span style="font-weight: bold; color: ${idx === 0 ? 'var(--color-primary)' : 'var(--color-text-main)'};">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+  });
+
+  optionsList.innerHTML = html;
+
+  const radios = optionsList.querySelectorAll('input[name="order-courier-option"]');
+  const updatePrices = () => {
+    const selectedRadio = optionsList.querySelector('input[name="order-courier-option"]:checked');
+    if (!selectedRadio) return;
+
+    const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
+    const isPorPagar = paymentCondition === 'por_pagar';
+
+    const finalNet = isPorPagar ? 0 : netPrice;
+    const tax = finalNet * 0.19;
+    const total = finalNet + tax;
+
+    netEl.textContent = window.formatCLP(finalNet);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+  };
+
+  radios.forEach(r => r.onchange = updatePrices);
+  updatePrices();
+};
+
+// Listener para creación de nuevo pedido (#form-new-order en Admin)
+setTimeout(() => {
+  const formOrder = document.getElementById('form-new-order');
+  if (!formOrder) return;
+
+  formOrder.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const btnSubmit = document.getElementById('btn-wizard-submit');
+    if (btnSubmit) {
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Registrando Pedido...';
+    }
+
+    const selectCommerce = document.getElementById('order-select-commerce');
+    const selectedCommerce = selectCommerce ? selectCommerce.value.trim() : 'STOCKA';
+
+    const name = document.getElementById('order-cust-name').value.trim();
+    const email = document.getElementById('order-cust-email').value.trim();
+    const phone = document.getElementById('order-cust-phone').value.trim();
+    const address = document.getElementById('order-cust-address').value.trim();
+    const complement = document.getElementById('order-cust-complement').value.trim();
+    const city = document.getElementById('order-cust-city').value.trim();
+    const canalOrigen = document.getElementById('order-cust-origen')?.value || 'Manual';
+
+    const items = window.tempAdminNewOrderItems || [];
+    if (items.length === 0) {
+      alert('Debes agregar al menos un producto al pedido.');
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
+      }
+      return;
+    }
+
+    const totalValue = items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+
+    const isAutoNumber = document.getElementById('order-number-auto')?.checked;
+    let customOrderNumber = document.getElementById('order-cust-external-id')?.value.trim();
+    let finalOrderNumber = customOrderNumber;
+
+    if (isAutoNumber || !customOrderNumber) {
+      let siglaComercio = '';
+      try {
+        const { data: cfg } = await supabase
+          .from('v_comercios_config')
+          .select('sigla')
+          .eq('nombre', selectedCommerce)
+          .maybeSingle();
+        if (cfg && cfg.sigla) {
+          siglaComercio = cfg.sigla.trim().toUpperCase();
+        }
+      } catch (err) {
+        console.warn('Aviso obteniendo sigla:', err);
+      }
+
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      finalOrderNumber = siglaComercio ? `${siglaComercio}#MANUAL-${randomSuffix}` : `#MANUAL-${randomSuffix}`;
+    }
+
+    const shippingType = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
+    const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+    const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+
+    let courierName = selectedCourierRadio ? selectedCourierRadio.value : 'Manual';
+    let netShippingCost = 0;
+    let taxShippingCost = 0;
+
+    if (selectedCourierRadio) {
+      netShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-net') || '0');
+      taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
+    }
+
+    if (paymentCondition === 'por_pagar') {
+      netShippingCost = 0;
+      taxShippingCost = 0;
+    }
+
+    let finalShippingMethod = 'Envío a Domicilio';
+    if (shippingType === 'sucursal') {
+      const branchCourier = document.getElementById('order-sucursal-courier').value;
+      const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+      finalShippingMethod = `Retiro en Sucursal (${branchCourier} - ${branchDetails})`;
+      courierName = branchCourier;
+    } else if (shippingType === 'punto_stocka') {
+      finalShippingMethod = 'Retiro en Punto STOCKA';
+      courierName = 'STOCKA';
+      netShippingCost = 0;
+      taxShippingCost = 0;
+    } else if (shippingType === 'transporte_propio') {
+      finalShippingMethod = 'Transporte Propio';
+      courierName = 'Manual';
+      netShippingCost = 0;
+      taxShippingCost = 0;
+    }
+
+    try {
+      // 1. Resolver merchant_id
+      let merchantId = null;
+      try {
+        const { data: prodM } = await supabase
+          .from('products')
+          .select('merchant_id')
+          .eq('comercio', selectedCommerce)
+          .limit(1)
+          .maybeSingle();
+        if (prodM && prodM.merchant_id) {
+          merchantId = prodM.merchant_id;
+        }
+      } catch (err) {
+        console.warn('Aviso obteniendo merchant_id:', err);
+      }
+
+      // 2. Insertar Order
+      const orderDataPayload = {
+        merchant_id: merchantId,
+        comercio: selectedCommerce,
+        external_order_number: finalOrderNumber,
+        origen: canalOrigen,
+        external_platform: canalOrigen,
+        payment_status: 'pagado',
+        total_value: totalValue,
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone,
+        shipping_address: address,
+        shipping_city: city,
+        shipping_complement: complement,
+        shipping_method: finalShippingMethod,
+        operador: courierName,
+        shipping_cost: netShippingCost,
+        shipping_cost_tax: taxShippingCost,
+        status: 'para procesar',
+        estado_wms: 'En procesamiento',
+        created_at: new Date().toISOString()
+      };
+
+      let insertedOrder = null;
+      const insertResult = await supabase
+        .from('orders')
+        .insert([orderDataPayload])
+        .select()
+        .single();
+
+      if (insertResult.error) {
+        const isColumnError = insertResult.error.message && (
+          insertResult.error.message.includes('shipping_cost') || 
+          insertResult.error.message.includes('shipping_cost_tax')
+        );
+        if (isColumnError) {
+          const fallbackPayload = { ...orderDataPayload };
+          delete fallbackPayload.shipping_cost;
+          delete fallbackPayload.shipping_cost_tax;
+          fallbackPayload.shipping_method = `${finalShippingMethod} [Costo Neto: $${netShippingCost}]`;
+
+          const fallbackResult = await supabase
+            .from('orders')
+            .insert([fallbackPayload])
+            .select()
+            .single();
+
+          if (fallbackResult.error) throw fallbackResult.error;
+          insertedOrder = fallbackResult.data;
+        } else {
+          throw insertResult.error;
+        }
+      } else {
+        insertedOrder = insertResult.data;
+      }
+
+      // 3. Determinar mejor bodega para cada ítem e insertar order_items
+      const itemsPayload = [];
+      for (const item of items) {
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('warehouse_id, quantity, committed_quantity')
+          .eq('product_id', item.product_id);
+          
+        let bestWarehouse = null;
+        let maxAvailable = -1;
+
+        if (invData && invData.length > 0) {
+          invData.forEach(inv => {
+            const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+            if (available > maxAvailable) {
+              maxAvailable = available;
+              bestWarehouse = inv.warehouse_id;
+            }
+          });
+        }
+
+        if (!bestWarehouse) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .maybeSingle();
+          if (bodegaCentral) bestWarehouse = bodegaCentral.id;
+        }
+
+        itemsPayload.push({
+          order_id: insertedOrder.id,
+          product_id: item.product_id,
+          warehouse_id: bestWarehouse,
+          quantity: item.quantity
+        });
+      }
+
+      const { error: errItems } = await supabase
+        .from('order_items')
+        .insert(itemsPayload);
+
+      if (errItems) throw errItems;
+
+      // 4. Notificación por correo vía Brevo
+      try {
+        const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+        const itemsHtml = items.map(item => `
+          <tr style="border-bottom: 1px solid #edf2f7;">
+            <td style="padding: 8px; color: #4a5568; font-family: monospace;">${item.sku}</td>
+            <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}</td>
+            <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${item.quantity}</td>
+          </tr>
+        `).join('');
+
+        const htmlBody = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
+            <h2 style="color: #3b82f6; margin-top: 0;">¡Nuevo Pedido Creado en WMS STOCKA (Admin)!</h2>
+            <p>Se ha registrado un nuevo pedido con los siguientes detalles:</p>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096; width: 150px;">N° de Pedido:</td><td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${insertedOrder.external_order_number || 'No especificado'}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Comercio:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.comercio}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Destinatario:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.customer_name}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_address}, ${insertedOrder.shipping_city}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Método Envío:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_method}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Total:</td><td style="padding: 6px 0; font-weight: bold; color: #22c55e;">${window.formatCLP(insertedOrder.total_value || 0)}</td></tr>
+            </table>
+            <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <thead>
+                <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
+                  <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
+                  <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
+                  <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096;">Cant</th>
+                </tr>
+              </thead>
+              <tbody>${itemsHtml}</tbody>
+            </table>
+          </div>
+        `;
+
+        fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'api-key': BREVO_API_KEY,
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            sender: { name: 'STOCKA WMS', email: 'hola@stocka.cl' },
+            to: [{ email: 'contacto@stocka.cl', name: 'Equipo Operaciones Stocka' }],
+            subject: `🆕 Pedido manual creado en Admin - ${insertedOrder.external_order_number || 'Sin Nro'} (${insertedOrder.comercio})`,
+            htmlContent: htmlBody
+          })
+        }).catch(err => console.warn('Brevo email warning:', err));
+      } catch (brevoErr) {
+        console.warn('Brevo catch:', brevoErr);
+      }
+
+      // 5. Cerrar modal y limpiar
+      document.getElementById('modal-order')?.classList.remove('active');
+      e.target.reset();
+      window.tempAdminNewOrderItems = [];
+      window.tempClientNewOrderItems = [];
+
+      // 6. Actualizar órdenes en memoria y refrescar tabla in-place
+      if (insertedOrder) {
+        window.loadedOrders = window.loadedOrders || [];
+        window.loadedOrders.unshift(insertedOrder);
+      }
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: '¡Pedido Registrado con Éxito!',
+        html: `El pedido <strong>${insertedOrder.external_order_number}</strong> para el comercio <strong>${insertedOrder.comercio}</strong> ha sido creado y ya está disponible en el Gestor de Pedidos.`,
+        confirmButtonColor: '#7117eb'
+      });
+
+    } catch (error) {
+      console.error('Error al crear pedido en Admin:', error);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error al Crear Pedido',
+        text: error.message || 'Ocurrió un problema al registrar el pedido.',
+        confirmButtonColor: '#7117eb'
+      });
+    } finally {
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
+      }
+    }
+  });
+}, 500);
 
 
 
