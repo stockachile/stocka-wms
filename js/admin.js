@@ -34247,15 +34247,33 @@ window.exportAdminShopifyOrdersCsv = async function() {
 
   // Preguntar si desea marcarlos como exportados
   setTimeout(() => {
-    if (confirm('¿Deseas marcar los pedidos exportados como "Exportados" en el sistema?')) {
-      window.markAdminOrdersAsExported();
-    }
-  }, 1000);
+    Swal.fire({
+      title: '¿Marcar como Exportados?',
+      text: `¿Deseas marcar los ${selectedOrders.length} pedidos exportados como "Exportados" en el sistema?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, marcar',
+      cancelButtonText: 'No',
+      confirmButtonColor: '#96bf48'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        window.markAdminOrdersAsExported(selectedOrderIds);
+      }
+    });
+  }, 500);
 };
 
-window.markAdminOrdersAsExported = async function() {
-  const ids = Array.from(window.wmsSelectedOrderIds || []);
-  if (ids.length === 0) return;
+window.markAdminOrdersAsExported = async function(customIds = null) {
+  const ids = customIds ? (Array.isArray(customIds) ? customIds : [customIds]) : Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Ningún pedido seleccionado',
+      text: 'Selecciona los pedidos que deseas marcar como exportados.',
+      confirmButtonColor: '#7117eb'
+    });
+    return;
+  }
   
   try {
     const { error } = await supabase
@@ -34265,12 +34283,33 @@ window.markAdminOrdersAsExported = async function() {
       
     if (error) throw error;
     
-    alert(`Se marcaron ${ids.length} pedidos como exportados.`);
+    // Actualizar en memoria inmediatamente
+    const allOrders = window.loadedOrders || [];
+    allOrders.forEach(o => {
+      if (ids.includes(o.id)) {
+        o.shopify_exported = true;
+      }
+    });
+
     window.clearWmsSelection();
-    renderAdminOrders();
+    window.applyWmsFiltersAndRender();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `✅ ${ids.length} pedido(s) marcados como exportados`,
+      showConfirmButton: false,
+      timer: 3000
+    });
   } catch (err) {
     console.error(err);
-    alert('Error al marcar pedidos como exportados: ' + err.message);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: 'Error al marcar pedidos como exportados: ' + err.message,
+      confirmButtonColor: '#7117eb'
+    });
   }
 };
 

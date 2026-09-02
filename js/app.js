@@ -28589,25 +28589,56 @@ window.markOrdersAsExported = async function(selectedOrderIds) {
     alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
     return;
   }
+
+  const ids = Array.isArray(selectedOrderIds) ? selectedOrderIds : [selectedOrderIds];
+  if (ids.length === 0) return;
   
   try {
     const { error } = await supabase
       .from('orders')
       .update({ shopify_exported: true })
-      .in('id', selectedOrderIds);
+      .in('id', ids);
       
     if (error) throw error;
     
-    alert(`Se marcaron ${selectedOrderIds.length} pedidos como exportados.`);
-    
-    // Desmarcar cabecera general
+    // Actualizar en memoria inmediatamente
+    const allOrders = window.clientLoadedOrders || [];
+    allOrders.forEach(o => {
+      if (ids.includes(o.id)) {
+        o.shopify_exported = true;
+      }
+    });
+
+    // Desmarcar cabecera general y checkboxes
+    const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
+    checkboxes.forEach(cb => cb.checked = false);
     const selectAllCb = document.getElementById('select-all-client-orders');
     if (selectAllCb) selectAllCb.checked = false;
+    if (typeof window.updateClientOrdersBulkSelection === 'function') {
+      window.updateClientOrdersBulkSelection();
+    }
     
-    renderOrders();
+    // Re-renderizar en memoria al instante
+    if (typeof window.applyClientWmsFiltersAndRender === 'function') {
+      window.applyClientWmsFiltersAndRender();
+    }
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `✅ ${ids.length} pedido(s) marcados como exportados`,
+      showConfirmButton: false,
+      timer: 3000
+    });
   } catch (err) {
     console.error(err);
-    alert('Error al marcar pedidos como exportados: ' + err.message);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: 'Error al marcar pedidos como exportados: ' + err.message,
+      confirmButtonColor: '#7117eb'
+    });
   }
 };
 
