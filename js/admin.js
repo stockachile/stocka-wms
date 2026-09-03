@@ -4509,17 +4509,31 @@ window.applyBulkWmsStatus = async function() {
     const agendas = [...new Set(selectedOrders.map(o => o.agenda).filter(Boolean))];
     const defaultAgenda = agendas.length === 1 ? agendas[0] : '';
 
+    const operadores = [...new Set(selectedOrders.map(o => o.operador).filter(Boolean))];
+    const defaultOperador = operadores.length === 1 ? operadores[0] : '';
+
     const now = new Date();
     const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const fechas = [...new Set(selectedOrders.map(o => o.fecha_procesamiento).filter(Boolean))];
     const defaultFecha = fechas.length === 1 ? fechas[0] : todayDDMM;
 
-    // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda y Fecha Procesamiento
+    const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(defaultAgenda ? [defaultAgenda] : [])])];
+    const agendaOptionsHtml = agendaOptionsList.map(opt => `
+      <option value="${opt}" ${defaultAgenda === opt ? 'selected' : ''}>${opt}</option>
+    `).join('');
+
+    const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(defaultOperador ? [defaultOperador] : [])])];
+    const operadorOptionsHtml = operadorOptionsList.map(opt => `
+      <option value="${opt}" ${defaultOperador === opt ? 'selected' : ''}>${opt}</option>
+    `).join('');
+
+    // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda, Operador y Fecha Procesamiento
     const { value: formValues } = await Swal.fire({
       title: 'Asignación Masiva: Sucursal, Agenda y Procesamiento',
       html: `
         <div style="text-align: left; font-size: 0.9rem;">
           <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Los ${ids.length} pedidos seleccionados se enviarán al Picker.</p>
+          
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
           <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
             <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
@@ -4527,8 +4541,18 @@ window.applyBulkWmsStatus = async function() {
             <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
             <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' || !defaultSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
           </select>
+          
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-bulk-agenda" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Ej: STK, RM, etc." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <select id="swal-bulk-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="">- Seleccionar Agenda -</option>
+            ${agendaOptionsHtml}
+          </select>
+
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+          <select id="swal-bulk-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="">(Sin cambios / Dejar vacío)</option>
+            ${operadorOptionsHtml}
+          </select>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -4541,10 +4565,11 @@ window.applyBulkWmsStatus = async function() {
       preConfirm: () => {
         const sucursal = document.getElementById('swal-bulk-sucursal').value;
         const agenda = document.getElementById('swal-bulk-agenda').value.trim();
+        const operador = document.getElementById('swal-bulk-operador').value.trim();
         const fechaProcInput = document.getElementById('swal-bulk-fecha-proc').value.trim();
 
         if (!agenda) {
-          Swal.showValidationMessage('La agenda de preparación no puede estar vacía');
+          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
           return false;
         }
 
@@ -4566,7 +4591,7 @@ window.applyBulkWmsStatus = async function() {
           }
         }
 
-        return { sucursal, agenda, fechaProc: fechaProcInput };
+        return { sucursal, agenda, operador, fechaProc: fechaProcInput };
       }
     });
 
@@ -4727,6 +4752,9 @@ window.applyBulkWmsStatus = async function() {
         sucursal_pickeo: formValues.sucursal,
         agenda: formValues.agenda
       };
+      if (formValues.operador) {
+        updatePayload.operador = formValues.operador;
+      }
       if (formValues.fechaProc) {
         updatePayload.fecha_procesamiento = formValues.fechaProc;
       }
@@ -4755,6 +4783,9 @@ window.applyBulkWmsStatus = async function() {
         order.estado_wms = 'En preparación';
         order.sucursal_pickeo = formValues.sucursal;
         order.agenda = formValues.agenda;
+        if (formValues.operador) {
+          order.operador = formValues.operador;
+        }
         if (formValues.fechaProc) {
           order.fecha_procesamiento = formValues.fechaProc;
         }
@@ -4789,6 +4820,76 @@ window.applyBulkWmsStatus = async function() {
 
     if (newStatus === 'Despachado') {
       const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+
+      const operadores = [...new Set(selectedOrders.map(o => o.operador).filter(Boolean))];
+      const defaultOperador = operadores.length === 1 ? operadores[0] : '';
+
+      const agendas = [...new Set(selectedOrders.map(o => o.agenda).filter(Boolean))];
+      const defaultAgenda = agendas.length === 1 ? agendas[0] : '';
+
+      const now = new Date();
+      const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const fechas = [...new Set(selectedOrders.map(o => o.fecha_procesamiento).filter(Boolean))];
+      const defaultFecha = fechas.length === 1 ? fechas[0] : todayDDMM;
+
+      const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(defaultAgenda ? [defaultAgenda] : [])])];
+      const agendaOptionsHtml = agendaOptionsList.map(opt => `
+        <option value="${opt}" ${defaultAgenda === opt ? 'selected' : ''}>${opt}</option>
+      `).join('');
+
+      const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(defaultOperador ? [defaultOperador] : [])])];
+      const operadorOptionsHtml = operadorOptionsList.map(opt => `
+        <option value="${opt}" ${defaultOperador === opt ? 'selected' : ''}>${opt}</option>
+      `).join('');
+
+      const { value: dispatchFormValues } = await Swal.fire({
+        title: 'Marcar como Despachado (Masivo)',
+        html: `
+          <div style="text-align: left; font-size: 0.9rem;">
+            <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Se marcarán como <strong>Despachado</strong> los ${ids.length} pedidos seleccionados.</p>
+            
+            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+            <select id="swal-bulk-disp-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <option value="">(Mantener actual / Sin asignar)</option>
+              ${operadorOptionsHtml}
+            </select>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
+            <select id="swal-bulk-disp-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <option value="">(Mantener actual / Sin asignar)</option>
+              ${agendaOptionsHtml}
+            </select>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
+            <input id="swal-bulk-disp-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+          </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Confirmar Despacho',
+        confirmButtonColor: '#059669',
+        cancelButtonText: 'Cancelar',
+        preConfirm: () => {
+          const operador = document.getElementById('swal-bulk-disp-operador').value.trim();
+          const agenda = document.getElementById('swal-bulk-disp-agenda').value.trim();
+          const fechaProcInput = document.getElementById('swal-bulk-disp-fecha-proc').value.trim();
+
+          if (fechaProcInput) {
+            const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
+            if (!regex.test(fechaProcInput)) {
+              Swal.showValidationMessage('La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07)');
+              return false;
+            }
+          }
+          return { operador, agenda, fechaProc: fechaProcInput };
+        }
+      });
+
+      if (!dispatchFormValues) {
+        applyWmsFiltersAndRender();
+        return;
+      }
+
       const valResult = await validateOrderStockForDispatch(selectedOrders);
       if (!valResult || !valResult.isValid) {
         applyWmsFiltersAndRender();
@@ -4801,6 +4902,63 @@ window.applyBulkWmsStatus = async function() {
           validCount: valResult.validOrders.length,
           failedCount: valResult.failedOrders.length
         };
+      }
+
+      try {
+        const updateData = { 
+          estado_wms: 'Despachado',
+          status: 'despachado'
+        };
+        if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
+        if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
+        if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+
+        const { error } = await supabase
+          .from('orders')
+          .update(updateData)
+          .in('id', idsToProcess);
+          
+        if (error) throw error;
+        
+        if (window.loadedOrders) {
+          idsToProcess.forEach(id => {
+            const order = window.loadedOrders.find(o => o.id === id);
+            if (order) {
+              order.estado_wms = 'Despachado';
+              order.status = 'despachado';
+              if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
+              if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
+              if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+            }
+          });
+        }
+        
+        idsToProcess.forEach(id => window.wmsSelectedOrderIds.delete(id));
+        const cbAll = document.getElementById('wms-select-all');
+        if (cbAll && window.wmsSelectedOrderIds.size === 0) cbAll.checked = false;
+        
+        if (partialFailureInfo) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Despacho Parcial Completado',
+            text: `Se despacharon exitosamente ${partialFailureInfo.validCount} pedidos. ${partialFailureInfo.failedCount} pedidos no pudieron ser despachados por falta de stock.`,
+            confirmButtonColor: '#7117eb'
+          });
+        } else {
+          Swal.fire({
+            icon: 'success',
+            title: '¡Pedidos Despachados!',
+            text: `Se actualizaron ${idsToProcess.length} pedidos como Despachados.`,
+            confirmButtonColor: '#059669'
+          });
+        }
+        applyWmsFiltersAndRender();
+        return;
+      } catch (err) {
+        console.error(err);
+        Swal.fire('Error', 'No se pudieron despachar los pedidos: ' + err.message, 'error');
+        applyWmsFiltersAndRender();
+        return;
       }
     } else {
       if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
@@ -4815,9 +4973,7 @@ window.applyBulkWmsStatus = async function() {
 
     try {
       const updateData = { estado_wms: newStatus };
-      if (newStatus === 'Despachado') {
-        updateData.status = 'despachado';
-      } else if (newStatus === 'Cancelado') {
+      if (newStatus === 'Cancelado') {
         updateData.status = 'cancelado';
       }
       const { error } = await supabase
@@ -4832,9 +4988,7 @@ window.applyBulkWmsStatus = async function() {
           const order = window.loadedOrders.find(o => o.id === id);
           if (order) {
             order.estado_wms = newStatus;
-            if (newStatus === 'Despachado') {
-              order.status = 'despachado';
-            } else if (newStatus === 'Cancelado') {
+            if (newStatus === 'Cancelado') {
               order.status = 'cancelado';
             }
           }
@@ -5305,13 +5459,25 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
     const currentSucursal = order.sucursal_pickeo || '';
     const currentAgenda = order.agenda || '';
+    const currentOperador = order.operador || '';
     const currentFechaProc = order.fecha_procesamiento || todayDDMM;
+
+    const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(currentAgenda ? [currentAgenda] : [])])];
+    const agendaOptionsHtml = agendaOptionsList.map(opt => `
+      <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
+    `).join('');
+
+    const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(currentOperador ? [currentOperador] : [])])];
+    const operadorOptionsHtml = operadorOptionsList.map(opt => `
+      <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
+    `).join('');
 
     const { value: formValues } = await Swal.fire({
       title: 'Preparación de Pedido: Datos requeridos',
       html: `
         <div style="text-align: left; font-size: 0.9rem;">
           <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">El pedido se enviará al sistema Picker para su preparación. Se requiere especificar la agenda y la fecha de procesamiento.</p>
+          
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
           <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
             <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
@@ -5321,7 +5487,16 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           </select>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-agenda" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Ej: STK, RM, etc." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <select id="swal-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="">- Seleccionar Agenda -</option>
+            ${agendaOptionsHtml}
+          </select>
+
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+          <select id="swal-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="">(Sin cambios / Dejar vacío)</option>
+            ${operadorOptionsHtml}
+          </select>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -5334,10 +5509,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       preConfirm: () => {
         const sucursal = document.getElementById('swal-sucursal').value;
         const agenda = document.getElementById('swal-agenda').value.trim();
+        const operador = document.getElementById('swal-operador').value.trim();
         const fechaProc = document.getElementById('swal-fecha-proc').value.trim();
 
         if (!agenda) {
-          Swal.showValidationMessage('La agenda de preparación no puede estar vacía');
+          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
           return false;
         }
         if (!fechaProc) {
@@ -5350,7 +5526,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return false;
         }
 
-        return { sucursal, agenda, fechaProc };
+        return { sucursal, agenda, operador, fechaProc };
       }
     });
 
@@ -5468,14 +5644,19 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       }
 
       // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
+      const updateData = {
+        estado_wms: 'En preparación',
+        sucursal_pickeo: formValues.sucursal,
+        agenda: formValues.agenda,
+        fecha_procesamiento: formValues.fechaProc
+      };
+      if (formValues.operador) {
+        updateData.operador = formValues.operador;
+      }
+
       const { error: wmsErr } = await supabase
         .from('orders')
-        .update({
-          estado_wms: 'En preparación',
-          sucursal_pickeo: formValues.sucursal,
-          agenda: formValues.agenda,
-          fecha_procesamiento: formValues.fechaProc
-        })
+        .update(updateData)
         .eq('id', orderId);
 
       if (wmsErr) throw wmsErr;
@@ -5484,6 +5665,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       order.estado_wms = 'En preparación';
       order.sucursal_pickeo = formValues.sucursal;
       order.agenda = formValues.agenda;
+      if (formValues.operador) {
+        order.operador = formValues.operador;
+      }
       order.fecha_procesamiento = formValues.fechaProc;
       (order.order_items || []).forEach(item => {
         item.warehouse_id = targetWarehouseId;
@@ -5502,16 +5686,103 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   } else {
     try {
       if (newWmsStatus === 'Despachado') {
+        const currentOperador = order.operador || '';
+        const currentAgenda = order.agenda || '';
+        const now = new Date();
+        const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const currentFechaProc = order.fecha_procesamiento || todayDDMM;
+
+        const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(currentAgenda ? [currentAgenda] : [])])];
+        const agendaOptionsHtml = agendaOptionsList.map(opt => `
+          <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
+        `).join('');
+
+        const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(currentOperador ? [currentOperador] : [])])];
+        const operadorOptionsHtml = operadorOptionsList.map(opt => `
+          <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
+        `).join('');
+
+        const { value: dispatchFormValues } = await Swal.fire({
+          title: 'Marcar Pedido como Despachado',
+          html: `
+            <div style="text-align: left; font-size: 0.9rem;">
+              <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
+              
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+              <select id="swal-single-disp-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                <option value="">- Seleccionar Operador -</option>
+                ${operadorOptionsHtml}
+              </select>
+
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
+              <select id="swal-single-disp-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                <option value="">- Seleccionar Agenda -</option>
+                ${agendaOptionsHtml}
+              </select>
+
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
+              <input id="swal-single-disp-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+            </div>
+          `,
+          focusConfirm: false,
+          showCancelButton: true,
+          confirmButtonText: 'Confirmar Despacho',
+          confirmButtonColor: '#059669',
+          cancelButtonText: 'Cancelar',
+          preConfirm: () => {
+            const operador = document.getElementById('swal-single-disp-operador').value.trim();
+            const agenda = document.getElementById('swal-single-disp-agenda').value.trim();
+            const fechaProcInput = document.getElementById('swal-single-disp-fecha-proc').value.trim();
+
+            if (fechaProcInput) {
+              const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
+              if (!regex.test(fechaProcInput)) {
+                Swal.showValidationMessage('La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07)');
+                return false;
+              }
+            }
+            return { operador, agenda, fechaProc: fechaProcInput };
+          }
+        });
+
+        if (!dispatchFormValues) {
+          applyWmsFiltersAndRender();
+          return;
+        }
+
         const valRes = await validateOrderStockForDispatch([order]);
         if (!valRes || !valRes.isValid) {
           applyWmsFiltersAndRender();
           return;
         }
+
+        const updateData = { 
+          estado_wms: 'Despachado', 
+          status: 'despachado' 
+        };
+        if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
+        if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
+        if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+
+        const { error } = await supabase
+          .from('orders')
+          .update(updateData)
+          .eq('id', orderId);
+          
+        if (error) throw error;
+        
+        order.estado_wms = 'Despachado';
+        order.status = 'despachado';
+        if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
+        if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
+        if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+        
+        applyWmsFiltersAndRender();
+        return;
       }
+
       const updateData = { estado_wms: newWmsStatus };
-      if (newWmsStatus === 'Despachado') {
-        updateData.status = 'despachado';
-      } else if (newWmsStatus === 'Cancelado') {
+      if (newWmsStatus === 'Cancelado') {
         updateData.status = 'cancelado';
       }
       const { error } = await supabase
@@ -5522,9 +5793,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       if (error) throw error;
       
       order.estado_wms = newWmsStatus;
-      if (newWmsStatus === 'Despachado') {
-        order.status = 'despachado';
-      } else if (newWmsStatus === 'Cancelado') {
+      if (newWmsStatus === 'Cancelado') {
         order.status = 'cancelado';
       }
       
@@ -39179,9 +39448,14 @@ window.editWmsOrderPickingInfo = async function(orderId) {
 
   const currentSucursal = order.sucursal_pickeo || '';
   const currentAgenda = order.agenda || 'STK';
+  const currentOperador = order.operador || '';
 
   const agendaOptionsHtml = (window.agendaOptions || []).map(opt => `
     <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
+  `).join('');
+
+  const operadorOptionsHtml = (window.operadorOptions || []).map(opt => `
+    <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
   `).join('');
 
   const { value: formValues } = await Swal.fire({
@@ -39196,9 +39470,14 @@ window.editWmsOrderPickingInfo = async function(orderId) {
           <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
         </select>
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <select id="swal-agenda" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <select id="swal-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
           <option value="">-</option>
           ${agendaOptionsHtml}
+        </select>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+        <select id="swal-operador" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box;">
+          <option value="">(Sin asignar)</option>
+          ${operadorOptionsHtml}
         </select>
       </div>
     `,
@@ -39209,7 +39488,8 @@ window.editWmsOrderPickingInfo = async function(orderId) {
     preConfirm: () => {
       return {
         sucursal: document.getElementById('swal-sucursal').value,
-        agenda: document.getElementById('swal-agenda').value
+        agenda: document.getElementById('swal-agenda').value,
+        operador: document.getElementById('swal-operador').value
       };
     }
   });
@@ -39223,12 +39503,17 @@ window.editWmsOrderPickingInfo = async function(orderId) {
       didOpen: () => { Swal.showLoading(); }
     });
 
+    const updatePayload = {
+      sucursal_pickeo: formValues.sucursal,
+      agenda: formValues.agenda
+    };
+    if (formValues.operador !== undefined) {
+      updatePayload.operador = formValues.operador || null;
+    }
+
     const { error: wmsErr } = await supabase
       .from('orders')
-      .update({
-        sucursal_pickeo: formValues.sucursal,
-        agenda: formValues.agenda
-      })
+      .update(updatePayload)
       .eq('id', orderId);
 
     if (wmsErr) throw wmsErr;
@@ -39245,6 +39530,9 @@ window.editWmsOrderPickingInfo = async function(orderId) {
 
     order.sucursal_pickeo = formValues.sucursal;
     order.agenda = formValues.agenda;
+    if (formValues.operador !== undefined) {
+      order.operador = formValues.operador || null;
+    }
     (order.order_items || []).forEach(item => {
       item.warehouse_id = targetWarehouseId;
     });
@@ -40425,11 +40713,15 @@ window.bulkSetWmsOrderPickingInfo = async function() {
     <option value="${opt}">${opt}</option>
   `).join('');
 
+  const operadorOptionsHtml = (window.operadorOptions || []).map(opt => `
+    <option value="${opt}">${opt}</option>
+  `).join('');
+
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Picking e Info Logística',
     html: `
       <div style="text-align: left; font-size: 0.9rem;">
-        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Define la sucursal, agenda y fecha de preparación para los ${ids.length} pedidos seleccionados.</p>
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Define la sucursal, agenda, operador y fecha de preparación para los ${ids.length} pedidos seleccionados.</p>
         
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
         <select id="swal-bulk-set-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
@@ -40443,6 +40735,12 @@ window.bulkSetWmsOrderPickingInfo = async function() {
         <select id="swal-bulk-set-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
           <option value="">(Sin cambios / Vacío)</option>
           ${agendaOptionsHtml}
+        </select>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
+        <select id="swal-bulk-set-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <option value="">(Sin cambios / No modificar)</option>
+          ${operadorOptionsHtml}
         </select>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento</label>
@@ -40462,6 +40760,7 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       return {
         sucursal: document.getElementById('swal-bulk-set-sucursal').value,
         agenda: document.getElementById('swal-bulk-set-agenda').value,
+        operador: document.getElementById('swal-bulk-set-operador').value,
         fechaProc: fechaProc || null
       };
     }
@@ -40480,6 +40779,10 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       sucursal_pickeo: formValues.sucursal,
       agenda: formValues.agenda || null
     };
+
+    if (formValues.operador) {
+      updatePayload.operador = formValues.operador;
+    }
 
     if (formValues.fechaProc) {
       updatePayload.fecha_procesamiento = formValues.fechaProc;
@@ -40507,6 +40810,9 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       if (order) {
         order.sucursal_pickeo = formValues.sucursal;
         order.agenda = formValues.agenda || null;
+        if (formValues.operador) {
+          order.operador = formValues.operador;
+        }
         if (formValues.fechaProc) {
           order.fecha_procesamiento = formValues.fechaProc;
         }
