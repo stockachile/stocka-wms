@@ -2199,6 +2199,7 @@ async function updateOrderStatus(orderId, newStatus) {
   }
 }
 
+window.wmsExpandedOrderIds = window.wmsExpandedOrderIds || new Set();
 window.toggleOrderRow = function(orderId) {
   const row = document.getElementById(`row-${orderId}`);
   const detailsRow = document.getElementById(`details-${orderId}`);
@@ -2210,10 +2211,12 @@ window.toggleOrderRow = function(orderId) {
     row.classList.remove('expanded');
     detailsRow.style.display = 'none';
     chevron.style.transform = 'rotate(0deg)';
+    window.wmsExpandedOrderIds.delete(orderId);
   } else {
     row.classList.add('expanded');
     detailsRow.style.display = 'table-row';
     chevron.style.transform = 'rotate(90deg)';
+    window.wmsExpandedOrderIds.add(orderId);
     
     // Cargar historial de auditoría del pedido de forma dinámica
     if (window.loadOrderAuditLogs) {
@@ -2766,12 +2769,6 @@ async function renderAdminOrders() {
                 <th>Fecha proc.</th>
                 <th>
                   <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <span>Categoría</span>
-                    <i id="wms-filter-icon-categoria_entrega" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'categoria_entrega', 'Categoría')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
-                  </div>
-                </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
                     <span>Agenda</span>
                     <i id="wms-filter-icon-agenda" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'agenda', 'Agenda')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
                   </div>
@@ -2788,13 +2785,7 @@ async function renderAdminOrders() {
                     <i id="wms-filter-icon-shipping_method" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'shipping_method', 'Envío')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <span>Facturación</span>
-                    <i id="wms-filter-icon-periodo_facturacion" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'periodo_facturacion', 'Facturación')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
-                  </div>
-                </th>
-                <th>Total unid.</th>
+                <th style="width: 50px; text-align: center;" title="Total Unidades">Uds.</th>
                 <th>
                   <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
                     <span>Estado Origen</span>
@@ -2805,6 +2796,12 @@ async function renderAdminOrders() {
                   <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
                     <span>Estado WMS</span>
                     <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Facturación</span>
+                    <i id="wms-filter-icon-periodo_facturacion" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'periodo_facturacion', 'Facturación')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
                   </div>
                 </th>
               </tr>
@@ -3165,6 +3162,7 @@ window.applyWmsFiltersAndRender = function() {
 
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
+    const isInitiallyExpanded = !!(window.wmsExpandedOrderIds && window.wmsExpandedOrderIds.has(order.id));
     const rawShopify = order.raw_shopify_data;
     const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
                        ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
@@ -3546,6 +3544,17 @@ window.applyWmsFiltersAndRender = function() {
       }
       
       shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
+    }
+
+    // 0. Tag de Categoría de Entrega (Distribución vs Retiro)
+    const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+    let categoryBadgeHtml = '';
+    if (catDelivery === 'RETIRO') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Retiro"><i class="ri-store-2-line"></i> RETIRO</span>`;
+    } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Distribución"><i class="ri-truck-line"></i> DISTRIBUCIÓN</span>`;
+    } else if (order.categoria_entrega) {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${catDelivery}</span>`;
     }
 
     // 1. Estado de Pago
@@ -3966,12 +3975,12 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     rowsHtml += `
-      <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
+      <tr id="row-${order.id}" class="order-row ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
           <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
         </td>
         <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
-          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
+          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block; transform: ${isInitiallyExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};"></i>
         </td>
         <td>${orderDisplayId}</td>
         <td>
@@ -3990,7 +3999,6 @@ window.applyWmsFiltersAndRender = function() {
           </div>
         </td>
         <td>${fechaProcHtml}</td>
-        <td>${categoriaSelectHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
         <td>
@@ -4006,8 +4014,7 @@ window.applyWmsFiltersAndRender = function() {
             </span>
           </div>
         </td>
-        <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
-        <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
+        <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 1rem;">${qtyStr}</strong></td>
         <td>
           <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${isReturned ? 'devolución' : order.status}</span>
         </td>
@@ -4021,16 +4028,17 @@ window.applyWmsFiltersAndRender = function() {
             <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
           </select>
         </td>
+        <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
       </tr>
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
-        <td colspan="15" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
+        <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}
           </div>
         </td>
       </tr>
-      <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="15" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+      <tr id="details-${order.id}" class="order-details-row" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
+        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
             
             <!-- Fila superior: 3 Columnas de Información -->
@@ -4075,11 +4083,20 @@ window.applyWmsFiltersAndRender = function() {
 
               <!-- Col 2: Desglose de Productos -->
               <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                   <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-basket-2-line"></i> Ítems del Pedido</span>
-                  <button onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-edit-line"></i> Editar
-                  </button>
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.35rem; background: var(--color-bg); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                      <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; margin: 0;">Categoría:</label>
+                      <select onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; font-weight: 700; border-radius: var(--radius-sm); border: 1px solid var(--color-border); cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
+                        <option value="DISTRIBUCIÓN" ${(order.categoria_entrega || 'DISTRIBUCIÓN') === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
+                        <option value="RETIRO" ${(order.categoria_entrega || 'DISTRIBUCIÓN') === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+                      </select>
+                    </div>
+                    <button onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-edit-line"></i> Editar
+                    </button>
+                  </div>
                 </h4>
                 <div style="overflow-x: auto;">
                   <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
