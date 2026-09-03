@@ -8383,6 +8383,9 @@ async function renderPacksTab() {
 
       const isObserver = userRole === 'observer';
       const historyBtn = `<button class="btn btn-outline btn-pack-history" data-id="${item.id}" data-name="${escapeHtml(item.name || '')}" data-sku="${escapeHtml(item.sku || '')}" data-comercio="${escapeHtml(item.comercio || '')}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-primary); margin-left: 0.5rem;" title="Ver historial de auditoría y cambios del pack"><i class="ri-history-line" style="margin-right: 0.25rem;"></i>Historial</button>`;
+      const deleteBtn = isObserver 
+        ? '' 
+        : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
 
       const actionBtn = isObserver 
         ? historyBtn 
