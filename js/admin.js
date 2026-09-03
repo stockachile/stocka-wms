@@ -29157,8 +29157,8 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
       try {
         const { data: contacts, error } = await supabase
           .from('billing_contacts')
-          .select('nombre, email, cargo')
-          .eq('comercio', commerceName)
+          .select('*')
+          .ilike('comercio', commerceName.trim())
           .eq('activo', true);
           
         if (error) throw error;
@@ -29511,7 +29511,7 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
           const { data: contacts } = await supabase
             .from('billing_contacts')
             .select('email')
-            .eq('comercio', comercio)
+            .ilike('comercio', comercio.trim())
             .eq('activo', true);
 
           const emails = (contacts || []).map(c => c.email);
