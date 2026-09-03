@@ -18152,6 +18152,9 @@ window.renderDeclarations = async function() {
 
   try {
     const isObserver = userRole === 'observer';
+    const isCommercePaused = typeof window.checkIsCommercePaused === 'function' 
+      ? await window.checkIsCommercePaused(currentCompany)
+      : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
     
     // Resetear estados
     clientSelectedDateStr = '';
@@ -18921,8 +18924,42 @@ window.renderDeclarations = async function() {
       </div>
     `;
 
+    const pausedBannerHtml = isCommercePaused ? `
+      <div class="alert alert-danger" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(220, 38, 38, 0.12) 100%); border: 1.5px solid #ef4444; border-radius: 10px; padding: 1.1rem 1.35rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: 0 3px 10px rgba(239, 68, 68, 0.08); flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 260px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: #ef4444; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);">
+            <i class="ri-lock-2-line"></i>
+          </div>
+          <div>
+            <div style="font-weight: 700; color: #b91c1c; font-size: 0.95rem; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span>Ingreso de Stock Bloqueado</span>
+              <span style="font-size: 0.7rem; background: #ef4444; color: white; padding: 0.12rem 0.5rem; border-radius: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;">Servicio Pausado</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #475569; line-height: 1.4;">
+              El comercio se encuentra con servicio pausado. La creación de nuevos ingresos de stock y la recepción física de mercadería en bodega están temporalmente bloqueadas.
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm" onclick="window.navigateToBilling()" style="background: #ffffff; color: #b91c1c; border: 1.5px solid #ef4444; border-radius: 6px; padding: 0.45rem 0.9rem; font-weight: 700; font-size: 0.82rem; white-space: nowrap; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='#ffffff'">
+          <i class="ri-bill-line"></i> Ir a Facturación
+        </button>
+      </div>
+    ` : '';
+
+    const actionButtonHtml = isObserver ? '' : (isCommercePaused ? `
+      <button class="btn" style="padding: 0.4rem 0.85rem; font-size: 0.85rem; background: #94a3b8; color: #ffffff; border: 1px solid #94a3b8; opacity: 0.75; cursor: not-allowed; display: inline-flex; align-items: center; gap: 0.35rem;" disabled title="Ingreso bloqueado: El servicio del comercio se encuentra pausado por facturación">
+        <i class="ri-lock-line"></i> Hacer un ingreso (Bloqueado)
+      </button>
+    ` : `
+      <button class="btn btn-primary" style="padding: 0.4rem 0.85rem; font-size: 0.85rem;" onclick="openNewDeclarationSlideOver()">
+        <i class="ri-add-line"></i> Hacer un ingreso
+      </button>
+    `);
+
     appContent.innerHTML = getObserverBanner() + `
       <div id="dec-view-container">
+        ${pausedBannerHtml}
+
         <!-- Render Slide Over Panel -->
         ${formHtml}
         
@@ -18937,11 +18974,7 @@ window.renderDeclarations = async function() {
               <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-declarations">
                 <i class="ri-refresh-line"></i> Actualizar
               </button>
-              ${!isObserver ? `
-                <button class="btn btn-primary" style="padding: 0.4rem 0.85rem; font-size: 0.85rem;" onclick="openNewDeclarationSlideOver()">
-                  <i class="ri-add-line"></i> Hacer un ingreso
-                </button>
-              ` : ''}
+              ${actionButtonHtml}
             </div>
           </div>
           
@@ -19539,9 +19572,19 @@ window.renderDeclarations = async function() {
         const generalErrorList = document.getElementById('dec-general-error-list');
         if (generalErrorContainer) generalErrorContainer.style.display = 'none';
 
-        const formErrors = [];
         const selectComm = document.getElementById('dec-comercio');
         const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
+        const isPaused = typeof window.checkIsCommercePaused === 'function'
+          ? await window.checkIsCommercePaused(commerce)
+          : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+
+        if (isPaused) {
+          alert('No es posible crear ni enviar declaraciones de ingreso porque el servicio del comercio se encuentra pausado por facturación.');
+          return;
+        }
+
+        const formErrors = [];
         const title = document.getElementById('dec-title').value.trim();
         const qtyDeclared = parseInt(document.getElementById('dec-qty-declared').value);
         const volumeDeclared = parseFloat(document.getElementById('dec-volume-declared').value);
@@ -21278,6 +21321,15 @@ window.showDeclarationsInfoModal = function() {
 
 window.editDeclaration = async function(id) {
   try {
+    const isPaused = typeof window.checkIsCommercePaused === 'function'
+      ? await window.checkIsCommercePaused(currentCompany)
+      : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+
+    if (isPaused) {
+      alert('No es posible editar declaraciones de ingreso mientras el servicio se encuentre pausado por facturación.');
+      return;
+    }
+
     const { data: dec, error } = await supabase
       .from('stock_declarations')
       .select('*')
@@ -21286,6 +21338,15 @@ window.editDeclaration = async function(id) {
 
     if (error) throw error;
     if (!dec) return;
+
+    const isCommerceSpecificallyPaused = typeof window.checkIsCommercePaused === 'function'
+      ? await window.checkIsCommercePaused(dec.comercio)
+      : isPaused;
+
+    if (isCommerceSpecificallyPaused) {
+      alert('No es posible editar esta declaración de ingreso porque el comercio tiene su servicio pausado por facturación.');
+      return;
+    }
 
     // Verificar si el estado permite edición por parte del cliente
     const isEditable = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
@@ -21523,6 +21584,15 @@ window.editDeclaration = async function(id) {
 };
 
 window.openNewDeclarationSlideOver = async function() {
+  const isPaused = typeof window.checkIsCommercePaused === 'function'
+    ? await window.checkIsCommercePaused(currentCompany)
+    : !!(window.pausedBillingComercios && window.pausedBillingComercios.length > 0);
+
+  if (isPaused) {
+    alert('El ingreso de stock se encuentra bloqueado debido a que el comercio tiene su servicio pausado por facturación. Por favor regulariza tus pagos pendientes en la sección de Facturación.');
+    return;
+  }
+
   const overlay = document.getElementById('dec-slide-over-overlay');
   if (overlay) overlay.classList.add('active');
 
@@ -24277,6 +24347,8 @@ async function checkBillingSuspension(companyStr) {
     if (error) throw error;
     
     const pausedComercios = statuses?.filter(s => !s.al_dia).map(s => s.comercio) || [];
+    window.pausedBillingComercios = pausedComercios;
+    window.isCurrentCommerceSuspended = pausedComercios.length > 0;
     if (pausedComercios.length > 0) {
       const existingWarning = document.getElementById('billing-overdue-warning-banner');
       if (existingWarning) existingWarning.remove();
@@ -24327,7 +24399,45 @@ async function checkBillingSuspension(companyStr) {
   }
 }
 
+async function checkIsCommercePaused(commerceName) {
+  if (window.pausedBillingComercios && window.pausedBillingComercios.length > 0) {
+    if (!commerceName) return true;
+    const list = commerceName.split(',').map(c => c.trim().toLowerCase());
+    const hasMatch = window.pausedBillingComercios.some(pc => list.includes(pc.toLowerCase()));
+    if (hasMatch) return true;
+  }
+  if (!commerceName) return false;
+  try {
+    const list = commerceName.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.length === 0) return false;
+
+    const { data: mappings } = await supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name');
+
+    const billingComercios = new Set();
+    list.forEach(c => {
+      const match = mappings?.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      billingComercios.add(match ? match.billing_name : c);
+    });
+
+    const resolvedList = Array.from(billingComercios);
+
+    const { data: statuses } = await supabase
+      .from('commerce_billing_status')
+      .select('comercio, al_dia')
+      .in('comercio', resolvedList);
+
+    const isPaused = (statuses || []).some(s => s.al_dia === false);
+    return isPaused;
+  } catch (e) {
+    console.error('Error checking commerce paused status:', e);
+    return false;
+  }
+}
+
 window.checkBillingSuspension = checkBillingSuspension;
+window.checkIsCommercePaused = checkIsCommercePaused;
 
 function injectSuspensionBannerStyles() {
   if (document.getElementById('billing-suspension-banner-style')) return;
