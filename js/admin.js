@@ -473,6 +473,15 @@ window.deleteWmsConfigOption = async function(type, val) {
   }
 };
 
+window.findValidOptionMatch = function(type, val) {
+  if (!val || typeof val !== 'string') return '';
+  const trimmed = val.trim();
+  if (!trimmed || trimmed === '-') return '';
+  const options = type === 'agenda' ? (window.agendaOptions || []) : (window.operadorOptions || []);
+  const match = options.find(opt => opt.trim().toLowerCase() === trimmed.toLowerCase());
+  return match || null;
+};
+
 window.updateWmsOrderField = async function(orderId, field, value) {
   if (field === 'fecha_procesamiento' && value) {
     const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
@@ -480,6 +489,25 @@ window.updateWmsOrderField = async function(orderId, field, value) {
       Swal.fire('Formato Inválido', 'La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07).', 'warning');
       applyWmsFiltersAndRender();
       return;
+    }
+  }
+
+  if (field === 'agenda' || field === 'operador') {
+    if (value && value.trim() !== '' && value.trim() !== '-') {
+      const match = window.findValidOptionMatch(field, value);
+      if (!match) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Opción no permitida',
+          text: `"${value}" no existe en las opciones configuradas de ${field === 'agenda' ? 'Agenda' : 'Operador'}. Solo se permiten valores del desplegable.`,
+          confirmButtonColor: '#7117eb'
+        });
+        applyWmsFiltersAndRender();
+        return;
+      }
+      value = match;
+    } else {
+      value = null;
     }
   }
 
@@ -4574,13 +4602,27 @@ window.applyBulkWmsStatus = async function() {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-bulk-sucursal').value;
-        const agenda = document.getElementById('swal-bulk-agenda').value.trim().toUpperCase();
-        const operador = document.getElementById('swal-bulk-operador').value.trim().toUpperCase();
+        const agendaInput = document.getElementById('swal-bulk-agenda').value;
+        const operadorInput = document.getElementById('swal-bulk-operador').value;
         const fechaProcInput = document.getElementById('swal-bulk-fecha-proc').value.trim();
 
-        if (!agenda) {
-          Swal.showValidationMessage('Debes seleccionar o escribir una Agenda de Preparación');
+        if (!agendaInput || !agendaInput.trim()) {
+          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
           return false;
+        }
+        const matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+        if (!matchAgenda) {
+          Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+
+        let matchOperador = '';
+        if (operadorInput && operadorInput.trim()) {
+          matchOperador = window.findValidOptionMatch('operador', operadorInput);
+          if (!matchOperador) {
+            Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+            return false;
+          }
         }
 
         if (fechaProcInput) {
@@ -4601,7 +4643,7 @@ window.applyBulkWmsStatus = async function() {
           }
         }
 
-        return { sucursal, agenda, operador, fechaProc: fechaProcInput };
+        return { sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc: fechaProcInput };
       }
     });
 
@@ -4873,9 +4915,27 @@ window.applyBulkWmsStatus = async function() {
         confirmButtonColor: '#059669',
         cancelButtonText: 'Cancelar',
         preConfirm: () => {
-          const operador = document.getElementById('swal-bulk-disp-operador').value.trim().toUpperCase();
-          const agenda = document.getElementById('swal-bulk-disp-agenda').value.trim().toUpperCase();
+          const operadorInput = document.getElementById('swal-bulk-disp-operador').value;
+          const agendaInput = document.getElementById('swal-bulk-disp-agenda').value;
           const fechaProcInput = document.getElementById('swal-bulk-disp-fecha-proc').value.trim();
+
+          let matchOperador = '';
+          if (operadorInput && operadorInput.trim()) {
+            matchOperador = window.findValidOptionMatch('operador', operadorInput);
+            if (!matchOperador) {
+              Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+              return false;
+            }
+          }
+
+          let matchAgenda = '';
+          if (agendaInput && agendaInput.trim()) {
+            matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+            if (!matchAgenda) {
+              Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+              return false;
+            }
+          }
 
           if (fechaProcInput) {
             const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
@@ -4884,7 +4944,7 @@ window.applyBulkWmsStatus = async function() {
               return false;
             }
           }
-          return { operador, agenda, fechaProc: fechaProcInput };
+          return { operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
         }
       });
 
@@ -5504,14 +5564,29 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-sucursal').value;
-        const agenda = document.getElementById('swal-agenda').value.trim().toUpperCase();
-        const operador = document.getElementById('swal-operador').value.trim().toUpperCase();
+        const agendaInput = document.getElementById('swal-agenda').value;
+        const operadorInput = document.getElementById('swal-operador').value;
         const fechaProc = document.getElementById('swal-fecha-proc').value.trim();
 
-        if (!agenda) {
-          Swal.showValidationMessage('Debes seleccionar o escribir una Agenda de Preparación');
+        if (!agendaInput || !agendaInput.trim()) {
+          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
           return false;
         }
+        const matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+        if (!matchAgenda) {
+          Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+
+        let matchOperador = '';
+        if (operadorInput && operadorInput.trim()) {
+          matchOperador = window.findValidOptionMatch('operador', operadorInput);
+          if (!matchOperador) {
+            Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+            return false;
+          }
+        }
+
         if (!fechaProc) {
           Swal.showValidationMessage('La fecha de procesamiento no puede estar vacía');
           return false;
@@ -5522,7 +5597,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return false;
         }
 
-        return { sucursal, agenda, operador, fechaProc };
+        return { sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc };
       }
     });
 
@@ -5719,9 +5794,27 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           confirmButtonColor: '#059669',
           cancelButtonText: 'Cancelar',
           preConfirm: () => {
-            const operador = document.getElementById('swal-single-disp-operador').value.trim().toUpperCase();
-            const agenda = document.getElementById('swal-single-disp-agenda').value.trim().toUpperCase();
+            const operadorInput = document.getElementById('swal-single-disp-operador').value;
+            const agendaInput = document.getElementById('swal-single-disp-agenda').value;
             const fechaProcInput = document.getElementById('swal-single-disp-fecha-proc').value.trim();
+
+            let matchOperador = '';
+            if (operadorInput && operadorInput.trim()) {
+              matchOperador = window.findValidOptionMatch('operador', operadorInput);
+              if (!matchOperador) {
+                Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+                return false;
+              }
+            }
+
+            let matchAgenda = '';
+            if (agendaInput && agendaInput.trim()) {
+              matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+              if (!matchAgenda) {
+                Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+                return false;
+              }
+            }
 
             if (fechaProcInput) {
               const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
@@ -5730,7 +5823,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 return false;
               }
             }
-            return { operador, agenda, fechaProc: fechaProcInput };
+            return { operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
           }
         });
 
@@ -39471,10 +39564,32 @@ window.editWmsOrderPickingInfo = async function(orderId) {
     confirmButtonText: 'Guardar',
     cancelButtonText: 'Cancelar',
     preConfirm: () => {
+      const sucursal = document.getElementById('swal-sucursal').value;
+      const agendaInput = document.getElementById('swal-agenda').value;
+      const operadorInput = document.getElementById('swal-operador').value;
+
+      let matchAgenda = '';
+      if (agendaInput && agendaInput.trim()) {
+        matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+        if (!matchAgenda) {
+          Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
+
+      let matchOperador = '';
+      if (operadorInput && operadorInput.trim()) {
+        matchOperador = window.findValidOptionMatch('operador', operadorInput);
+        if (!matchOperador) {
+          Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
+
       return {
-        sucursal: document.getElementById('swal-sucursal').value,
-        agenda: document.getElementById('swal-agenda').value.trim().toUpperCase(),
-        operador: document.getElementById('swal-operador').value.trim().toUpperCase()
+        sucursal,
+        agenda: matchAgenda,
+        operador: matchOperador
       };
     }
   });
@@ -40732,15 +40847,36 @@ window.bulkSetWmsOrderPickingInfo = async function() {
     confirmButtonText: 'Guardar',
     cancelButtonText: 'Cancelar',
     preConfirm: () => {
+      const agendaInput = document.getElementById('swal-bulk-set-agenda').value;
+      const operadorInput = document.getElementById('swal-bulk-set-operador').value;
       const fechaProc = document.getElementById('swal-bulk-set-fechaproc').value.trim();
+
+      let matchAgenda = '';
+      if (agendaInput && agendaInput.trim()) {
+        matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+        if (!matchAgenda) {
+          Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
+
+      let matchOperador = '';
+      if (operadorInput && operadorInput.trim()) {
+        matchOperador = window.findValidOptionMatch('operador', operadorInput);
+        if (!matchOperador) {
+          Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
+
       if (fechaProc && !/^\d{2}-\d{2}$/.test(fechaProc)) {
         Swal.showValidationMessage('La fecha de procesamiento debe tener el formato DD-MM (ej: 14-07).');
         return false;
       }
       return {
         sucursal: document.getElementById('swal-bulk-set-sucursal').value,
-        agenda: document.getElementById('swal-bulk-set-agenda').value.trim().toUpperCase(),
-        operador: document.getElementById('swal-bulk-set-operador').value.trim().toUpperCase(),
+        agenda: matchAgenda,
+        operador: matchOperador,
         fechaProc: fechaProc || null
       };
     }
@@ -40836,8 +40972,17 @@ window.bulkSetWmsOrderOperador = async function() {
     confirmButtonText: 'Guardar',
     cancelButtonText: 'Cancelar',
     preConfirm: () => {
+      const operadorInput = document.getElementById('swal-bulk-set-operador').value;
+      let matchOperador = '';
+      if (operadorInput && operadorInput.trim()) {
+        matchOperador = window.findValidOptionMatch('operador', operadorInput);
+        if (!matchOperador) {
+          Swal.showValidationMessage(`"${operadorInput}" no es un Operador válido. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
       return {
-        operador: document.getElementById('swal-bulk-set-operador').value.trim().toUpperCase()
+        operador: matchOperador
       };
     }
   });
