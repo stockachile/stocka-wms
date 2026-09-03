@@ -3550,7 +3550,7 @@ window.applyWmsFiltersAndRender = function() {
     const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
     let categoryBadgeHtml = '';
     if (catDelivery === 'RETIRO') {
-      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #fef08a; color: #000000; border: 1px solid #facc15; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Retiro"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Retiro"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
     } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Distribución"><i class="ri-truck-line"></i> DISTRIBUCIÓN</span>`;
     } else if (order.categoria_entrega) {
