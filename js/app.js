@@ -29850,7 +29850,10 @@ window.renderVolumenDiario = async function() {
         <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Evolución de Volumen Diario</h3>
         <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Monitorea el histórico diario y el consumo en tiempo real de volumen total por metro cúbico</p>
       </div>
-      <div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button class="btn btn-primary" id="btn-open-export-chart" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+          <i class="ri-file-chart-line"></i> Exportar Gráfico (1:1 / 4:3)
+        </button>
         <button class="btn btn-outline" id="btn-refresh-volume"><i class="ri-refresh-line"></i> Actualizar</button>
       </div>
     </div>
@@ -29858,7 +29861,7 @@ window.renderVolumenDiario = async function() {
     <!-- Filters & Stats Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem; align-items: end;">
           <div class="form-group" style="margin: 0; ${activeComerces.length <= 1 ? 'display: none;' : ''}">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
             <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
@@ -29887,14 +29890,51 @@ window.renderVolumenDiario = async function() {
             <span id="volume-trend-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2; display: flex; align-items: center;">--</span>
           </div>
         </div>
+
+        <!-- Billing Summary Sub-Bar -->
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: #10b981; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calculator-line"></i> Promedio Diario (Base Cobro)
+            </div>
+            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">-- m³</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Ponderado por días en bodega</div>
+          </div>
+
+          <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: #8b5cf6; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-stack-line"></i> Total m³·día Acumulados
+            </div>
+            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">-- m³·día</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Sumatoria de ocupación diaria</div>
+          </div>
+
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calendar-check-line"></i> Días del Periodo
+            </div>
+            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- días</div>
+            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">-- registros válidos</div>
+          </div>
+
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-pulse-line"></i> Rango Min / Max
+            </div>
+            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- / --</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Variación en el periodo</div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Chart Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
-        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
+        <div>
+          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; flex-wrap: wrap;">
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
             <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
           </span>
@@ -29947,6 +29987,75 @@ window.renderVolumenDiario = async function() {
         </div>
       </div>
     </div>
+
+    <!-- Export Modal for Billing Graphic (1:1 / 4:3 / 16:9) -->
+    <div id="volume-export-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-width: 900px; width: 100%; box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;">
+        <!-- Modal Header -->
+        <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <i class="ri-file-chart-line" style="font-size: 1.25rem; color: var(--color-primary);"></i>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main);">Exportar Gráfico de Almacenamiento</h3>
+          </div>
+          <button id="btn-close-export-modal" style="background: none; border: none; font-size: 1.35rem; cursor: pointer; color: var(--color-text-muted); padding: 0.25rem; line-height: 1;">
+            <i class="ri-close-line"></i>
+          </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div style="padding: 1.25rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem;">
+          <!-- Controls Bar -->
+          <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <!-- Aspect Ratio Selector -->
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">Formato de Imagen</label>
+              <div style="display: inline-flex; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface);">
+                <button class="export-ratio-btn active" data-ratio="1:1" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: var(--color-primary); color: #fff;">1:1 Cuadrado (WhatsApp)</button>
+                <button class="export-ratio-btn" data-ratio="4:3" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: transparent; color: var(--color-text-main);">4:3 Estándar (Factura)</button>
+                <button class="export-ratio-btn" data-ratio="16:9" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: transparent; color: var(--color-text-main);">16:9 Panorámico</button>
+              </div>
+            </div>
+
+            <!-- Toggles -->
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-trend" checked style="accent-color: var(--color-primary);">
+                <span>Línea de Tendencia</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-labels" checked style="accent-color: var(--color-primary);">
+                <span>Etiquetas de Valores</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-stats" checked style="accent-color: var(--color-primary);">
+                <span>Resumen de Cobro</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Preview Container -->
+          <div style="display: flex; justify-content: center; align-items: center; background: #0b0f19; padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); min-height: 380px;">
+            <canvas id="volume-export-canvas" style="max-width: 100%; max-height: 480px; object-fit: contain; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); border-radius: 4px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-bg);">
+          <span style="font-size: 0.78rem; color: var(--color-text-muted);">
+            <i class="ri-information-line"></i> Al copiar, la imagen queda lista en el portapapeles para pegar con <strong>Ctrl + V</strong>.
+          </span>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="btn btn-outline" id="btn-cancel-export-modal">Cerrar</button>
+            <button class="btn btn-outline" id="btn-download-export-png" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-download-2-line"></i> Descargar PNG
+            </button>
+            <button class="btn btn-primary" id="btn-copy-export-clipboard" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+              <i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 
   // Set default values in inputs
@@ -29959,11 +30068,57 @@ window.renderVolumenDiario = async function() {
   const endDateInput = document.getElementById('volume-end-date');
   const currentValSpan = document.getElementById('volume-current-value');
   const trendValSpan = document.getElementById('volume-trend-value');
+  const periodAvgSpan = document.getElementById('volume-period-avg');
+  const periodTotalDaySpan = document.getElementById('volume-period-total-day');
+  const periodDaysInfoSpan = document.getElementById('volume-period-days-info');
+  const periodCoverageSpan = document.getElementById('volume-period-coverage');
+  const periodMinMaxSpan = document.getElementById('volume-period-minmax');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnPrev = document.getElementById('btn-volume-prev');
   const btnNext = document.getElementById('btn-volume-next');
   const pageInfo = document.getElementById('volume-page-info');
+  const btnOpenExport = document.getElementById('btn-open-export-chart');
+  const exportModal = document.getElementById('volume-export-modal');
+  const btnCloseExport = document.getElementById('btn-close-export-modal');
+  const btnCancelExport = document.getElementById('btn-cancel-export-modal');
+  const btnCopyClipboard = document.getElementById('btn-copy-export-clipboard');
+  const btnDownloadPng = document.getElementById('btn-download-export-png');
+  const exportCanvas = document.getElementById('volume-export-canvas');
+  const chkTrend = document.getElementById('export-chk-trend');
+  const chkLabels = document.getElementById('export-chk-labels');
+  const chkStats = document.getElementById('export-chk-stats');
+
+  let currentExportRatio = '1:1';
+
+  // Helper: Toast notification
+  function showToastFeedback(msg, isSuccess = true) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 10000;
+      background: ${isSuccess ? '#10b981' : '#ef4444'};
+      color: #fff;
+      padding: 0.85rem 1.35rem;
+      border-radius: var(--radius-md);
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      animation: fadeIn 0.25s ease-out;
+    `;
+    toast.innerHTML = `<i class="${isSuccess ? 'ri-checkbox-circle-fill' : 'ri-error-warning-fill'}" style="font-size: 1.2rem;"></i> <span>${msg}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.4s ease';
+      setTimeout(() => toast.remove(), 400);
+    }, 3200);
+  }
 
   // Load Current Volume in Real Time
   async function updateVolumeStats() {
@@ -29984,6 +30139,42 @@ window.renderVolumenDiario = async function() {
     } catch (e) {
       console.error('Error al cargar estadísticas de volumen:', e);
     }
+  }
+
+  // Update Period Billing KPIs
+  function updateBillingMetrics() {
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+
+    const filtered = allHistories.filter(item => item.fecha >= startDate && item.fecha <= endDate);
+
+    if (filtered.length === 0) {
+      periodAvgSpan.textContent = '0.00000 m³';
+      periodTotalDaySpan.textContent = '0.000 m³·día';
+      periodDaysInfoSpan.textContent = `${totalDays} días`;
+      periodCoverageSpan.textContent = '0 registros encontrados';
+      periodMinMaxSpan.textContent = '-- / --';
+      return;
+    }
+
+    const dateMap = {};
+    filtered.forEach(item => {
+      dateMap[item.fecha] = (dateMap[item.fecha] || 0) + parseFloat(item.volumen || 0);
+    });
+
+    const dailyValues = Object.values(dateMap);
+    const sumTotalM3Day = dailyValues.reduce((sum, v) => sum + v, 0);
+    const avgVolume = sumTotalM3Day / totalDays;
+    const minVolume = Math.min(...dailyValues);
+    const maxVolume = Math.max(...dailyValues);
+    const recordedDaysCount = Object.keys(dateMap).length;
+
+    periodAvgSpan.textContent = `${avgVolume.toFixed(5)} m³`;
+    periodTotalDaySpan.textContent = `${sumTotalM3Day.toFixed(3)} m³·día`;
+    periodDaysInfoSpan.textContent = `${totalDays} días en periodo`;
+    periodCoverageSpan.textContent = `${recordedDaysCount} de ${totalDays} días registrados (${Math.round((recordedDaysCount / totalDays) * 100)}%)`;
+    periodMinMaxSpan.textContent = `${minVolume.toFixed(3)} m³ / ${maxVolume.toFixed(3)} m³`;
   }
 
   // Update Trend Indicator
@@ -30090,28 +30281,10 @@ window.renderVolumenDiario = async function() {
     }
 
     const CHART_PALETTE = [
-      '#3b82f6', // blue
-      '#10b981', // emerald
-      '#f59e0b', // amber
-      '#8b5cf6', // violet
-      '#ec4899', // pink
-      '#06b6d4', // cyan
-      '#f97316', // orange
-      '#14b8a6', // teal
-      '#a855f7', // purple
-      '#6366f1'  // indigo
+      '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#a855f7', '#6366f1'
     ];
     const CHART_BORDER_PALETTE = [
-      '#1d4ed8',
-      '#047857',
-      '#b45309',
-      '#6d28d9',
-      '#be185d',
-      '#0e7490',
-      '#c2410c',
-      '#0f766e',
-      '#7e22ce',
-      '#4338ca'
+      '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d', '#0e7490', '#c2410c', '#0f766e', '#7e22ce', '#4338ca'
     ];
 
     const datasets = comercios.map((commerceName, idx) => {
@@ -30124,7 +30297,6 @@ window.renderVolumenDiario = async function() {
       });
 
       if (isStackedBar) {
-        // Multi-merchant stacked bar details
         const bgColors = chartDates.map(d => {
           const isExtra = (d < startDate || d > endDate);
           return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
@@ -30146,7 +30318,6 @@ window.renderVolumenDiario = async function() {
           stack: 'volume_stack'
         };
       } else {
-        // Single merchant line curve
         const pointBgColor = chartDates.map(d => {
           if (d === 'Actual') return '#f43f5e';
           const isExtra = (d < startDate || d > endDate);
@@ -30194,10 +30365,8 @@ window.renderVolumenDiario = async function() {
       }
     });
 
-    // Overlay the Total Volume Curve only if we are showing multiple comerces (consolidated)
     if (isStackedBar) {
       const totalValues = chartDates.map((_, i) => {
-        // datasets contains individual commerce volumes
         return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
       });
 
@@ -30242,7 +30411,6 @@ window.renderVolumenDiario = async function() {
       });
     }
 
-    // Calculate trend over user selected range
     const filteredDates = dates.filter(d => d >= startDate && d <= endDate);
     const filteredValues = filteredDates.map(d => {
       const matches = allHistories.filter(item => item.fecha === d);
@@ -30372,6 +30540,275 @@ window.renderVolumenDiario = async function() {
     });
   }
 
+  // Render Exportable Graphic Canvas (1:1 / 4:3 / 16:9)
+  function renderVolumeExportGraphic() {
+    if (!exportCanvas) return;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return;
+
+    let targetW = 1000;
+    let targetH = 1000;
+    if (currentExportRatio === '4:3') {
+      targetW = 1000;
+      targetH = 750;
+    } else if (currentExportRatio === '16:9') {
+      targetW = 1200;
+      targetH = 675;
+    }
+
+    exportCanvas.width = targetW;
+    exportCanvas.height = targetH;
+
+    const filtered = allHistories.filter(item => item.fecha >= startDate && item.fecha <= endDate);
+    const dateMap = {};
+    filtered.forEach(item => {
+      dateMap[item.fecha] = (dateMap[item.fecha] || 0) + parseFloat(item.volumen || 0);
+    });
+
+    const dates = Object.keys(dateMap).sort();
+    const values = dates.map(d => dateMap[d]);
+
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+    const sumM3Day = values.reduce((s, v) => s + v, 0);
+    const avgM3 = totalDays > 0 ? sumM3Day / totalDays : 0;
+
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, targetW - 2, targetH - 2);
+
+    // Title
+    const commerceTitle = selectedCommerce || (activeComerces.length === 1 ? activeComerces[0] : 'Consolidado General');
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Volumen en el tiempo - ${commerceTitle}`, 40, 50);
+
+    // Legend
+    let legendY = 85;
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath();
+    ctx.arc(48, legendY - 6, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 15px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('VOLUMEN', 64, legendY);
+
+    if (chkTrend.checked && values.length >= 2) {
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(170, legendY - 6);
+      ctx.lineTo(200, legendY - 6);
+      ctx.stroke();
+
+      ctx.fillStyle = '#1e293b';
+      ctx.fillText('Línea de tendencia de VOLUMEN', 210, legendY);
+    }
+
+    // Stats Box
+    let plotTop = 110;
+    if (chkStats.checked) {
+      const bannerY = 105;
+      const bannerH = 46;
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(40, bannerY, targetW - 80, bannerH, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      const [sY, sM, sD] = startDate.split('-');
+      const [eY, eM, eD] = endDate.split('-');
+      const periodStr = `Periodo: ${sD}/${sM}/${sY} al ${eD}/${eM}/${eY}`;
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(periodStr, 55, bannerY + 28);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#0f766e';
+      ctx.fillText(`Promedio: ${avgM3.toFixed(3).replace('.', ',')} m³`, targetW - 250, bannerY + 28);
+
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillText(`Total: ${sumM3Day.toFixed(3).replace('.', ',')} m³·día`, targetW - 60, bannerY + 28);
+
+      plotTop = 175;
+    }
+
+    const plotLeft = 90;
+    const plotRight = targetW - 50;
+    const plotBottom = targetH - 65;
+    const plotWidth = plotRight - plotLeft;
+    const plotHeight = plotBottom - plotTop;
+
+    let maxY = Math.max(...values, 0.05);
+    if (maxY === 0) maxY = 0.25;
+    maxY = maxY * 1.25;
+    const minY = 0;
+
+    const yTicks = 5;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, sans-serif';
+
+    for (let i = 0; i <= yTicks; i++) {
+      const val = minY + (i / yTicks) * (maxY - minY);
+      const yPos = plotBottom - (i / yTicks) * plotHeight;
+
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(plotLeft, yPos);
+      ctx.lineTo(plotRight, yPos);
+      ctx.stroke();
+
+      ctx.fillStyle = '#334155';
+      const formattedVal = val.toFixed(3).replace('.', ',');
+      ctx.fillText(formattedVal, plotLeft - 12, yPos);
+    }
+
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, plotTop);
+    ctx.lineTo(plotLeft, plotBottom);
+    ctx.lineTo(plotRight, plotBottom);
+    ctx.stroke();
+
+    if (values.length === 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'italic 16px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sin datos registrados en el periodo seleccionado', targetW / 2, plotTop + plotHeight / 2);
+    } else {
+      const points = dates.map((d, idx) => {
+        const x = dates.length === 1
+          ? plotLeft + plotWidth / 2
+          : plotLeft + (idx / (dates.length - 1)) * plotWidth;
+        const y = plotBottom - ((dateMap[d] - minY) / (maxY - minY)) * plotHeight;
+        return { x, y, date: d, value: dateMap[d] };
+      });
+
+      if (chkTrend.checked && points.length >= 2) {
+        const n = points.length;
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumXX = 0;
+
+        points.forEach((pt, i) => {
+          sumX += i;
+          sumY += pt.value;
+          sumXY += i * pt.value;
+          sumXX += i * i;
+        });
+
+        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / n;
+
+        const trendY0 = intercept;
+        const trendY1 = slope * (n - 1) + intercept;
+
+        const canvasTrendY0 = plotBottom - ((trendY0 - minY) / (maxY - minY)) * plotHeight;
+        const canvasTrendY1 = plotBottom - ((trendY1 - minY) / (maxY - minY)) * plotHeight;
+
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, canvasTrendY0);
+        ctx.lineTo(points[points.length - 1].x, canvasTrendY1);
+        ctx.stroke();
+      }
+
+      // Blue line
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      points.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+
+      // Points & Data Labels
+      points.forEach((pt, idx) => {
+        ctx.fillStyle = '#93c5fd';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#2563eb';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (chkLabels.checked) {
+          const valText = pt.value.toFixed(3).replace('.', ',');
+          ctx.strokeStyle = '#93c5fd';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pt.x - 5, pt.y - 12);
+          ctx.lineTo(pt.x + 5, pt.y - 12);
+          ctx.moveTo(pt.x, pt.y - 12);
+          ctx.lineTo(pt.x, pt.y + 12);
+          ctx.moveTo(pt.x - 5, pt.y + 12);
+          ctx.lineTo(pt.x + 5, pt.y + 12);
+          ctx.stroke();
+
+          ctx.fillStyle = '#1d4ed8';
+          ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(valText, pt.x, pt.y - 18);
+        }
+      });
+
+      // X Axis Ticks & Dates
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '500 13px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      const maxXTicks = targetW > 800 ? 8 : 5;
+      const step = Math.max(1, Math.ceil(dates.length / maxXTicks));
+
+      dates.forEach((d, idx) => {
+        if (idx % step === 0 || idx === dates.length - 1) {
+          const pt = points[idx];
+          const parts = d.split('-');
+          const label = `${parseInt(parts[2], 10)}-${parseInt(parts[1], 10)}`;
+
+          ctx.strokeStyle = '#1e293b';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pt.x, plotBottom);
+          ctx.lineTo(pt.x, plotBottom + 5);
+          ctx.stroke();
+
+          ctx.fillText(label, pt.x, plotBottom + 8);
+        }
+      });
+    }
+
+    // Footer
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('STOCKA WMS · Registro Oficial de Almacenamiento', 40, targetH - 18);
+
+    const nowStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
+    ctx.textAlign = 'right';
+    ctx.fillText(`Generado: ${nowStr}`, targetW - 40, targetH - 18);
+  }
+
   // Load Histories
   async function loadHistories() {
     tbody.innerHTML = `
@@ -30401,13 +30838,14 @@ window.renderVolumenDiario = async function() {
       
       query = query.gte('fecha', expandedStart).lte('fecha', expandedEnd);
 
-      const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
+      const { data, error } = await query.order('fecha', { ascending: true });
 
       if (error) throw error;
 
       allHistories = data || [];
       currentPage = 1;
       await updateChart();
+      updateBillingMetrics();
       renderTableData();
     } catch (e) {
       console.error('Error al cargar historial de volumen:', e);
@@ -30424,7 +30862,6 @@ window.renderVolumenDiario = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    // Reverse historical data to show most recent first in table (only within user selected filtered range)
     const tableHistories = allHistories
       .filter(item => item.fecha >= startDate && item.fecha <= endDate)
       .reverse();
@@ -30505,6 +30942,102 @@ window.renderVolumenDiario = async function() {
       renderTableData();
     }
   });
+
+  // Modal Export Listeners
+  if (btnOpenExport) {
+    btnOpenExport.addEventListener('click', () => {
+      exportModal.style.display = 'flex';
+      renderVolumeExportGraphic();
+    });
+  }
+
+  if (btnCloseExport) {
+    btnCloseExport.addEventListener('click', () => {
+      exportModal.style.display = 'none';
+    });
+  }
+
+  if (btnCancelExport) {
+    btnCancelExport.addEventListener('click', () => {
+      exportModal.style.display = 'none';
+    });
+  }
+
+  document.querySelectorAll('.export-ratio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.export-ratio-btn').forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--color-text-main)';
+        b.classList.remove('active');
+      });
+      btn.style.background = 'var(--color-primary)';
+      btn.style.color = '#fff';
+      btn.classList.add('active');
+      currentExportRatio = btn.dataset.ratio;
+      renderVolumeExportGraphic();
+    });
+  });
+
+  if (chkTrend) chkTrend.addEventListener('change', renderVolumeExportGraphic);
+  if (chkLabels) chkLabels.addEventListener('change', renderVolumeExportGraphic);
+  if (chkStats) chkStats.addEventListener('change', renderVolumeExportGraphic);
+
+  // Copy to clipboard
+  if (btnCopyClipboard) {
+    btnCopyClipboard.addEventListener('click', async () => {
+      if (!exportCanvas) return;
+      btnCopyClipboard.disabled = true;
+      btnCopyClipboard.innerHTML = `<i class="ri-loader-4-line spin"></i> Copiando...`;
+
+      try {
+        exportCanvas.toBlob(async (blob) => {
+          if (!blob) throw new Error('No se pudo generar el archivo de imagen.');
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            showToastFeedback('¡Gráfico copiado al portapapeles! Listo para pegar con Ctrl + V.');
+          } catch (clipErr) {
+            console.warn('Clipboard API no admitida o bloqueada, descargando PNG...', clipErr);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const comm = (selectedCommerce || 'mi_comercio').toLowerCase().replace(/\s+/g, '_');
+            a.href = url;
+            a.download = `volumen_${comm}_${startDate}_${endDate}_${currentExportRatio.replace(':', 'x')}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToastFeedback('Gráfico descargado como PNG.');
+          } finally {
+            btnCopyClipboard.disabled = false;
+            btnCopyClipboard.innerHTML = `<i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)`;
+          }
+        }, 'image/png');
+      } catch (err) {
+        console.error('Error al copiar imagen:', err);
+        alert('Error al copiar imagen: ' + err.message);
+        btnCopyClipboard.disabled = false;
+        btnCopyClipboard.innerHTML = `<i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)`;
+      }
+    });
+  }
+
+  // Download PNG
+  if (btnDownloadPng) {
+    btnDownloadPng.addEventListener('click', () => {
+      if (!exportCanvas) return;
+      exportCanvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const comm = (selectedCommerce || 'mi_comercio').toLowerCase().replace(/\s+/g, '_');
+        a.href = url;
+        a.download = `volumen_${comm}_${startDate}_${endDate}_${currentExportRatio.replace(':', 'x')}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToastFeedback('¡Imagen PNG descargada con éxito!');
+      }, 'image/png');
+    });
+  }
 
   await updateVolumeStats();
   await loadHistories();
