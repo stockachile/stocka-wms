@@ -3929,17 +3929,25 @@ window.applyWmsFiltersAndRender = function() {
     `;
 
     const agendaSelectHtml = `
-      <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
-        <option value="">-</option>
-        ${tempAgendas.map(opt => `<option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>`).join('')}
-      </select>
+      <input type="text" 
+             list="wms-global-agenda-list" 
+             value="${currentAgenda}" 
+             placeholder="-" 
+             onfocus="this.select()" 
+             onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value.trim().toUpperCase())" 
+             style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
+             autocomplete="off" />
     `;
 
     const operadorSelectHtml = `
-      <select onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
-        <option value="">-</option>
-        ${tempOperadores.map(opt => `<option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>`).join('')}
-      </select>
+      <input type="text" 
+             list="wms-global-operador-list" 
+             value="${currentOperador}" 
+             placeholder="-" 
+             onfocus="this.select()" 
+             onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value.trim().toUpperCase())" 
+             style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
+             autocomplete="off" />
     `;
 
     const fechaProcHtml = `
@@ -4212,7 +4220,16 @@ window.applyWmsFiltersAndRender = function() {
     `;
   });
 
-  tbody.innerHTML = rowsHtml;
+  const globalDatalistsHtml = `
+    <datalist id="wms-global-agenda-list">
+      ${(window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('')}
+    </datalist>
+    <datalist id="wms-global-operador-list">
+      ${(window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('')}
+    </datalist>
+  `;
+
+  tbody.innerHTML = rowsHtml + globalDatalistsHtml;
 
   // 5. Renderizar paginación
   const pagContainer = document.getElementById('wms-pagination-container');
@@ -4517,15 +4534,8 @@ window.applyBulkWmsStatus = async function() {
     const fechas = [...new Set(selectedOrders.map(o => o.fecha_procesamiento).filter(Boolean))];
     const defaultFecha = fechas.length === 1 ? fechas[0] : todayDDMM;
 
-    const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(defaultAgenda ? [defaultAgenda] : [])])];
-    const agendaOptionsHtml = agendaOptionsList.map(opt => `
-      <option value="${opt}" ${defaultAgenda === opt ? 'selected' : ''}>${opt}</option>
-    `).join('');
-
-    const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(defaultOperador ? [defaultOperador] : [])])];
-    const operadorOptionsHtml = operadorOptionsList.map(opt => `
-      <option value="${opt}" ${defaultOperador === opt ? 'selected' : ''}>${opt}</option>
-    `).join('');
+    const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+    const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
     // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda, Operador y Fecha Procesamiento
     const { value: formValues } = await Swal.fire({
@@ -4543,16 +4553,16 @@ window.applyBulkWmsStatus = async function() {
           </select>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <select id="swal-bulk-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="">- Seleccionar Agenda -</option>
-            ${agendaOptionsHtml}
-          </select>
+          <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <datalist id="swal-bulk-agenda-list">
+            ${agendaDatalistHtml}
+          </datalist>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <select id="swal-bulk-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="">(Sin cambios / Dejar vacío)</option>
-            ${operadorOptionsHtml}
-          </select>
+          <input id="swal-bulk-operador" list="swal-bulk-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <datalist id="swal-bulk-operador-list">
+            ${operadorDatalistHtml}
+          </datalist>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -4564,12 +4574,12 @@ window.applyBulkWmsStatus = async function() {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-bulk-sucursal').value;
-        const agenda = document.getElementById('swal-bulk-agenda').value.trim();
-        const operador = document.getElementById('swal-bulk-operador').value.trim();
+        const agenda = document.getElementById('swal-bulk-agenda').value.trim().toUpperCase();
+        const operador = document.getElementById('swal-bulk-operador').value.trim().toUpperCase();
         const fechaProcInput = document.getElementById('swal-bulk-fecha-proc').value.trim();
 
         if (!agenda) {
-          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
+          Swal.showValidationMessage('Debes seleccionar o escribir una Agenda de Preparación');
           return false;
         }
 
@@ -4832,15 +4842,8 @@ window.applyBulkWmsStatus = async function() {
       const fechas = [...new Set(selectedOrders.map(o => o.fecha_procesamiento).filter(Boolean))];
       const defaultFecha = fechas.length === 1 ? fechas[0] : todayDDMM;
 
-      const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(defaultAgenda ? [defaultAgenda] : [])])];
-      const agendaOptionsHtml = agendaOptionsList.map(opt => `
-        <option value="${opt}" ${defaultAgenda === opt ? 'selected' : ''}>${opt}</option>
-      `).join('');
-
-      const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(defaultOperador ? [defaultOperador] : [])])];
-      const operadorOptionsHtml = operadorOptionsList.map(opt => `
-        <option value="${opt}" ${defaultOperador === opt ? 'selected' : ''}>${opt}</option>
-      `).join('');
+      const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+      const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
       const { value: dispatchFormValues } = await Swal.fire({
         title: 'Marcar como Despachado (Masivo)',
@@ -4849,16 +4852,16 @@ window.applyBulkWmsStatus = async function() {
             <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Se marcarán como <strong>Despachado</strong> los ${ids.length} pedidos seleccionados.</p>
             
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-            <select id="swal-bulk-disp-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-              <option value="">(Mantener actual / Sin asignar)</option>
-              ${operadorOptionsHtml}
-            </select>
+            <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <datalist id="swal-bulk-disp-operador-list">
+              ${operadorDatalistHtml}
+            </datalist>
 
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-            <select id="swal-bulk-disp-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-              <option value="">(Mantener actual / Sin asignar)</option>
-              ${agendaOptionsHtml}
-            </select>
+            <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <datalist id="swal-bulk-disp-agenda-list">
+              ${agendaDatalistHtml}
+            </datalist>
 
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
             <input id="swal-bulk-disp-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -4870,8 +4873,8 @@ window.applyBulkWmsStatus = async function() {
         confirmButtonColor: '#059669',
         cancelButtonText: 'Cancelar',
         preConfirm: () => {
-          const operador = document.getElementById('swal-bulk-disp-operador').value.trim();
-          const agenda = document.getElementById('swal-bulk-disp-agenda').value.trim();
+          const operador = document.getElementById('swal-bulk-disp-operador').value.trim().toUpperCase();
+          const agenda = document.getElementById('swal-bulk-disp-agenda').value.trim().toUpperCase();
           const fechaProcInput = document.getElementById('swal-bulk-disp-fecha-proc').value.trim();
 
           if (fechaProcInput) {
@@ -5462,15 +5465,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     const currentOperador = order.operador || '';
     const currentFechaProc = order.fecha_procesamiento || todayDDMM;
 
-    const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(currentAgenda ? [currentAgenda] : [])])];
-    const agendaOptionsHtml = agendaOptionsList.map(opt => `
-      <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
-    `).join('');
-
-    const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(currentOperador ? [currentOperador] : [])])];
-    const operadorOptionsHtml = operadorOptionsList.map(opt => `
-      <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
-    `).join('');
+    const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+    const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
     const { value: formValues } = await Swal.fire({
       title: 'Preparación de Pedido: Datos requeridos',
@@ -5487,16 +5483,16 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           </select>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <select id="swal-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="">- Seleccionar Agenda -</option>
-            ${agendaOptionsHtml}
-          </select>
+          <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <datalist id="swal-agenda-list">
+            ${agendaDatalistHtml}
+          </datalist>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <select id="swal-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="">(Sin cambios / Dejar vacío)</option>
-            ${operadorOptionsHtml}
-          </select>
+          <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <datalist id="swal-operador-list">
+            ${operadorDatalistHtml}
+          </datalist>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -5508,12 +5504,12 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-sucursal').value;
-        const agenda = document.getElementById('swal-agenda').value.trim();
-        const operador = document.getElementById('swal-operador').value.trim();
+        const agenda = document.getElementById('swal-agenda').value.trim().toUpperCase();
+        const operador = document.getElementById('swal-operador').value.trim().toUpperCase();
         const fechaProc = document.getElementById('swal-fecha-proc').value.trim();
 
         if (!agenda) {
-          Swal.showValidationMessage('Debes seleccionar una Agenda de Preparación');
+          Swal.showValidationMessage('Debes seleccionar o escribir una Agenda de Preparación');
           return false;
         }
         if (!fechaProc) {
@@ -5692,15 +5688,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         const currentFechaProc = order.fecha_procesamiento || todayDDMM;
 
-        const agendaOptionsList = [...new Set([...(window.agendaOptions || []), ...(currentAgenda ? [currentAgenda] : [])])];
-        const agendaOptionsHtml = agendaOptionsList.map(opt => `
-          <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
-        `).join('');
-
-        const operadorOptionsList = [...new Set([...(window.operadorOptions || []), ...(currentOperador ? [currentOperador] : [])])];
-        const operadorOptionsHtml = operadorOptionsList.map(opt => `
-          <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
-        `).join('');
+        const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+        const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
         const { value: dispatchFormValues } = await Swal.fire({
           title: 'Marcar Pedido como Despachado',
@@ -5709,16 +5698,16 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
               <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
               
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-              <select id="swal-single-disp-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-                <option value="">- Seleccionar Operador -</option>
-                ${operadorOptionsHtml}
-              </select>
+              <input id="swal-single-disp-operador" list="swal-single-disp-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <datalist id="swal-single-disp-operador-list">
+                ${operadorDatalistHtml}
+              </datalist>
 
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-              <select id="swal-single-disp-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-                <option value="">- Seleccionar Agenda -</option>
-                ${agendaOptionsHtml}
-              </select>
+              <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <datalist id="swal-single-disp-agenda-list">
+                ${agendaDatalistHtml}
+              </datalist>
 
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
               <input id="swal-single-disp-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -5730,8 +5719,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           confirmButtonColor: '#059669',
           cancelButtonText: 'Cancelar',
           preConfirm: () => {
-            const operador = document.getElementById('swal-single-disp-operador').value.trim();
-            const agenda = document.getElementById('swal-single-disp-agenda').value.trim();
+            const operador = document.getElementById('swal-single-disp-operador').value.trim().toUpperCase();
+            const agenda = document.getElementById('swal-single-disp-agenda').value.trim().toUpperCase();
             const fechaProcInput = document.getElementById('swal-single-disp-fecha-proc').value.trim();
 
             if (fechaProcInput) {
@@ -39450,13 +39439,8 @@ window.editWmsOrderPickingInfo = async function(orderId) {
   const currentAgenda = order.agenda || 'STK';
   const currentOperador = order.operador || '';
 
-  const agendaOptionsHtml = (window.agendaOptions || []).map(opt => `
-    <option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>
-  `).join('');
-
-  const operadorOptionsHtml = (window.operadorOptions || []).map(opt => `
-    <option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>
-  `).join('');
+  const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+  const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
   const { value: formValues } = await Swal.fire({
     title: 'Editar Datos de Picking (WMS -> Picker)',
@@ -39470,15 +39454,16 @@ window.editWmsOrderPickingInfo = async function(orderId) {
           <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
         </select>
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <select id="swal-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-          <option value="">-</option>
-          ${agendaOptionsHtml}
-        </select>
+        <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <datalist id="swal-agenda-list">
+          ${agendaDatalistHtml}
+        </datalist>
+
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-        <select id="swal-operador" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box;">
-          <option value="">(Sin asignar)</option>
-          ${operadorOptionsHtml}
-        </select>
+        <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <datalist id="swal-operador-list">
+          ${operadorDatalistHtml}
+        </datalist>
       </div>
     `,
     focusConfirm: false,
@@ -39488,8 +39473,8 @@ window.editWmsOrderPickingInfo = async function(orderId) {
     preConfirm: () => {
       return {
         sucursal: document.getElementById('swal-sucursal').value,
-        agenda: document.getElementById('swal-agenda').value,
-        operador: document.getElementById('swal-operador').value
+        agenda: document.getElementById('swal-agenda').value.trim().toUpperCase(),
+        operador: document.getElementById('swal-operador').value.trim().toUpperCase()
       };
     }
   });
@@ -40709,13 +40694,8 @@ window.bulkSetWmsOrderPickingInfo = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
 
-  const agendaOptionsHtml = (window.agendaOptions || []).map(opt => `
-    <option value="${opt}">${opt}</option>
-  `).join('');
-
-  const operadorOptionsHtml = (window.operadorOptions || []).map(opt => `
-    <option value="${opt}">${opt}</option>
-  `).join('');
+  const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+  const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Picking e Info Logística',
@@ -40732,16 +40712,16 @@ window.bulkSetWmsOrderPickingInfo = async function() {
         </select>
         
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <select id="swal-bulk-set-agenda" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-          <option value="">(Sin cambios / Vacío)</option>
-          ${agendaOptionsHtml}
-        </select>
+        <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <datalist id="swal-bulk-set-agenda-list">
+          ${agendaDatalistHtml}
+        </datalist>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-        <select id="swal-bulk-set-operador" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-          <option value="">(Sin cambios / No modificar)</option>
-          ${operadorOptionsHtml}
-        </select>
+        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <datalist id="swal-bulk-set-operador-list">
+          ${operadorDatalistHtml}
+        </datalist>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento</label>
         <input id="swal-bulk-set-fechaproc" class="swal2-input" type="text" placeholder="DD-MM (ej: 14-07)" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
@@ -40759,8 +40739,8 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       }
       return {
         sucursal: document.getElementById('swal-bulk-set-sucursal').value,
-        agenda: document.getElementById('swal-bulk-set-agenda').value,
-        operador: document.getElementById('swal-bulk-set-operador').value,
+        agenda: document.getElementById('swal-bulk-set-agenda').value.trim().toUpperCase(),
+        operador: document.getElementById('swal-bulk-set-operador').value.trim().toUpperCase(),
         fechaProc: fechaProc || null
       };
     }
@@ -40837,20 +40817,18 @@ window.bulkSetWmsOrderOperador = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
 
-  const optionsHtml = (window.operadorOptions || []).map(opt => `
-    <option value="${opt}">${opt}</option>
-  `).join('');
+  const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Operador',
     html: `
       <div style="text-align: left; font-size: 0.9rem;">
-        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona el operador logístico (transportista) para los ${ids.length} pedidos seleccionados.</p>
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona o escribe el operador logístico (transportista) para los ${ids.length} pedidos seleccionados.</p>
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador</label>
-        <select id="swal-bulk-set-operador" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box;">
-          <option value="">- Quitar Operador -</option>
-          ${optionsHtml}
-        </select>
+        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <datalist id="swal-bulk-set-operador-list">
+          ${operadorDatalistHtml}
+        </datalist>
       </div>
     `,
     focusConfirm: false,
@@ -40859,7 +40837,7 @@ window.bulkSetWmsOrderOperador = async function() {
     cancelButtonText: 'Cancelar',
     preConfirm: () => {
       return {
-        operador: document.getElementById('swal-bulk-set-operador').value
+        operador: document.getElementById('swal-bulk-set-operador').value.trim().toUpperCase()
       };
     }
   });
