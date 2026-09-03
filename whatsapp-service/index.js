@@ -227,7 +227,7 @@ app.get('/groups', requireAuth, async (req, res) => {
 
 // 4. Enviar Mensaje de Texto Simple
 app.post('/send-message', requireAuth, async (req, res) => {
-  const { to, message } = req.body;
+  const { to, message, withPrefix = true } = req.body;
 
   if (!to || !message) {
     return res.status(400).json({ error: 'Se requieren los campos "to" y "message"' });
@@ -239,8 +239,12 @@ app.post('/send-message', requireAuth, async (req, res) => {
 
   try {
     const jid = formatJid(to);
-    const result = await sock.sendMessage(jid, { text: message });
-    res.json({ success: true, jid, messageId: result?.key?.id });
+    const finalMessage = (withPrefix === false || message.startsWith('🤖'))
+      ? message
+      : `🤖 *Stox:*\n${message}`;
+
+    const result = await sock.sendMessage(jid, { text: finalMessage });
+    res.json({ success: true, jid, messageId: result?.key?.id, sentMessage: finalMessage });
   } catch (err) {
     console.error('[Error enviando mensaje]:', err);
     res.status(500).json({ error: 'Fallo al enviar mensaje: ' + err.message });
@@ -283,6 +287,7 @@ app.post('/send-pickup-alert', requireAuth, async (req, res) => {
     }
 
     const message = [
+      `🤖 *Stox | NOTIFICACIÓN WMS*`,
       `🔔 *NUEVO PEDIDO - RETIRO EN BODEGA*`,
       `━━━━━━━━━━━━━━━━━━━━`,
       `📦 *Orden:* #${orderNumber} (${platform})`,
@@ -305,8 +310,39 @@ app.post('/send-pickup-alert', requireAuth, async (req, res) => {
   }
 });
 
+// 6. Endpoint para disparar el procesamiento automático de retiros
+app.post('/run-auto-pickup', requireAuth, async (req, res) => {
+  const { orderId, dryRun = false, targetGroup } = req.body;
+  const { autoProcessSinglePickupOrder, processAllPendingPickups } = require('../services/auto_pickup_service');
+
+  try {
+    if (orderId) {
+      const result = await autoProcessSinglePickupOrder(orderId, { dryRun, targetGroup });
+      return res.json(result);
+    } else {
+      const result = await processAllPendingPickups({ dryRun, targetGroup });
+      return res.json(result);
+    }
+  } catch (err) {
+    console.error('[Error en run-auto-pickup]:', err);
+    res.status(500).json({ error: 'Error procesando retiros: ' + err.message });
+  }
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`[HTTP] Servidor WhatsApp iniciado en http://localhost:${PORT}`);
   connectToWhatsApp();
+
+  // Iniciar worker de fondo para procesar retiros cada 60 segundos
+  setInterval(async () => {
+    if (connectionStatus === 'CONNECTED') {
+      try {
+        const { processAllPendingPickups } = require('../services/auto_pickup_service');
+        await processAllPendingPickups({ dryRun: false });
+      } catch (err) {
+        console.error('[AutoPickup Worker Error]:', err.message);
+      }
+    }
+  }, 60000);
 });
