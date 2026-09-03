@@ -1457,6 +1457,58 @@
               </div>
             </div>
           </div>
+
+          <!-- Panel de Historial de Etapas, Trazabilidad y Comentarios -->
+          <div id="manage-dec-history-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-top: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
+                <i class="ri-history-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Historial de Etapas y Trazabilidad de Comentarios
+              </label>
+              <span id="manage-dec-history-count" class="badge" style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600;">0 eventos</span>
+            </div>
+
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+              Registro cronológico de cambios de estado, observaciones dejadas por el equipo de bodega y notas globales asociadas a este ingreso.
+            </p>
+
+            <!-- Timeline de Historial Dinámico -->
+            <div id="manage-dec-timeline-container" style="display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.25rem;">
+              <!-- Renderizado dinámicamente por JS -->
+            </div>
+
+            <!-- Resumen de Comentarios Globales del Ingreso -->
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+              <h5 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-message-3-line" style="color: var(--color-primary);"></i> Resumen de Comentarios Globales
+              </h5>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+                <!-- Comentario Cliente -->
+                <div style="background: var(--color-surface); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.82rem;">
+                  <span style="font-weight: 600; color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 3px;">
+                    <i class="ri-user-line" style="color: var(--color-primary);"></i> Observaciones del Cliente (Creación):
+                  </span>
+                  <div id="manage-dec-global-client-notes" style="color: var(--color-text-main); font-style: italic; line-height: 1.4;">Sin notas del cliente</div>
+                </div>
+
+                <!-- Comentario Admin / Bodega -->
+                <div style="background: var(--color-surface); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.82rem;">
+                  <span style="font-weight: 600; color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 3px;">
+                    <i class="ri-shield-user-line" style="color: var(--color-success);"></i> Comentarios Finales de Bodega:
+                  </span>
+                  <div id="manage-dec-global-admin-notes" style="color: var(--color-text-main); font-style: italic; line-height: 1.4;">Sin comentarios de administración</div>
+                </div>
+              </div>
+
+              <!-- Comentario Facturación (si existe) -->
+              <div id="manage-dec-global-billing-row" style="background: var(--color-surface); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.82rem; display: none;">
+                <span style="font-weight: 600; color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 3px;">
+                  <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> Notas / Referencia de Facturación:
+                </span>
+                <div id="manage-dec-global-billing-notes" style="color: var(--color-text-main); font-weight: 500;"></div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">Cancelar</button>
@@ -2098,7 +2150,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.2"></script>
-  <script type="module" src="./js/admin.js?v=1.0.57"></script>
+  <script type="module" src="./js/admin.js?v=1.0.59"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script src="./js/manifests.js"></script>

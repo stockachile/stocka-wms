@@ -482,6 +482,52 @@ window.findValidOptionMatch = function(type, val) {
   return match || null;
 };
 
+window.validateOptionLiveInput = function(input, type) {
+  if (!input) return true;
+  const val = input.value.trim();
+  const warningContainerId = input.id ? `${input.id}-warning` : null;
+  let warningElem = warningContainerId ? document.getElementById(warningContainerId) : null;
+  
+  if (!warningElem && input.parentElement && input.id) {
+    warningElem = input.parentElement.querySelector(`.wms-input-warning[data-for="${input.id}"]`);
+  }
+
+  if (!val || val === '-') {
+    input.style.borderColor = '';
+    input.style.boxShadow = '';
+    input.removeAttribute('title');
+    if (warningElem) {
+      warningElem.style.display = 'none';
+      warningElem.innerHTML = '';
+    }
+    return true;
+  }
+
+  const options = type === 'agenda' ? (window.agendaOptions || []) : (window.operadorOptions || []);
+  const match = options.find(opt => opt.trim().toLowerCase() === val.toLowerCase());
+
+  if (match) {
+    input.style.borderColor = '#10b981';
+    input.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+    input.removeAttribute('title');
+    if (warningElem) {
+      warningElem.style.display = 'none';
+      warningElem.innerHTML = '';
+    }
+    return true;
+  } else {
+    input.style.borderColor = '#ef4444';
+    input.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.25)';
+    const typeLabel = type === 'agenda' ? 'Agenda' : 'Operador';
+    input.setAttribute('title', `⚠️ "${val}" no es una opción válida de ${typeLabel}`);
+    if (warningElem) {
+      warningElem.innerHTML = `⚠️ <span style="font-weight: 700;">"${val}"</span> no existe en el listado de ${typeLabel}s`;
+      warningElem.style.display = 'flex';
+    }
+    return false;
+  }
+};
+
 window.updateWmsOrderField = async function(orderId, field, value) {
   if (field === 'fecha_procesamiento' && value) {
     const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
@@ -3962,6 +4008,8 @@ window.applyWmsFiltersAndRender = function() {
              value="${currentAgenda}" 
              placeholder="-" 
              onfocus="this.select()" 
+             oninput="window.validateOptionLiveInput(this, 'agenda')" 
+             onblur="window.validateOptionLiveInput(this, 'agenda')" 
              onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value.trim().toUpperCase())" 
              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
              autocomplete="off" />
@@ -3973,6 +4021,8 @@ window.applyWmsFiltersAndRender = function() {
              value="${currentOperador}" 
              placeholder="-" 
              onfocus="this.select()" 
+             oninput="window.validateOptionLiveInput(this, 'operador')" 
+             onblur="window.validateOptionLiveInput(this, 'operador')" 
              onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value.trim().toUpperCase())" 
              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
              autocomplete="off" />
@@ -4581,21 +4631,29 @@ window.applyBulkWmsStatus = async function() {
           </select>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
           <datalist id="swal-bulk-agenda-list">
             ${agendaDatalistHtml}
           </datalist>
+          <div id="swal-bulk-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <input id="swal-bulk-operador" list="swal-bulk-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <input id="swal-bulk-operador" list="swal-bulk-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
           <datalist id="swal-bulk-operador-list">
             ${operadorDatalistHtml}
           </datalist>
+          <div id="swal-bulk-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
         </div>
       `,
+      didOpen: () => {
+        const agInput = document.getElementById('swal-bulk-agenda');
+        if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+        const opInput = document.getElementById('swal-bulk-operador');
+        if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+      },
       focusConfirm: false,
       showCancelButton: true,
       confirmButtonText: 'Enviar al Picker',
@@ -4894,21 +4952,29 @@ window.applyBulkWmsStatus = async function() {
             <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Se marcarán como <strong>Despachado</strong> los ${ids.length} pedidos seleccionados.</p>
             
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-            <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
             <datalist id="swal-bulk-disp-operador-list">
               ${operadorDatalistHtml}
             </datalist>
+            <div id="swal-bulk-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-            <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
             <datalist id="swal-bulk-disp-agenda-list">
               ${agendaDatalistHtml}
             </datalist>
+            <div id="swal-bulk-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
             <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
             <input id="swal-bulk-disp-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
           </div>
         `,
+        didOpen: () => {
+          const opInput = document.getElementById('swal-bulk-disp-operador');
+          if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+          const agInput = document.getElementById('swal-bulk-disp-agenda');
+          if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+        },
         focusConfirm: false,
         showCancelButton: true,
         confirmButtonText: 'Confirmar Despacho',
@@ -5543,21 +5609,29 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           </select>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
           <datalist id="swal-agenda-list">
             ${agendaDatalistHtml}
           </datalist>
+          <div id="swal-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
           <datalist id="swal-operador-list">
             ${operadorDatalistHtml}
           </datalist>
+          <div id="swal-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
           <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
         </div>
       `,
+      didOpen: () => {
+        const agInput = document.getElementById('swal-agenda');
+        if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+        const opInput = document.getElementById('swal-operador');
+        if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+      },
       focusConfirm: false,
       showCancelButton: true,
       confirmButtonText: 'Enviar al Picker',
@@ -5773,21 +5847,29 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
               <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
               
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-              <input id="swal-single-disp-operador" list="swal-single-disp-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <input id="swal-single-disp-operador" list="swal-single-disp-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
               <datalist id="swal-single-disp-operador-list">
                 ${operadorDatalistHtml}
               </datalist>
+              <div id="swal-single-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-              <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+              <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
               <datalist id="swal-single-disp-agenda-list">
                 ${agendaDatalistHtml}
               </datalist>
+              <div id="swal-single-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
               <input id="swal-single-disp-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
             </div>
           `,
+          didOpen: () => {
+            const opInput = document.getElementById('swal-single-disp-operador');
+            if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+            const agInput = document.getElementById('swal-single-disp-agenda');
+            if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+          },
           focusConfirm: false,
           showCancelButton: true,
           confirmButtonText: 'Confirmar Despacho',
@@ -24480,6 +24562,145 @@ document.addEventListener('click', (e) => {
   }
 });
 
+window.renderDeclarationHistoryTimeline = function(dec) {
+  const container = document.getElementById('manage-dec-timeline-container');
+  const countEl = document.getElementById('manage-dec-history-count');
+  const clientNotesEl = document.getElementById('manage-dec-global-client-notes');
+  const adminNotesEl = document.getElementById('manage-dec-global-admin-notes');
+  const billingRowEl = document.getElementById('manage-dec-global-billing-row');
+  const billingNotesEl = document.getElementById('manage-dec-global-billing-notes');
+
+  if (!container) return;
+
+  // Comentarios globales
+  if (clientNotesEl) {
+    clientNotesEl.textContent = dec.notes ? `"${dec.notes}"` : 'Sin observaciones registradas por el cliente.';
+  }
+  if (adminNotesEl) {
+    adminNotesEl.textContent = dec.admin_notes ? `"${dec.admin_notes}"` : 'Sin comentarios finales de administración.';
+  }
+  if (billingRowEl && billingNotesEl) {
+    if (dec.billing_notes) {
+      billingRowEl.style.display = 'block';
+      billingNotesEl.textContent = dec.billing_notes;
+    } else {
+      billingRowEl.style.display = 'none';
+      billingNotesEl.textContent = '';
+    }
+  }
+
+  const rawHistory = Array.isArray(dec.history) ? [...dec.history] : [];
+  const fullHistory = [];
+  
+  // Si no hay evento de creación explícito en history, sintetizar el evento de creación inicial
+  const hasCreationEvent = rawHistory.some(h => h.status === 'Creada' || h.type === 'created');
+  if (!hasCreationEvent && dec.created_at) {
+    fullHistory.push({
+      status: 'Creada',
+      timestamp: dec.created_at,
+      comment: dec.notes ? `Ingreso creado por el cliente: "${dec.notes}"` : 'Declaración de ingreso creada en la plataforma.',
+      author: dec.profiles?.full_name || dec.profiles?.email || 'Cliente'
+    });
+  }
+
+  rawHistory.forEach(h => fullHistory.push(h));
+
+  // Ordenar cronológicamente ascendente (del más antiguo al más reciente)
+  fullHistory.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+
+  if (countEl) {
+    countEl.textContent = `${fullHistory.length} ${fullHistory.length === 1 ? 'evento' : 'eventos'}`;
+  }
+
+  if (fullHistory.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 1.5rem; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+        No hay registros de etapas en el historial aún.
+      </div>
+    `;
+    return;
+  }
+
+  const statusIcons = {
+    'Creada': 'ri-add-circle-line',
+    'Bodega Asignada': 'ri-map-pin-line',
+    'En Recepción - Pendiente Conteo': 'ri-play-circle-line',
+    'En proceso de conteo/clasificación': 'ri-swap-box-line',
+    'Recibido Conforme': 'ri-checkbox-circle-fill',
+    'Recibido con Incidencias': 'ri-error-warning-fill',
+    'admin_edit': 'ri-shield-check-line',
+    'billing_status': 'ri-money-dollar-circle-line'
+  };
+
+  const statusColors = {
+    'Creada': '#64748b',
+    'Bodega Asignada': '#2563eb',
+    'En Recepción - Pendiente Conteo': '#0284c7',
+    'En proceso de conteo/clasificación': '#d97706',
+    'Recibido Conforme': '#10b981',
+    'Recibido con Incidencias': '#ef4444',
+    'admin_edit': '#8b5cf6',
+    'billing_status': '#10b981'
+  };
+
+  let timelineHtml = '<div style="position: relative; padding-left: 1.75rem; margin-top: 0.5rem;">';
+  timelineHtml += '<div style="position: absolute; left: 11px; top: 12px; bottom: 12px; width: 2px; background: var(--color-border); z-index: 1;"></div>';
+
+  fullHistory.forEach((item, idx) => {
+    const isLast = idx === fullHistory.length - 1;
+    const st = item.status || (item.type === 'admin_edit' ? 'Modificación por Admin' : item.type) || 'Etapa';
+    const icon = statusIcons[item.status || item.type] || 'ri-git-commit-line';
+    const color = statusColors[item.status || item.type] || 'var(--color-primary)';
+    
+    let dateStr = 'Fecha no registrada';
+    if (item.timestamp) {
+      const d = new Date(item.timestamp);
+      dateStr = `${d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })} a las ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })} hrs`;
+    }
+
+    const commentText = item.comment || item.summary || item.notes || '';
+    const authorText = item.author || (item.type === 'admin_edit' ? 'Administrador WMS' : '');
+
+    timelineHtml += `
+      <div style="position: relative; margin-bottom: 1.15rem; z-index: 2;">
+        <!-- Indicador circular con ícono -->
+        <div style="position: absolute; left: -1.75rem; top: 2px; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface); border: 2px solid ${color}; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--color-surface);">
+          <i class="${icon}" style="font-size: 0.75rem; color: ${color};"></i>
+        </div>
+
+        <!-- Tarjeta de evento -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; margin-left: 0.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span class="badge" style="background: rgba(37, 99, 235, 0.08); border: 1px solid ${color}; color: ${color}; font-size: 0.75rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">
+                ${st}
+              </span>
+              ${authorText ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">por <strong>${authorText}</strong></span>` : ''}
+              ${isLast ? `<span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.65rem; padding: 1px 5px; border-radius: 3px;">Actual</span>` : ''}
+            </div>
+            <span style="font-size: 0.73rem; color: var(--color-text-muted); font-weight: 500; display: flex; align-items: center; gap: 3px;">
+              <i class="ri-time-line"></i> ${dateStr}
+            </span>
+          </div>
+
+          ${commentText ? `
+            <div style="font-size: 0.83rem; color: var(--color-text-main); background: var(--color-surface); padding: 0.55rem 0.75rem; border-radius: 6px; border-left: 3px solid ${color}; line-height: 1.45; word-break: break-word;">
+              ${commentText}
+            </div>
+          ` : `
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); font-style: italic;">
+              Sin observaciones registradas en esta etapa.
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  });
+
+  timelineHtml += '</div>';
+  container.innerHTML = timelineHtml;
+};
+
 window.manageDeclaration = async function(id) {
   try {
     window.currentDeclarationProductsEditing = null;
@@ -24841,6 +25062,11 @@ window.manageDeclaration = async function(id) {
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';
 
+    // Renderizar historial de etapas, trazabilidad y comentarios
+    if (window.renderDeclarationHistoryTimeline) {
+      window.renderDeclarationHistoryTimeline(dec);
+    }
+
     // Renderizar listado de productos para control de conteo
     if (window.renderManageDeclarationProducts) {
       window.renderManageDeclarationProducts(dec, dec.status);
@@ -25023,6 +25249,16 @@ window.saveDeclarationBillingDirect = async function() {
       });
     } else {
       alert('¡Estado de facturación guardado exitosamente!');
+    }
+
+    // Actualizar datos locales y refrescar timeline
+    if (window.currentDeclarationEditing && window.currentDeclarationEditing.id === id) {
+      window.currentDeclarationEditing.billing_status = billingStatus;
+      window.currentDeclarationEditing.billing_notes = billingNotes;
+      window.currentDeclarationEditing.admin_notes = adminNotes;
+      if (window.renderDeclarationHistoryTimeline) {
+        window.renderDeclarationHistoryTimeline(window.currentDeclarationEditing);
+      }
     }
 
     // Actualizar vista de tabla
@@ -28812,8 +29048,54 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
                 Se enviará a todos los contactos de cobranza activos registrados para este comercio.
               </small>
               <div id="easy-billing-email-note-group" style="display: none; margin-top: 0.75rem; margin-left: 1.5rem;">
-                <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-weight: 600; font-size: 0.775rem; color: var(--color-text-main);">Nota personalizada en el correo</label>
+                <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-weight: 600; font-size: 0.775rem; color: var(--color-text-main);">Nota personalizada en el correo (opcional)</label>
                 <textarea id="easy-billing-email-note" class="form-input" rows="2" placeholder="Ej: Estimados, adjuntamos desglose correspondiente al periodo. Quedamos atentos..." style="width: 100%; font-size: 0.775rem; font-family: Outfit, sans-serif; resize: vertical; box-sizing: border-box;"></textarea>
+              </div>
+
+              <!-- Vista Previa del Correo -->
+              <div id="easy-billing-email-preview-box" style="display: none; margin-top: 0.75rem; margin-left: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem; box-shadow: 0 2px 5px rgba(0,0,0,0.03);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.35rem;">
+                  <span style="font-weight: 700; color: var(--color-primary); font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-mail-send-line"></i> Vista previa del correo a enviar
+                  </span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace;">finanzas@stocka.cl</span>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.78rem; line-height: 1.35;">
+                  <div>
+                    <strong style="color: var(--color-text-muted); font-size: 0.74rem;">Destinatarios:</strong>
+                    <div id="preview-email-recipients" style="margin-top: 0.2rem; color: var(--color-text-main);">
+                      <span style="color: var(--color-text-muted); font-style: italic;">Seleccione un comercio para ver contactos...</span>
+                    </div>
+                  </div>
+                  <div style="margin-top: 0.2rem;">
+                    <strong style="color: var(--color-text-muted); font-size: 0.74rem;">Asunto:</strong>
+                    <span id="preview-email-subject" style="color: var(--color-text-main); font-weight: 600; display: block; margin-top: 0.1rem;">-</span>
+                  </div>
+                  
+                  <div style="margin-top: 0.4rem; background: rgba(37, 99, 235, 0.04); border: 1px solid rgba(37, 99, 235, 0.15); border-radius: 4px; padding: 0.5rem 0.65rem;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                      <span style="color: var(--color-text-muted);">Servicio a Notificar:</span>
+                      <strong id="preview-email-service" style="color: var(--color-text-main); text-transform: capitalize;">Fulfillment</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                      <span style="color: var(--color-text-muted);">Monto Facturado:</span>
+                      <strong id="preview-email-monto" style="color: var(--color-primary); font-size: 0.88rem;">$0 CLP</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                      <span style="color: var(--color-text-muted);">Fecha Límite Pago:</span>
+                      <span id="preview-email-fecha-limite" style="color: var(--color-text-main); font-weight: 600;">-</span>
+                    </div>
+                    <div id="preview-email-doc-row" style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                      <span style="color: var(--color-text-muted);">Documento / Desglose:</span>
+                      <span id="preview-email-doc" style="color: var(--color-text-main); font-size: 0.75rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;">Sin adjunto</span>
+                    </div>
+                    <div id="preview-email-custom-note-row" style="display: none; margin-top: 0.35rem; padding-top: 0.35rem; border-top: 1px dashed var(--color-border); font-size: 0.74rem;">
+                      <strong style="color: var(--color-text-muted);">Nota adicional:</strong>
+                      <span id="preview-email-custom-note" style="color: var(--color-text-main); font-style: italic; display: block; margin-top: 0.1rem;"></span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -28859,6 +29141,108 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
     const commerceSelect = document.getElementById('easy-billing-comercio');
     const hiddenInput = commerceSelect;
 
+    let currentCommerceContacts = [];
+
+    async function fetchCommerceContacts(commerceName) {
+      const recipientsEl = document.getElementById('preview-email-recipients');
+      if (!commerceName) {
+        currentCommerceContacts = [];
+        if (recipientsEl) recipientsEl.innerHTML = `<span style="color: var(--color-text-muted); font-style: italic;">Seleccione un comercio...</span>`;
+        updateEasyBillingEmailPreview();
+        return;
+      }
+      
+      if (recipientsEl) recipientsEl.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.75rem;"><i class="ri-loader-4-line spin"></i> Cargando contactos...</span>`;
+      
+      try {
+        const { data: contacts, error } = await supabase
+          .from('billing_contacts')
+          .select('nombre, email, cargo')
+          .eq('comercio', commerceName)
+          .eq('activo', true);
+          
+        if (error) throw error;
+        currentCommerceContacts = contacts || [];
+      } catch (err) {
+        console.warn('Error fetching billing contacts:', err);
+        currentCommerceContacts = [];
+      }
+      updateEasyBillingEmailPreview();
+    }
+
+    function updateEasyBillingEmailPreview() {
+      const isSendEmail = sendEmailCheckbox.checked;
+      const previewBox = document.getElementById('easy-billing-email-preview-box');
+      if (!previewBox) return;
+      
+      if (!isSendEmail) {
+        previewBox.style.display = 'none';
+        return;
+      }
+      previewBox.style.display = 'block';
+
+      const comercio = hiddenInput.value || 'Comercio';
+      const periodOption = periodSelect.options[periodSelect.selectedIndex];
+      const periodName = periodOption ? periodOption.text : 'Periodo';
+      const servicio = servicioSelect.value;
+      const servLabel = servicio === 'fulfillment' ? 'Fulfillment' : 'Envíame';
+      const montoVal = parseInt(document.getElementById('easy-billing-monto').value, 10) || 0;
+      const formattedMonto = '$' + montoVal.toLocaleString('es-CL');
+      
+      const limiteVal = limiteInput.value;
+      let formattedLimite = '-';
+      if (limiteVal) {
+        const parts = limiteVal.split('-');
+        if (parts.length === 3) formattedLimite = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+
+      // Destinatarios
+      const recipientsEl = document.getElementById('preview-email-recipients');
+      if (currentCommerceContacts.length > 0) {
+        recipientsEl.innerHTML = currentCommerceContacts.map(c => 
+          `<span style="display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; margin: 0.1rem 0.2rem 0.1rem 0; border: 1px solid rgba(37, 99, 235, 0.15);">
+            <i class="ri-user-received-2-line" style="font-size: 0.75rem;"></i> ${c.nombre ? `<strong>${c.nombre}</strong> &lt;${c.email}&gt;` : c.email}
+          </span>`
+        ).join('');
+      } else if (hiddenInput.value) {
+        recipientsEl.innerHTML = `<span style="color: #ea580c; font-size: 0.74rem; font-weight: 500;"><i class="ri-alert-line"></i> No hay contactos de cobranza activos configurados para este comercio.</span>`;
+      } else {
+        recipientsEl.innerHTML = `<span style="color: var(--color-text-muted); font-style: italic;">Seleccione un comercio para ver contactos...</span>`;
+      }
+
+      // Asunto
+      const subjectEl = document.getElementById('preview-email-subject');
+      subjectEl.textContent = `Detalle de Facturación (${servLabel}) - ${comercio} - ${periodName}`;
+
+      // Servicio, Monto y Fecha Límite
+      document.getElementById('preview-email-service').textContent = servLabel;
+      document.getElementById('preview-email-monto').textContent = formattedMonto + ' CLP';
+      document.getElementById('preview-email-fecha-limite').textContent = formattedLimite;
+
+      // Adjunto
+      const docEl = document.getElementById('preview-email-doc');
+      const fileInput = document.getElementById('easy-billing-pdf');
+      const linkInput = document.getElementById('easy-billing-link');
+      if (fileInput.files && fileInput.files[0]) {
+        docEl.innerHTML = `<span style="color: var(--color-primary); font-weight: 600;"><i class="ri-file-pdf-line" style="color: #ef4444;"></i> ${fileInput.files[0].name}</span>`;
+      } else if (linkInput.value.trim()) {
+        docEl.innerHTML = `<span style="color: var(--color-primary); font-weight: 600;"><i class="ri-links-line"></i> Enlace web configurado</span>`;
+      } else {
+        docEl.innerHTML = `<span style="color: var(--color-text-muted); font-style: italic;">Sin archivo adjunto</span>`;
+      }
+
+      // Nota personalizada
+      const noteVal = document.getElementById('easy-billing-email-note').value.trim();
+      const noteRow = document.getElementById('preview-email-custom-note-row');
+      const noteText = document.getElementById('preview-email-custom-note');
+      if (noteVal) {
+        noteRow.style.display = 'block';
+        noteText.textContent = `"${noteVal}"`;
+      } else {
+        noteRow.style.display = 'none';
+      }
+    }
+
     function renderCommerceOptions(filterText = '') {
       const query = filterText.toLowerCase();
       const filtered = commerceList.filter(item => 
@@ -28895,8 +29279,9 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
           selectedText.style.color = 'var(--color-text-main)';
           trigger.style.borderColor = 'var(--color-border)';
           
-          // Lanzar evento change para que otras validaciones escuchen si es necesario
+          // Lanzar evento change y consultar contactos
           hiddenInput.dispatchEvent(new Event('change'));
+          fetchCommerceContacts(val);
           closeDropdown();
         });
       });
@@ -28984,15 +29369,24 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
         desgloseGroup.style.display = 'none';
         linkGroup.style.display = 'none';
       }
+      updateEasyBillingEmailPreview();
     }
 
     servicioSelect.addEventListener('change', updateDefaultLimite);
     emisionInput.addEventListener('change', updateDefaultLimite);
+    limiteInput.addEventListener('change', updateEasyBillingEmailPreview);
+    periodSelect.addEventListener('change', updateEasyBillingEmailPreview);
+
+    document.getElementById('easy-billing-monto').addEventListener('input', updateEasyBillingEmailPreview);
+    document.getElementById('easy-billing-pdf').addEventListener('change', updateEasyBillingEmailPreview);
+    document.getElementById('easy-billing-link').addEventListener('input', updateEasyBillingEmailPreview);
+    document.getElementById('easy-billing-email-note').addEventListener('input', updateEasyBillingEmailPreview);
 
     const sendEmailCheckbox = document.getElementById('easy-billing-send-email');
     const emailNoteGroup = document.getElementById('easy-billing-email-note-group');
     sendEmailCheckbox.addEventListener('change', () => {
       emailNoteGroup.style.display = sendEmailCheckbox.checked ? 'block' : 'none';
+      updateEasyBillingEmailPreview();
     });
 
     updateDefaultLimite(); // Llamada inicial
@@ -39547,18 +39941,26 @@ window.editWmsOrderPickingInfo = async function(orderId) {
           <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
         </select>
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
         <datalist id="swal-agenda-list">
           ${agendaDatalistHtml}
         </datalist>
+        <div id="swal-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-        <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0; box-sizing: border-box;">
         <datalist id="swal-operador-list">
           ${operadorDatalistHtml}
         </datalist>
+        <div id="swal-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
       </div>
     `,
+    didOpen: () => {
+      const agInput = document.getElementById('swal-agenda');
+      if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+      const opInput = document.getElementById('swal-operador');
+      if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+    },
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Guardar',
@@ -40827,21 +41229,29 @@ window.bulkSetWmsOrderPickingInfo = async function() {
         </select>
         
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
         <datalist id="swal-bulk-set-agenda-list">
           ${agendaDatalistHtml}
         </datalist>
+        <div id="swal-bulk-set-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
         <datalist id="swal-bulk-set-operador-list">
           ${operadorDatalistHtml}
         </datalist>
+        <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
 
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento</label>
         <input id="swal-bulk-set-fechaproc" class="swal2-input" type="text" placeholder="DD-MM (ej: 14-07)" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
       </div>
     `,
+    didOpen: () => {
+      const agInput = document.getElementById('swal-bulk-set-agenda');
+      if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+      const opInput = document.getElementById('swal-bulk-set-operador');
+      if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+    },
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Guardar',
@@ -40961,12 +41371,17 @@ window.bulkSetWmsOrderOperador = async function() {
       <div style="text-align: left; font-size: 0.9rem;">
         <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona o escribe el operador logístico (transportista) para los ${ids.length} pedidos seleccionados.</p>
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador</label>
-        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0; box-sizing: border-box;">
         <datalist id="swal-bulk-set-operador-list">
           ${operadorDatalistHtml}
         </datalist>
+        <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
       </div>
     `,
+    didOpen: () => {
+      const opInput = document.getElementById('swal-bulk-set-operador');
+      if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+    },
     focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Guardar',
@@ -43560,17 +43975,20 @@ window.renderVolumenDiarioAdmin = async function() {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
       <div>
         <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Registro de Volumen Diario</h3>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualiza y gestiona el histórico de volumen total diario de cada comercio con seguimiento de stock activo</p>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualiza y gestiona el histórico de volumen total diario y genera respaldos para cobro mensual</p>
       </div>
-      <div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button class="btn btn-primary" id="btn-open-export-chart" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+          <i class="ri-file-chart-line"></i> Exportar Gráfico para Cobro (1:1 / 4:3)
+        </button>
         <button class="btn btn-outline" id="btn-refresh-volume"><i class="ri-refresh-line"></i> Actualizar</button>
       </div>
     </div>
 
-    <!-- Filters & Stats Card -->
+    <!-- Filters & Billing Stats Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem; align-items: end;">
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
             <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
@@ -43604,14 +44022,51 @@ window.renderVolumenDiarioAdmin = async function() {
             </button>
           </div>
         </div>
+
+        <!-- Billing Summary Sub-Bar -->
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: #10b981; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calculator-line"></i> Promedio Diario (Base Cobro)
+            </div>
+            <div id="volume-period-avg" style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">-- m³</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Ponderado por días en bodega</div>
+          </div>
+
+          <div style="background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: #8b5cf6; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-stack-line"></i> Total m³·día Acumulados
+            </div>
+            <div id="volume-period-total-day" style="font-size: 1.15rem; font-weight: 800; color: #8b5cf6; margin-top: 0.2rem;">-- m³·día</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Sumatoria de ocupación diaria</div>
+          </div>
+
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-calendar-check-line"></i> Días del Periodo
+            </div>
+            <div id="volume-period-days-info" style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- días</div>
+            <div id="volume-period-coverage" style="font-size: 0.7rem; color: var(--color-text-muted);">-- registros válidos</div>
+          </div>
+
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm);">
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-pulse-line"></i> Rango Min / Max
+            </div>
+            <div id="volume-period-minmax" style="font-size: 1rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.2rem;">-- / --</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">Variación en el periodo</div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Chart Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
-        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
+        <div>
+          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; flex-wrap: wrap;">
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
             <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
           </span>
@@ -43665,6 +44120,75 @@ window.renderVolumenDiarioAdmin = async function() {
         </div>
       </div>
     </div>
+
+    <!-- Export Modal for Billing Graphic (1:1 / 4:3 / 16:9) -->
+    <div id="volume-export-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem; overflow-y: auto;">
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-width: 900px; width: 100%; box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;">
+        <!-- Modal Header -->
+        <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <i class="ri-file-chart-line" style="font-size: 1.25rem; color: var(--color-primary);"></i>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main);">Exportar Gráfico de Almacenamiento</h3>
+          </div>
+          <button id="btn-close-export-modal" style="background: none; border: none; font-size: 1.35rem; cursor: pointer; color: var(--color-text-muted); padding: 0.25rem; line-height: 1;">
+            <i class="ri-close-line"></i>
+          </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div style="padding: 1.25rem 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem;">
+          <!-- Controls Bar -->
+          <div style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <!-- Aspect Ratio Selector -->
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">Formato de Imagen</label>
+              <div style="display: inline-flex; border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface);">
+                <button class="export-ratio-btn active" data-ratio="1:1" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: var(--color-primary); color: #fff;">1:1 Cuadrado (WhatsApp)</button>
+                <button class="export-ratio-btn" data-ratio="4:3" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: transparent; color: var(--color-text-main);">4:3 Estándar (Factura)</button>
+                <button class="export-ratio-btn" data-ratio="16:9" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; border: none; cursor: pointer; background: transparent; color: var(--color-text-main);">16:9 Panorámico</button>
+              </div>
+            </div>
+
+            <!-- Toggles -->
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-trend" checked style="accent-color: var(--color-primary);">
+                <span>Línea de Tendencia</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-labels" checked style="accent-color: var(--color-primary);">
+                <span>Etiquetas de Valores</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--color-text-main);">
+                <input type="checkbox" id="export-chk-stats" checked style="accent-color: var(--color-primary);">
+                <span>Resumen de Cobro</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Preview Container -->
+          <div style="display: flex; justify-content: center; align-items: center; background: #0b0f19; padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); min-height: 380px;">
+            <canvas id="volume-export-canvas" style="max-width: 100%; max-height: 480px; object-fit: contain; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); border-radius: 4px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-bg);">
+          <span style="font-size: 0.78rem; color: var(--color-text-muted);">
+            <i class="ri-information-line"></i> Al copiar, la imagen queda lista en el portapapeles para pegar con <strong>Ctrl + V</strong>.
+          </span>
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="btn btn-outline" id="btn-cancel-export-modal">Cerrar</button>
+            <button class="btn btn-outline" id="btn-download-export-png" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-download-2-line"></i> Descargar PNG
+            </button>
+            <button class="btn btn-primary" id="btn-copy-export-clipboard" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+              <i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 
   // Set default values in inputs
@@ -43678,12 +44202,58 @@ window.renderVolumenDiarioAdmin = async function() {
   const currentValSpan = document.getElementById('volume-current-value');
   const lastValSpan = document.getElementById('volume-last-value');
   const actionDiv = document.getElementById('volume-manual-action');
+  const periodAvgSpan = document.getElementById('volume-period-avg');
+  const periodTotalDaySpan = document.getElementById('volume-period-total-day');
+  const periodDaysInfoSpan = document.getElementById('volume-period-days-info');
+  const periodCoverageSpan = document.getElementById('volume-period-coverage');
+  const periodMinMaxSpan = document.getElementById('volume-period-minmax');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnForce = document.getElementById('btn-force-volume');
   const btnPrev = document.getElementById('btn-volume-prev');
   const btnNext = document.getElementById('btn-volume-next');
   const pageInfo = document.getElementById('volume-page-info');
+  const btnOpenExport = document.getElementById('btn-open-export-chart');
+  const exportModal = document.getElementById('volume-export-modal');
+  const btnCloseExport = document.getElementById('btn-close-export-modal');
+  const btnCancelExport = document.getElementById('btn-cancel-export-modal');
+  const btnCopyClipboard = document.getElementById('btn-copy-export-clipboard');
+  const btnDownloadPng = document.getElementById('btn-download-export-png');
+  const exportCanvas = document.getElementById('volume-export-canvas');
+  const chkTrend = document.getElementById('export-chk-trend');
+  const chkLabels = document.getElementById('export-chk-labels');
+  const chkStats = document.getElementById('export-chk-stats');
+
+  let currentExportRatio = '1:1';
+
+  // Helper: Toast notification
+  function showToastFeedback(msg, isSuccess = true) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 10000;
+      background: ${isSuccess ? '#10b981' : '#ef4444'};
+      color: #fff;
+      padding: 0.85rem 1.35rem;
+      border-radius: var(--radius-md);
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      animation: fadeIn 0.25s ease-out;
+    `;
+    toast.innerHTML = `<i class="${isSuccess ? 'ri-checkbox-circle-fill' : 'ri-error-warning-fill'}" style="font-size: 1.2rem;"></i> <span>${msg}</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.4s ease';
+      setTimeout(() => toast.remove(), 400);
+    }, 3200);
+  }
 
   // Load Comercios
   async function loadComercios() {
@@ -43759,6 +44329,43 @@ window.renderVolumenDiarioAdmin = async function() {
     }
   }
 
+  // Update Period Billing KPIs
+  function updateBillingMetrics() {
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+
+    const filtered = allHistories.filter(item => item.fecha >= startDate && item.fecha <= endDate);
+
+    if (filtered.length === 0) {
+      periodAvgSpan.textContent = '0.00000 m³';
+      periodTotalDaySpan.textContent = '0.000 m³·día';
+      periodDaysInfoSpan.textContent = `${totalDays} días`;
+      periodCoverageSpan.textContent = '0 registros encontrados';
+      periodMinMaxSpan.textContent = '-- / --';
+      return;
+    }
+
+    // Group by date in case multiple comerces are displayed
+    const dateMap = {};
+    filtered.forEach(item => {
+      dateMap[item.fecha] = (dateMap[item.fecha] || 0) + parseFloat(item.volumen || 0);
+    });
+
+    const dailyValues = Object.values(dateMap);
+    const sumTotalM3Day = dailyValues.reduce((sum, v) => sum + v, 0);
+    const avgVolume = sumTotalM3Day / totalDays;
+    const minVolume = Math.min(...dailyValues);
+    const maxVolume = Math.max(...dailyValues);
+    const recordedDaysCount = Object.keys(dateMap).length;
+
+    periodAvgSpan.textContent = `${avgVolume.toFixed(5)} m³`;
+    periodTotalDaySpan.textContent = `${sumTotalM3Day.toFixed(3)} m³·día`;
+    periodDaysInfoSpan.textContent = `${totalDays} días en periodo`;
+    periodCoverageSpan.textContent = `${recordedDaysCount} de ${totalDays} días registrados (${Math.round((recordedDaysCount / totalDays) * 100)}%)`;
+    periodMinMaxSpan.textContent = `${minVolume.toFixed(3)} m³ / ${maxVolume.toFixed(3)} m³`;
+  }
+
   // Update Chart
   async function updateChart() {
     let liveVolumeMap = {};
@@ -43826,28 +44433,10 @@ window.renderVolumenDiarioAdmin = async function() {
     }
 
     const CHART_PALETTE = [
-      '#3b82f6', // blue
-      '#10b981', // emerald
-      '#f59e0b', // amber
-      '#8b5cf6', // violet
-      '#ec4899', // pink
-      '#06b6d4', // cyan
-      '#f97316', // orange
-      '#14b8a6', // teal
-      '#a855f7', // purple
-      '#6366f1'  // indigo
+      '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#a855f7', '#6366f1'
     ];
     const CHART_BORDER_PALETTE = [
-      '#1d4ed8',
-      '#047857',
-      '#b45309',
-      '#6d28d9',
-      '#be185d',
-      '#0e7490',
-      '#c2410c',
-      '#0f766e',
-      '#7e22ce',
-      '#4338ca'
+      '#1d4ed8', '#047857', '#b45309', '#6d28d9', '#be185d', '#0e7490', '#c2410c', '#0f766e', '#7e22ce', '#4338ca'
     ];
 
     const datasets = comercios.map((commerceName, idx) => {
@@ -43860,7 +44449,6 @@ window.renderVolumenDiarioAdmin = async function() {
       });
 
       if (isStackedBar) {
-        // Multi-merchant stacked bar details
         const bgColors = chartDates.map(d => {
           const isExtra = (d < startDate || d > endDate);
           return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
@@ -43882,7 +44470,6 @@ window.renderVolumenDiarioAdmin = async function() {
           stack: 'volume_stack'
         };
       } else {
-        // Single merchant line curve
         const pointBgColor = chartDates.map(d => {
           if (d === 'Actual') return '#f43f5e';
           const isExtra = (d < startDate || d > endDate);
@@ -43930,10 +44517,8 @@ window.renderVolumenDiarioAdmin = async function() {
       }
     });
 
-    // Overlay the Total Volume Curve only if we are showing multiple comerces (consolidated)
     if (isStackedBar) {
       const totalValues = chartDates.map((_, i) => {
-        // datasets contains individual commerce volumes
         return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
       });
 
@@ -44093,6 +44678,296 @@ window.renderVolumenDiarioAdmin = async function() {
     });
   }
 
+  // Render Exportable Graphic Canvas (1:1 / 4:3 / 16:9)
+  function renderVolumeExportGraphic() {
+    if (!exportCanvas) return;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Dimensions based on selected ratio
+    let targetW = 1000;
+    let targetH = 1000;
+    if (currentExportRatio === '4:3') {
+      targetW = 1000;
+      targetH = 750;
+    } else if (currentExportRatio === '16:9') {
+      targetW = 1200;
+      targetH = 675;
+    }
+
+    exportCanvas.width = targetW;
+    exportCanvas.height = targetH;
+
+    // Filtered data in range
+    const filtered = allHistories.filter(item => item.fecha >= startDate && item.fecha <= endDate);
+    const dateMap = {};
+    filtered.forEach(item => {
+      dateMap[item.fecha] = (dateMap[item.fecha] || 0) + parseFloat(item.volumen || 0);
+    });
+
+    const dates = Object.keys(dateMap).sort();
+    const values = dates.map(d => dateMap[d]);
+
+    // Calculate billing stats
+    const startD = new Date(startDate + 'T00:00:00');
+    const endD = new Date(endDate + 'T00:00:00');
+    const totalDays = Math.max(1, Math.round((endD - startD) / (1000 * 60 * 60 * 24)) + 1);
+    const sumM3Day = values.reduce((s, v) => s + v, 0);
+    const avgM3 = totalDays > 0 ? sumM3Day / totalDays : 0;
+
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+
+    // Outer subtle border
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, targetW - 2, targetH - 2);
+
+    // Header Title
+    const commerceTitle = selectedCommerce || 'Consolidado General';
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Volumen en el tiempo - ${commerceTitle}`, 40, 50);
+
+    // Legend
+    let legendY = 85;
+    // Dot VOLUMEN
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath();
+    ctx.arc(48, legendY - 6, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 15px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillText('VOLUMEN', 64, legendY);
+
+    if (chkTrend.checked && values.length >= 2) {
+      // Purple line legend
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(170, legendY - 6);
+      ctx.lineTo(200, legendY - 6);
+      ctx.stroke();
+
+      ctx.fillStyle = '#1e293b';
+      ctx.fillText('Línea de tendencia de VOLUMEN', 210, legendY);
+    }
+
+    // Stats Banner Box (if enabled)
+    let plotTop = 110;
+    if (chkStats.checked) {
+      const bannerY = 105;
+      const bannerH = 46;
+      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(40, bannerY, targetW - 80, bannerH, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      const [sY, sM, sD] = startDate.split('-');
+      const [eY, eM, eD] = endDate.split('-');
+      const periodStr = `Periodo: ${sD}/${sM}/${sY} al ${eD}/${eM}/${eY}`;
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '600 13px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(periodStr, 55, bannerY + 28);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#0f766e';
+      ctx.fillText(`Promedio: ${avgM3.toFixed(3).replace('.', ',')} m³`, targetW - 250, bannerY + 28);
+
+      ctx.fillStyle = '#7c3aed';
+      ctx.fillText(`Total: ${sumM3Day.toFixed(3).replace('.', ',')} m³·día`, targetW - 60, bannerY + 28);
+
+      plotTop = 175;
+    }
+
+    // Plot margins
+    const plotLeft = 90;
+    const plotRight = targetW - 50;
+    const plotBottom = targetH - 65;
+    const plotWidth = plotRight - plotLeft;
+    const plotHeight = plotBottom - plotTop;
+
+    // Determine Y range
+    let maxY = Math.max(...values, 0.05);
+    if (maxY === 0) maxY = 0.25;
+    maxY = maxY * 1.25; // add 25% headroom for labels
+    const minY = 0;
+
+    // Y Axis Gridlines & Ticks (5 steps)
+    const yTicks = 5;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = '500 13px -apple-system, BlinkMacSystemFont, sans-serif';
+
+    for (let i = 0; i <= yTicks; i++) {
+      const val = minY + (i / yTicks) * (maxY - minY);
+      const yPos = plotBottom - (i / yTicks) * plotHeight;
+
+      // Grid line
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(plotLeft, yPos);
+      ctx.lineTo(plotRight, yPos);
+      ctx.stroke();
+
+      // Label
+      ctx.fillStyle = '#334155';
+      const formattedVal = val.toFixed(3).replace('.', ',');
+      ctx.fillText(formattedVal, plotLeft - 12, yPos);
+    }
+
+    // Left Y Axis line and Bottom X Axis line
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, plotTop);
+    ctx.lineTo(plotLeft, plotBottom);
+    ctx.lineTo(plotRight, plotBottom);
+    ctx.stroke();
+
+    if (values.length === 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'italic 16px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sin datos registrados en el periodo seleccionado', targetW / 2, plotTop + plotHeight / 2);
+    } else {
+      // Calculate coordinates for points
+      const points = dates.map((d, idx) => {
+        const x = dates.length === 1
+          ? plotLeft + plotWidth / 2
+          : plotLeft + (idx / (dates.length - 1)) * plotWidth;
+        const y = plotBottom - ((dateMap[d] - minY) / (maxY - minY)) * plotHeight;
+        return { x, y, date: d, value: dateMap[d] };
+      });
+
+      // Draw Trendline (Least Squares Linear Regression)
+      if (chkTrend.checked && points.length >= 2) {
+        const n = points.length;
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumXX = 0;
+
+        points.forEach((pt, i) => {
+          sumX += i;
+          sumY += pt.value;
+          sumXY += i * pt.value;
+          sumXX += i * i;
+        });
+
+        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / n;
+
+        const trendY0 = intercept;
+        const trendY1 = slope * (n - 1) + intercept;
+
+        const canvasTrendY0 = plotBottom - ((trendY0 - minY) / (maxY - minY)) * plotHeight;
+        const canvasTrendY1 = plotBottom - ((trendY1 - minY) / (maxY - minY)) * plotHeight;
+
+        ctx.strokeStyle = '#c084fc';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, canvasTrendY0);
+        ctx.lineTo(points[points.length - 1].x, canvasTrendY1);
+        ctx.stroke();
+      }
+
+      // Draw Main Blue Volume Line
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      points.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+
+      // Draw Points & Labels
+      points.forEach((pt, idx) => {
+        // Point halo & dot
+        ctx.fillStyle = '#93c5fd';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#2563eb';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Data Label (if enabled or key points)
+        if (chkLabels.checked) {
+          const valText = pt.value.toFixed(3).replace('.', ',');
+          
+          // Error bar / indicator tick style like reference
+          ctx.strokeStyle = '#93c5fd';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pt.x - 5, pt.y - 12);
+          ctx.lineTo(pt.x + 5, pt.y - 12);
+          ctx.moveTo(pt.x, pt.y - 12);
+          ctx.lineTo(pt.x, pt.y + 12);
+          ctx.moveTo(pt.x - 5, pt.y + 12);
+          ctx.lineTo(pt.x + 5, pt.y + 12);
+          ctx.stroke();
+
+          // Text label
+          ctx.fillStyle = '#1d4ed8';
+          ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(valText, pt.x, pt.y - 18);
+        }
+      });
+
+      // Draw X Axis Ticks & Date Labels (e.g. 7-6, 14-6, 21-6, 28-6)
+      ctx.fillStyle = '#1e293b';
+      ctx.font = '500 13px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+
+      const maxXTicks = targetW > 800 ? 8 : 5;
+      const step = Math.max(1, Math.ceil(dates.length / maxXTicks));
+
+      dates.forEach((d, idx) => {
+        if (idx % step === 0 || idx === dates.length - 1) {
+          const pt = points[idx];
+          const parts = d.split('-');
+          const label = `${parseInt(parts[2], 10)}-${parseInt(parts[1], 10)}`;
+
+          // Tick mark
+          ctx.strokeStyle = '#1e293b';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(pt.x, plotBottom);
+          ctx.lineTo(pt.x, plotBottom + 5);
+          ctx.stroke();
+
+          // Date text
+          ctx.fillText(label, pt.x, plotBottom + 8);
+        }
+      });
+    }
+
+    // Footer Watermark
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('STOCKA WMS · Registro Oficial de Almacenamiento', 40, targetH - 18);
+
+    const nowStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
+    ctx.textAlign = 'right';
+    ctx.fillText(`Generado: ${nowStr}`, targetW - 40, targetH - 18);
+  }
+
   // Load Histories
   async function loadHistories() {
     tbody.innerHTML = `
@@ -44129,6 +45004,7 @@ window.renderVolumenDiarioAdmin = async function() {
       allHistories = data || [];
       currentPage = 1;
       await updateChart();
+      updateBillingMetrics();
       renderTableData();
     } catch (e) {
       console.error('Error al cargar historial de volumen:', e);
@@ -44145,7 +45021,6 @@ window.renderVolumenDiarioAdmin = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    // Reverse historical data to show most recent first in table (only within user selected filtered range)
     const tableHistories = allHistories
       .filter(item => item.fecha >= startDate && item.fecha <= endDate)
       .reverse();
@@ -44249,7 +45124,7 @@ window.renderVolumenDiarioAdmin = async function() {
 
       if (error) throw error;
 
-      alert('¡Volumen registrado con éxito!');
+      showToastFeedback('¡Volumen registrado con éxito!');
       updateVolumeStats();
       loadHistories();
     } catch (e) {
@@ -44260,6 +45135,103 @@ window.renderVolumenDiarioAdmin = async function() {
       btnForce.innerHTML = `<i class="ri-history-line"></i> Registrar Volumen Hoy`;
     }
   });
+
+  // Modal Export Listeners
+  if (btnOpenExport) {
+    btnOpenExport.addEventListener('click', () => {
+      exportModal.style.display = 'flex';
+      renderVolumeExportGraphic();
+    });
+  }
+
+  if (btnCloseExport) {
+    btnCloseExport.addEventListener('click', () => {
+      exportModal.style.display = 'none';
+    });
+  }
+
+  if (btnCancelExport) {
+    btnCancelExport.addEventListener('click', () => {
+      exportModal.style.display = 'none';
+    });
+  }
+
+  // Format ratio switches
+  document.querySelectorAll('.export-ratio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.export-ratio-btn').forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--color-text-main)';
+        b.classList.remove('active');
+      });
+      btn.style.background = 'var(--color-primary)';
+      btn.style.color = '#fff';
+      btn.classList.add('active');
+      currentExportRatio = btn.dataset.ratio;
+      renderVolumeExportGraphic();
+    });
+  });
+
+  if (chkTrend) chkTrend.addEventListener('change', renderVolumeExportGraphic);
+  if (chkLabels) chkLabels.addEventListener('change', renderVolumeExportGraphic);
+  if (chkStats) chkStats.addEventListener('change', renderVolumeExportGraphic);
+
+  // Copy to clipboard
+  if (btnCopyClipboard) {
+    btnCopyClipboard.addEventListener('click', async () => {
+      if (!exportCanvas) return;
+      btnCopyClipboard.disabled = true;
+      btnCopyClipboard.innerHTML = `<i class="ri-loader-4-line spin"></i> Copiando...`;
+
+      try {
+        exportCanvas.toBlob(async (blob) => {
+          if (!blob) throw new Error('No se pudo generar el archivo de imagen.');
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            showToastFeedback('¡Gráfico copiado al portapapeles! Listo para pegar con Ctrl + V.');
+          } catch (clipErr) {
+            console.warn('Clipboard API no admitida o bloqueada, descargando PNG...', clipErr);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const comm = (selectedCommerce || 'consolidado').toLowerCase().replace(/\s+/g, '_');
+            a.href = url;
+            a.download = `volumen_${comm}_${startDate}_${endDate}_${currentExportRatio.replace(':', 'x')}.png`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToastFeedback('Gráfico descargado como PNG.');
+          } finally {
+            btnCopyClipboard.disabled = false;
+            btnCopyClipboard.innerHTML = `<i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)`;
+          }
+        }, 'image/png');
+      } catch (err) {
+        console.error('Error al copiar imagen:', err);
+        alert('Error al copiar imagen: ' + err.message);
+        btnCopyClipboard.disabled = false;
+        btnCopyClipboard.innerHTML = `<i class="ri-clipboard-line"></i> Copiar Imagen (Ctrl+V)`;
+      }
+    });
+  }
+
+  // Download PNG
+  if (btnDownloadPng) {
+    btnDownloadPng.addEventListener('click', () => {
+      if (!exportCanvas) return;
+      exportCanvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const comm = (selectedCommerce || 'consolidado').toLowerCase().replace(/\s+/g, '_');
+        a.href = url;
+        a.download = `volumen_${comm}_${startDate}_${endDate}_${currentExportRatio.replace(':', 'x')}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToastFeedback('¡Imagen PNG descargada con éxito!');
+      }, 'image/png');
+    });
+  }
 
   await loadComercios();
   await updateVolumeStats();
