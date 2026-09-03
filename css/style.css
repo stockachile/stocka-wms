@@ -800,9 +800,15 @@ h1, h2, h3, h4, h5, h6 {
   100% { transform: rotate(360deg); }
 }
 
-.spin, .ri-spin {
-  animation: spin 1s linear infinite;
-  display: inline-block;
+.spin, .ri-spin, [class*="ri-loader"].spin, [class*="ri-loader"].ri-spin {
+  animation: spin 1s linear infinite !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 1em !important;
+  height: 1em !important;
+  line-height: 1 !important;
+  transform-origin: 50% 50% !important;
 }
 
 @keyframes pulse {

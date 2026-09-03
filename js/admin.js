@@ -4287,8 +4287,8 @@ window.applyWmsFiltersAndRender = function() {
               <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-history-line"></i> Historial de Modificaciones
               </h4>
-              <div id="wms-order-audit-timeline-${order.id}" style="font-size: 0.825rem; color: var(--color-text-muted);">
-                <i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: block; margin: 0 auto;"></i>
+              <div id="wms-order-audit-timeline-${order.id}" style="font-size: 0.825rem; color: var(--color-text-muted); text-align: center; padding: 0.5rem;">
+                <i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block;"></i>
               </div>
             </div>
 
@@ -8346,8 +8346,8 @@ async function renderPacksTab() {
   tbody.innerHTML = `
     <tr>
       <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem;"></i>
-        Cargando composición de los packs...
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: inline-block; margin-bottom: 0.5rem;"></i>
+        <div>Cargando composición de los packs...</div>
       </td>
     </tr>
   `;
@@ -8382,13 +8382,11 @@ async function renderPacksTab() {
         : '<span style="color: var(--color-danger); font-style: italic;">Sin componentes configurados</span>';
 
       const isObserver = userRole === 'observer';
-      const deleteBtn = isObserver 
-        ? '' 
-        : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
-      
+      const historyBtn = `<button class="btn btn-outline btn-pack-history" data-id="${item.id}" data-name="${escapeHtml(item.name || '')}" data-sku="${escapeHtml(item.sku || '')}" data-comercio="${escapeHtml(item.comercio || '')}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-primary); margin-left: 0.5rem;" title="Ver historial de auditoría y cambios del pack"><i class="ri-history-line" style="margin-right: 0.25rem;"></i>Historial</button>`;
+
       const actionBtn = isObserver 
-        ? '' 
-        : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+        ? historyBtn 
+        : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + historyBtn + deleteBtn;
 
       return `
         <tr data-product-row-id="${item.id}">
@@ -8408,6 +8406,18 @@ async function renderPacksTab() {
         const prodId = e.currentTarget.getAttribute('data-id');
         openEditProductModal(prodId);
         showWmsWarningInModal('form-edit-product');
+      });
+    });
+
+    tbody.querySelectorAll('.btn-pack-history').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const prodId = e.currentTarget.getAttribute('data-id');
+        const sku = e.currentTarget.getAttribute('data-sku');
+        const name = e.currentTarget.getAttribute('data-name');
+        const com = e.currentTarget.getAttribute('data-comercio');
+        if (window.openPackAuditHistoryModal) {
+          window.openPackAuditHistoryModal(prodId, sku, name, com);
+        }
       });
     });
 
@@ -13010,8 +13020,8 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
         <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-product-dimensions').remove()">&times;</button>
       </div>
       <div class="modal-body" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
-        <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: block; margin-bottom: 0.5rem;"></i>
-        <span>Cargando catálogo y parámetros de dimensionamiento...</span>
+        <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: inline-block; margin-bottom: 0.5rem;"></i>
+        <div>Cargando catálogo y parámetros de dimensionamiento...</div>
       </div>
     </div>
   `;
@@ -13058,8 +13068,8 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
       if (modalBody) {
         modalBody.innerHTML = `
           <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
-            <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: block; margin-bottom: 0.5rem;"></i>
-            <span>Cargando catálogo para <strong>${escapeHtml(commerce)}</strong>...</span>
+            <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: inline-block; margin-bottom: 0.5rem;"></i>
+            <div>Cargando catálogo para <strong>${escapeHtml(commerce)}</strong>...</div>
           </div>
         `;
       }
@@ -24481,17 +24491,36 @@ function handleManageStatusChange(status) {
     qtyIncidentsInput.disabled = true;
     qtyIncidentsInput.setAttribute('required', 'required');
     incidentsPanel.style.display = 'none';
+
+    // Establecer cantidad confirmada a declarada para todos los productos
+    if (window.currentDeclarationProductsEditing) {
+      window.currentDeclarationProductsEditing.forEach(p => {
+        p.qty_confirmed = parseInt(p.qty, 10) || 0;
+      });
+      if (window.renderManageDeclarationProducts && dec) {
+        window.renderManageDeclarationProducts(dec, status);
+      }
+    }
   } else if (status === 'Recibido con Incidencias') {
     if (groupReceived) groupReceived.style.display = 'block';
     if (groupIncidents) groupIncidents.style.display = 'block';
     if (groupLabeling) groupLabeling.style.display = 'block';
     if (labelingQtyConfirmedInput) labelingQtyConfirmedInput.setAttribute('required', 'required');
     qtyReceivedInput.disabled = false;
+    qtyReceivedInput.removeAttribute('readonly');
     qtyReceivedInput.setAttribute('required', 'required');
     qtyIncidentsInput.disabled = false;
+    qtyIncidentsInput.removeAttribute('readonly');
     qtyIncidentsInput.setAttribute('required', 'required');
     incidentsPanel.style.display = 'block';
-    if (parseInt(qtyIncidentsInput.value) <= 0) {
+
+    if (window.renderManageDeclarationProducts && dec) {
+      window.renderManageDeclarationProducts(dec, status);
+    }
+    if (window.recalculateManageDeclarationTotals) {
+      window.recalculateManageDeclarationTotals();
+    }
+    if (parseInt(qtyIncidentsInput.value, 10) <= 0) {
       qtyIncidentsInput.value = 1;
     }
     renderIncidentsInputsList();
@@ -25330,7 +25359,8 @@ document.addEventListener('submit', async (e) => {
     // Validar volumen confirmado si el estado requiere confirmación de recepción
     let volumeConfirmed = 0;
     if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
-      volumeConfirmed = parseFloat(document.getElementById('manage-dec-volume-confirmed').value);
+      const rawVol = (document.getElementById('manage-dec-volume-confirmed')?.value || '').toString().replace(',', '.');
+      volumeConfirmed = parseFloat(rawVol);
       if (isNaN(volumeConfirmed) || volumeConfirmed <= 0) {
         alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El volumen confirmado (m³) es obligatorio y debe ser mayor a 0.</div>';
         return;
@@ -25357,13 +25387,30 @@ document.addEventListener('submit', async (e) => {
     } else if (status === 'Recibido con Incidencias') {
       saveCurrentIncidentsInputs();
       incidentsList = currentDeclarationIncidents.filter(Boolean);
-      if (incidentsList.length === 0) {
-        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes describir al menos 1 incidencia detallada cuando seleccionas "Recibido con Incidencias".</div>';
-        return;
+      
+      // Auto-generar incidencias desde la tabla de productos si no se escribieron manualmente
+      if (incidentsList.length === 0 && window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
+        const diffProds = window.currentDeclarationProductsEditing.filter(p => {
+          const decQty = parseInt(p.qty, 10) || 0;
+          const recQty = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : decQty;
+          return decQty !== recQty;
+        });
+        if (diffProds.length > 0) {
+          incidentsList = diffProds.map(p => {
+            const decQty = parseInt(p.qty, 10) || 0;
+            const recQty = parseInt(p.qty_confirmed, 10) || 0;
+            const diff = recQty - decQty;
+            return `${p.sku}: ${diff > 0 ? '+' : ''}${diff} uds (${recQty} recibidas vs ${decQty} declaradas)`;
+          });
+        }
       }
+
+      if (incidentsList.length === 0) {
+        incidentsList = [`Diferencias reportadas en recepción física: ${qtyIncidents || 1} unidades con incidencia`];
+      }
+
       if (qtyIncidents <= 0) {
-        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de incidencias debe ser mayor a 0 para el estado "Recibido con Incidencias".</div>';
-        return;
+        qtyIncidents = 1;
       }
     }
 
@@ -25413,8 +25460,8 @@ document.addEventListener('submit', async (e) => {
       if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing_id === id) {
         updateData.products_list = window.currentDeclarationProductsEditing.map(item => {
           const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
-            ? item.qty_confirmed
-            : (status === 'Recibido Conforme' ? (item.qty || 0) : 0);
+            ? parseInt(item.qty_confirmed, 10)
+            : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
           return {
             ...item,
             qty_confirmed: qtyConfirmed
@@ -39301,6 +39348,20 @@ async function openEditProductModal(prodId) {
     }
     renderPackComponentsTable();
 
+    // Guardar snapshot de componentes originales para auditoría
+    window.originalPackItemsSnapshot = JSON.parse(JSON.stringify(window.currentPackItems || []));
+    window.currentEditingProduct = product;
+
+    // Configurar listener para el botón de historial dentro del modal
+    const btnHistoryInModal = document.getElementById('btn-view-pack-history-in-modal');
+    if (btnHistoryInModal) {
+      btnHistoryInModal.onclick = () => {
+        if (window.openPackAuditHistoryModal) {
+          window.openPackAuditHistoryModal(prodId, product.sku, product.name, product.comercio);
+        }
+      };
+    }
+
     // Populate component options
     const otherProducts = (window.currentMasterProducts || []).filter(p => p.id !== prodId && !p.is_pack);
     window._packSelectProducts = otherProducts;
@@ -39601,7 +39662,11 @@ function initProductFormListeners() {
           }
         }
 
-        // Guardar componentes de packs
+        // Guardar componentes de packs y registrar auditoría
+        const prevPackItems = window.originalPackItemsSnapshot || [];
+        const newPackItems = isPack ? (window.currentPackItems || []) : [];
+        const diffResult = window.generatePackDiffSummary ? window.generatePackDiffSummary(prevPackItems, newPackItems) : null;
+
         const { error: delErr } = await supabase
           .from('product_pack_items')
           .delete()
@@ -39621,6 +39686,36 @@ function initProductFormListeners() {
             .insert(rowsToInsert);
 
           if (insErr) throw insErr;
+        }
+
+        // Registrar en pack_audit_logs si hubo cambios en los componentes
+        if (diffResult && diffResult.hasChanges) {
+          try {
+            let currentUser = null;
+            try {
+              const { data: authData } = await supabase.auth.getUser();
+              currentUser = authData?.user;
+            } catch (e) {}
+
+            const userEmail = currentUser?.email || 'admin@stocka.cl';
+            const userName = currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || userEmail.split('@')[0];
+
+            await supabase.from('pack_audit_logs').insert([{
+              pack_product_id: prodId,
+              pack_sku: sku || window.currentEditingProduct?.sku || '',
+              pack_name: name || window.currentEditingProduct?.name || '',
+              comercio: commerce,
+              user_id: currentUser?.id || null,
+              user_email: userEmail,
+              user_name: userName,
+              user_role: 'admin',
+              previous_components: prevPackItems,
+              new_components: newPackItems,
+              change_summary: diffResult.summary
+            }]);
+          } catch (logErr) {
+            console.warn('Error al guardar log de auditoría del pack:', logErr);
+          }
         }
 
         alert('Parámetros del producto actualizados exitosamente!');
@@ -40945,10 +41040,11 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     return;
   }
 
-  const isFinalStatus = ['Recibido Conforme', 'Recibido con Incidencias'].indexOf(activeStatus) !== -1;
+  // Solo es solo lectura si el estado es 'Recibido Conforme'. En 'Recibido con Incidencias' y conteo los inputs DEBEN ser editables
+  const isReadOnly = activeStatus === 'Recibido Conforme';
   const addProdContainer = document.getElementById('manage-dec-add-product-container');
   if (addProdContainer) {
-    addProdContainer.style.display = isFinalStatus ? 'none' : 'block';
+    addProdContainer.style.display = isReadOnly ? 'none' : 'block';
   }
 
   const products = getDeclarationProducts(dec) || [];
@@ -40957,10 +41053,10 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
     window.currentDeclarationProductsEditing_id = dec.id;
     window.currentDeclarationProductsEditing = products.map(item => {
-      // Si ya tiene cantidad confirmada guardada en BD, usarla. De lo contrario, usar la declarada como sugerencia
+      // Si ya tiene cantidad confirmada guardada en BD, usarla. De lo contrario, usar la declarada como sugerencia inicial
       const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
-        ? item.qty_confirmed 
-        : item.qty;
+        ? parseInt(item.qty_confirmed, 10) 
+        : (parseInt(item.qty, 10) || 0);
       return {
         ...item,
         qty_confirmed: qtyConfirmed
@@ -40982,8 +41078,8 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   // Renderizar filas
   tbody.innerHTML = '';
   window.currentDeclarationProductsEditing.forEach((item, idx) => {
-    const declared = item.qty || 0;
-    const confirmed = item.qty_confirmed || 0;
+    const declared = parseInt(item.qty, 10) || 0;
+    const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) : declared;
     const diff = confirmed - declared;
     
     let diffColor = 'var(--color-text-muted)';
@@ -40995,9 +41091,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       diffColor = 'var(--color-danger)';
     }
 
-    // Si es estado final, los inputs quedan deshabilitados y no se muestra el botón eliminar
-    const inputDisabled = isFinalStatus ? 'disabled style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto; background-color: var(--color-bg); cursor: not-allowed;"' : '';
-    const deleteButtonHtml = isFinalStatus ? '' : `
+    const deleteButtonHtml = isReadOnly ? '' : `
       <button type="button" onclick="window.removeManageDeclarationProduct(${idx})" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 4px; display: inline-flex; align-items: center;" title="Eliminar producto de la recepción">
         <i class="ri-delete-bin-line"></i>
       </button>
@@ -41012,7 +41106,10 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: var(--color-text-main);">${declared}</td>
         <td style="padding: 10px 12px; text-align: center;">
           <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
-            <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" ${inputDisabled || `style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto;" oninput="window.updateManageDeclarationProductQty(${idx}, this.value)"`}>
+            <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" 
+                   style="width: 85px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 32px; margin: 0 auto; font-weight: 600; background: var(--color-bg); border-radius: 6px;" 
+                   oninput="window.updateManageDeclarationProductQty(${idx}, this.value)"
+                   ${isReadOnly ? 'disabled style="cursor: not-allowed; opacity: 0.8; width: 85px; text-align: center; height: 32px;"' : ''}>
             ${deleteButtonHtml}
           </div>
         </td>
@@ -41028,12 +41125,11 @@ window.updateManageDeclarationProductQty = function(idx, val) {
   const parsedVal = parseInt(val, 10);
   if (isNaN(parsedVal) || parsedVal < 0) return;
 
-  const item = window.currentDeclarationProductsEditing[idx];
-  if (!item) return;
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
 
-  item.qty_confirmed = parsedVal;
+  window.currentDeclarationProductsEditing[idx].qty_confirmed = parsedVal;
   
-  const declared = item.qty || 0;
+  const declared = parseInt(window.currentDeclarationProductsEditing[idx].qty, 10) || 0;
   const diff = parsedVal - declared;
 
   // Actualizar el valor de la diferencia en la fila correspondiente
@@ -41068,15 +41164,18 @@ window.recalculateManageDeclarationTotals = function() {
 
   let totalReceived = 0;
   let totalDeclared = 0;
+  let missingQty = 0;
 
   window.currentDeclarationProductsEditing.forEach(item => {
-    totalReceived += item.qty_confirmed || 0;
-    totalDeclared += item.qty || 0;
+    const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
+    const decQty = parseInt(item.qty, 10) || 0;
+    totalReceived += rec;
+    totalDeclared += decQty;
+    if (decQty > rec) {
+      missingQty += (decQty - rec);
+    }
   });
 
-  const incidents = Math.max(0, totalDeclared - totalReceived);
-
-  // Actualizar los inputs de la modal
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
 
@@ -41084,7 +41183,12 @@ window.recalculateManageDeclarationTotals = function() {
     qtyReceivedInput.value = totalReceived;
   }
   if (qtyIncidentsInput) {
-    qtyIncidentsInput.value = incidents;
+    const currentStatus = document.getElementById('manage-dec-status')?.value;
+    if (currentStatus === 'Recibido con Incidencias') {
+      qtyIncidentsInput.value = missingQty > 0 ? missingQty : (parseInt(qtyIncidentsInput.value, 10) || 1);
+    } else if (currentStatus === 'Recibido Conforme') {
+      qtyIncidentsInput.value = 0;
+    }
   }
 };
 
@@ -41610,8 +41714,8 @@ window.loadBillingContactsTab = async function() {
   
   container.innerHTML = `
     <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
-      Cargando contactos de facturación...
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; margin-bottom: 0.5rem;"></i>
+      <div>Cargando contactos de facturación...</div>
     </div>
   `;
   

@@ -48,6 +48,47 @@ const DEFAULT_GROUP_JID = '120363043911687615@g.us'; // Coordinación Stocka
 // Solo procesar pedidos creados desde hoy en adelante (02 de Septiembre de 2026 en adelante)
 const AUTO_PICKUP_CUTOFF_DATE = process.env.AUTO_PICKUP_CUTOFF_DATE || '2026-09-02T00:00:00.000-04:00';
 
+// Archivo persistente para evitar repetir alertas de quiebre de stock sobre el mismo pedido
+const SHORTAGE_LOG_FILE = path.join(__dirname, '../shortage_alerts_sent.json');
+
+function loadShortageAlertsMap() {
+  try {
+    if (fs.existsSync(SHORTAGE_LOG_FILE)) {
+      return JSON.parse(fs.readFileSync(SHORTAGE_LOG_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Error cargando shortage_alerts_sent.json:', e.message);
+  }
+  return {};
+}
+
+function saveShortageAlertsMap(map) {
+  try {
+    fs.writeFileSync(SHORTAGE_LOG_FILE, JSON.stringify(map, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Error guardando shortage_alerts_sent.json:', e.message);
+  }
+}
+
+function hasShortageBeenNotified(orderId) {
+  const map = loadShortageAlertsMap();
+  return !!map[orderId];
+}
+
+function markShortageAsNotified(orderId, orderNo) {
+  const map = loadShortageAlertsMap();
+  map[orderId] = { orderNo, notifiedAt: new Date().toISOString() };
+  saveShortageAlertsMap(map);
+}
+
+function clearShortageNotified(orderId) {
+  const map = loadShortageAlertsMap();
+  if (map[orderId]) {
+    delete map[orderId];
+    saveShortageAlertsMap(map);
+  }
+}
+
 // Horario de Operaciones: 10:00 a 17:30 hrs (Hora de Chile)
 const OPERATING_HOURS = {
   startHour: 10,
@@ -276,49 +317,58 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     second: '2-digit'
   });
 
-  // SI HAY QUIEBRE DE STOCK: FRENAR Y ALERTAR
+  // SI HAY QUIEBRE DE STOCK: FRENAR Y ALERTAR (UNA SOLA VEZ)
   if (stockShortages.length > 0) {
     console.log(`⚠️ Pedido ${orderNo} NO TIENE STOCK SUFICIENTE en Sucursal Ñuñoa. Frenando envío a preparación...`);
 
-    const shortagesText = stockShortages.map(s => [
-      `• *${s.sku}* - ${s.name}:`,
-      `  📍 _Sucursal Ñuñoa:_ ${s.availableNunoa} un (Requerido: ${s.required} un)`,
-      `  🏢 _Otras sucursales:_ ${s.otherBranchesSummary}`
-    ].join('\n')).join('\n\n');
-
-    const shortageMessage = [
-      `⚠️ *ALERTA: PEDIDO RETIRO SIN STOCK SUFICIENTE*`,
-      `━━━━━━━━━━━━━━━━━━━━`,
-      `🏷️ *Comercio:* ${order.comercio || 'No asignado'}`,
-      `🔢 *Orden:* #${orderNo}`,
-      `👤 *Cliente:* ${order.customer_name || 'No informado'}`,
-      `━━━━━━━━━━━━━━━━━━━━`,
-      `❌ *Detalle de Quiebre:*`,
-      shortagesText,
-      `━━━━━━━━━━━━━━━━━━━━`,
-      `⚠️ *Acción Requerida:* El pedido se mantuvo en espera para que el equipo revise el stock antes de procesar.`,
-      `🕒 ${nowFormatted}`
-    ].join('\n');
-
+    const alreadyNotified = hasShortageBeenNotified(order.id);
     let waResult = null;
-    if (!dryRun) {
-      console.log(`[AutoPickup] Enviando alerta de quiebre de stock a ${targetGroup}...`);
+
+    if (!alreadyNotified && !dryRun) {
+      const shortagesText = stockShortages.map(s => [
+        `• *${s.sku}* - ${s.name}:`,
+        `  📍 _Sucursal Ñuñoa:_ ${s.availableNunoa} un (Requerido: ${s.required} un)`,
+        `  🏢 _Otras sucursales:_ ${s.otherBranchesSummary}`
+      ].join('\n')).join('\n\n');
+
+      const shortageMessage = [
+        `⚠️ *ALERTA: PEDIDO RETIRO SIN STOCK SUFICIENTE*`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        `🏷️ *Comercio:* ${order.comercio || 'No asignado'}`,
+        `🔢 *Orden:* #${orderNo}`,
+        `👤 *Cliente:* ${order.customer_name || 'No informado'}`,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        `❌ *Detalle de Quiebre:*`,
+        shortagesText,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        `⚠️ *Acción Requerida:* El pedido se mantuvo en espera para que el equipo revise el stock antes de procesar.`,
+        `🕒 ${nowFormatted}`
+      ].join('\n');
+
+      console.log(`[AutoPickup] Enviando alerta de quiebre de stock por primera vez a ${targetGroup}...`);
       waResult = await sendWhatsAppMessage(targetGroup, shortageMessage);
+      markShortageAsNotified(order.id, orderNo);
+    } else if (alreadyNotified) {
+      console.log(`[AutoPickup] ℹ️ Pedido ${orderNo} ya fue alertado previamente por falta de stock. Omitiendo mensaje repetido.`);
     }
 
     return {
       success: false,
       hasStockShortage: true,
+      alreadyNotified,
       dryRun,
       orderNo,
       comercio: order.comercio,
       shortages: stockShortages,
       whatsappResult: waResult,
-      message: 'Frenado por stock insuficiente. Alerta de quiebre enviada por Stox.'
+      message: alreadyNotified 
+        ? 'Frenado por stock insuficiente (Alerta previa ya enviada).' 
+        : 'Frenado por stock insuficiente. Alerta de quiebre enviada por Stox.'
     };
   }
 
-  // SI TIENE STOCK SUFICIENTE: PROCEDER CON ENVÍO A PICKING
+  // SI TIENE STOCK SUFICIENTE: LIMPIAR ALERTA PREVIA SI EXISTIERA Y PROCEDER CON ENVÍO A PICKING
+  clearShortageNotified(order.id);
   console.log(`✅ Pedido ${orderNo} CUMPLE todas las condiciones y TIENE STOCK. Ejecutando automatización...`);
 
   if (dryRun) {

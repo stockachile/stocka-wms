@@ -883,6 +883,225 @@ window.loadShippingRatesFromSupabase = async function() {
 // Cargar tarifas de manera asíncrona no bloqueante
 window.loadShippingRatesFromSupabase();
 
+window.generatePackDiffSummary = function(prevItems, newItems) {
+  const prevList = Array.isArray(prevItems) ? prevItems : [];
+  const newList = Array.isArray(newItems) ? newItems : [];
+
+  const prevMap = new Map();
+  prevList.forEach(i => {
+    const id = String(i.id || i.member_product_id || '');
+    if (id) {
+      prevMap.set(id, {
+        sku: i.sku || i.products?.sku || 'SKU',
+        name: i.name || i.products?.name || 'Producto',
+        quantity: parseInt(i.quantity, 10) || 1
+      });
+    }
+  });
+
+  const newMap = new Map();
+  newList.forEach(i => {
+    const id = String(i.id || i.member_product_id || '');
+    if (id) {
+      newMap.set(id, {
+        sku: i.sku || i.products?.sku || 'SKU',
+        name: i.name || i.products?.name || 'Producto',
+        quantity: parseInt(i.quantity, 10) || 1
+      });
+    }
+  });
+
+  const added = [];
+  const removed = [];
+  const modified = [];
+
+  for (const [id, item] of newMap.entries()) {
+    if (!prevMap.has(id)) {
+      added.push(`${item.sku} (${item.name}) x${item.quantity}`);
+    } else {
+      const prev = prevMap.get(id);
+      if (prev.quantity !== item.quantity) {
+        modified.push(`${item.sku}: cant. de ${prev.quantity} a ${item.quantity}`);
+      }
+    }
+  }
+
+  for (const [id, item] of prevMap.entries()) {
+    if (!newMap.has(id)) {
+      removed.push(`${item.sku} (${item.name}) x${item.quantity}`);
+    }
+  }
+
+  const hasChanges = added.length > 0 || removed.length > 0 || modified.length > 0;
+  if (!hasChanges) return { hasChanges: false, summary: '' };
+
+  const parts = [];
+  if (added.length > 0) parts.push(`+ Agregados: ${added.join(', ')}`);
+  if (removed.length > 0) parts.push(`- Eliminados: ${removed.join(', ')}`);
+  if (modified.length > 0) parts.push(`~ Modificados: ${modified.join(', ')}`);
+
+  return {
+    hasChanges: true,
+    summary: parts.join(' | '),
+    added,
+    removed,
+    modified
+  };
+};
+
+window.openPackAuditHistoryModal = async function(packId, packSku, packName, commerce) {
+  const safeSku = packSku || 'Pack';
+  const safeName = packName || 'Combo';
+
+  if (typeof Swal === 'undefined') {
+    alert(`Historial de ${safeSku}: cargando registros...`);
+    return;
+  }
+
+  Swal.fire({
+    title: 'Cargando historial de cambios...',
+    html: `<div style="padding: 1.5rem; text-align: center;"><i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--color-primary);"></i><p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">Consultando registros de auditoría...</p></div>`,
+    showConfirmButton: false,
+    allowOutsideClick: false
+  });
+
+  try {
+    let query = supabase
+      .from('pack_audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (packId) {
+      query = query.or(`pack_product_id.eq.${packId},pack_sku.eq.${safeSku}`);
+    } else {
+      query = query.eq('pack_sku', safeSku);
+    }
+
+    if (commerce) {
+      query = query.eq('comercio', commerce);
+    }
+
+    const { data: logs, error } = await query;
+    if (error) throw error;
+
+    if (!logs || logs.length === 0) {
+      Swal.fire({
+        title: `Historial: ${window.escapeHtml ? window.escapeHtml(safeSku) : safeSku}`,
+        html: `
+          <div style="text-align: center; padding: 1.5rem 0;">
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; font-size: 1.75rem;">
+              <i class="ri-history-line"></i>
+            </div>
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 600;">Sin registros de cambios previos</h4>
+            <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); max-width: 400px; margin: 0 auto; line-height: 1.5;">
+              No se han registrado modificaciones en la composición de este pack desde la activación del sistema de auditoría.
+            </p>
+          </div>
+        `,
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: '#3b82f6'
+      });
+      return;
+    }
+
+    const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
+    let timelineHtml = `
+      <div style="text-align: left; max-height: 480px; overflow-y: auto; padding-right: 0.5rem;">
+        <div style="margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">${esc(safeName)}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">SKU: <code style="font-weight: 700;">${esc(safeSku)}</code></div>
+          </div>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; font-weight: 700; font-size: 0.75rem; padding: 4px 8px; border-radius: 6px;">
+            ${logs.length} ${logs.length === 1 ? 'modificación' : 'modificaciones'}
+          </span>
+        </div>
+        <div style="position: relative; padding-left: 1.5rem;">
+          <div style="position: absolute; top: 8px; bottom: 8px; left: 6px; width: 2px; background: var(--color-border);"></div>
+    `;
+
+    logs.forEach((log, index) => {
+      const dateObj = new Date(log.created_at);
+      const dateFormatted = dateObj.toLocaleString('es-CL', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+
+      const userBadge = log.user_role === 'admin'
+        ? '<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; margin-left: 0.35rem;">ADMIN</span>'
+        : '<span style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700; margin-left: 0.35rem;">CLIENTE</span>';
+
+      const prevComps = Array.isArray(log.previous_components) ? log.previous_components : [];
+      const newComps = Array.isArray(log.new_components) ? log.new_components : [];
+
+      const prevHtml = prevComps.length > 0
+        ? prevComps.map(c => `<div style="font-size: 0.75rem; color: #94a3b8; text-decoration: line-through; margin-bottom: 2px;"><i class="ri-checkbox-blank-circle-fill" style="font-size: 5px; vertical-align: middle; margin-right: 4px;"></i><strong>${esc(c.sku || 'SKU')}</strong>: ${esc(c.name || '')} <strong>x${c.quantity}</strong></div>`).join('')
+        : '<div style="font-size: 0.75rem; color: #94a3b8; font-style: italic;">Sin componentes previos</div>';
+
+      const newHtml = newComps.length > 0
+        ? newComps.map(c => `<div style="font-size: 0.75rem; color: var(--color-text-main); margin-bottom: 2px;"><i class="ri-checkbox-circle-fill" style="font-size: 10px; color: #10b981; margin-right: 4px;"></i><strong>${esc(c.sku || 'SKU')}</strong>: ${esc(c.name || '')} <strong style="color: #10b981;">x${c.quantity}</strong></div>`).join('')
+        : '<div style="font-size: 0.75rem; color: #ef4444; font-style: italic;">Pack vaciado (0 componentes)</div>';
+
+      timelineHtml += `
+        <div style="position: relative; margin-bottom: 1.25rem;">
+          <div style="position: absolute; left: -1.5rem; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: ${index === 0 ? '#10b981' : 'var(--color-primary)'}; border: 2px solid var(--color-surface); box-shadow: 0 0 0 2px var(--color-border);"></div>
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.25rem;">
+              <div style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center;">
+                <i class="ri-user-3-line" style="margin-right: 0.3rem; color: var(--color-text-muted);"></i>
+                ${esc(log.user_name || log.user_email || 'Usuario WMS')} ${userBadge}
+              </div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-time-line"></i> ${dateFormatted}
+              </div>
+            </div>
+            
+            ${log.change_summary ? `
+              <div style="background: rgba(59, 130, 246, 0.08); border-left: 3px solid #3b82f6; padding: 0.35rem 0.6rem; font-size: 0.75rem; color: var(--color-text-main); margin-bottom: 0.5rem; border-radius: 0 4px 4px 0; line-height: 1.4;">
+                <strong>Detalle del cambio:</strong> ${esc(log.change_summary)}
+              </div>
+            ` : ''}
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.4rem; background: var(--color-bg); padding: 0.5rem; border-radius: 6px; border: 1px dashed var(--color-border);">
+              <div>
+                <div style="font-size: 0.7rem; font-weight: 700; color: #ef4444; text-transform: uppercase; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.2rem;">
+                  <i class="ri-arrow-left-line"></i> Composición Anterior
+                </div>
+                ${prevHtml}
+              </div>
+              <div>
+                <div style="font-size: 0.7rem; font-weight: 700; color: #10b981; text-transform: uppercase; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.2rem;">
+                  <i class="ri-arrow-right-line"></i> Nueva Composición
+                </div>
+                ${newHtml}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    timelineHtml += `
+        </div>
+      </div>
+    `;
+
+    Swal.fire({
+      title: `Historial de Cambios del Pack`,
+      html: timelineHtml,
+      width: '650px',
+      showCloseButton: true,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: '#3b82f6'
+    });
+
+  } catch (err) {
+    console.error('Error cargando historial de pack:', err);
+    Swal.fire('Error', 'No se pudo cargar el historial de cambios: ' + err.message, 'error');
+  }
+};
+
 window.supabaseClient = supabase;
 
 export { supabase };

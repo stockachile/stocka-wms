@@ -3342,6 +3342,21 @@ async function openEditProductModal(prodId) {
     }
     renderPackComponentsTable();
 
+    // Guardar snapshot de componentes originales para auditoría
+    window.originalPackItemsSnapshot = JSON.parse(JSON.stringify(window.currentPackItems || []));
+    window.currentEditingProduct = product;
+
+    // Configurar listener para el botón de historial dentro del modal
+    const btnHistoryInModal = document.getElementById('btn-view-pack-history-in-modal');
+    if (btnHistoryInModal) {
+      btnHistoryInModal.onclick = () => {
+        if (window.openPackAuditHistoryModal) {
+          const com = (window.currentUserData && window.currentUserData.comercio) || product.comercio;
+          window.openPackAuditHistoryModal(prodId, product.sku, product.name, com);
+        }
+      };
+    }
+
     // Rellenar opciones de componentes
     const otherProducts = (window.currentMasterProducts || []).filter(p => p.id !== prodId && !p.is_pack);
     window._packSelectProducts = otherProducts;
@@ -11049,7 +11064,11 @@ async function renderIntegrations() {
         }
       }
 
-      // Guardar componentes de packs
+      // Guardar componentes de packs y registrar auditoría
+      const prevPackItems = window.originalPackItemsSnapshot || [];
+      const newPackItems = isPack ? (window.currentPackItems || []) : [];
+      const diffResult = window.generatePackDiffSummary ? window.generatePackDiffSummary(prevPackItems, newPackItems) : null;
+
       const { error: delErr } = await supabase
         .from('product_pack_items')
         .delete()
@@ -11066,9 +11085,40 @@ async function renderIntegrations() {
 
         const { error: insErr } = await supabase
           .from('product_pack_items')
-      .insert(rowsToInsert);
+          .insert(rowsToInsert);
 
         if (insErr) throw insErr;
+      }
+
+      // Registrar en pack_audit_logs si hubo cambios en los componentes
+      if (diffResult && diffResult.hasChanges) {
+        try {
+          let currentUser = null;
+          try {
+            const { data: authData } = await supabase.auth.getUser();
+            currentUser = authData?.user;
+          } catch (e) {}
+
+          const com = (window.currentUserData && window.currentUserData.comercio) || window.currentEditingProduct?.comercio || '';
+          const userEmail = currentUser?.email || (window.currentUserData && window.currentUserData.email) || 'comercio@stocka.cl';
+          const userName = currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || (window.currentUserData && window.currentUserData.nombre) || userEmail.split('@')[0];
+
+          await supabase.from('pack_audit_logs').insert([{
+            pack_product_id: prodId,
+            pack_sku: sku || window.currentEditingProduct?.sku || '',
+            pack_name: name || window.currentEditingProduct?.name || '',
+            comercio: com,
+            user_id: currentUser?.id || null,
+            user_email: userEmail,
+            user_name: userName,
+            user_role: 'merchant',
+            previous_components: prevPackItems,
+            new_components: newPackItems,
+            change_summary: diffResult.summary
+          }]);
+        } catch (logErr) {
+          console.warn('Error al guardar log de auditoría del pack:', logErr);
+        }
       }
 
       alert('Parámetros del producto actualizados exitosamente!');
@@ -25528,13 +25578,14 @@ async function renderPacksTab() {
         : '<span style="color: var(--color-danger); font-style: italic;">Sin componentes configurados</span>';
 
       const isObserver = userRole === 'observer';
+      const historyBtn = `<button class="btn btn-outline btn-pack-history" data-id="${item.id}" data-name="${escapeHtml(item.name || '')}" data-sku="${escapeHtml(item.sku || '')}" data-comercio="${escapeHtml(item.comercio || '')}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-primary); margin-left: 0.5rem;" title="Ver historial de auditoría y cambios del pack"><i class="ri-history-line" style="margin-right: 0.25rem;"></i>Historial</button>`;
       const deleteBtn = isObserver 
         ? '' 
         : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
       
       const actionBtn = isObserver 
-        ? '' 
-        : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+        ? historyBtn 
+        : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + historyBtn + deleteBtn;
 
       return `
         <tr data-product-row-id="${item.id}">
@@ -25554,6 +25605,18 @@ async function renderPacksTab() {
         const prodId = e.currentTarget.getAttribute('data-id');
         openEditProductModal(prodId);
         showWmsWarningInModal('form-edit-product');
+      });
+    });
+
+    tbody.querySelectorAll('.btn-pack-history').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const prodId = e.currentTarget.getAttribute('data-id');
+        const sku = e.currentTarget.getAttribute('data-sku');
+        const name = e.currentTarget.getAttribute('data-name');
+        const com = e.currentTarget.getAttribute('data-comercio');
+        if (window.openPackAuditHistoryModal) {
+          window.openPackAuditHistoryModal(prodId, sku, name, com);
+        }
       });
     });
 

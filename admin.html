@@ -505,7 +505,12 @@
             <label for="edit-prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
           </div>
           <div id="edit-prod-pack-section" style="display: none; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
-            <h4 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600; color: var(--color-text-main);">Componentes del Pack</h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h4 style="margin: 0; font-size: 1rem; font-weight: 600; color: var(--color-text-main);">Componentes del Pack</h4>
+              <button type="button" class="btn btn-outline" id="btn-view-pack-history-in-modal" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--color-primary); color: var(--color-primary);">
+                <i class="ri-history-line"></i> Historial de Cambios
+              </button>
+            </div>
             
             <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
               <div class="searchable-select-wrapper">
@@ -2150,7 +2155,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.2"></script>
-  <script type="module" src="./js/admin.js?v=1.0.60"></script>
+  <script type="module" src="./js/admin.js?v=1.0.62"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script src="./js/manifests.js"></script>
@@ -2169,8 +2174,8 @@
     </div>
     <div class="monitor-panel-body" id="wms-monitor-body">
       <div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem;">
-        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-        Cargando historial de ejecuciones...
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: inline-block; margin-bottom: 0.5rem;"></i>
+        <div>Cargando historial de ejecuciones...</div>
       </div>
     </div>
   </div>

@@ -403,7 +403,7 @@ async function syncMerchantOrders(integration) {
     let rawOrders = [];
 
     while (hasMore) {
-      const searchUrl = `https://api.mercadolibre.com/orders/search?seller=${userId}&date_created.from=${createdAfter}&offset=${offset}&limit=50&sort=date_desc`;
+      const searchUrl = `https://api.mercadolibre.com/orders/search?seller=${userId}&order.date_created.from=${createdAfter}&offset=${offset}&limit=50&sort=date_desc`;
       const response = await fetch(searchUrl, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });

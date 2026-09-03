@@ -2013,7 +2013,7 @@ export async function renderOptirouteSupport() {
 
   // --- MÓDULO DE ETIQUETAS DE ENVÍO TÉRMICAS OPTIROUTE (100mm x 150mm) ---
 
-  // Helper para generar Código de Barras SVG con JsBarcode
+  // Helper para generar Código de Barras SVG con JsBarcode (CODE128)
   function getBarcodeSvgString(code) {
     const cleanVal = String(code || '').trim();
     if (!cleanVal || cleanVal === 'S/R') {
@@ -2025,8 +2025,8 @@ export async function renderOptirouteSupport() {
         window.JsBarcode(svg, cleanVal, {
           format: "CODE128",
           width: 1.8,
-          height: 38,
-          displayValue: false,
+          height: 30,
+          displayValue: false, // La lectura humana se renderiza nítidamente con tipografía HTML
           margin: 0
         });
         return svg.outerHTML;
@@ -2083,10 +2083,10 @@ export async function renderOptirouteSupport() {
   }
 
   // Generador del HTML de una sola etiqueta térmica (100x150mm)
-  // Generador del HTML de una sola etiqueta térmica (100x150mm)
   function generateLabelHtml(wp) {
-    const qrUrl = getWhatsAppQrDataUrl(wp.phone, wp.reference);
-    const barcodeSvg = getBarcodeSvgString(wp.reference !== 'S/R' ? wp.reference : wp.order);
+    const cleanBarcodeVal = (wp.reference && wp.reference !== 'S/R') ? String(wp.reference).trim() : (wp.order ? `#${wp.order}` : 'S/R');
+    const qrUrl = getWhatsAppQrDataUrl(wp.phone, cleanBarcodeVal);
+    const barcodeSvg = getBarcodeSvgString(cleanBarcodeVal);
     const isIntermediate = Boolean(wp.is_intermediate || String(wp.order).includes('.'));
     const predecessorStop = Math.floor(parseFloat(wp.order) || 0);
     const nextStop = predecessorStop + 1;
@@ -2194,13 +2194,16 @@ export async function renderOptirouteSupport() {
           </div>
         </div>
 
-        <!-- Fila 5: Código de Barras (CHECKEO PICKING) -->
+        <!-- Fila 5: Código de Barras con Lectura Humana -->
         <div class="label-row label-row-5 ${isIntermediate ? 'label-row-5-int' : ''}">
           <div class="label-box label-box-barcode">
             <div class="barcode-svg-wrap">
               ${barcodeSvg}
             </div>
-            <div class="barcode-caption">CHECKEO PICKING</div>
+            <div class="barcode-human-readable">
+              <span class="barcode-code-text">* ${cleanBarcodeVal} *</span>
+              <span class="barcode-subcaption">• CHECKEO PICKING</span>
+            </div>
           </div>
         </div>
 
@@ -2410,34 +2413,47 @@ export async function renderOptirouteSupport() {
       justify-content: flex-start;
       overflow: hidden;
     }
-    .label-row-5 { height: 16mm; }
-    .label-row-5-int { height: 15mm; }
+    .label-row-5 { height: 16.5mm; }
+    .label-row-5-int { height: 15.5mm; }
     .label-box-barcode {
       width: 100%;
       height: 100%;
       align-items: center;
       justify-content: center;
-      padding: 1mm 2mm;
+      padding: 0.8mm 2mm;
     }
     .barcode-svg-wrap {
       width: 100%;
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 9.5mm;
+      height: 8.5mm;
     }
     .barcode-svg-wrap svg {
       max-width: 100%;
-      height: 9.5mm;
+      height: 8.5mm;
     }
-    .barcode-caption {
-      font-size: 7pt;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 1px;
+    .barcode-human-readable {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       margin-top: 1px;
-      text-align: center;
+      line-height: 1;
+    }
+    .barcode-code-text {
+      font-family: 'Courier New', monospace, sans-serif;
+      font-size: 8.5pt;
+      font-weight: 900;
+      letter-spacing: 1.5px;
       color: #000000;
+    }
+    .barcode-subcaption {
+      font-size: 5.5pt;
+      font-weight: 800;
+      color: #000000;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
     }
     .label-row-6 { height: 16mm; }
     .label-row-6-int { height: 15mm; }
