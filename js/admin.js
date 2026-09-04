@@ -20729,17 +20729,28 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username, access_token, refresh_token');
       let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio').order('created_at', { ascending: false }).limit(5);
 
+      // Consulta de pedidos manuales pendientes en estado WMS 'En procesamiento'
+      let manualOrdersQuery = supabase
+        .from('orders')
+        .select('id, external_order_number, comercio, customer_name, customer_phone, origen, external_platform, status, estado_wms, created_at, shipping_method, operador, cantidad, sku, item')
+        .or('origen.ilike.%manual%,external_platform.ilike.%manual%')
+        .ilike('estado_wms', '%procesamiento%')
+        .not('status', 'in', '("cancelado","anulado")')
+        .order('created_at', { ascending: false });
+
       if (selectedCommerce) {
         ordQuery = ordQuery.eq('comercio', selectedCommerce);
         intQuery = intQuery.eq('comercio', selectedCommerce);
         decQuery = decQuery.eq('comercio', selectedCommerce);
+        manualOrdersQuery = manualOrdersQuery.eq('comercio', selectedCommerce);
       }
 
-      const [prodChunks, ordRes, intRes, decRes, newsRes] = await Promise.all([
+      const [prodChunks, ordRes, intRes, decRes, manualOrdersRes, newsRes] = await Promise.all([
         Promise.all(prodPromises),
         ordQuery,
         intQuery,
         decQuery,
+        manualOrdersQuery,
         supabase.from('dashboard_news').select('*').order('created_at', { ascending: false })
       ]);
 
@@ -20754,7 +20765,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
       news = newsRes?.data || [];
 
-      results = [{ data: productsMap, rawInv: activeInv || [] }, ordRes, intRes, decRes];
+      results = [{ data: productsMap, rawInv: activeInv || [] }, ordRes, intRes, decRes, manualOrdersRes];
 
       window.setDashboardCache(cacheKey, {
         results: results,
@@ -20768,10 +20779,13 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     const ordRes = results[1];
     const intRes = results[2];
     const decRes = results[3];
+    const manualOrdersRes = results[4] || { data: [] };
 
     if (ordRes.error) throw ordRes.error;
     if (intRes.error) throw intRes.error;
     if (decRes.error) throw decRes.error;
+    if (manualOrdersRes.error) console.warn('Error fetching manual orders in dashboard:', manualOrdersRes.error);
+
 
     // 4. Calcular métricas de inventario
     let totalStock = 0;
@@ -21369,12 +21383,178 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
+    // ========================================================
+    // CÁLCULO Y RENDERIZADO DE PEDIDOS MANUALES EN PROCESAMIENTO
+    // ========================================================
+    const pendingManualOrders = manualOrdersRes?.data || [];
+    const pendingManualCount = pendingManualOrders.length;
+
+    function getElapsedTimeText(isoDateStr) {
+      if (!isoDateStr) return '';
+      const created = new Date(isoDateStr);
+      const now = new Date();
+      const diffMs = now - created;
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffHrs = Math.floor(diffMin / 60);
+      const diffDays = Math.floor(diffHrs / 24);
+
+      if (diffMin < 2) return 'Hace un momento';
+      if (diffMin < 60) return `Hace ${diffMin} min`;
+      if (diffHrs < 24) return `Hace ${diffHrs}h ${diffMin % 60}m`;
+      if (diffDays === 1) return 'Ayer';
+      return `Hace ${diffDays} días`;
+    }
+
+    let manualOrdersBannerHtml = '';
+    if (pendingManualCount > 0) {
+      manualOrdersBannerHtml = `
+        <div class="alert" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(245, 158, 11, 0.04) 100%); border: 1px solid rgba(245, 158, 11, 0.45); border-left: 5px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.1rem 1.35rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.9rem;">
+            <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(245, 158, 11, 0.2); color: #b45309; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+              <i class="ri-hand-coin-line"></i>
+            </div>
+            <div>
+              <strong style="color: var(--color-text-main); display: block; font-size: 0.98rem; letter-spacing: -0.2px;">
+                Pedidos Manuales Pendientes: ${pendingManualCount} orden(es) en "En procesamiento"
+              </strong>
+              <span style="font-size: 0.835rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
+                Hay pedidos ingresados manualmente al WMS que requieren revisión operativa para enviarse a preparación.
+              </span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-warning btn-sm" onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" style="font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-warning); color: #000; border: none; cursor: pointer;">
+              <i class="ri-external-link-line"></i> Gestionar en WMS
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="window.triggerDashboardManualOrdersStoxWA(this)" style="font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-surface); cursor: pointer;" title="Enviar o probar alerta de Stox al grupo de Coordinación vía WhatsApp">
+              <i class="ri-whatsapp-line" style="color: #25D366; font-size: 1.05rem;"></i> Notificar por Stox
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    let manualOrdersRowsHtml = '';
+    if (pendingManualCount === 0) {
+      manualOrdersRowsHtml = `
+        <div style="padding: 2.25rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+          <div style="width: 52px; height: 52px; border-radius: 50%; background: rgba(16, 185, 129, 0.12); color: var(--color-success); display: inline-flex; align-items: center; justify-content: center; font-size: 1.75rem; margin-bottom: 0.75rem;">
+            <i class="ri-checkbox-circle-fill"></i>
+          </div>
+          <h4 style="margin: 0 0 0.35rem 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700;">No hay pedidos manuales pendientes de procesar</h4>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Todos los pedidos manuales se encuentran al día o han avanzado a preparación y despacho.</p>
+          <div style="margin-top: 0.75rem; font-size: 0.78rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-time-line"></i> <span>Alerta automática de Stox al grupo de Coordinación activa diariamente después de las 12:00 hrs.</span>
+          </div>
+        </div>
+      `;
+    } else {
+      manualOrdersRowsHtml = `
+        <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); text-align: left; background: var(--color-surface); position: sticky; top: 0; z-index: 1;">
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">N° Pedido</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Comercio</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Cliente</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Fecha de Ingreso</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Despacho / Operador</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Estado WMS</th>
+                <th style="padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pendingManualOrders.map(order => {
+                const orderNo = order.external_order_number || order.id?.slice(0, 8) || 'S/N';
+                const createdDate = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) : '—';
+                const elapsedText = getElapsedTimeText(order.created_at);
+                const method = order.shipping_method || order.operador || 'No especificado';
+                const isOver24h = order.created_at && (Date.now() - new Date(order.created_at).getTime()) > 86400000;
+
+                return `
+                  <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.15s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.85rem; font-weight: 700; color: var(--color-primary); vertical-align: middle; white-space: nowrap;">
+                      <a href="#" onclick="event.preventDefault(); window.goToManualOrdersManager('', '${escapeHtml(orderNo)}')" style="color: var(--color-primary); text-decoration: none; display: inline-flex; align-items: center; gap: 0.25rem;" title="Ver en Gestor de Pedidos">
+                        #${escapeHtml(orderNo)} <i class="ri-arrow-right-up-line" style="font-size: 0.8rem;"></i>
+                      </a>
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.82rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle; white-space: nowrap;">
+                      <span style="background: rgba(59, 130, 246, 0.08); color: var(--color-primary); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; display: inline-block;">
+                        ${escapeHtml(order.comercio || '—')}
+                      </span>
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.82rem; color: var(--color-text-main); vertical-align: middle; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(order.customer_name || 'Sin nombre')}">
+                      <strong>${escapeHtml(order.customer_name || 'Sin nombre')}</strong>
+                      ${order.customer_phone ? `<div style="font-size: 0.72rem; color: var(--color-text-muted);">${escapeHtml(order.customer_phone)}</div>` : ''}
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">
+                      <div>${createdDate}</div>
+                      <span style="font-size: 0.72rem; font-weight: 600; color: ${isOver24h ? 'var(--color-danger)' : 'var(--color-warning)'};">
+                        <i class="ri-time-line"></i> ${elapsedText}
+                      </span>
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.78rem; color: var(--color-text-muted); vertical-align: middle; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(method)}">
+                      ${escapeHtml(method)}
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.78rem; text-align: center; vertical-align: middle; white-space: nowrap;">
+                      <span style="background: rgba(245, 158, 11, 0.15); color: #b45309; padding: 0.2rem 0.55rem; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.74rem;">
+                        <i class="ri-loader-4-line spin"></i> En procesamiento
+                      </span>
+                    </td>
+                    <td style="padding: 0.65rem 0.85rem; font-size: 0.78rem; text-align: center; vertical-align: middle; white-space: nowrap;">
+                      <button onclick="window.goToManualOrdersManager('', '${escapeHtml(orderNo)}')" class="btn btn-sm btn-primary" style="padding: 0.25rem 0.55rem; height: 28px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: 4px;" title="Abrir y procesar en el Gestor de Pedidos">
+                        <i class="ri-pencil-line"></i> Gestionar
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    const manualOrdersCardHtml = `
+      <div class="card" id="section-manual-orders-card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+        <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <div style="width: 34px; height: 34px; border-radius: 8px; background: rgba(245, 158, 11, 0.15); color: #b45309; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+              <i class="ri-hand-coin-line"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                Pedidos Manuales Pendientes (WMS: En procesamiento)
+                ${pendingManualCount > 0 
+                  ? `<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #b45309; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 99px;">${pendingManualCount} pendientes</span>`
+                  : `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 99px;">Al día</span>`
+                }
+              </h3>
+              <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted);">Pedidos creados manualmente en el WMS que requieren validación para avanzar a preparación.</p>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-external-link-line"></i> Ir al Gestor de Pedidos
+            </button>
+            <button onclick="window.triggerDashboardManualOrdersStoxWA(this)" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Enviar alerta Stox al grupo de Coordinación por WhatsApp">
+              <i class="ri-whatsapp-line" style="color: #25D366;"></i> Notificar por Stox
+            </button>
+          </div>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          ${manualOrdersRowsHtml}
+        </div>
+      </div>
+    `;
+
     // 8. Renderizar el HTML completo del dashboard
     if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
       ${integrationAlertBannerHtml}
       ${centralStockBannerHtml}
       ${missingDimVolBannerHtml}
+      ${manualOrdersBannerHtml}
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
         <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
@@ -21420,6 +21600,13 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
                   <div class="stat-label-modern">Pedidos Completados</div>
                 </div>
               </div>
+              <div class="stat-card-modern ${pendingManualCount > 0 ? 'yellow' : 'green'}" style="cursor: pointer;" onclick="document.getElementById('section-manual-orders-card')?.scrollIntoView({ behavior: 'smooth' })" title="Haz clic para ver los pedidos manuales pendientes">
+                <div class="icon-wrapper"><i class="ri-hand-coin-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${pendingManualCount}</div>
+                  <div class="stat-label-modern">Manuales Pendientes</div>
+                </div>
+              </div>
               <div class="stat-card-modern indigo">
                 <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
                 <div>
@@ -21436,6 +21623,10 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
               </div>
             </div>
           </div>
+
+          <!-- Espacio de Pedidos Manuales Pendientes -->
+          ${manualOrdersCardHtml}
+
 
           <!-- Fila con Stock Crítico (50%) y Últimos Ingresos (50%) -->
           <div class="dashboard-tables-split-half">
@@ -21529,6 +21720,121 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     contentDiv.innerHTML = `<p style="color: red; padding: 2rem;">Error al cargar las métricas operativas: ${e.message}</p>`;
   }
 }
+
+window.goToManualOrdersManager = function(commerceFilter, orderNumber) {
+  // 1. Simular clic en el menú del Gestor de Pedidos
+  const navItem = document.querySelector('[data-view="orders_admin"]');
+  if (navItem) {
+    navItem.click();
+  }
+
+  // 2. Establecer filtros en el Gestor de Pedidos una vez montado
+  setTimeout(() => {
+    const origenSelect = document.getElementById('filter-origen');
+    if (origenSelect) {
+      origenSelect.value = 'Manual';
+      origenSelect.dispatchEvent(new Event('change'));
+    }
+
+    if (commerceFilter) {
+      const commSelect = document.getElementById('filter-merchant');
+      if (commSelect) {
+        commSelect.value = commerceFilter;
+        commSelect.dispatchEvent(new Event('change'));
+      }
+    }
+
+    if (orderNumber) {
+      const searchInput = document.getElementById('search-orders');
+      if (searchInput) {
+        searchInput.value = orderNumber;
+        searchInput.dispatchEvent(new Event('input'));
+      }
+    }
+  }, 450);
+};
+
+window.triggerDashboardManualOrdersStoxWA = async function(btn) {
+  if (typeof Swal === 'undefined') {
+    if (!confirm('¿Deseas enviar la alerta de pedidos manuales por WhatsApp a Coordinación mediante Stox?')) return;
+  } else {
+    const isConfirmed = await Swal.fire({
+      title: '¿Enviar alerta a Coordinación?',
+      text: 'Stox enviará un mensaje de WhatsApp al grupo de Coordinación con el listado de pedidos manuales pendientes de procesar.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#25D366',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: '<i class="ri-whatsapp-line"></i> Sí, enviar ahora',
+      cancelButtonText: 'Cancelar'
+    });
+
+    if (!isConfirmed.isConfirmed) return;
+  }
+
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando...';
+  }
+
+  try {
+    const waUrl = window.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com';
+    const waKey = window.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
+
+    const resp = await fetch(`${waUrl}/notify-manual-orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': waKey
+      },
+      body: JSON.stringify({ force: true, dryRun: false })
+    });
+
+    const data = await resp.json();
+    if (data.success) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          title: '¡Alerta de Stox Enviada!',
+          text: `Se notificó exitosamente al grupo de Coordinación (${data.count} pedidos manuales pendientes reportados).`,
+          icon: 'success',
+          confirmButtonColor: '#059669'
+        });
+      } else {
+        alert(`¡Alerta enviada! Se notificaron ${data.count} pedidos manuales pendientes a Coordinación.`);
+      }
+    } else {
+      const msg = data.reason || data.error || 'No se pudo enviar la alerta.';
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          title: 'Aviso',
+          text: msg,
+          icon: 'info',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+      } else {
+        alert(msg);
+      }
+    }
+  } catch (err) {
+    console.error('Error enviando notificación WhatsApp Stox:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: 'Error de Comunicación',
+        text: 'No se pudo conectar con el servidor de WhatsApp de Stox: ' + err.message,
+        icon: 'error'
+      });
+    } else {
+      alert('Error de conexión con bot de WhatsApp: ' + err.message);
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
 
 window.updateDashboardCalendarView_admin = async function() {
   const startOfMonth = new Date(window.adminCalendarState.currentDate.getFullYear(), window.adminCalendarState.currentDate.getMonth(), 1).toISOString();
@@ -53561,9 +53867,11 @@ window.updateAdminReturnsSelectionUI = function() {
 async function deleteSingleAdminReturnHelper(r) {
   if (!r || !r.id) return;
 
-  // 1. Si era un CAMBIO pendiente, revertir el stock comprometido en Bodega Central
+  // 1. Si era un CAMBIO pendiente, revertir el stock comprometido en Bodega Central (solo si tenía orden generada o era movimiento de bodega)
   const statusVal = r.status || 'pendiente';
-  if (r.tipo_movimiento === 'CAMBIO' && statusVal === 'pendiente') {
+  const isOrder = Boolean(r.wms_order_id || r.customer_name);
+  const shouldRevertStock = r.tipo_movimiento === 'CAMBIO' && statusVal === 'pendiente' && (!isOrder || Boolean(r.wms_order_id));
+  if (shouldRevertStock) {
     try {
       const { data: centralWh } = await supabase
         .from('warehouses')
