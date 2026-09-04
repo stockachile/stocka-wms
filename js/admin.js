@@ -53134,6 +53134,9 @@ window.renderAdminReturns = async function() {
         <button id="btn-admin-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669;">
           <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
         </button>
+        <button id="btn-admin-delete-selected" class="btn" style="display: none; align-items: center; gap: 0.25rem; font-weight: 600; background-color: var(--color-danger, #ef4444); color: white; border: none; padding: 0.5rem 0.85rem;" title="Eliminar registros seleccionados">
+          <i class="ri-delete-bin-line"></i> Eliminar (<span id="ret-selected-count">0</span>)
+        </button>
       </div>
     </div>
 
@@ -53187,6 +53190,9 @@ window.renderAdminReturns = async function() {
         <table class="data-table">
           <thead>
             <tr>
+              <th style="width: 40px; text-align: center;">
+                <input type="checkbox" id="ret-select-all" style="cursor: pointer; width: 16px; height: 16px;" title="Seleccionar todos">
+              </th>
               <th>Fecha y Hora</th>
               <th>Tipo</th>
               <th>Comercio</th>
@@ -53200,7 +53206,7 @@ window.renderAdminReturns = async function() {
             </tr>
           </thead>
           <tbody id="admin-returns-tbody">
-            <tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+            <tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -53269,6 +53275,12 @@ window.renderAdminReturns = async function() {
   document.getElementById('btn-admin-export-csv').addEventListener('click', () => exportAdminReturnsData('csv'));
   document.getElementById('btn-admin-export-excel').addEventListener('click', () => exportAdminReturnsData('excel'));
 
+  // Botón eliminar seleccionados
+  const btnDelSelected = document.getElementById('btn-admin-delete-selected');
+  if (btnDelSelected) {
+    btnDelSelected.addEventListener('click', () => window.deleteSelectedAdminReturns());
+  }
+
   // Carga Inicial
   adminReturnsCurrentPage = 1;
   await fetchAndRenderAdminReturnsData();
@@ -53313,7 +53325,7 @@ async function fetchAndRenderAdminReturnsData() {
 
   if (!tbody) return;
 
-  tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="11" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
   if (btnPrev) btnPrev.disabled = true;
   if (btnNext) btnNext.disabled = true;
 
@@ -53331,7 +53343,7 @@ async function fetchAndRenderAdminReturnsData() {
 
     let html = '';
     if (!returns || returns.length === 0) {
-      html = '<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+      html = '<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
     } else {
       returns.forEach(r => {
         const d = new Date(r.created_at);
@@ -53375,7 +53387,10 @@ async function fetchAndRenderAdminReturnsData() {
         }
 
         html += `
-          <tr style="transition: background-color 0.2s;">
+          <tr style="transition: background-color 0.2s;" data-ret-id="${r.id}">
+            <td style="text-align: center; width: 40px;">
+              <input type="checkbox" class="ret-row-select" value="${r.id}" data-record='${safeData}' style="cursor: pointer; width: 16px; height: 16px;">
+            </td>
             <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td>${typeBadge}</td>
             <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${r.comercio || 'N/A'}</td>
@@ -53389,6 +53404,9 @@ async function fetchAndRenderAdminReturnsData() {
               <div style="display: flex; gap: 0.35rem; align-items: center;">
                 <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
                 ${confirmAction}
+                <button class="btn btn-outline" onclick="window.deleteAdminReturnRecord('${r.id}', '${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); background: var(--color-surface);" title="Eliminar registro">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
               </div>
             </td>
           </tr>
@@ -53397,6 +53415,36 @@ async function fetchAndRenderAdminReturnsData() {
     }
 
     tbody.innerHTML = html;
+
+    // Configurar listeners de selección múltiple
+    const selectAllCb = document.getElementById('ret-select-all');
+    if (selectAllCb) {
+      selectAllCb.checked = false;
+      selectAllCb.onchange = function() {
+        const rowCbs = tbody.querySelectorAll('.ret-row-select');
+        rowCbs.forEach(cb => { cb.checked = selectAllCb.checked; });
+        if (typeof window.updateAdminReturnsSelectionUI === 'function') {
+          window.updateAdminReturnsSelectionUI();
+        }
+      };
+    }
+
+    const rowCheckboxes = tbody.querySelectorAll('.ret-row-select');
+    rowCheckboxes.forEach(cb => {
+      cb.onchange = function() {
+        const checked = tbody.querySelectorAll('.ret-row-select:checked');
+        if (selectAllCb) {
+          selectAllCb.checked = rowCheckboxes.length > 0 && checked.length === rowCheckboxes.length;
+        }
+        if (typeof window.updateAdminReturnsSelectionUI === 'function') {
+          window.updateAdminReturnsSelectionUI();
+        }
+      };
+    });
+
+    if (typeof window.updateAdminReturnsSelectionUI === 'function') {
+      window.updateAdminReturnsSelectionUI();
+    }
     
     // Update pagination
     const currentEnd = Math.min(from + adminReturnsPageSize, count || 0);
@@ -53407,7 +53455,7 @@ async function fetchAndRenderAdminReturnsData() {
 
   } catch (err) {
     console.error('Error:', err);
-    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
   }
 }
 
@@ -53491,6 +53539,271 @@ async function exportAdminReturnsData(format) {
     alert('Error al exportar: ' + e.message);
   }
 }
+
+// ------ GESTIÓN Y ELIMINACIÓN DE REGISTROS (ADMIN) ------
+
+window.updateAdminReturnsSelectionUI = function() {
+  const selectedCbs = document.querySelectorAll('.ret-row-select:checked');
+  const btnDeleteSelected = document.getElementById('btn-admin-delete-selected');
+  const countSpan = document.getElementById('ret-selected-count');
+  
+  if (btnDeleteSelected) {
+    if (selectedCbs && selectedCbs.length > 0) {
+      btnDeleteSelected.style.display = 'inline-flex';
+      if (countSpan) countSpan.textContent = selectedCbs.length;
+    } else {
+      btnDeleteSelected.style.display = 'none';
+      if (countSpan) countSpan.textContent = '0';
+    }
+  }
+};
+
+async function deleteSingleAdminReturnHelper(r) {
+  if (!r || !r.id) return;
+
+  // 1. Si era un CAMBIO pendiente, revertir el stock comprometido en Bodega Central
+  const statusVal = r.status || 'pendiente';
+  if (r.tipo_movimiento === 'CAMBIO' && statusVal === 'pendiente') {
+    try {
+      const { data: centralWh } = await supabase
+        .from('warehouses')
+        .select('id')
+        .ilike('name', '%Central%')
+        .limit(1)
+        .maybeSingle();
+
+      if (centralWh && r.productos && Array.isArray(r.productos)) {
+        for (const origProd of r.productos) {
+          if (origProd.id_reemplazo) {
+            const qtyRep = origProd.qty_reemplazo !== undefined ? origProd.qty_reemplazo : (origProd.cantidad || 1);
+            const { data: invRecord } = await supabase
+              .from('inventory')
+              .select('id, committed_quantity')
+              .eq('product_id', origProd.id_reemplazo)
+              .eq('warehouse_id', centralWh.id)
+              .maybeSingle();
+
+            if (invRecord) {
+              const newCommitted = Math.max(0, (invRecord.committed_quantity || 0) - qtyRep);
+              await supabase
+                .from('inventory')
+                .update({ committed_quantity: newCommitted })
+                .eq('id', invRecord.id);
+            }
+          }
+        }
+      }
+    } catch (whErr) {
+      console.warn('Advertencia al revertir stock comprometido en Bodega Central:', whErr);
+    }
+  }
+
+  // 2. Si tenía orden WMS vinculada, eliminar sus ítems y la orden
+  if (r.wms_order_id) {
+    try {
+      await supabase.from('order_items').delete().eq('order_id', r.wms_order_id);
+      await supabase.from('orders').delete().eq('id', r.wms_order_id);
+    } catch (ordErr) {
+      console.warn('Advertencia al eliminar orden WMS vinculada:', ordErr);
+    }
+  }
+
+  // 3. Eliminar de reverse_logistics
+  const { data: delResult, error: errRl } = await supabase
+    .from('reverse_logistics')
+    .delete()
+    .eq('id', r.id)
+    .select();
+
+  if (errRl) throw errRl;
+  if (!delResult || delResult.length === 0) {
+    throw new Error('No se pudo eliminar el registro en la base de datos (0 filas afectadas). Verifique los permisos de Supabase o ejecute la migración de política DELETE de RLS.');
+  }
+}
+
+window.deleteAdminReturnRecord = async function(id, dataStr) {
+  let record = null;
+  if (dataStr) {
+    try { record = JSON.parse(decodeURIComponent(dataStr)); } catch(e){}
+  }
+  
+  if (!record) {
+    const { data, error } = await supabase.from('reverse_logistics').select('*').eq('id', id).maybeSingle();
+    if (error || !data) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se encontró el registro a eliminar.', 'error');
+      } else {
+        alert('No se encontró el registro a eliminar.');
+      }
+      return;
+    }
+    record = data;
+  }
+
+  const refPedido = record.referencia_pedido || id;
+  const isOrder = Boolean(record.wms_order_id || record.customer_name);
+  const tipoLabel = isOrder ? 
+    (record.tipo_movimiento === 'CAMBIO' ? 'Pedido Cambio' : 'Pedido Devolución') : 
+    (record.tipo_movimiento === 'CAMBIO' ? 'Cambio' : 'Devolución');
+
+  let extraNote = '';
+  if (record.wms_order_id) {
+    extraNote += '<br><small style="color: #ef4444;">• Se eliminará también la orden de salida WMS vinculada.</small>';
+  }
+  if (record.tipo_movimiento === 'CAMBIO' && (record.status === 'pendiente' || !record.status)) {
+    extraNote += '<br><small style="color: #f59e0b;">• Se liberará el stock comprometido en Bodega Central.</small>';
+  }
+
+  let confirmed = false;
+  if (typeof Swal !== 'undefined') {
+    const result = await Swal.fire({
+      title: '¿Eliminar registro?',
+      html: `¿Estás seguro de que deseas eliminar permanentemente el registro <strong>${refPedido}</strong> (${tipoLabel})?${extraNote}<br><br><span style="color: var(--color-text-muted); font-size: 0.85rem;">Esta acción no se puede deshacer.</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: 'var(--color-danger, #ef4444)',
+      cancelButtonColor: 'var(--color-text-muted, #64748b)',
+      confirmButtonText: 'Sí, eliminar',
+      cancelButtonText: 'Cancelar'
+    });
+    confirmed = result.isConfirmed;
+  } else {
+    confirmed = confirm(`¿Estás seguro de que deseas eliminar el registro ${refPedido}?`);
+  }
+
+  if (!confirmed) return;
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: 'Eliminando...',
+      text: 'Por favor espere mientras se elimina el registro.',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+  }
+
+  try {
+    await deleteSingleAdminReturnHelper(record);
+
+    if (typeof Swal !== 'undefined') {
+      await Swal.fire({
+        title: '¡Eliminado!',
+        text: 'El registro se ha eliminado exitosamente.',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } else {
+      alert('Registro eliminado exitosamente.');
+    }
+
+    await fetchAndRenderAdminReturnsData();
+  } catch (err) {
+    console.error('Error al eliminar registro:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo eliminar el registro: ' + err.message, 'error');
+    } else {
+      alert('Error al eliminar el registro: ' + err.message);
+    }
+  }
+};
+
+window.deleteSelectedAdminReturns = async function() {
+  const selectedCbs = document.querySelectorAll('.ret-row-select:checked');
+  if (!selectedCbs || selectedCbs.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Información', 'No has seleccionado ningún registro para eliminar.', 'info');
+    } else {
+      alert('No has seleccionado ningún registro para eliminar.');
+    }
+    return;
+  }
+
+  const count = selectedCbs.length;
+  let confirmed = false;
+  if (typeof Swal !== 'undefined') {
+    const result = await Swal.fire({
+      title: `¿Eliminar ${count} ${count === 1 ? 'registro' : 'registros'}?`,
+      html: `¿Estás seguro de que deseas eliminar permanentemente los <strong>${count}</strong> registros seleccionados?<br><br><small style="color: #ef4444;">• Se eliminarán las órdenes WMS vinculadas y se liberará el stock correspondiente.</small><br><span style="color: var(--color-text-muted); font-size: 0.85rem;">Esta acción no se puede deshacer.</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: 'var(--color-danger, #ef4444)',
+      cancelButtonColor: 'var(--color-text-muted, #64748b)',
+      confirmButtonText: `Sí, eliminar (${count})`,
+      cancelButtonText: 'Cancelar'
+    });
+    confirmed = result.isConfirmed;
+  } else {
+    confirmed = confirm(`¿Estás seguro de eliminar los ${count} registros seleccionados?`);
+  }
+
+  if (!confirmed) return;
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: 'Eliminando registros...',
+      html: `Procesando 0 de ${count}...`,
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+  }
+
+  let deletedCount = 0;
+  const errors = [];
+
+  for (let i = 0; i < selectedCbs.length; i++) {
+    const cb = selectedCbs[i];
+    const recId = cb.value;
+    let recData = null;
+    try {
+      recData = JSON.parse(decodeURIComponent(cb.getAttribute('data-record')));
+    } catch(e){}
+
+    if (!recData) {
+      recData = { id: recId };
+    }
+
+    if (typeof Swal !== 'undefined') {
+      const content = Swal.getHtmlContainer();
+      if (content) content.textContent = `Procesando ${i + 1} de ${count}...`;
+    }
+
+    try {
+      await deleteSingleAdminReturnHelper(recData);
+      deletedCount++;
+    } catch (err) {
+      console.error(`Error eliminando registro ${recId}:`, err);
+      errors.push(`ID ${recId.substring(0, 8)}: ${err.message}`);
+    }
+  }
+
+  if (errors.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      await Swal.fire({
+        title: '¡Eliminación completada!',
+        text: `Se eliminaron correctamente ${deletedCount} registros.`,
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } else {
+      alert(`Se eliminaron correctamente ${deletedCount} registros.`);
+    }
+  } else {
+    const msg = `Se eliminaron ${deletedCount} de ${count} registros.<br><br><strong>Errores:</strong><br><small style="text-align: left; display: block; max-height: 150px; overflow-y: auto;">${errors.join('<br>')}</small>`;
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: 'Eliminación parcial',
+        html: msg,
+        icon: 'warning'
+      });
+    } else {
+      alert(`Se eliminaron ${deletedCount} de ${count} registros.`);
+    }
+  }
+
+  await fetchAndRenderAdminReturnsData();
+};
 
 // ------ MODAL DE CONFIRMACION Y PROCESAMIENTO (ADMIN) ------
 
@@ -56322,6 +56635,28 @@ window.openReturnsDetail = function(dataStr) {
     const div = document.createElement('div');
     div.innerHTML = content;
     window.showInfoModal(title, div.firstElementChild);
+
+    const modal = document.getElementById('modal-generic-info');
+    if (modal) {
+      const footer = modal.querySelector('.modal-footer');
+      if (footer) {
+        footer.style.display = 'flex';
+        footer.style.gap = '0.75rem';
+        footer.style.justifyContent = 'space-between';
+        footer.innerHTML = `
+          <button class="btn btn-outline" id="btn-modal-delete-return" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <i class="ri-delete-bin-line"></i> Eliminar Registro
+          </button>
+          <button class="btn btn-primary" id="btn-ok-generic-info" style="min-width: 120px;">Cerrar</button>
+        `;
+        modal.querySelector('#btn-close-generic-info')?.addEventListener('click', () => modal.remove());
+        modal.querySelector('#btn-ok-generic-info')?.addEventListener('click', () => modal.remove());
+        modal.querySelector('#btn-modal-delete-return')?.addEventListener('click', () => {
+          modal.remove();
+          window.deleteAdminReturnRecord(data.id, dataStr);
+        });
+      }
+    }
     
   } catch(e) {
     console.error(e);
