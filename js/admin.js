@@ -17,6 +17,16 @@ window.ALPHA_COBERTURA_36 = [
   'colina'
 ];
 
+window.escapeHtml = function(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
 window.normalizeComunaKey = function(str) {
   if (!str) return '';
   return String(str).toLowerCase()
@@ -20522,6 +20532,74 @@ async function initNotifications(userId) {
   setInterval(fetchNotifications, 120000);
 }
 
+window.syncPlatformDirect = async function(platform, comercio, btnElement) {
+  if (!platform) return;
+  
+  if (btnElement) {
+    btnElement.disabled = true;
+    btnElement.innerHTML = `<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i>`;
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No autenticado en el WMS.");
+
+    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ platform })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+
+    if (window.Swal) {
+      Swal.fire({
+        title: 'Sincronización Iniciada',
+        text: `Se ha solicitado la sincronización para ${platform} (${comercio || 'Todos'}). El sistema actualizará las órdenes en breve.`,
+        icon: 'success',
+        confirmButtonColor: 'var(--color-primary)',
+        timer: 3500
+      });
+    } else {
+      alert(`Sincronización iniciada para ${platform}.`);
+    }
+
+    setTimeout(() => {
+      const commerceSelect = document.getElementById('admin-dashboard-commerce-select');
+      const val = commerceSelect ? commerceSelect.value : '';
+      const key = 'admin_dashboard_' + (val || 'all');
+      window.clearDashboardCache(key);
+      if (typeof fetchAndRenderAdminMetrics === 'function') {
+        fetchAndRenderAdminMetrics(val);
+      }
+    }, 4000);
+
+  } catch (err) {
+    console.error('Error al sincronizar plataforma:', err);
+    if (window.Swal) {
+      Swal.fire({
+        title: 'Error de Sincronización',
+        text: err.message || 'No se pudo iniciar la sincronización',
+        icon: 'error',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    } else {
+      alert(`Error al sincronizar: ${err.message}`);
+    }
+  } finally {
+    if (btnElement) {
+      btnElement.disabled = false;
+      btnElement.innerHTML = `<i class="ri-refresh-line"></i> Sync`;
+    }
+  }
+};
+
 async function renderAdminDashboard() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
@@ -20599,6 +20677,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
   let isCached = false;
   let cacheTimeStr = '';
   let loaderInterval = null;
+  const escapeHtml = window.escapeHtml || (s => s);
 
   const cacheIndicator = document.getElementById('admin-cache-indicator');
 
@@ -20647,7 +20726,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
       // Consultas secundarias acotadas
       let ordQuery = supabase.from('orders').select('id, status, comercio').gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString());
-      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
+      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio, is_active, last_sync_at, last_sync_error, username, access_token, refresh_token');
       let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio').order('created_at', { ascending: false }).limit(5);
 
       if (selectedCommerce) {
@@ -20926,7 +21005,9 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    // Integraciones Activas
+    // ==========================================
+    // CÁLCULO DE SALUD Y SEMÁFORO DE INTEGRACIONES
+    // ==========================================
     function getPlatformBadge(platform) {
       if (!platform) return '';
       const pLower = platform.toLowerCase();
@@ -20942,39 +21023,206 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       else if (pLower.includes('manual') || pLower.includes('stocka')) src = 'img/stocka.cap.png';
       
       if (src) {
-        return `<img src="${src}" alt="${platform}" style="height: 24px; max-height: 24px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
+        return `<img src="${src}" alt="${platform}" style="height: 22px; max-height: 22px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
       }
-      return `<span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; color: var(--color-primary); background: rgba(59, 130, 246, 0.1); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.8rem; vertical-align: middle;"><i class="ri-links-line"></i> ${platform}</span>`;
+      return `<span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; color: var(--color-primary); background: rgba(59, 130, 246, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; vertical-align: middle;"><i class="ri-links-line"></i> ${platform}</span>`;
     }
 
+    function calculateIntegrationHealth(item) {
+      const isConnected = item.is_active !== false && (item.access_token || item.refresh_token || item.platform === 'Optiroute');
+      const hasError = !!item.last_sync_error;
+      const lastSync = item.last_sync_at ? new Date(item.last_sync_at) : null;
+      const now = new Date();
+      
+      let hoursSinceSync = null;
+      let timeAgoText = 'Sin datos';
+      if (lastSync && !isNaN(lastSync.getTime())) {
+        const diffMs = now - lastSync;
+        const diffMin = Math.floor(diffMs / 60000);
+        const diffHrs = Math.floor(diffMin / 60);
+        const diffDays = Math.floor(diffHrs / 24);
+        hoursSinceSync = diffMs / 3600000;
+
+        if (diffMin < 2) timeAgoText = 'Hace un momento';
+        else if (diffMin < 60) timeAgoText = `Hace ${diffMin} min`;
+        else if (diffHrs < 24) timeAgoText = `Hace ${diffHrs}h ${diffMin % 60}m`;
+        else timeAgoText = `Hace ${diffDays}d ${diffHrs % 24}h`;
+      }
+
+      let status = 'green';
+      let label = 'Operativa';
+      let badgeColor = '#059669';
+      let badgeBg = 'rgba(16, 185, 129, 0.12)';
+      let icon = 'ri-checkbox-circle-fill';
+      let details = 'Sincronización al día';
+
+      if (!item.is_active) {
+        status = 'red';
+        label = 'Desconectada';
+        badgeColor = 'var(--color-text-muted)';
+        badgeBg = 'rgba(156, 163, 175, 0.15)';
+        icon = 'ri-close-circle-line';
+        details = 'Integración desactivada manualmente';
+      } else if (!isConnected) {
+        status = 'red';
+        label = 'Sin Token';
+        badgeColor = '#dc2626';
+        badgeBg = 'rgba(239, 68, 68, 0.12)';
+        icon = 'ri-error-warning-fill';
+        details = 'Faltan credenciales o token de acceso';
+      } else if (hasError) {
+        status = 'red';
+        label = 'Error de Sync';
+        badgeColor = '#dc2626';
+        badgeBg = 'rgba(239, 68, 68, 0.12)';
+        icon = 'ri-error-warning-fill';
+        details = item.last_sync_error;
+      } else if (!lastSync) {
+        status = 'yellow';
+        label = 'Pendiente Sync';
+        badgeColor = '#d97706';
+        badgeBg = 'rgba(245, 158, 11, 0.12)';
+        icon = 'ri-time-fill';
+        details = 'Aún no ha completado su primera sincronización';
+      } else if (hoursSinceSync > 24) {
+        status = 'red';
+        label = '> 24h sin sync';
+        badgeColor = '#dc2626';
+        badgeBg = 'rgba(239, 68, 68, 0.12)';
+        icon = 'ri-alert-fill';
+        details = `Última sincronización: ${timeAgoText}. Posible fallo en cron o credenciales`;
+      } else if (hoursSinceSync > 2) {
+        status = 'yellow';
+        label = 'Demorada';
+        badgeColor = '#d97706';
+        badgeBg = 'rgba(245, 158, 11, 0.12)';
+        icon = 'ri-time-fill';
+        details = `Última sincronización: ${timeAgoText} (esperado cada 30 min)`;
+      }
+
+      return {
+        status,
+        label,
+        badgeColor,
+        badgeBg,
+        icon,
+        details,
+        timeAgoText,
+        lastSyncFormatted: lastSync ? lastSync.toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : 'Nunca'
+      };
+    }
+
+    const allIntegrationsList = intRes.data || [];
+    const healthSummaries = { green: 0, yellow: 0, red: 0 };
+    const problemIntegrations = [];
+
+    const enrichedIntegrations = allIntegrationsList.map(intItem => {
+      const health = calculateIntegrationHealth(intItem);
+      healthSummaries[health.status]++;
+      if (health.status === 'red') {
+        problemIntegrations.push({ ...intItem, health });
+      }
+      return { ...intItem, health };
+    });
+
+    // Ordenar integraciones: Primero ROJO, luego AMARILLO, luego VERDE
+    enrichedIntegrations.sort((a, b) => {
+      const order = { red: 0, yellow: 1, green: 2 };
+      return order[a.health.status] - order[b.health.status];
+    });
+
     let integrationsHtml = '';
-    const activeIntList = intRes.data || [];
-    if (activeIntList.length === 0) {
-      integrationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-links-off" style="margin-right: 0.5rem; font-size: 1.25rem; vertical-align: middle;"></i>No hay integraciones activas.</div>';
+    if (enrichedIntegrations.length === 0) {
+      integrationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-links-off" style="margin-right: 0.5rem; font-size: 1.25rem; vertical-align: middle;"></i>No hay integraciones configuradas.</div>';
     } else {
       integrationsHtml = `
-        <table class="table" style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Comercio</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Plataforma</th>
-              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${activeIntList.slice(0, 5).map(item => `
-              <tr style="border-bottom: 1px solid var(--color-border);">
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle;">${item.comercio}</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; vertical-align: middle;">${getPlatformBadge(item.platform)}</td>
-                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; vertical-align: middle;">
-                  <span style="background: rgba(16, 185, 129, 0.1); color: var(--color-success); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; vertical-align: middle;">
-                    <i class="ri-checkbox-circle-fill"></i> Activa
-                  </span>
-                </td>
+        <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; font-weight: 700;">
+            <span style="background: rgba(16, 185, 129, 0.12); color: #059669; padding: 0.2rem 0.55rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.3rem;" title="${healthSummaries.green} tiendas sincronizadas sin problemas">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span> ${healthSummaries.green} OK
+            </span>
+            <span style="background: rgba(245, 158, 11, 0.12); color: #d97706; padding: 0.2rem 0.55rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.3rem;" title="${healthSummaries.yellow} tiendas con sincronización demorada (> 2h)">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; display: inline-block;"></span> ${healthSummaries.yellow} Demora
+            </span>
+            <span style="background: rgba(239, 68, 68, 0.12); color: #dc2626; padding: 0.2rem 0.55rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.3rem;" title="${healthSummaries.red} tiendas con error crítico o desconectadas">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: inline-block;"></span> ${healthSummaries.red} Error
+            </span>
+          </div>
+          <button onclick="document.querySelector('[data-view=integrations]')?.click()" style="background: transparent; border: none; color: var(--color-primary); font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            Ver Todas (${allIntegrationsList.length}) <i class="ri-arrow-right-line"></i>
+          </button>
+        </div>
+        <div style="max-height: 380px; overflow-y: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); text-align: left; background: var(--color-surface);">
+                <th style="padding: 0.6rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Comercio</th>
+                <th style="padding: 0.6rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Plat.</th>
+                <th style="padding: 0.6rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Semáforo</th>
+                <th style="padding: 0.6rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Última Sync</th>
+                <th style="padding: 0.6rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Acción</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${enrichedIntegrations.slice(0, 10).map(item => {
+                const h = item.health;
+                return `
+                  <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.15s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
+                    <td style="padding: 0.6rem 0.85rem; font-size: 0.82rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(item.comercio)}">
+                      ${escapeHtml(item.comercio)}
+                    </td>
+                    <td style="padding: 0.6rem 0.85rem; font-size: 0.82rem; vertical-align: middle; white-space: nowrap;">
+                      ${getPlatformBadge(item.platform)}
+                    </td>
+                    <td style="padding: 0.6rem 0.85rem; font-size: 0.78rem; text-align: center; vertical-align: middle; white-space: nowrap;">
+                      <span style="background: ${h.badgeBg}; color: ${h.badgeColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem;" title="${escapeHtml(h.details)}">
+                        <i class="${h.icon}"></i> ${h.label}
+                      </span>
+                    </td>
+                    <td style="padding: 0.6rem 0.85rem; font-size: 0.78rem; text-align: right; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;" title="Fecha exacta: ${h.lastSyncFormatted}">
+                      ${h.timeAgoText}
+                    </td>
+                    <td style="padding: 0.6rem 0.85rem; font-size: 0.78rem; text-align: center; vertical-align: middle; white-space: nowrap;">
+                      <button onclick="window.syncPlatformDirect('${escapeHtml(item.platform)}', '${escapeHtml(item.comercio)}', this)" class="btn btn-sm btn-outline" style="padding: 0.2rem 0.45rem; height: 26px; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 4px;" title="Forzar sincronización inmediata">
+                        <i class="ri-refresh-line"></i> Sync
+                      </button>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // Banner de Alerta de Salud de Integraciones (si hay integraciones en estado crítico/rojo)
+    let integrationAlertBannerHtml = '';
+    if (healthSummaries.red > 0) {
+      const previewStores = problemIntegrations.slice(0, 3).map(p => `<strong>${escapeHtml(p.comercio)}</strong> (${p.platform}: ${escapeHtml(p.health.label)})`).join(', ');
+      const extraCount = healthSummaries.red > 3 ? ` y ${healthSummaries.red - 3} más` : '';
+      
+      integrationAlertBannerHtml = `
+        <div class="alert" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.09) 0%, rgba(239, 68, 68, 0.03) 100%); border: 1px solid rgba(239, 68, 68, 0.35); border-left: 5px solid var(--color-danger); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.85rem;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(239, 68, 68, 0.18); color: var(--color-danger); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
+              <i class="ri-error-warning-fill"></i>
+            </div>
+            <div>
+              <strong style="color: var(--color-text-main); display: block; font-size: 0.96rem; letter-spacing: -0.2px;">
+                Semáforo de Integraciones: ${healthSummaries.red} conexión(es) requieren atención
+              </strong>
+              <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
+                Hay tiendas con errores de sincronización o credenciales vencidas: ${previewStores}${extraCount}.
+              </span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-danger" onclick="document.querySelector('[data-view=integrations]')?.click()" style="font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+              <i class="ri-plug-line"></i> Resolver en Integraciones
+            </button>
+          </div>
+        </div>
       `;
     }
 
@@ -21124,6 +21372,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     // 8. Renderizar el HTML completo del dashboard
     if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
+      ${integrationAlertBannerHtml}
       ${centralStockBannerHtml}
       ${missingDimVolBannerHtml}
       <div class="dashboard-layout-split">
@@ -21212,7 +21461,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
           <div class="dashboard-tables-split">
             <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
               <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-links-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Integraciones</h3>
+                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-sensor-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Semáforo de Integraciones</h3>
               </div>
               <div class="card-body table-responsive" style="padding: 0;">
                 ${integrationsHtml}
