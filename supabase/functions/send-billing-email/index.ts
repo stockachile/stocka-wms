@@ -541,7 +541,7 @@ serve(async (req) => {
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
           Estimado equipo de <strong>${commerceName}</strong>,<br><br>
-          Esperamos que se encuentren muy bien. Nos comunicamos para hacerles llegar un <strong>amable recordatorio</strong> respecto al desglose de sus servicios de <strong>${serviceLabel}</strong> correspondientes al periodo <strong>${periodName}</strong>, cuyo plazo de pago vence el próximo <strong>${deadlineDateStr}</strong>.
+          Esperamos que se encuentren muy bien. Nos comunicamos para hacerles llegar este <strong>recordatorio de próximo vencimiento</strong> del desglose de sus servicios de <strong>${serviceLabel}</strong> correspondientes al periodo <strong>${periodName}</strong>, cuyo plazo de pago vence el próximo <strong>${deadlineDateStr}</strong>.
         </div>
 
         <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; border-left: 4px solid #0284c7; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 14px; color: #0369a1; line-height: 1.5;">
