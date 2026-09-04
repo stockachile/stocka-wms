@@ -94,6 +94,48 @@ function parseAlphaGroupDate(dateStr) {
   }
 }
 
+/**
+ * Genera candidatos de búsqueda para vincular órdenes (con almohadilla #, sin #, con sigla, sin sigla, etc.)
+ */
+function buildOrderCandidates(tracking, idml, id) {
+  const candidates = new Set();
+  
+  [tracking, idml, id].forEach(val => {
+    if (!val) return;
+    const s = String(val).trim();
+    if (!s) return;
+    
+    candidates.add(s);
+    
+    // Si tiene formato SIGLA + NUMEROS (ej: SFP3586) -> añadir SFP#3586, #3586, 3586
+    const matchSiglaNum = s.match(/^([a-zA-Z]+)(\d+)$/);
+    if (matchSiglaNum) {
+      const sigla = matchSiglaNum[1];
+      const num = matchSiglaNum[2];
+      candidates.add(`${sigla}#${num}`);
+      candidates.add(`#${num}`);
+      candidates.add(num);
+    }
+    
+    // Si tiene formato SIGLA#NUMEROS (ej: SFP#3586) -> añadir SFP3586, #3586, 3586
+    const matchSiglaHashNum = s.match(/^([a-zA-Z]+)#(\d+)$/);
+    if (matchSiglaHashNum) {
+      const sigla = matchSiglaHashNum[1];
+      const num = matchSiglaHashNum[2];
+      candidates.add(`${sigla}${num}`);
+      candidates.add(`#${num}`);
+      candidates.add(num);
+    }
+    
+    // Si tiene almohadilla e.g. #3586
+    if (s.includes('#')) {
+      candidates.add(s.replace(/#/g, ''));
+    }
+  });
+
+  return Array.from(candidates).filter(Boolean);
+}
+
 async function syncLightData() {
   console.log('🔄 Iniciando sincronización de LightData a Supabase vía Excel...');
 
@@ -269,49 +311,64 @@ async function syncLightData() {
       upsertPayloads.push(shipmentPayload);
 
       // --- Sincronizar en paralelo con la tabla principal de pedidos (orders) ---
-      const matchKey = tracking || idml;
-      if (matchKey) {
-        let query = supabase
+      const candidates = buildOrderCandidates(tracking, idml, id);
+      if (candidates.length > 0) {
+        const candidateFilters = candidates.map(c => `"${c}"`).join(',');
+        let { data: dbOrders, error: findError } = await supabase
           .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, lightdata_status');
+          .select('id, status, external_order_number, tracking_number, courier, lightdata_status, comercio')
+          .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
 
-        if (tracking) {
-          query = query.or(`tracking_number.eq.${tracking},external_order_number.eq.${tracking}`);
-        } else if (idml) {
-          query = query.eq('external_order_number', idml);
+        // Fallback por teléfono si no hubo coincidencia directa
+        if ((!dbOrders || dbOrders.length === 0) && shipmentPayload.telefono_destino) {
+          const cleanPhone = String(shipmentPayload.telefono_destino).replace(/[^0-9]/g, '');
+          if (cleanPhone.length >= 8) {
+            const last8 = cleanPhone.slice(-8);
+            let phoneQuery = supabase
+              .from('orders')
+              .select('id, status, external_order_number, tracking_number, courier, lightdata_status, comercio')
+              .ilike('customer_phone', `%${last8}`);
+            
+            if (resolvedComercio) {
+              phoneQuery = phoneQuery.eq('comercio', resolvedComercio);
+            }
+            const { data: phoneOrders } = await phoneQuery;
+            if (phoneOrders && phoneOrders.length > 0) {
+              dbOrders = phoneOrders;
+            }
+          }
         }
 
-        const { data: dbOrders, error: findError } = await query;
-
-        if (!findError && dbOrders && dbOrders.length > 0) {
+        if (dbOrders && dbOrders.length > 0) {
           matchingOrdersCount++;
-          const dbOrder = dbOrders[0];
-          const updatePayload = {
-            lightdata_status: shipmentPayload.status,
-            raw_lightdata_data: shipmentPayload
-          };
+          for (const dbOrder of dbOrders) {
+            const updatePayload = {
+              lightdata_status: shipmentPayload.status,
+              raw_lightdata_data: shipmentPayload
+            };
 
-          if (!dbOrder.tracking_number) {
-            updatePayload.tracking_number = id || tracking;
-          }
+            if (!dbOrder.tracking_number) {
+              updatePayload.tracking_number = id || tracking;
+            }
 
-          if (!dbOrder.tracking_url && shipmentPayload.tracking_url) {
-            updatePayload.tracking_url = shipmentPayload.tracking_url;
-          }
+            if (!dbOrder.tracking_url && shipmentPayload.tracking_url) {
+              updatePayload.tracking_url = shipmentPayload.tracking_url;
+            }
 
-          if (dbOrder.courier !== 'LIGHTDATA') {
-            updatePayload.courier = 'LIGHTDATA';
-          }
+            if (dbOrder.courier !== 'LIGHTDATA' && dbOrder.courier !== 'CARRIER EXTERNO') {
+              updatePayload.courier = 'CARRIER EXTERNO';
+            }
 
-          const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
-          const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
-          const needsUpdate = hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
+            const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
+            const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
+            const needsUpdate = hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
 
-          if (needsUpdate) {
-            await supabase
-              .from('orders')
-              .update(updatePayload)
-              .eq('id', dbOrder.id);
+            if (needsUpdate) {
+              await supabase
+                .from('orders')
+                .update(updatePayload)
+                .eq('id', dbOrder.id);
+            }
           }
         }
       }
