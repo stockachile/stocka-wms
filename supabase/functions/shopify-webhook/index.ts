@@ -359,7 +359,8 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     .maybeSingle();
 
   if (findErr || !existingOrder) {
-    console.log(`Pedido ${finalOrderNumber} no encontrado en WMS, ignorando actualización.`);
+    console.log(`Pedido ${finalOrderNumber} no encontrado en WMS al recibir actualización, creándolo automáticamente.`);
+    await handleOrderCreate(merchantId, comercio, order);
     return;
   }
 

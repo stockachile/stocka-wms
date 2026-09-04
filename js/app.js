@@ -540,8 +540,9 @@ async function init() {
         window.currentCompany = currentCompany;
         if (currentCompany) {
           checkBillingSuspension(currentCompany);
-          if (!window.activeIntegrationCommerce) {
-            window.activeIntegrationCommerce = currentCompany.split(',')[0].trim();
+          const assignedList = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
+          if (!window.activeIntegrationCommerce || !assignedList.some(c => c.toLowerCase() === (window.activeIntegrationCommerce || '').toLowerCase())) {
+            window.activeIntegrationCommerce = assignedList[0] || null;
           }
         }
       }
@@ -907,6 +908,14 @@ window.toggleOnboardingStepExpand = function(stepName) {
   }
 };
 
+window.handleOnboardingCommerceChange = function(selectedCommerce) {
+  if (!selectedCommerce) return;
+  window.activeIntegrationCommerce = selectedCommerce;
+  if (typeof renderDashboard === 'function') {
+    renderDashboard();
+  }
+};
+
 window.toggleOnboardingCheckbox = async function(stepName, value) {
   const companyList = getCompanyList();
   const commerce = window.activeIntegrationCommerce || companyList[0];
@@ -916,7 +925,7 @@ window.toggleOnboardingCheckbox = async function(stepName, value) {
     const { data: cacData } = await supabase
       .from('comercios_adicional_config')
       .select('onboarding_checklist')
-      .eq('comercio', commerce)
+      .ilike('comercio', commerce.trim())
       .maybeSingle();
 
     if (cacData) {
@@ -926,7 +935,7 @@ window.toggleOnboardingCheckbox = async function(stepName, value) {
       const { error } = await supabase
         .from('comercios_adicional_config')
         .update({ onboarding_checklist: checklist })
-        .eq('comercio', commerce);
+        .ilike('comercio', commerce.trim());
 
       if (error) throw error;
 
@@ -1084,7 +1093,7 @@ window.dismissOnboardingChecklist = async function() {
     const { data: cacData } = await supabase
       .from('comercios_adicional_config')
       .select('onboarding_checklist')
-      .eq('comercio', commerce)
+      .ilike('comercio', commerce.trim())
       .maybeSingle();
 
     if (cacData) {
@@ -1094,7 +1103,7 @@ window.dismissOnboardingChecklist = async function() {
       const { error } = await supabase
         .from('comercios_adicional_config')
         .update({ onboarding_checklist: checklist })
-        .eq('comercio', commerce);
+        .ilike('comercio', commerce.trim());
 
       if (error) throw error;
 
@@ -1153,12 +1162,21 @@ async function renderDashboard() {
 
   try {
     const companyList = getCompanyList();
+    const rawAssignedComercios = (currentCompany || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(Boolean);
+    const assignedComercios = [...new Set(rawAssignedComercios)];
+
+    if (!window.activeIntegrationCommerce || !assignedComercios.some(c => c.toLowerCase() === (window.activeIntegrationCommerce || '').toLowerCase())) {
+      window.activeIntegrationCommerce = assignedComercios[0] || (companyList[0] || '');
+    }
+    const targetCommerce = window.activeIntegrationCommerce;
 
     // Obtener checklist de onboarding y guía SKU
     let onboardingChecklist = null;
     let skuGuideUrl = '#';
     let shopifyPartnerPin = '';
-    const targetCommerce = window.activeIntegrationCommerce || companyList[0] || '';
     if (targetCommerce) {
       shopifyPartnerPin = localStorage.getItem('shopify_partner_pin_' + targetCommerce) || '';
     }
@@ -1168,8 +1186,8 @@ async function renderDashboard() {
         const [cacRes, docRes, miRes] = await Promise.all([
           supabase
             .from('comercios_adicional_config')
-            .select('onboarding_checklist, enviame_id, shopify_partner_pin')
-            .eq('comercio', targetCommerce)
+            .select('onboarding_checklist, enviame_id, shopify_partner_pin, inventario_seguimiento')
+            .ilike('comercio', targetCommerce.trim())
             .maybeSingle()
             .catch(err => { console.warn("Error fetching adicional config:", err); return { data: null }; }),
           supabase
@@ -1182,19 +1200,32 @@ async function renderDashboard() {
           supabase
             .from('merchant_integrations')
             .select('partner_pin, security_pin')
-            .eq('comercio', targetCommerce)
+            .ilike('comercio', targetCommerce.trim())
             .eq('platform', 'Shopify')
             .maybeSingle()
             .catch(err => { console.warn("Error fetching merchant integration:", err); return { data: null }; })
         ]);
         
-        if (cacRes && cacRes.data) {
-          if (cacRes.data.onboarding_checklist) {
-            onboardingChecklist = cacRes.data.onboarding_checklist;
-            onboardingChecklist.shipping_configured = !!cacRes.data.enviame_id;
+        const cacData = cacRes?.data || null;
+        const rawEnviame = cacData?.enviame_id;
+        const hasValidEnviame = !!(rawEnviame && String(rawEnviame).trim() !== '' && String(rawEnviame).trim().toLowerCase() !== 'null');
+
+        const isCatalogReady = !!(
+          (cacData?.onboarding_checklist && cacData.onboarding_checklist.catalog_ready === true) ||
+          cacData?.inventario_seguimiento === true
+        );
+
+        const isShippingConfigured = !!(
+          (cacData?.onboarding_checklist && cacData.onboarding_checklist.shipping_configured === true) ||
+          hasValidEnviame
+        );
+
+        if (cacData) {
+          if (cacData.onboarding_checklist) {
+            onboardingChecklist = { ...cacData.onboarding_checklist };
           }
-          if (cacRes.data.shopify_partner_pin) {
-            shopifyPartnerPin = cacRes.data.shopify_partner_pin;
+          if (cacData.shopify_partner_pin) {
+            shopifyPartnerPin = cacData.shopify_partner_pin;
           }
         }
         if (miRes && miRes.data && (miRes.data.partner_pin || miRes.data.security_pin)) {
@@ -1208,11 +1239,15 @@ async function renderDashboard() {
           onboardingChecklist = {
             integrations: false,
             shopify_pin: !!shopifyPartnerPin,
-            catalog_ready: false,
-            shipping_configured: !!(cacRes?.data?.enviame_id),
+            catalog_ready: isCatalogReady,
+            shipping_configured: isShippingConfigured,
             sku_guide: false,
             stock_declared: false
           };
+        } else {
+          if (isCatalogReady) onboardingChecklist.catalog_ready = true;
+          if (isShippingConfigured) onboardingChecklist.shipping_configured = true;
+          if (shopifyPartnerPin) onboardingChecklist.shopify_pin = true;
         }
       } catch (err) {
         console.warn("Error fetching onboarding checklist or SKU guide:", err);
@@ -1290,24 +1325,25 @@ async function renderDashboard() {
 
     // Auto-completar paso 1 (integraciones) si existen integraciones activas en la base de datos
     const activeInts = intRes?.data || [];
+    let checklistNeedsSync = false;
     if (activeInts.length > 0 && onboardingChecklist && !onboardingChecklist.integrations) {
       onboardingChecklist.integrations = true;
-      supabase
-        .from('comercios_adicional_config')
-        .update({ onboarding_checklist: onboardingChecklist })
-        .eq('comercio', targetCommerce)
-        .then(({error}) => { if (error) console.error("Error auto-actualizando paso de integraciones:", error); });
+      checklistNeedsSync = true;
     }
 
-    // Auto-completar paso 3 (ingreso stock) si existen declaraciones de ingreso en la base de datos
+    // Auto-completar paso 5 (ingreso stock) si existen declaraciones de ingreso en la base de datos
     const recentDecs = decRes?.data || [];
     if (recentDecs.length > 0 && onboardingChecklist && !onboardingChecklist.stock_declared) {
       onboardingChecklist.stock_declared = true;
+      checklistNeedsSync = true;
+    }
+
+    if (checklistNeedsSync && targetCommerce) {
       supabase
         .from('comercios_adicional_config')
         .update({ onboarding_checklist: onboardingChecklist })
-        .eq('comercio', targetCommerce)
-        .then(({error}) => { if (error) console.error("Error auto-actualizando paso de ingreso stock:", error); });
+        .ilike('comercio', targetCommerce.trim())
+        .then(({error}) => { if (error) console.error("Error auto-actualizando pasos del checklist:", error); });
     }
 
     let totalStock = 0;
@@ -2009,7 +2045,14 @@ async function renderDashboard() {
                 <i class="ri-rocket-fill" style="font-size: 1.4rem;"></i>
               </div>
               <div>
-                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--color-text-main);">Guía de Inicio: Configura tu WMS</h3>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--color-text-main);">Guía de Inicio: Configura tu WMS</h3>
+                  ${assignedComercios && assignedComercios.length > 1 ? `
+                    <select onchange="window.handleOnboardingCommerceChange(this.value)" style="font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-primary); cursor: pointer;">
+                      ${assignedComercios.map(c => `<option value="${c}" ${c.toLowerCase() === targetCommerce.toLowerCase() ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                  ` : (targetCommerce ? `<span style="background: rgba(94, 23, 235, 0.08); color: var(--color-primary); font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px; border: 1px solid rgba(94, 23, 235, 0.15);">${targetCommerce}</span>` : '')}
+                </div>
                 <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Completa estos pasos clave para activar tus despachos e ingresos en Stocka</p>
               </div>
             </div>
@@ -9259,7 +9302,7 @@ async function renderIntegrations() {
       });
 
       try {
-        const comercio = window.activeIntegrationCommerce || 'Comercio';
+        const comercio = (window.activeIntegrationCommerce || 'Comercio').trim();
         const { data: { session } } = await supabase.auth.getSession();
         const userEmail = session?.user?.email || 'Usuario WMS';
         const userName = session?.user?.user_metadata?.full_name || userEmail;
@@ -9271,7 +9314,7 @@ async function renderIntegrations() {
         const { data: shopifyReg } = await supabase
           .from('merchant_integrations')
           .select('id, shop_url')
-          .eq('comercio', comercio)
+          .ilike('comercio', comercio)
           .eq('platform', 'Shopify')
           .maybeSingle();
 
@@ -9301,17 +9344,18 @@ async function renderIntegrations() {
         try {
           const { data: cacData } = await supabase
             .from('comercios_adicional_config')
-            .select('onboarding_checklist')
-            .eq('comercio', comercio)
+            .select('comercio, onboarding_checklist')
+            .ilike('comercio', comercio)
             .maybeSingle();
 
           const checklist = cacData?.onboarding_checklist || {};
           checklist.shopify_pin = true;
 
+          const dbComerName = cacData?.comercio || comercio;
           await supabase
             .from('comercios_adicional_config')
             .upsert({
-              comercio: comercio,
+              comercio: dbComerName,
               shopify_partner_pin: pin,
               onboarding_checklist: checklist
             }, { onConflict: 'comercio' });
