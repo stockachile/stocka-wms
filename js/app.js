@@ -234,11 +234,11 @@ window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, che
   // A. Check if tracking is active
   if (!config.inventario_seguimiento) return false;
 
-  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado' o 'Cancelado' es terminal)
+  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado', 'Cancelado' o 'Archivado' es terminal)
   // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
   if (checkTerminal) {
     const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-    const terminalWmsStatuses = ['despachado', 'cancelado'];
+    const terminalWmsStatuses = ['despachado', 'cancelado', 'archivado'];
     if (terminalWmsStatuses.includes(orderWmsStatus)) {
       return false;
     }
@@ -433,7 +433,7 @@ async function init() {
       console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
       const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-      const scopes = 'read_products,read_orders';
+      const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
       const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
       
       const { data: profile } = await supabase
@@ -4407,7 +4407,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       
       const orderStatus = (item.orders.status || '').toLowerCase().trim();
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
-      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado') continue;
+      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
       
       // Simular lógica de should_process_order_stock
       let shouldProcess = true;
@@ -6514,7 +6514,7 @@ window.applyClientWmsFiltersAndRender = function() {
     }).length;
   };
 
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.clientWmsActiveTab === tab;
     const count = getTabCount(tab);
@@ -6532,7 +6532,7 @@ window.applyClientWmsFiltersAndRender = function() {
     } else if (tab === 'En procesamiento') {
       badgeBg = '#e0f2fe';
       badgeColor = '#0284c7';
-    } else if (tab === 'Cancelado') {
+    } else if (tab === 'Cancelado' || tab === 'Archivado') {
       badgeBg = '#f3f4f6';
       badgeColor = '#4b5563';
     }
@@ -6565,7 +6565,7 @@ window.applyClientWmsFiltersAndRender = function() {
   const totalOrders = filtered.length;
   const ordersToProcess = filtered.filter(o => (o.estado_wms || 'En procesamiento') === 'En procesamiento').length;
   const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
-  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.estado_wms !== 'Cancelado' && o.estado_wms !== 'Archivado' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
 
   document.getElementById('kpi-client-total').textContent = totalOrders;
   document.getElementById('kpi-client-processing').textContent = ordersToProcess;
@@ -6843,9 +6843,12 @@ window.applyClientWmsFiltersAndRender = function() {
     const wmsStatus = order.estado_wms || 'En procesamiento';
     let wmsBadgeBg = '#e0f2fe';
     let wmsBadgeColor = '#0369a1';
-    if (wmsStatus === 'Incidencia') {
+    if (wmsStatus === 'Incidencia' || wmsStatus === 'Cancelado') {
       wmsBadgeBg = '#fee2e2';
       wmsBadgeColor = '#991b1b';
+    } else if (wmsStatus === 'Archivado') {
+      wmsBadgeBg = '#f1f5f9';
+      wmsBadgeColor = '#475569';
     } else if (wmsStatus === 'Pickeado' || wmsStatus === 'Despachado') {
       wmsBadgeBg = '#d1fae5';
       wmsBadgeColor = '#065f46';
@@ -7654,6 +7657,10 @@ async function renderIntegrations() {
       ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
+    const hasWriteFulfillments = shopifyIntegration?.granted_scopes && Array.isArray(shopifyIntegration.granted_scopes) && shopifyIntegration.granted_scopes.includes('write_fulfillments');
+    const syncTrackingEnabled = shopifyIntegration?.sync_tracking_enabled === true;
+    const notifyCustomerEnabled = shopifyIntegration?.notify_customer_on_fulfillment !== false;
+
     const hasParis = !!parisIntegration;
     const parisUrl = hasParis ? parisIntegration.shop_url : 'https://api-developers.ecomm.cencosud.com';
     const parisStatusText = hasParis 
@@ -7915,6 +7922,50 @@ async function renderIntegrations() {
                     <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
                     <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                   </div>
+
+                  ${hasShopify ? `
+                  <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
+                      <h5 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                        <i class="ri-truck-line" style="color: var(--color-primary);"></i> Retorno de Envíos y Seguimiento a Shopify
+                      </h5>
+                      ${hasWriteFulfillments 
+                        ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 99px; font-weight: 600;"><i class="ri-check-line"></i> Permisos Completos</span>'
+                        : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 99px; font-weight: 600;"><i class="ri-alert-line"></i> Permisos Parciales</span>'}
+                    </div>
+
+                    ${!hasWriteFulfillments ? `
+                    <div style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.4); border-radius: 6px; padding: 0.85rem; margin-bottom: 1rem;">
+                      <p style="margin: 0 0 0.6rem 0; font-size: 0.82rem; color: var(--color-text-main); line-height: 1.4;">
+                        ⚠️ <strong>Actualización de permisos requerida:</strong> Tu tienda está conectada con permisos anteriores (solo lectura). Para habilitar el envío automático de tracking y despachos hacia Shopify, actualiza los permisos de la app:
+                      </p>
+                      <button type="button" class="btn btn-sm btn-primary" id="btn-reauth-shopify-scopes" style="padding: 0.45rem 0.9rem; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem;">
+                        <i class="ri-shield-check-line"></i> Actualizar Permisos en Shopify
+                      </button>
+                    </div>
+                    ` : ''}
+
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                      <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                        <input type="checkbox" id="chk-sync-tracking-shopify" ${syncTrackingEnabled ? 'checked' : ''} ${disabledAttr} style="cursor: pointer; width: 16px; height: 16px; margin-top: 0.15rem;">
+                        <div>
+                          <strong>Enviar número y enlace de seguimiento al despachar</strong>
+                          <span style="display: block; font-size: 0.78rem; color: var(--color-text-muted);">Cumple la orden en Shopify (Fulfilled) y asocia el número de tracking y link del courier asignado en WMS.</span>
+                        </div>
+                      </label>
+
+                      <label style="display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); padding-left: 1.6rem;">
+                        <input type="checkbox" id="chk-notify-customer-shopify" ${notifyCustomerEnabled ? 'checked' : ''} ${disabledAttr} style="cursor: pointer; width: 15px; height: 15px; margin-top: 0.15rem;">
+                        <div>
+                          <span>Notificar al comprador final por correo desde Shopify</span>
+                          <span style="display: block; font-size: 0.78rem; color: var(--color-text-muted);">
+                            ℹ️ <em>Por defecto, tu cliente final recibirá las notificaciones oficiales de Shopify ("Tu pedido está en camino") con el botón interactivo de seguimiento. Desactiva esta opción si utilizas WhatsApp o Klaviyo.</em>
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                  ` : ''}
                   
                   ${!hasShopify ? `
                   <div style="margin-bottom: 1.25rem;">
@@ -9004,7 +9055,7 @@ async function renderIntegrations() {
 
         btn.textContent = 'Redirigiendo a Shopify...';
         const clientId = '4d04c58f432c53fb870d1fbcad92431c';
-        const scopes = 'read_products,read_orders';
+        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
@@ -9048,6 +9099,67 @@ async function renderIntegrations() {
         } catch (err) {
           console.error(err);
           syncOverlay.error(err.message);
+        }
+      });
+
+      // Re-autorizar permisos de Shopify (nuevos scopes write_fulfillments, write_orders)
+      document.getElementById('btn-reauth-shopify-scopes')?.addEventListener('click', () => {
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c';
+        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        const cleanShopUrl = shopUrl.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+        
+        const stateObj = {
+          merchant_id: merchantId,
+          comercio: window.activeIntegrationCommerce,
+          redirect_back_url: window.location.origin + window.location.pathname,
+          timestamp: Date.now(),
+          nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+      });
+
+      // Switches de configuración de retorno a Shopify
+      document.getElementById('chk-sync-tracking-shopify')?.addEventListener('change', async (e) => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          e.target.checked = !e.target.checked;
+          return;
+        }
+        const isChecked = e.target.checked;
+        try {
+          const { error } = await supabase
+            .from('merchant_integrations')
+            .update({ sync_tracking_enabled: isChecked })
+            .eq('comercio', window.activeIntegrationCommerce)
+            .eq('platform', 'Shopify');
+          if (error) throw error;
+        } catch (err) {
+          console.error(err);
+          alert('Error al actualizar configuración: ' + err.message);
+          e.target.checked = !isChecked;
+        }
+      });
+
+      document.getElementById('chk-notify-customer-shopify')?.addEventListener('change', async (e) => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          e.target.checked = !e.target.checked;
+          return;
+        }
+        const isChecked = e.target.checked;
+        try {
+          const { error } = await supabase
+            .from('merchant_integrations')
+            .update({ notify_customer_on_fulfillment: isChecked })
+            .eq('comercio', window.activeIntegrationCommerce)
+            .eq('platform', 'Shopify');
+          if (error) throw error;
+        } catch (err) {
+          console.error(err);
+          alert('Error al actualizar configuración: ' + err.message);
+          e.target.checked = !isChecked;
         }
       });
 

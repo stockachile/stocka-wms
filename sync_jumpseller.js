@@ -178,62 +178,97 @@ async function syncProducts(integration, headers) {
     console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
   }
 
-  // Obtenemos los productos de Jumpseller (límite máximo de 100 por API)
-  const url = `https://api.jumpseller.com/v1/products.json?limit=100`;
+  const productsToUpsert = [];
+  let page = 1;
+  let hasMore = true;
 
   try {
-    const response = await fetch(url, { method: 'GET', headers });
-    if (!response.ok) {
-      throw new Error(`Error en Jumpseller API: ${response.status} ${response.statusText}`);
-    }
+    while (hasMore) {
+      const url = `https://api.jumpseller.com/v1/products.json?limit=100&page=${page}`;
+      const response = await fetch(url, { method: 'GET', headers });
+      if (!response.ok) {
+        throw new Error(`Error en Jumpseller API (Página ${page}): ${response.status} ${response.statusText}`);
+      }
 
-    const productsList = await response.json();
-    console.log(`Se encontraron ${productsList.length} productos en Jumpseller.`);
+      const productsList = await response.json();
+      if (!Array.isArray(productsList) || productsList.length === 0) {
+        hasMore = false;
+        break;
+      }
 
-    for (const item of productsList) {
-      const p = item.product;
+      console.log(`Página ${page}: se obtuvieron ${productsList.length} productos de Jumpseller.`);
 
-      // Un producto en Jumpseller puede o no tener variantes
-      if (!p.variants || p.variants.length === 0) {
-        let variantSku = p.sku || `JS-${p.id}`;
-        let cleanSku = variantSku.trim().replace(/\s+/g, '');
+      for (const item of productsList) {
+        const p = item.product;
+        const imageUrl = (p.images && p.images.length > 0 && p.images[0].url) ? p.images[0].url : null;
+        const mainPrice = parseFloat(p.price) || 0;
+        const mainBarcode = p.barcode ? String(p.barcode).trim() : null;
 
-        const productDataToSave = {
-          comercio: integration.comercio,
-          platform: 'Jumpseller',
-          sku: cleanSku,
-          name: p.name
-        };
-
-        const { error: insErr } = await supabase
-          .from('synced_products')
-          .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
-
-        if (insErr) console.error(`❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
-        else console.log(`📥 Sincronizado SKU ${cleanSku} (Simple) en synced_products`);
-      } else {
-        // Si tiene variantes
-        for (const variantWrapper of p.variants) {
-          const v = variantWrapper ? (variantWrapper.variant || variantWrapper) : null;
-          if (!v) continue;
-          let variantSku = v.sku || `JS-${p.id}-${v.id}`;
+        // Un producto en Jumpseller puede o no tener variantes
+        if (!p.variants || p.variants.length === 0) {
+          let variantSku = p.sku || `JS-${p.id}`;
           let cleanSku = variantSku.trim().replace(/\s+/g, '');
 
-          const productDataToSave = {
+          productsToUpsert.push({
             comercio: integration.comercio,
             platform: 'Jumpseller',
             sku: cleanSku,
-            name: `${p.name} - Variante ${v.id}`
-          };
+            name: p.name,
+            price: mainPrice,
+            image_url: imageUrl,
+            status: p.status || null,
+            barcode: mainBarcode
+          });
+        } else {
+          // Si tiene variantes
+          for (const variantWrapper of p.variants) {
+            const v = variantWrapper ? (variantWrapper.variant || variantWrapper) : null;
+            if (!v) continue;
+            let variantSku = v.sku || `JS-${p.id}-${v.id}`;
+            let cleanSku = variantSku.trim().replace(/\s+/g, '');
 
-          const { error: insErr } = await supabase
-            .from('synced_products')
-            .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
+            let varImageUrl = imageUrl;
+            if (p.images && v.image_id) {
+              const matchedImg = p.images.find(img => img.id === v.image_id);
+              if (matchedImg && matchedImg.url) {
+                varImageUrl = matchedImg.url;
+              }
+            }
 
-          if (insErr) console.error(`❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
-          else console.log(`📥 Sincronizado SKU ${cleanSku} (Variante) en synced_products`);
+            productsToUpsert.push({
+              comercio: integration.comercio,
+              platform: 'Jumpseller',
+              sku: cleanSku,
+              name: `${p.name} - Variante ${v.id}`,
+              price: parseFloat(v.price) || mainPrice,
+              image_url: varImageUrl,
+              status: p.status || null,
+              barcode: (v.barcode ? String(v.barcode).trim() : null) || mainBarcode
+            });
+          }
         }
       }
+
+      if (productsList.length < 100) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+
+    if (productsToUpsert.length > 0) {
+      const batchSize = 200;
+      for (let i = 0; i < productsToUpsert.length; i += batchSize) {
+        const batch = productsToUpsert.slice(i, i + batchSize);
+        const { error: upsertErr } = await supabase
+          .from('synced_products')
+          .upsert(batch, { onConflict: 'comercio,platform,sku' });
+
+        if (upsertErr) {
+          console.error(`❌ Error en batch upsert de synced_products:`, upsertErr.message);
+        }
+      }
+      console.log(`📥 Total de ${productsToUpsert.length} variantes/productos sincronizados en synced_products para ${integration.comercio}.`);
     }
   } catch (error) {
     console.error(`❌ Error sincronizando productos para ${integration.shop_url}:`, error.message);

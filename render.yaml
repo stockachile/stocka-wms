@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: stocka-whatsapp-bot
+    env: node
+    plan: starter
+    rootDir: whatsapp-service
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: WHATSAPP_API_KEY
+        value: stocka_wa_internal_secret_2026
+      - key: SUPABASE_URL
+        value: https://ejtjfaucnxbikrwjwwdu.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TARGET_WA_GROUP
+        value: 120363043911687615@g.us
+      - key: AUTH_DIR
+        value: /var/data/auth_info_baileys
+    disk:
+      name: wa-session-data
+      mountPath: /var/data
+      sizeGB: 1

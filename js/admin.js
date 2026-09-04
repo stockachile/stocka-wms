@@ -613,16 +613,24 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
 // Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
 window.getOriginalPlatformStatus = function(order) {
-  if (order.external_platform === 'Shopify' && order.raw_shopify_data) {
-    const raw = order.raw_shopify_data;
+  if (order.external_platform === 'Shopify') {
+    const raw = order.raw_shopify_data || {};
     const fin = raw.financial_status || 'unknown';
     const ful = raw.fulfillment_status || 'unfulfilled';
+    const details = [
+      { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
+      { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
+    ];
+
+    if (order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
+      details.push({ label: 'Sync WMS', value: 'Despachado en Shopify', color: '#10b981' });
+    } else if (order.shopify_fulfillment_status === 'error') {
+      details.push({ label: 'Sync WMS', value: 'Error Retorno', color: '#ef4444' });
+    }
+
     return {
       platform: 'Shopify',
-      details: [
-        { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
-        { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
-      ]
+      details: details
     };
   }
   if (order.raw_woocommerce_data) {
@@ -1489,11 +1497,11 @@ window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, che
   // A. Check if tracking is active
   if (!config.inventario_seguimiento) return false;
 
-  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado' o 'Cancelado' es terminal)
+  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado', 'Cancelado' o 'Archivado' es terminal)
   // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
   if (checkTerminal) {
     const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-    const terminalWmsStatuses = ['despachado', 'cancelado'];
+    const terminalWmsStatuses = ['despachado', 'cancelado', 'archivado'];
     if (terminalWmsStatuses.includes(orderWmsStatus)) {
       return false;
     }
@@ -3098,7 +3106,7 @@ window.applyWmsFiltersAndRender = function() {
     }).length;
   };
 
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
     const count = getTabCount(tab);
@@ -3111,7 +3119,7 @@ window.applyWmsFiltersAndRender = function() {
       badgeClass = 'status-yellow';
     } else if (tab === 'En procesamiento') {
       badgeClass = 'status-blue';
-    } else if (tab === 'Cancelado') {
+    } else if (tab === 'Cancelado' || tab === 'Archivado') {
       badgeClass = 'status-gray';
     }
 
@@ -3195,7 +3203,7 @@ window.applyWmsFiltersAndRender = function() {
   const totalOrders = filtered.length;
   const ordersToProcess = filtered.filter(o => o.estado_wms === 'En procesamiento').length;
   const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
-  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.estado_wms !== 'Cancelado' && o.estado_wms !== 'Archivado' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
 
   const _kpi1 = document.getElementById('kpi-total-orders'); if (_kpi1) _kpi1.textContent = totalOrders;
   const _kpi2 = document.getElementById('kpi-to-process'); if (_kpi2) _kpi2.textContent = ordersToProcess;
@@ -3978,6 +3986,7 @@ window.applyWmsFiltersAndRender = function() {
     // Color del dropdown de WMS según el estado
     let wmsColor = '#0ea5e9'; // info
     if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
+    else if (order.estado_wms === 'Archivado') wmsColor = '#64748b'; // slate / gray
     else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
@@ -4112,6 +4121,7 @@ window.applyWmsFiltersAndRender = function() {
             <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
             <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
             <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+            <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
           </select>
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
@@ -4541,6 +4551,7 @@ function renderWmsBulkActionsBar() {
           <option value="Despachado">Despachado</option>
           <option value="Incidencia">Incidencia</option>
           <option value="Cancelado">Cancelado</option>
+          <option value="Archivado">Archivado</option>
         </select>
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
@@ -14583,7 +14594,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       
       const orderStatus = (item.orders.status || '').toLowerCase().trim();
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
-      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado') continue;
+      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
       
       // Simular lógica de should_process_order_stock
       let shouldProcess = true;

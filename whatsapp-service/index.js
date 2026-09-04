@@ -25,7 +25,16 @@ let currentQR = null;
 let connectionStatus = 'INITIALIZING'; // 'QR_READY', 'CONNECTED', 'CONNECTING', 'DISCONNECTED'
 let botUser = null;
 
-const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
+const AUTH_DIR = process.env.AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
+if (!fs.existsSync(AUTH_DIR)) {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+}
+
+function getAutoPickupService() {
+  const localPath = path.join(__dirname, 'services/auto_pickup_service.js');
+  if (fs.existsSync(localPath)) return require(localPath);
+  return require('../services/auto_pickup_service');
+}
 
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -313,7 +322,7 @@ app.post('/send-pickup-alert', requireAuth, async (req, res) => {
 // 6. Endpoint para disparar el procesamiento automático de retiros
 app.post('/run-auto-pickup', requireAuth, async (req, res) => {
   const { orderId, dryRun = false, targetGroup } = req.body;
-  const { autoProcessSinglePickupOrder, processAllPendingPickups } = require('../services/auto_pickup_service');
+  const { autoProcessSinglePickupOrder, processAllPendingPickups } = getAutoPickupService();
 
   try {
     if (orderId) {
@@ -338,7 +347,7 @@ app.listen(PORT, () => {
   setInterval(async () => {
     if (connectionStatus === 'CONNECTED') {
       try {
-        const { processAllPendingPickups } = require('../services/auto_pickup_service');
+        const { processAllPendingPickups } = getAutoPickupService();
         await processAllPendingPickups({ dryRun: false });
       } catch (err) {
         console.error('[AutoPickup Worker Error]:', err.message);

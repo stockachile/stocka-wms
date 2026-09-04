@@ -179,6 +179,9 @@ serve(async (req) => {
       const tokenData = await tokenResponse.json();
       const accessToken = tokenData.access_token;
       const refreshToken = tokenData.refresh_token || null;
+      const grantedScopeStr = tokenData.scope || "";
+      const grantedScopes = grantedScopeStr ? grantedScopeStr.split(",").map((s: string) => s.trim()) : [];
+      const hasFulfillmentScope = grantedScopes.includes("write_fulfillments");
 
       // Obtener el comercio exacto desde el perfil del usuario si existe
       let resolvedComercio = comercio || "Shopify Store";
@@ -208,18 +211,27 @@ serve(async (req) => {
         console.warn("Aviso eliminando integraciones anteriores duplicadas:", delErr);
       }
 
+      const upsertPayload: Record<string, any> = {
+        merchant_id: merchantId,
+        platform: "Shopify",
+        shop_url: shop,
+        access_token: accessToken,
+        webhook_secret: shopifyClientSecret,
+        is_active: true,
+        comercio: resolvedComercio,
+        refresh_token: refreshToken
+      };
+
+      if (grantedScopes.length > 0) {
+        upsertPayload.granted_scopes = grantedScopes;
+      }
+      if (hasFulfillmentScope) {
+        upsertPayload.sync_tracking_enabled = true;
+      }
+
       const { error: dbError } = await supabase
         .from("merchant_integrations")
-        .upsert({
-          merchant_id: merchantId,
-          platform: "Shopify",
-          shop_url: shop,
-          access_token: accessToken,
-          webhook_secret: shopifyClientSecret,
-          is_active: true,
-          comercio: resolvedComercio,
-          refresh_token: refreshToken
-        }, { onConflict: "comercio,platform" });
+        .upsert(upsertPayload, { onConflict: "comercio,platform" });
 
       if (dbError) {
         console.error("Error guardando la integración en Supabase:", dbError);
