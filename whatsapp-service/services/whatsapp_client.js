@@ -79,9 +79,25 @@ async function listBotGroups() {
   }
 }
 
+async function notifyManualOrdersAlert({ force = false, dryRun = false, targetGroup } = {}) {
+  try {
+    const response = await fetch(`${WHATSAPP_API_URL}/notify-manual-orders`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ force, dryRun, targetGroup })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error disparando alerta de pedidos manuales:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   checkWhatsAppStatus,
   sendWhatsAppMessage,
   sendPickupAlert,
-  listBotGroups
+  listBotGroups,
+  notifyManualOrdersAlert
 };
+

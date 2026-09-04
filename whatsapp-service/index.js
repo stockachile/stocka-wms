@@ -36,6 +36,12 @@ function getAutoPickupService() {
   return require('../services/auto_pickup_service');
 }
 
+function getManualOrdersNotifier() {
+  const localPath = path.join(__dirname, 'services/manual_orders_notifier.js');
+  if (fs.existsSync(localPath)) return require(localPath);
+  return require('../services/manual_orders_notifier');
+}
+
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -338,20 +344,55 @@ app.post('/run-auto-pickup', requireAuth, async (req, res) => {
   }
 });
 
+// 7. Endpoint para consultar estado de pedidos manuales pendientes y alerta del día
+app.get('/manual-orders-status', requireAuth, async (req, res) => {
+  try {
+    const { getManualOrdersAlertStatus } = getManualOrdersNotifier();
+    const status = await getManualOrdersAlertStatus();
+    res.json({ success: true, ...status });
+  } catch (err) {
+    console.error('[Error en GET /manual-orders-status]:', err);
+    res.status(500).json({ error: 'Error obteniendo estado de pedidos manuales: ' + err.message });
+  }
+});
+
+// 8. Endpoint para disparar notificación de pedidos manuales (manual o forzada)
+app.post('/notify-manual-orders', requireAuth, async (req, res) => {
+  const { force = false, dryRun = false, targetGroup } = req.body;
+  try {
+    const { checkAndNotifyPendingManualOrders } = getManualOrdersNotifier();
+    const result = await checkAndNotifyPendingManualOrders({ force, dryRun, targetGroup });
+    res.json(result);
+  } catch (err) {
+    console.error('[Error en POST /notify-manual-orders]:', err);
+    res.status(500).json({ error: 'Error ejecutando alerta de pedidos manuales: ' + err.message });
+  }
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`[HTTP] Servidor WhatsApp iniciado en http://localhost:${PORT}`);
   connectToWhatsApp();
 
-  // Iniciar worker de fondo para procesar retiros cada 60 segundos
+  // Iniciar worker de fondo cada 60 segundos
   setInterval(async () => {
     if (connectionStatus === 'CONNECTED') {
+      // A. Procesar retiros automáticos
       try {
         const { processAllPendingPickups } = getAutoPickupService();
         await processAllPendingPickups({ dryRun: false });
       } catch (err) {
         console.error('[AutoPickup Worker Error]:', err.message);
       }
+
+      // B. Chequear pedidos manuales pendientes después de 12 hrs (1 mensaje al día)
+      try {
+        const { checkAndNotifyPendingManualOrders } = getManualOrdersNotifier();
+        await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
+      } catch (err) {
+        console.error('[ManualOrders Worker Error]:', err.message);
+      }
     }
   }, 60000);
 });
+

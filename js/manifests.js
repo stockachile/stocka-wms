@@ -341,81 +341,129 @@
     return `MNF-${year}-${seq}`;
   }
 
-  // Cargar pedidos elegibles para selección (excluyendo estado despachado y entregado)
+  // Cargar pedidos elegibles para selección (Shopify, WooCommerce, WMS y Couriers no despachados)
   async function fetchEligibleOrders(filters = {}) {
-    let orders = [];
     const db = getDb();
+    const orderMap = new Map(); // key -> unified order item
+
+    const addOrMergeOrder = (item) => {
+      if (!item) return;
+      
+      const ref = (item.pedido_referencia || item.external_order_number || item.id || '').trim();
+      const trk = (item.tracking || item.tracking_number || '').trim();
+      const id = (item.id || '').trim();
+
+      // Identificador único para evitar duplicados entre tablas orders y envios_unificados
+      const key = (trk ? `trk_${trk}` : (ref ? `ref_${ref}` : `id_${id}`)).toLowerCase();
+      if (!key) return;
+
+      const cleanComm = resolveCanonicalCommerce(item.empresa_comercio_proveedor || item.comercio) || 'Sin Comercio';
+      const courierName = item.courier || item.operador || item.shipping_method || item.categoria_entrega || 'Por Asignar';
+      const destName = item.nombre_destinatario || item.customer_name || 'Cliente';
+      const destCity = item.comuna_destino || item.shipping_city || '';
+      const destAddr = item.direccion_destino || item.shipping_address || '';
+      const st = item.estado_wms || item.status || 'Preparado';
+      const globSt = item.global_status || (st.toLowerCase().includes('despachad') ? 'DESPACHADO' : 'SIN MOVIMIENTO');
+      
+      let plat = item.source_table === 'lightdata_envios' ? 'LightData' : item.source_table === 'enviame_shipments' ? 'Envíame' : item.source_table === 'optiroute_orders' ? 'Optiroute' : (item.external_platform || item.origen || 'Shopify');
+      if (item.external_platform === 'Shopify' || item.origen === 'Shopify') {
+        plat = 'Shopify';
+      }
+
+      const itemsStr = item.items_str || (item.sku ? `${item.cantidad || 1}x ${item.sku} (${item.item || ''})` : (item.item || 'Productos Varios'));
+      const createdAt = item.created_at || new Date().toISOString();
+
+      const unifiedObj = {
+        id: item.id || id || key,
+        unified_shipment_id: item.id || id || key,
+        pedido_referencia: ref || id,
+        tracking: trk,
+        courier: courierName,
+        empresa_comercio_proveedor: cleanComm,
+        nombre_destinatario: destName,
+        comuna_destino: destCity,
+        direccion_destino: destAddr,
+        status: st,
+        global_status: globSt,
+        platform: plat,
+        items_str: itemsStr,
+        created_at: createdAt
+      };
+
+      if (!orderMap.has(key)) {
+        orderMap.set(key, unifiedObj);
+      } else {
+        const existing = orderMap.get(key);
+        if (!existing.tracking && trk) existing.tracking = trk;
+        if ((!existing.courier || existing.courier === 'Por Asignar') && courierName !== 'Por Asignar') existing.courier = courierName;
+        if (plat === 'Shopify' || existing.platform === 'Shopify') existing.platform = 'Shopify';
+        if (!existing.items_str || existing.items_str === 'Productos Varios') existing.items_str = itemsStr;
+      }
+    };
 
     try {
       if (db) {
-        // 1. Consultar envios_unificados
-        let query = db
-          .from('envios_unificados')
-          .select('*')
-          .neq('global_status', 'DESPACHADO')
-          .order('created_at', { ascending: false })
-          .limit(400);
-
-        if (filters.courier) {
-          query = query.ilike('courier', `%${filters.courier.trim()}%`);
-        }
-        if (filters.dateFrom) {
-          query = query.gte('created_at', filters.dateFrom + 'T00:00:00Z');
-        }
-        if (filters.dateTo) {
-          query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
-        }
-
-        const { data, error } = await query;
-        if (!error && data && Array.isArray(data)) {
-          orders = data;
-        }
-
-        // 2. Si envios_unificados no devuelve nada o pocos registros, consultar tabla orders
-        if (orders.length === 0) {
-          let ordQuery = db
+        // 1. Consultar tabla orders (Shopify y pedidos directos en WMS)
+        try {
+          const { data: ordData, error: ordErr } = await db
             .from('orders')
             .select('*')
-            .neq('status', 'despachado')
             .order('created_at', { ascending: false })
-            .limit(300);
+            .limit(600);
 
-          if (filters.courier) {
-            ordQuery = ordQuery.ilike('courier', `%${filters.courier.trim()}%`);
-          }
-
-          const { data: ordData, error: ordErr } = await ordQuery;
           if (!ordErr && ordData && Array.isArray(ordData)) {
-            const mappedOrders = ordData.map(o => ({
-              id: o.id,
-              pedido_referencia: o.external_order_number || o.id,
-              tracking: o.tracking_number || '',
-              courier: o.courier || 'Por Asignar',
-              empresa_comercio_proveedor: resolveCanonicalCommerce(o.comercio) || 'Sin Comercio',
-              nombre_destinatario: o.customer_name || 'Cliente',
-              comuna_destino: o.shipping_city || '',
-              direccion_destino: o.shipping_address || '',
-              status: o.status || 'Preparado',
-              global_status: o.status === 'despachado' ? 'DESPACHADO' : 'SIN MOVIMIENTO',
-              items_str: o.sku ? `${o.cantidad || 1}x ${o.sku} (${o.item || ''})` : (o.item || 'Producto')
-            }));
-            orders = [...orders, ...mappedOrders];
+            ordData.forEach(o => addOrMergeOrder(o));
           }
+        } catch (e) {
+          console.warn('[Manifiestos] Error consultando tabla orders:', e);
+        }
+
+        // 2. Consultar tabla envios_unificados (Envíame, Optiroute, Lightdata)
+        try {
+          const { data: unifData, error: unifErr } = await db
+            .from('envios_unificados')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(600);
+
+          if (!unifErr && unifData && Array.isArray(unifData)) {
+            unifData.forEach(u => addOrMergeOrder(u));
+          }
+        } catch (e) {
+          console.warn('[Manifiestos] Error consultando tabla envios_unificados:', e);
         }
       }
+
+      // 3. Incluir pedidos cargados en memoria en la sesión activa si existen
+      if (window.loadedOrders && Array.isArray(window.loadedOrders)) {
+        window.loadedOrders.forEach(o => addOrMergeOrder(o));
+      }
+      if (window.loadedShipments && Array.isArray(window.loadedShipments)) {
+        window.loadedShipments.forEach(s => addOrMergeOrder(s));
+      }
     } catch (e) {
-      console.warn('[Manifiestos] Error consultando pedidos en Supabase:', e);
+      console.warn('[Manifiestos] Error general al obtener pedidos:', e);
     }
 
-    // Filtrar estrictamente excluyendo pedidos que ya estén despachados o entregados
+    let orders = Array.from(orderMap.values());
+
+    // 4. Filtrar estrictamente excluyendo pedidos que ya estén despachados o entregados
     orders = orders.filter(o => {
       if (o.global_status && o.global_status.toUpperCase() === 'DESPACHADO') return false;
-      const st = (o.status || '').toLowerCase();
-      if (st.includes('despachad') || st.includes('entregad') || st === 'delivered' || st === 'cancelado') return false;
+      const st = (o.status || '').toLowerCase().trim();
+      if (st === 'despachado' || st === 'entregado' || st === 'delivered' || st === 'cancelado' || st === 'cancelled') return false;
+      if (st.includes('despachad') || st.includes('entregad')) return false;
       return true;
     });
 
-    // Filtrar por comercio seleccionado considerando nombre canónico y razones sociales / alias
+    // 5. Ordenar por fecha de creación descendente (los más recientes primero)
+    orders.sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    // 6. Filtrar por comercio seleccionado considerando nombre canónico y razones sociales / alias
     if (filters.commerce) {
       const selectedCanonical = resolveCanonicalCommerce(filters.commerce);
       const selectedNorm = normalizeCommerceKey(filters.commerce);
@@ -437,13 +485,23 @@
       });
     }
 
-    // Filtrar por courier si aplica
+    // 7. Filtrar por courier si aplica
     if (filters.courier) {
       const courTerm = filters.courier.toLowerCase().trim();
       orders = orders.filter(o => o.courier && o.courier.toLowerCase().includes(courTerm));
     }
 
-    // Filtrar localmente por texto de búsqueda si aplica
+    // 8. Filtrar por rango de fechas si aplica
+    if (filters.dateFrom) {
+      const fromTime = new Date(filters.dateFrom + 'T00:00:00Z').getTime();
+      orders = orders.filter(o => o.created_at && new Date(o.created_at).getTime() >= fromTime);
+    }
+    if (filters.dateTo) {
+      const toTime = new Date(filters.dateTo + 'T23:59:59Z').getTime();
+      orders = orders.filter(o => o.created_at && new Date(o.created_at).getTime() <= toTime);
+    }
+
+    // 9. Filtrar localmente por texto de búsqueda si aplica
     if (filters.search) {
       const term = filters.search.toLowerCase().trim();
       orders = orders.filter(o =>
@@ -655,14 +713,19 @@
             
             <!-- Paso 1: Selección de Pedidos y Filtros -->
             <div style="background: var(--color-bg); padding: 1rem; border-radius: 8px; border: 1px solid var(--color-border); margin-bottom: 1.5rem;">
-              <h4 style="margin: 0 0 0.8rem 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
-                <span style="background: var(--color-primary); color: white; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem;">1</span>
-                Filtrar y Seleccionar Pedidos a Entregar (Pendientes de Salida)
-              </h4>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
+                <h4 style="margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <span style="background: var(--color-primary); color: white; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem;">1</span>
+                  Filtrar y Seleccionar Pedidos (Shopify, WMS y Couriers Pendientes)
+                </h4>
+                <span style="font-size: 0.75rem; color: #0284c7; background: #e0f2fe; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">
+                  <i class="ri-shopping-bag-3-line"></i> Pedidos Shopify integrados
+                </span>
+              </div>
               
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
                 <div>
-                  <label class="form-label" style="font-size: 0.75rem;">Filtrar Comercio Real</label>
+                  <label class="form-label" style="font-size: 0.75rem;">Filtrar Comercio</label>
                   <select id="modal-filter-commerce" class="form-input" style="font-size: 0.85rem; padding: 0.4rem;">
                     ${filterOptions.commerces.map(c => `<option value="${c === 'TODOS' ? '' : c}">${c}</option>`).join('')}
                   </select>
@@ -675,19 +738,19 @@
                 </div>
                 <div>
                   <label class="form-label" style="font-size: 0.75rem;">Buscar Pedido / Ref / Tracking</label>
-                  <input type="text" id="modal-filter-search" class="form-input" placeholder="Ej: Pedido, tracking, cliente..." style="font-size: 0.85rem; padding: 0.4rem;">
+                  <input type="text" id="modal-filter-search" class="form-input" placeholder="Ej: #1045, tracking, cliente..." style="font-size: 0.85rem; padding: 0.4rem;">
                 </div>
               </div>
 
               <!-- Tabla de Selección de Pedidos -->
-              <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface);">
+              <div style="max-height: 270px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface);">
                 <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
                   <thead>
-                    <tr style="background: var(--color-bg); position: sticky; top: 0; text-align: left; border-bottom: 1px solid var(--color-border);">
+                    <tr style="background: var(--color-bg); position: sticky; top: 0; text-align: left; border-bottom: 1px solid var(--color-border); z-index: 2;">
                       <th style="padding: 0.5rem; text-align: center; width: 40px;">
                         <input type="checkbox" id="chk-select-all-orders">
                       </th>
-                      <th style="padding: 0.5rem;">Referencia / Tracking</th>
+                      <th style="padding: 0.5rem;">Pedido / Ref / Tracking</th>
                       <th style="padding: 0.5rem;">Comercio</th>
                       <th style="padding: 0.5rem;">Courier</th>
                       <th style="padding: 0.5rem;">Destinatario / Comuna</th>
@@ -913,6 +976,10 @@
       const isChecked = state.selectedOrders.has(o.id);
       const pkgCount = isChecked ? state.selectedOrders.get(o.id).packages_count : 1;
       const cleanCommerceName = resolveCanonicalCommerce(o.empresa_comercio_proveedor || o.comercio) || 'Sin Comercio';
+      const dateBadge = o.created_at ? new Date(o.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      const platformBadge = o.platform && o.platform.toLowerCase().includes('shopify') 
+        ? `<span class="badge" style="background: #e0f2fe; color: #0284c7; font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.3rem;"><i class="ri-shopping-bag-3-line"></i> Shopify</span>` 
+        : (o.platform ? `<span class="badge" style="background: var(--color-bg); font-size: 0.7rem; padding: 0.1rem 0.4rem;">${o.platform}</span>` : '');
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border); ${isChecked ? 'background: rgba(99, 102, 241, 0.05);' : ''}">
@@ -920,8 +987,12 @@
             <input type="checkbox" class="chk-order-item" data-id="${o.id}" ${isChecked ? 'checked' : ''}>
           </td>
           <td style="padding: 0.5rem;">
-            <strong style="color: var(--color-primary);">${o.pedido_referencia || o.id}</strong>
-            ${o.tracking ? `<br><small style="color: var(--color-text-muted);">Trk: ${o.tracking}</small>` : ''}
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem;">
+              <strong style="color: var(--color-primary);">${o.pedido_referencia || o.id}</strong>
+              ${platformBadge}
+            </div>
+            ${o.tracking ? `<small style="color: var(--color-text-muted); display: block;">Trk: ${o.tracking}</small>` : ''}
+            ${dateBadge ? `<small style="color: #64748b; font-size: 0.72rem;">Fecha: ${dateBadge}</small>` : ''}
           </td>
           <td style="padding: 0.5rem; font-weight: 600; color: #1e3a8a;">${cleanCommerceName}</td>
           <td style="padding: 0.5rem;"><span class="badge" style="font-size: 0.75rem;">${o.courier || 'N/A'}</span></td>
