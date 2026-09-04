@@ -7,7 +7,7 @@ import supabase from './supabase.js';
   // Active print queue for the bulk generator view
   let printQueue = [];
 
-  // Current active tab in the labels module: 'catalog' | 'fragile'
+  // Current active tab in the labels module: 'catalog' | 'fragile' | 'expiry'
   let currentLabelTab = 'catalog';
 
   // Fragile / Warning label generator options
@@ -19,6 +19,34 @@ import supabase from './supabase.js';
     mainText: 'FRÁGIL',
     subText: 'MANÉJESE CON CUIDADO',
     style: 'classic', // 'classic' | 'inverted' | 'hazard'
+    includeCommerce: false,
+    sheetsCount: 1
+  };
+
+  // Helper to compute initial default dates
+  const _today = new Date();
+  const _nextYear = new Date(_today.getFullYear() + 1, _today.getMonth(), _today.getDate());
+  const _defaultExpStr = _nextYear.toISOString().split('T')[0];
+  const _defaultElabStr = _today.toISOString().split('T')[0];
+
+  // Expiry / Batch label generator options
+  const expiryState = {
+    size: '10x15', // '10x15' | '10x10' | '5x5' | '5x2.5'
+    copiesPerSheet: 4, // 1 | 2 | 4 | 6 | 8 | 12
+    expiryDate: _defaultExpStr,
+    dateFormat: 'DD/MM/YYYY', // 'DD/MM/YYYY' | 'MM/YYYY' | 'DD-MMM-YYYY' | 'YYYY-MM-DD'
+    expiryPrefix: 'VENCE:', // 'VENCE:' | 'F. VENC:' | 'EXP:' | 'CONSUMIR ANTES DE:' | 'USE BY:'
+    includeElab: false,
+    elabDate: _defaultElabStr,
+    elabPrefix: 'ELAB:',
+    includeLot: true,
+    lotNumber: 'L' + _today.getFullYear().toString().slice(-2) + String(_today.getMonth() + 1).padStart(2, '0') + String(_today.getDate()).padStart(2, '0'),
+    includeProduct: false,
+    productName: '',
+    productSku: '',
+    barcodeType: 'none', // 'none' | 'sku' | 'lot'
+    icon: 'calendar', // 'calendar' | 'hourglass' | 'clock' | 'warning' | 'none'
+    style: 'classic', // 'classic' | 'badge' | 'compact'
     includeCommerce: false,
     sheetsCount: 1
   };
@@ -57,6 +85,39 @@ import supabase from './supabase.js';
       <path d="M 45.5,14 C 47.5,10.5 52.5,10.5 54.5,14 L 91.5,78 C 93.5,81.5 91,86 87,86 L 13,86 C 9,86 6.5,81.5 8.5,78 Z" fill="currentColor"/>
       <path d="M 50,34 L 50,58" stroke="var(--fragile-bg, #ffffff)" stroke-width="7" stroke-linecap="round"/>
       <circle cx="50" cy="72" r="4.5" fill="var(--fragile-bg, #ffffff)"/>
+    </svg>`
+  };
+
+  // High-contrast vector SVGs for Expiry and Batch logistics symbols
+  const EXPIRY_ICONS = {
+    calendar: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <rect x="18" y="24" width="64" height="60" rx="6" fill="none" stroke="currentColor" stroke-width="6"/>
+      <line x1="18" y1="42" x2="82" y2="42" stroke="currentColor" stroke-width="6"/>
+      <line x1="34" y1="16" x2="34" y2="28" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+      <line x1="66" y1="16" x2="66" y2="28" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+      <rect x="30" y="52" width="10" height="10" rx="2" fill="currentColor"/>
+      <rect x="45" y="52" width="10" height="10" rx="2" fill="currentColor"/>
+      <rect x="60" y="52" width="10" height="10" rx="2" fill="currentColor"/>
+      <rect x="30" y="66" width="10" height="10" rx="2" fill="currentColor"/>
+      <rect x="45" y="66" width="10" height="10" rx="2" fill="currentColor"/>
+    </svg>`,
+
+    hourglass: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <path d="M 24,18 L 76,18 M 24,82 L 76,82" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+      <path d="M 30,22 C 30,48 70,48 70,78 L 30,78 C 30,48 70,48 70,22 Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M 38,72 Q 50,65 62,72 Z" fill="currentColor"/>
+      <circle cx="50" cy="50" r="3" fill="currentColor"/>
+    </svg>`,
+
+    clock: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" stroke-width="6"/>
+      <polyline points="50,28 50,52 66,52" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+
+    warning: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <path d="M 45.5,14 C 47.5,10.5 52.5,10.5 54.5,14 L 91.5,78 C 93.5,81.5 91,86 87,86 L 13,86 C 9,86 6.5,81.5 8.5,78 Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linejoin="round"/>
+      <line x1="50" y1="36" x2="50" y2="58" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="50" cy="72" r="4" fill="currentColor"/>
     </svg>`
   };
 
@@ -339,6 +400,9 @@ import supabase from './supabase.js';
         </button>
         <button type="button" id="btn-label-tab-fragile" class="btn ${currentLabelTab === 'fragile' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
           <i class="ri-alert-line" style="font-size: 1.1rem; color: ${currentLabelTab === 'fragile' ? '#ffffff' : 'var(--color-warning)'};"></i> Etiquetas FRÁGIL / Advertencia
+        </button>
+        <button type="button" id="btn-label-tab-expiry" class="btn ${currentLabelTab === 'expiry' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
+          <i class="ri-calendar-event-line" style="font-size: 1.1rem; color: ${currentLabelTab === 'expiry' ? '#ffffff' : 'var(--color-primary)'};"></i> Etiquetas con Vencimiento / Lote
         </button>
       </div>
 
@@ -642,6 +706,240 @@ import supabase from './supabase.js';
           </div>
         </div>
       </div>
+
+      <!-- TAB 3: EXPIRATION DATE & BATCH LABELS -->
+      <div id="label-tab-expiry-content" style="display: ${currentLabelTab === 'expiry' ? 'block' : 'none'}; animation: fadeIn 0.25s ease;">
+        <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: stretch;">
+          <!-- Left Panel: Expiry Settings -->
+          <div class="card" style="flex: 1 1 360px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <h3 style="margin: 0 0 0.25rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+              <i class="ri-calendar-check-line" style="color: var(--color-primary);"></i> Configuración de Etiqueta con Vencimiento
+            </h3>
+
+            <!-- 1. Label Size -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-aspect-ratio-line" style="margin-right: 4px;"></i> Tamaño de Etiqueta Adhesiva (Física)
+              </label>
+              <select id="expiry-label-size" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="10x15" ${expiryState.size === '10x15' ? 'selected' : ''}>10 x 15 cm (Vertical grande / Estándar Courier)</option>
+                <option value="10x10" ${expiryState.size === '10x10' ? 'selected' : ''}>10 x 10 cm (Cuadrada grande)</option>
+                <option value="5x5" ${expiryState.size === '5x5' ? 'selected' : ''}>5 x 5 cm (Cuadrada mediana / envases)</option>
+                <option value="5x2.5" ${expiryState.size === '5x2.5' ? 'selected' : ''}>5 x 2.5 cm (Horizontal chica / cosméticos, frascos)</option>
+              </select>
+            </div>
+
+            <!-- 2. Multi-copies per Sheet / Grid -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-grid-fill" style="margin-right: 4px;"></i> Cantidad de Copias por Etiqueta Física
+              </label>
+              <div id="expiry-copies-btn-group" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                <!-- Populated dynamically by renderExpiryCopiesButtonGroup -->
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.35rem;">
+                * Divide el adhesivo en múltiples sub-pegatinas con guías de corte ✂ para rotular varias unidades.
+              </span>
+            </div>
+
+            <!-- 3. Expiry Date & Format -->
+            <div style="background: rgba(37,99,235,0.03); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.75rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <label style="font-weight: 700; font-size: 0.88rem; color: var(--color-primary); margin: 0; display: flex; align-items: center; gap: 4px;">
+                  <i class="ri-calendar-2-line"></i> Fecha de Vencimiento *
+                </label>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div>
+                  <label style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">Fecha</label>
+                  <input type="date" id="expiry-date-input" class="form-input" value="${expiryState.expiryDate}" style="width: 100%; height: 38px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-weight: 600;">
+                </div>
+                <div>
+                  <label style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">Formato de Fecha</label>
+                  <select id="expiry-date-format" class="form-input" style="width: 100%; height: 38px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-size: 0.82rem; font-weight: 500;">
+                    <option value="DD/MM/YYYY" ${expiryState.dateFormat === 'DD/MM/YYYY' ? 'selected' : ''}>DD/MM/AAAA (ej. 25/12/2026)</option>
+                    <option value="MM/YYYY" ${expiryState.dateFormat === 'MM/YYYY' ? 'selected' : ''}>MM/AAAA (ej. 12/2026)</option>
+                    <option value="DD-MMM-YYYY" ${expiryState.dateFormat === 'DD-MMM-YYYY' ? 'selected' : ''}>DD-MES-AAAA (ej. 25-DIC-2026)</option>
+                    <option value="YYYY-MM-DD" ${expiryState.dateFormat === 'YYYY-MM-DD' ? 'selected' : ''}>AAAA-MM-DD (ISO)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">Texto / Prefijo de Vencimiento</label>
+                <input type="text" id="expiry-prefix-input" class="form-input" value="${escapeHtml(expiryState.expiryPrefix)}" placeholder="Ej: VENCE:" style="width: 100%; height: 36px; padding: 0.3rem 0.6rem; border-radius: var(--radius-md); font-weight: 700; text-transform: uppercase;">
+                <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                  <button type="button" class="expiry-preset-prefix-btn" data-val="VENCE:" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted);">VENCE:</button>
+                  <button type="button" class="expiry-preset-prefix-btn" data-val="F. VENC:" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted);">F. VENC:</button>
+                  <button type="button" class="expiry-preset-prefix-btn" data-val="EXP:" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted);">EXP:</button>
+                  <button type="button" class="expiry-preset-prefix-btn" data-val="CONSUMIR ANTES DE:" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted);">CONSUMIR ANTES DE:</button>
+                  <button type="button" class="expiry-preset-prefix-btn" data-val="BEST BEFORE:" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted);">BEST BEFORE:</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. Elaboration Date (Optional) -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="checkbox" id="expiry-include-elab" ${expiryState.includeElab ? 'checked' : ''} style="cursor: pointer;">
+                  <label for="expiry-include-elab" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+                    Incluir Fecha de Elaboración / Fabricación
+                  </label>
+                </div>
+              </div>
+
+              <div id="expiry-elab-section" style="${expiryState.includeElab ? 'display:flex;' : 'display:none;'} gap: 0.5rem;">
+                <div style="flex: 1;">
+                  <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Prefijo</label>
+                  <input type="text" id="expiry-elab-prefix" class="form-input" value="${escapeHtml(expiryState.elabPrefix)}" style="width: 100%; height: 36px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-size: 0.82rem; font-weight: 600;">
+                </div>
+                <div style="flex: 2;">
+                  <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Fecha de Elaboración</label>
+                  <input type="date" id="expiry-elab-date" class="form-input" value="${expiryState.elabDate}" style="width: 100%; height: 36px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-size: 0.82rem;">
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Lot / Batch (Optional) -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="checkbox" id="expiry-include-lot" ${expiryState.includeLot ? 'checked' : ''} style="cursor: pointer;">
+                  <label for="expiry-include-lot" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+                    Incluir Número de Lote / Batch
+                  </label>
+                </div>
+              </div>
+
+              <div id="expiry-lot-section" style="${expiryState.includeLot ? '' : 'display:none;'}">
+                <input type="text" id="expiry-lot-input" class="form-input" value="${escapeHtml(expiryState.lotNumber)}" placeholder="Ej: L260904 o LOT-2026A" style="width: 100%; height: 36px; padding: 0.3rem 0.6rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
+              </div>
+            </div>
+
+            <!-- 6. Product Association (Optional) -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="checkbox" id="expiry-include-product" ${expiryState.includeProduct ? 'checked' : ''} style="cursor: pointer;">
+                  <label for="expiry-include-product" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+                    Asociar Producto / Nombre / SKU
+                  </label>
+                </div>
+              </div>
+
+              <div id="expiry-product-section" style="${expiryState.includeProduct ? '' : 'display:none;'} position: relative;">
+                <input type="text" id="expiry-product-input" class="form-input" value="${escapeHtml(expiryState.productName)}" placeholder="Buscar producto en catálogo o escribir nombre..." style="width: 100%; height: 36px; padding: 0.3rem 0.6rem; border-radius: var(--radius-md); font-size: 0.85rem;">
+                <div id="expiry-product-dropdown" style="display: none; position: absolute; top: 105%; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; max-height: 180px; overflow-y: auto;"></div>
+                ${expiryState.productSku ? `
+                  <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                    SKU seleccionado: <strong style="color: var(--color-primary);">${escapeHtml(expiryState.productSku)}</strong>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+
+            <!-- 7. Barcode Option -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-barcode-line" style="margin-right: 4px;"></i> Código de Barras en Sub-Etiqueta
+              </label>
+              <select id="expiry-barcode-type" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="none" ${expiryState.barcodeType === 'none' ? 'selected' : ''}>Sin código de barras (Solo texto y fecha)</option>
+                <option value="sku" ${expiryState.barcodeType === 'sku' ? 'selected' : ''}>Código de Barras con SKU del Producto</option>
+                <option value="lot" ${expiryState.barcodeType === 'lot' ? 'selected' : ''}>Código de Barras con Número de Lote</option>
+              </select>
+            </div>
+
+            <!-- 8. Icon Selector -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-image-line" style="margin-right: 4px;"></i> Ícono de Vencimiento
+              </label>
+              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.35rem;">
+                <button type="button" class="expiry-icon-opt-btn ${expiryState.icon === 'calendar' ? 'active' : ''}" data-icon="calendar" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${expiryState.icon === 'calendar' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${expiryState.icon === 'calendar' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Calendario">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${EXPIRY_ICONS.calendar}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Calendario</span>
+                </button>
+                <button type="button" class="expiry-icon-opt-btn ${expiryState.icon === 'hourglass' ? 'active' : ''}" data-icon="hourglass" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${expiryState.icon === 'hourglass' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${expiryState.icon === 'hourglass' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Reloj de arena">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${EXPIRY_ICONS.hourglass}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Reloj Arena</span>
+                </button>
+                <button type="button" class="expiry-icon-opt-btn ${expiryState.icon === 'clock' ? 'active' : ''}" data-icon="clock" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${expiryState.icon === 'clock' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${expiryState.icon === 'clock' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Reloj de tiempo">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${EXPIRY_ICONS.clock}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Reloj</span>
+                </button>
+                <button type="button" class="expiry-icon-opt-btn ${expiryState.icon === 'warning' ? 'active' : ''}" data-icon="warning" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${expiryState.icon === 'warning' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${expiryState.icon === 'warning' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Alerta de caducidad">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${EXPIRY_ICONS.warning}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Alerta</span>
+                </button>
+                <button type="button" class="expiry-icon-opt-btn ${expiryState.icon === 'none' ? 'active' : ''}" data-icon="none" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${expiryState.icon === 'none' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${expiryState.icon === 'none' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Sin ícono">
+                  <div style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--color-text-muted);"><i class="ri-forbid-line"></i></div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Sin Ícono</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 9. Visual Style -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-palette-line" style="margin-right: 4px;"></i> Estilo Visual de la Etiqueta
+              </label>
+              <select id="expiry-label-style" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="classic" ${expiryState.style === 'classic' ? 'selected' : ''}>Clásico (Marco negro fino, fecha destacada)</option>
+                <option value="badge" ${expiryState.style === 'badge' ? 'selected' : ''}>Insignia / Badge (Encabezado negro de alto contraste)</option>
+                <option value="compact" ${expiryState.style === 'compact' ? 'selected' : ''}>Ultra-Compacto (Optimizado para frascos y stickers chicos)</option>
+              </select>
+            </div>
+
+            <!-- 10. Commerce footer -->
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="expiry-include-commerce" ${expiryState.includeCommerce ? 'checked' : ''} style="width: auto; cursor: pointer;">
+              <label for="expiry-include-commerce" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Incluir nombre del comercio / STOCKA en el pie</label>
+            </div>
+
+            <!-- 11. Sheets Count -->
+            <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.25rem;">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-file-copy-2-line" style="margin-right: 4px;"></i> Cantidad de Hojas Físicas a Imprimir
+              </label>
+              <input type="number" id="expiry-sheets-count" class="form-input" value="${expiryState.sheetsCount}" min="1" max="500" style="width: 100%; height: 40px; padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-weight: 600;">
+            </div>
+          </div>
+
+          <!-- Right Panel: Live Preview & Emit Actions -->
+          <div class="card" style="flex: 1 1 320px; padding: 1.25rem; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 480px;">
+            <div style="width: 100%;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa en Vivo
+                </h3>
+                <span id="expiry-total-stickers-badge" class="badge" style="background: rgba(37,99,235,0.1); color: var(--color-primary); font-weight: 700; font-size: 0.78rem; padding: 0.2rem 0.5rem; border-radius: 6px;">
+                  4 pegatinas por hoja
+                </span>
+              </div>
+              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 1rem 0;">
+                Previsualización exacta de la hoja física de vencimiento con guías de corte y proporciones reales.
+              </p>
+            </div>
+
+            <!-- Aspect ratio simulation wrapper -->
+            <div id="expiry-live-preview-box-wrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 0.75rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; min-height: 320px; overflow: hidden;">
+              <!-- Rendered sheet goes here -->
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; width: 100%;">
+              <button id="btn-emit-expiry-labels" class="btn btn-primary" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.4rem; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
+                <i class="ri-printer-line" style="font-size: 1.1rem;"></i> Imprimir (<span id="expiry-btn-total-count">4</span>)
+              </button>
+              <button id="btn-download-expiry-zpl" class="btn btn-outline" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.4rem; border-radius: var(--radius-md); border-color: var(--color-accent); color: var(--color-accent);">
+                <i class="ri-download-2-line" style="font-size: 1.1rem;"></i> ZPL (<span id="expiry-btn-zpl-count">4</span>)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
 
     // Populate declarations list
@@ -720,6 +1018,7 @@ import supabase from './supabase.js';
     initGeneratorListeners();
     updateQueueUI();
     renderFragileLivePreview();
+    renderExpiryLivePreview();
   }
 
 
@@ -1091,39 +1390,493 @@ import supabase from './supabase.js';
   }
 
   /**
+   * Helper to get available copies per sheet for Expiry labels
+   */
+  function getAvailableCopiesForExpirySize(size) {
+    if (size === '10x15') return [1, 2, 4, 6, 8, 12];
+    if (size === '10x10') return [1, 2, 4, 6, 9];
+    if (size === '5x5') return [1, 2, 4];
+    if (size === '5x2.5') return [1, 2, 4];
+    return [1, 2, 4];
+  }
+
+  /**
+   * Renders the button group for copies per sheet for Expiry labels
+   */
+  function renderExpiryCopiesButtonGroup() {
+    const group = document.getElementById('expiry-copies-btn-group');
+    if (!group) return;
+
+    const available = getAvailableCopiesForExpirySize(expiryState.size);
+    if (!available.includes(expiryState.copiesPerSheet)) {
+      expiryState.copiesPerSheet = available.includes(4) ? 4 : available[available.length - 1];
+    }
+
+    group.innerHTML = available.map(num => {
+      const isActive = expiryState.copiesPerSheet === num;
+      let label = `${num} por etiqueta`;
+      if (num === 1) label = '1 (Etiqueta Completa)';
+      else if (num === 2) label = '2 copias';
+      else if (num === 4) label = '4 copias (2x2)';
+      else if (num === 6) label = '6 copias';
+      else if (num === 8) label = '8 copias (2x4)';
+      else if (num === 9) label = '9 copias (3x3)';
+      else if (num === 12) label = '12 copias (3x4)';
+
+      return `
+        <button type="button" class="expiry-copy-btn ${isActive ? 'active' : ''}" data-copies="${num}" style="
+          padding: 0.35rem 0.65rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          border-radius: var(--radius-md);
+          border: 1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border)'};
+          background: ${isActive ? 'var(--color-primary)' : 'var(--color-bg)'};
+          color: ${isActive ? '#ffffff' : 'var(--color-text-main)'};
+          cursor: pointer;
+          transition: all 0.15s;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+        ">
+          ${num > 1 ? '<i class="ri-grid-line" style="font-size:0.85rem;"></i>' : '<i class="ri-square-line" style="font-size:0.85rem;"></i>'}
+          ${label}
+        </button>
+      `;
+    }).join('');
+
+    // Attach click handlers
+    group.querySelectorAll('.expiry-copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = parseInt(btn.getAttribute('data-copies'), 10) || 1;
+        expiryState.copiesPerSheet = val;
+        renderExpiryCopiesButtonGroup();
+        renderExpiryLivePreview();
+      });
+    });
+  }
+
+  /**
+   * Helper to format dates for label display
+   */
+  function formatDisplayDate(dateStr, format) {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const [year, month, day] = parts;
+    const monthsShort = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+    const mIdx = parseInt(month, 10) - 1;
+    const mName = monthsShort[mIdx] || month;
+
+    if (format === 'MM/YYYY') {
+      return `${month}/${year}`;
+    } else if (format === 'DD-MMM-YYYY') {
+      return `${day}-${mName}-${year}`;
+    } else if (format === 'YYYY-MM-DD') {
+      return `${year}-${month}-${day}`;
+    } else {
+      // Default: DD/MM/YYYY
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  /**
+   * Generates HTML for a single expiration sub-sticker
+   */
+  function renderSingleExpirySubLabel(opts, isPrint) {
+    const isClassic = opts.style === 'classic' || !opts.style;
+    const isBadge = opts.style === 'badge';
+    const isCompact = opts.style === 'compact';
+
+    const bgColor = '#ffffff';
+    const textColor = '#000000';
+    const borderColor = '#000000';
+
+    const commerceName = getActiveCommerce();
+    const footerText = opts.includeCommerce && commerceName ? commerceName : 'STOCKA WMS';
+
+    const formattedExp = formatDisplayDate(opts.expiryDate, opts.dateFormat) || '25/12/2026';
+    const formattedElab = formatDisplayDate(opts.elabDate, opts.dateFormat) || '';
+
+    const showIcon = opts.icon && opts.icon !== 'none';
+    const iconSvg = showIcon ? (EXPIRY_ICONS[opts.icon] || EXPIRY_ICONS.calendar) : '';
+
+    // Header HTML
+    let headerHtml = '';
+    if (isBadge) {
+      const headerTitle = (opts.includeProduct && opts.productName) 
+        ? escapeHtml(opts.productName.toUpperCase()) 
+        : '★ FECHA DE VENCIMIENTO ★';
+      headerHtml = `
+        <div class="expiry-sub-header" style="background: #000000; color: #ffffff; font-weight: 900; font-size: 0.72em; text-align: center; padding: 2px 4px; text-transform: uppercase; width: 100%; box-sizing: border-box; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ${headerTitle}
+        </div>
+      `;
+    } else if (opts.includeProduct && opts.productName) {
+      headerHtml = `
+        <div class="expiry-product-header" style="font-weight: 800; font-size: 0.72em; text-align: center; padding: 2px 4px; text-transform: uppercase; width: 100%; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid #000;">
+          ${escapeHtml(opts.productName.toUpperCase())}
+          ${opts.productSku ? `<span style="font-size: 0.85em; font-weight: 600; color: #555; margin-left: 3px;">(${escapeHtml(opts.productSku)})</span>` : ''}
+        </div>
+      `;
+    }
+
+    // Secondary row (Elab / Lot)
+    let secondaryHtml = '';
+    const hasElab = opts.includeElab && formattedElab;
+    const hasLot = opts.includeLot && opts.lotNumber;
+    if (hasElab || hasLot) {
+      secondaryHtml = `
+        <div class="expiry-secondary-row" style="
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.65em;
+          font-weight: 700;
+          width: 95%;
+          margin-top: 1px;
+          color: #000;
+          text-transform: uppercase;
+          border-top: 1px dashed #444;
+          padding-top: 1px;
+        ">
+          ${hasElab ? `<span>${escapeHtml(opts.elabPrefix || 'ELAB:')} ${formattedElab}</span>` : ''}
+          ${hasElab && hasLot ? `<span>•</span>` : ''}
+          ${hasLot ? `<span>LOTE: <strong>${escapeHtml(opts.lotNumber)}</strong></span>` : ''}
+        </div>
+      `;
+    }
+
+    // Barcode rendering if requested
+    let barcodeHtml = '';
+    if (opts.barcodeType === 'sku' && (opts.productSku || opts.productName)) {
+      const bcVal = opts.productSku || opts.productName;
+      barcodeHtml = `
+        <div class="expiry-barcode-box" style="width: 90%; max-height: 22px; display: flex; justify-content: center; align-items: center; margin-top: 1px; overflow: hidden;">
+          ${window.generateBarcodeSVG(bcVal, false, '5x2.5')}
+        </div>
+      `;
+    } else if (opts.barcodeType === 'lot' && opts.lotNumber) {
+      barcodeHtml = `
+        <div class="expiry-barcode-box" style="width: 90%; max-height: 22px; display: flex; justify-content: center; align-items: center; margin-top: 1px; overflow: hidden;">
+          ${window.generateBarcodeSVG(opts.lotNumber, false, '5x2.5')}
+        </div>
+      `;
+    }
+
+    // Dynamic sizing based on copies
+    const isSmallCell = opts.copiesPerSheet >= 6 || opts.size === '5x2.5';
+    const dateFontSize = isSmallCell ? '1.2em' : '1.75em';
+    const iconSize = isSmallCell ? '20px' : '26px';
+
+    return `
+      <div class="expiry-sub-sticker" style="
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 3px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        background: ${bgColor};
+        color: ${textColor};
+      ">
+        <div class="expiry-inner-card" style="
+          width: 100%;
+          height: 100%;
+          border: ${isCompact ? '1.5px' : '2.5px'} solid ${borderColor};
+          border-radius: 3px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0;
+          overflow: hidden;
+          background: ${bgColor};
+        ">
+          ${headerHtml}
+
+          <div class="expiry-center-body" style="
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 4px;
+            box-sizing: border-box;
+            gap: 1px;
+            overflow: hidden;
+          ">
+            <div class="expiry-main-row" style="display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; width: 100%; box-sizing: border-box;">
+              ${showIcon ? `
+                <div class="expiry-icon-wrap" style="width: ${iconSize}; height: ${iconSize}; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #000;">
+                  ${iconSvg}
+                </div>
+              ` : ''}
+
+              <div class="expiry-text-block" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1;">
+                <div class="expiry-prefix-label" style="
+                  display: block;
+                  width: 100%;
+                  text-align: center;
+                  clear: both;
+                  font-size: 0.68em;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  letter-spacing: 0.5px;
+                  color: #000000;
+                  margin: 0 0 2px 0;
+                  padding: 0;
+                  line-height: 1.1;
+                ">
+                  ${escapeHtml(opts.expiryPrefix || 'VENCE:')}
+                </div>
+                <div class="expiry-date-display" style="
+                  display: block;
+                  width: 100%;
+                  text-align: center;
+                  clear: both;
+                  font-family: 'Impact', 'Arial Black', -apple-system, sans-serif;
+                  font-weight: 900;
+                  font-size: ${dateFontSize};
+                  letter-spacing: 1px;
+                  color: #000000;
+                  margin: 0;
+                  padding: 0;
+                  line-height: 1;
+                  white-space: nowrap;
+                ">
+                  ${escapeHtml(formattedExp)}
+                </div>
+              </div>
+            </div>
+
+            ${secondaryHtml}
+            ${barcodeHtml}
+          </div>
+
+          ${opts.includeCommerce ? `
+            <div class="expiry-footer-bar" style="
+              border-top: 1px dashed #000;
+              font-size: 0.52em;
+              font-weight: 700;
+              text-align: center;
+              padding: 1px 3px;
+              width: 100%;
+              box-sizing: border-box;
+              letter-spacing: 0.5px;
+              color: #000;
+              opacity: 0.85;
+            ">
+              ${escapeHtml(footerText)}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Generates the multi-copy grid layout inside a sheet for Expiry labels
+   */
+  function renderExpirySheetHTML(opts, isPrint) {
+    const copies = parseInt(opts.copiesPerSheet, 10) || 1;
+    let gridCols = 1;
+    let gridRows = 1;
+
+    if (copies === 2) {
+      if (opts.size === '5x2.5') {
+        gridCols = 2; gridRows = 1;
+      } else {
+        gridCols = 1; gridRows = 2;
+      }
+    } else if (copies === 4) {
+      gridCols = 2; gridRows = 2;
+    } else if (copies === 6) {
+      if (opts.size === '10x15') {
+        gridCols = 2; gridRows = 3;
+      } else {
+        gridCols = 3; gridRows = 2;
+      }
+    } else if (copies === 8) {
+      gridCols = 2; gridRows = 4;
+    } else if (copies === 9) {
+      gridCols = 3; gridRows = 3;
+    } else if (copies === 12) {
+      gridCols = 3; gridRows = 4;
+    }
+
+    let cellsHtml = '';
+    for (let i = 0; i < copies; i++) {
+      cellsHtml += `
+        <div class="expiry-grid-cell" style="
+          position: relative;
+          width: 100%;
+          height: 100%;
+          box-sizing: border-box;
+          overflow: hidden;
+        ">
+          ${renderSingleExpirySubLabel(opts, isPrint)}
+        </div>
+      `;
+    }
+
+    // Cut lines guide styling if multi-copy
+    let cutGuidesHtml = '';
+    if (copies > 1) {
+      if (gridCols > 1) {
+        for (let c = 1; c < gridCols; c++) {
+          const leftPct = (c / gridCols) * 100;
+          cutGuidesHtml += `
+            <div class="cut-guide-vertical" style="position: absolute; top: 0; bottom: 0; left: ${leftPct}%; width: 0; border-left: 1px dashed #666; z-index: 10; pointer-events: none; transform: translateX(-50%);">
+              <span style="position: absolute; top: 50%; left: -6px; transform: translateY(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+            </div>
+          `;
+        }
+      }
+      if (gridRows > 1) {
+        for (let r = 1; r < gridRows; r++) {
+          const topPct = (r / gridRows) * 100;
+          cutGuidesHtml += `
+            <div class="cut-guide-horizontal" style="position: absolute; left: 0; right: 0; top: ${topPct}%; height: 0; border-top: 1px dashed #666; z-index: 10; pointer-events: none; transform: translateY(-50%);">
+              <span style="position: absolute; left: 50%; top: -6px; transform: translateX(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+            </div>
+          `;
+        }
+      }
+    }
+
+    return `
+      <div class="expiry-sheet-wrapper expiry-size-${opts.size}" style="
+        position: relative;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: repeat(${gridCols}, 1fr);
+        grid-template-rows: repeat(${gridRows}, 1fr);
+        background: #ffffff;
+        overflow: hidden;
+      ">
+        ${cellsHtml}
+        ${cutGuidesHtml}
+      </div>
+    `;
+  }
+
+  /**
+   * Updates the Live Preview box for Expiry labels
+   */
+  function renderExpiryLivePreview() {
+    const previewWrapper = document.getElementById('expiry-live-preview-box-wrapper');
+    const badge = document.getElementById('expiry-total-stickers-badge');
+    const btnCount = document.getElementById('expiry-btn-total-count');
+    const btnZplCount = document.getElementById('expiry-btn-zpl-count');
+
+    if (!previewWrapper) return;
+
+    const totalStickers = (parseInt(expiryState.sheetsCount, 10) || 1) * (parseInt(expiryState.copiesPerSheet, 10) || 1);
+
+    if (badge) {
+      badge.textContent = `${expiryState.copiesPerSheet} por hoja (Total: ${totalStickers} sticker${totalStickers > 1 ? 's' : ''})`;
+    }
+    if (btnCount) btnCount.textContent = totalStickers;
+    if (btnZplCount) btnZplCount.textContent = totalStickers;
+
+    // Determine preview dimensions based on aspect ratio
+    let w = '180px';
+    let h = '270px';
+    let fontSizeEm = '12px';
+
+    if (expiryState.size === '10x15') {
+      w = '180px'; h = '270px'; // 2:3 Aspect ratio
+      fontSizeEm = '12px';
+    } else if (expiryState.size === '10x10') {
+      w = '220px'; h = '220px'; // 1:1 Aspect ratio
+      fontSizeEm = '12px';
+    } else if (expiryState.size === '5x5') {
+      w = '160px'; h = '160px'; // 1:1 Aspect ratio
+      fontSizeEm = '10px';
+    } else if (expiryState.size === '5x2.5') {
+      w = '240px'; h = '120px'; // 2:1 Aspect ratio
+      fontSizeEm = '9px';
+    }
+
+    previewWrapper.innerHTML = `
+      <div class="expiry-sticker-sheet-preview" style="
+        position: relative;
+        width: ${w};
+        height: ${h};
+        background: white;
+        color: black;
+        border: 1px solid var(--color-border);
+        box-shadow: var(--shadow-md);
+        border-radius: 4px;
+        box-sizing: border-box;
+        overflow: hidden;
+        font-size: ${fontSizeEm};
+      ">
+        ${renderExpirySheetHTML(expiryState, false)}
+      </div>
+    `;
+  }
+
+  /**
    * Bind event listeners for the bulk label generator layout
    */
   function initGeneratorListeners() {
     // 1. Tab Switching Listeners
     const btnTabCatalog = document.getElementById('btn-label-tab-catalog');
     const btnTabFragile = document.getElementById('btn-label-tab-fragile');
+    const btnTabExpiry = document.getElementById('btn-label-tab-expiry');
     const tabCatalogContent = document.getElementById('label-tab-catalog-content');
     const tabFragileContent = document.getElementById('label-tab-fragile-content');
+    const tabExpiryContent = document.getElementById('label-tab-expiry-content');
 
     const switchLabelTab = (tab) => {
       currentLabelTab = tab;
+
+      // Update button visual styles
+      const tabItems = [
+        { btn: btnTabCatalog, id: 'catalog', activeColor: '#ffffff', inactiveColor: 'var(--color-primary)' },
+        { btn: btnTabFragile, id: 'fragile', activeColor: '#ffffff', inactiveColor: 'var(--color-warning)' },
+        { btn: btnTabExpiry, id: 'expiry', activeColor: '#ffffff', inactiveColor: 'var(--color-primary)' }
+      ];
+
+      tabItems.forEach(item => {
+        if (item.btn) {
+          const isCurrent = item.id === tab;
+          item.btn.classList.toggle('btn-primary', isCurrent);
+          item.btn.classList.toggle('btn-outline', !isCurrent);
+          const icon = item.btn.querySelector('i');
+          if (icon) {
+            icon.style.color = isCurrent ? item.activeColor : item.inactiveColor;
+          }
+        }
+      });
+
+      // Toggle tab content panels
+      if (tabCatalogContent) tabCatalogContent.style.display = (tab === 'catalog') ? 'block' : 'none';
+      if (tabFragileContent) tabFragileContent.style.display = (tab === 'fragile') ? 'block' : 'none';
+      if (tabExpiryContent) tabExpiryContent.style.display = (tab === 'expiry') ? 'block' : 'none';
+
       if (tab === 'catalog') {
-        btnTabCatalog?.classList.remove('btn-outline');
-        btnTabCatalog?.classList.add('btn-primary');
-        btnTabFragile?.classList.remove('btn-primary');
-        btnTabFragile?.classList.add('btn-outline');
-        if (tabCatalogContent) tabCatalogContent.style.display = 'block';
-        if (tabFragileContent) tabFragileContent.style.display = 'none';
         updateQueueUI();
-      } else {
-        btnTabFragile?.classList.remove('btn-outline');
-        btnTabFragile?.classList.add('btn-primary');
-        btnTabCatalog?.classList.remove('btn-primary');
-        btnTabCatalog?.classList.add('btn-outline');
-        if (tabCatalogContent) tabCatalogContent.style.display = 'none';
-        if (tabFragileContent) tabFragileContent.style.display = 'block';
+      } else if (tab === 'fragile') {
         renderCopiesButtonGroup();
         renderFragileLivePreview();
+      } else if (tab === 'expiry') {
+        renderExpiryCopiesButtonGroup();
+        renderExpiryLivePreview();
       }
     };
 
     btnTabCatalog?.addEventListener('click', () => switchLabelTab('catalog'));
     btnTabFragile?.addEventListener('click', () => switchLabelTab('fragile'));
+    btnTabExpiry?.addEventListener('click', () => switchLabelTab('expiry'));
 
     // 2. Catalog Tab Listeners
     const sizeSelect = document.getElementById('global-label-size');
@@ -1416,6 +2169,211 @@ import supabase from './supabase.js';
     const btnDownloadFragileZpl = document.getElementById('btn-download-fragile-zpl');
     btnDownloadFragileZpl?.addEventListener('click', () => {
       window.showFragileZPLModal(fragileState);
+    });
+
+    // 4. Expiry Tab Listeners
+    renderExpiryCopiesButtonGroup();
+
+    const expirySizeSelect = document.getElementById('expiry-label-size');
+    const expiryDateInput = document.getElementById('expiry-date-input');
+    const expiryDateFormatSelect = document.getElementById('expiry-date-format');
+    const expiryPrefixInput = document.getElementById('expiry-prefix-input');
+    
+    const expiryIncludeElabCb = document.getElementById('expiry-include-elab');
+    const expiryElabSection = document.getElementById('expiry-elab-section');
+    const expiryElabPrefixInput = document.getElementById('expiry-elab-prefix');
+    const expiryElabDateInput = document.getElementById('expiry-elab-date');
+
+    const expiryIncludeLotCb = document.getElementById('expiry-include-lot');
+    const expiryLotSection = document.getElementById('expiry-lot-section');
+    const expiryLotInput = document.getElementById('expiry-lot-input');
+
+    const expiryIncludeProdCb = document.getElementById('expiry-include-product');
+    const expiryProdSection = document.getElementById('expiry-product-section');
+    const expiryProdInput = document.getElementById('expiry-product-input');
+    const expiryProdDropdown = document.getElementById('expiry-product-dropdown');
+
+    const expiryBarcodeSelect = document.getElementById('expiry-barcode-type');
+    const expiryStyleSelect = document.getElementById('expiry-label-style');
+    const expiryCommerceCb = document.getElementById('expiry-include-commerce');
+    const expirySheetsCountInput = document.getElementById('expiry-sheets-count');
+
+    // Size change
+    expirySizeSelect?.addEventListener('change', (e) => {
+      expiryState.size = e.target.value;
+      renderExpiryCopiesButtonGroup();
+      renderExpiryLivePreview();
+    });
+
+    // Date change
+    expiryDateInput?.addEventListener('change', (e) => {
+      expiryState.expiryDate = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Date format change
+    expiryDateFormatSelect?.addEventListener('change', (e) => {
+      expiryState.dateFormat = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Prefix input
+    expiryPrefixInput?.addEventListener('input', (e) => {
+      expiryState.expiryPrefix = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Prefix preset buttons
+    document.querySelectorAll('.expiry-preset-prefix-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.getAttribute('data-val');
+        expiryState.expiryPrefix = val;
+        if (expiryPrefixInput) expiryPrefixInput.value = val;
+        renderExpiryLivePreview();
+      });
+    });
+
+    // Elaboration date toggle & inputs
+    expiryIncludeElabCb?.addEventListener('change', (e) => {
+      expiryState.includeElab = e.target.checked;
+      if (expiryElabSection) {
+        expiryElabSection.style.display = e.target.checked ? 'flex' : 'none';
+      }
+      renderExpiryLivePreview();
+    });
+
+    expiryElabPrefixInput?.addEventListener('input', (e) => {
+      expiryState.elabPrefix = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    expiryElabDateInput?.addEventListener('change', (e) => {
+      expiryState.elabDate = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Lot toggle & input
+    expiryIncludeLotCb?.addEventListener('change', (e) => {
+      expiryState.includeLot = e.target.checked;
+      if (expiryLotSection) {
+        expiryLotSection.style.display = e.target.checked ? 'block' : 'none';
+      }
+      renderExpiryLivePreview();
+    });
+
+    expiryLotInput?.addEventListener('input', (e) => {
+      expiryState.lotNumber = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Product toggle, input & autocomplete
+    expiryIncludeProdCb?.addEventListener('change', (e) => {
+      expiryState.includeProduct = e.target.checked;
+      if (expiryProdSection) {
+        expiryProdSection.style.display = e.target.checked ? 'block' : 'none';
+      }
+      renderExpiryLivePreview();
+    });
+
+    expiryProdInput?.addEventListener('input', (e) => {
+      const val = e.target.value.toLowerCase().trim();
+      expiryState.productName = e.target.value;
+      renderExpiryLivePreview();
+
+      if (!val || !expiryProdDropdown) {
+        if (expiryProdDropdown) expiryProdDropdown.style.display = 'none';
+        return;
+      }
+
+      const matches = localCatalogProducts.filter(p => 
+        (p.sku || '').toLowerCase().includes(val) || 
+        (p.name || '').toLowerCase().includes(val)
+      ).slice(0, 8);
+
+      if (matches.length === 0) {
+        expiryProdDropdown.innerHTML = `<div style="padding:0.6rem;color:var(--color-text-muted);font-size:0.8rem;text-align:center;">No se encontraron productos</div>`;
+      } else {
+        expiryProdDropdown.innerHTML = matches.map(p => `
+          <div class="expiry-search-item" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" style="padding:0.5rem 0.7rem;cursor:pointer;border-bottom:1px solid var(--color-border);font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <strong style="color:var(--color-primary);">${escapeHtml(p.sku)}</strong>
+              <span style="color:var(--color-text-main);margin-left:0.4rem;">${escapeHtml(p.name)}</span>
+            </div>
+          </div>
+        `).join('');
+      }
+      expiryProdDropdown.style.display = 'block';
+    });
+
+    expiryProdDropdown?.addEventListener('click', (e) => {
+      const item = e.target.closest('.expiry-search-item');
+      if (!item) return;
+
+      const sku = item.getAttribute('data-sku');
+      const name = item.getAttribute('data-name');
+      expiryState.productSku = sku || '';
+      expiryState.productName = name || '';
+
+      if (expiryProdInput) expiryProdInput.value = name || sku;
+      expiryProdDropdown.style.display = 'none';
+      renderExpiryLivePreview();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (expiryProdInput && expiryProdDropdown && !expiryProdInput.contains(e.target) && !expiryProdDropdown.contains(e.target)) {
+        expiryProdDropdown.style.display = 'none';
+      }
+    });
+
+    // Barcode type
+    expiryBarcodeSelect?.addEventListener('change', (e) => {
+      expiryState.barcodeType = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Icon button selections
+    document.querySelectorAll('.expiry-icon-opt-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iconKey = btn.getAttribute('data-icon');
+        expiryState.icon = iconKey;
+        document.querySelectorAll('.expiry-icon-opt-btn').forEach(b => {
+          const isTarget = b.getAttribute('data-icon') === iconKey;
+          b.style.borderColor = isTarget ? 'var(--color-primary)' : 'var(--color-border)';
+          b.style.background = isTarget ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)';
+        });
+        renderExpiryLivePreview();
+      });
+    });
+
+    // Visual style
+    expiryStyleSelect?.addEventListener('change', (e) => {
+      expiryState.style = e.target.value;
+      renderExpiryLivePreview();
+    });
+
+    // Commerce footer
+    expiryCommerceCb?.addEventListener('change', (e) => {
+      expiryState.includeCommerce = e.target.checked;
+      renderExpiryLivePreview();
+    });
+
+    // Sheets count
+    expirySheetsCountInput?.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10) || 1;
+      expiryState.sheetsCount = Math.max(1, val);
+      renderExpiryLivePreview();
+    });
+
+    // Emit expiry labels button
+    const btnEmitExpiry = document.getElementById('btn-emit-expiry-labels');
+    btnEmitExpiry?.addEventListener('click', () => {
+      window.printExpiryLabels(expiryState);
+    });
+
+    // Download expiry ZPL button
+    const btnDownloadExpiryZpl = document.getElementById('btn-download-expiry-zpl');
+    btnDownloadExpiryZpl?.addEventListener('click', () => {
+      window.showExpiryZPLModal(expiryState);
     });
   }
 
@@ -2521,6 +3479,429 @@ import supabase from './supabase.js';
         });
       } else if (result.isDenied) {
         window.downloadFragileZPLFile(opts);
+      }
+    });
+  };
+
+  /**
+   * Main expiration label printing engine with exact physical boundaries and multi-copy support.
+   */
+  window.printExpiryLabels = function (opts) {
+    const sheetsCount = parseInt(opts.sheetsCount, 10) || 1;
+    const selectedSize = opts.size || '10x15';
+
+    let sizeCSS = '10cm 15cm';
+    let sheetWidth = '10cm';
+    let sheetHeight = '15cm';
+
+    if (selectedSize === '10x10') {
+      sizeCSS = '10cm 10cm';
+      sheetWidth = '10cm';
+      sheetHeight = '10cm';
+    } else if (selectedSize === '5x5') {
+      sizeCSS = '5cm 5cm';
+      sheetWidth = '5cm';
+      sheetHeight = '5cm';
+    } else if (selectedSize === '5x2.5') {
+      sizeCSS = '5cm 2.5cm';
+      sheetWidth = '5cm';
+      sheetHeight = '2.5cm';
+    }
+
+    let baseFontSize = '14px';
+    if (selectedSize === '5x5') baseFontSize = '12px';
+    else if (selectedSize === '5x2.5') baseFontSize = '10px';
+    if (parseInt(opts.copiesPerSheet, 10) >= 8) baseFontSize = '11px';
+
+    let sheetsHTML = '';
+    for (let s = 0; s < sheetsCount; s++) {
+      sheetsHTML += `
+        <div class="expiry-print-page size-${selectedSize}">
+          ${renderExpirySheetHTML(opts, true)}
+        </div>
+      `;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Imprimir Etiquetas Vencimiento - WMS Stocka</title>
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .expiry-print-page {
+            box-sizing: border-box;
+            width: ${sheetWidth};
+            height: ${sheetHeight};
+            position: relative;
+            background: #fff;
+            page-break-after: always;
+            overflow: hidden;
+            display: flex;
+            font-size: ${baseFontSize};
+          }
+
+          .expiry-print-page:last-child {
+            page-break-after: avoid;
+          }
+
+          .expiry-sheet-wrapper {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            box-sizing: border-box;
+          }
+
+          .expiry-sub-sticker {
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            padding: 2mm;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+          }
+
+          .expiry-inner-card {
+            width: 100%;
+            height: 100%;
+            border: 2.5px solid #000;
+            border-radius: 3px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            overflow: hidden;
+          }
+
+          .expiry-center-body {
+            flex: 1;
+            width: 100%;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 2px 4px;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
+
+          .expiry-main-row {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            width: 100% !important;
+            box-sizing: border-box;
+          }
+
+          .expiry-text-block {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            text-align: center !important;
+            width: 100% !important;
+          }
+
+          .expiry-prefix-label {
+            display: block !important;
+            width: 100% !important;
+            text-align: center !important;
+            clear: both !important;
+            margin: 0 0 2px 0 !important;
+            padding: 0 !important;
+            font-size: 0.68em !important;
+            font-weight: 800 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            line-height: 1.1 !important;
+          }
+
+          .expiry-date-display {
+            display: block !important;
+            width: 100% !important;
+            text-align: center !important;
+            clear: both !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-family: 'Impact', 'Arial Black', -apple-system, sans-serif !important;
+            font-weight: 900 !important;
+            letter-spacing: 1px !important;
+            line-height: 1 !important;
+            white-space: nowrap !important;
+          }
+
+          @page {
+            size: ${sizeCSS};
+            margin: 0;
+          }
+
+          @media print {
+            body {
+              background: #fff;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${sheetsHTML}
+      </body>
+      </html>
+    `;
+
+    // Deploy hidden print Frame
+    const iframe = document.createElement('iframe');
+    iframe.id = 'wms-print-expiry-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    // Ingress content
+    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    // Trigger printing dialog
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (err) {
+        console.error("Failed to open native print dialog for expiry labels:", err);
+        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
+      } finally {
+        setTimeout(() => {
+          const element = document.getElementById('wms-print-expiry-iframe');
+          if (element) element.remove();
+        }, 1000);
+      }
+    }, 400);
+  };
+
+  /**
+   * Compiles Zebra ZPL II code for Expiration warning labels with multi-copy support.
+   */
+  window.compileExpiryZPL = function (opts) {
+    let zpl = '';
+    let pw = 800; // print width in dots at 203 DPI
+    let ll = 1200; // label length in dots
+
+    if (opts.size === '10x10') {
+      pw = 800;
+      ll = 800;
+    } else if (opts.size === '5x5') {
+      pw = 400;
+      ll = 400;
+    } else if (opts.size === '5x2.5') {
+      pw = 400;
+      ll = 200;
+    }
+
+    const copies = parseInt(opts.copiesPerSheet, 10) || 1;
+    const sheets = parseInt(opts.sheetsCount, 10) || 1;
+
+    let cols = 1;
+    let rows = 1;
+    if (copies === 2) {
+      if (opts.size === '5x2.5') { cols = 2; rows = 1; }
+      else { cols = 1; rows = 2; }
+    } else if (copies === 4) {
+      cols = 2; rows = 2;
+    } else if (copies === 6) {
+      if (opts.size === '10x15') { cols = 2; rows = 3; }
+      else { cols = 3; rows = 2; }
+    } else if (copies === 8) {
+      cols = 2; rows = 4;
+    } else if (copies === 9) {
+      cols = 3; rows = 3;
+    } else if (copies === 12) {
+      cols = 3; rows = 4;
+    }
+
+    const cellW = Math.floor(pw / cols);
+    const cellH = Math.floor(ll / rows);
+
+    const formattedExp = formatDisplayDate(opts.expiryDate, opts.dateFormat) || '25/12/2026';
+    const cleanPrefix = (opts.expiryPrefix || 'VENCE:').toUpperCase().replace(/[\^\~]/g, '');
+    const cleanProd = (opts.includeProduct && opts.productName ? opts.productName.toUpperCase() : '').replace(/[\^\~]/g, '');
+    const cleanLot = (opts.includeLot && opts.lotNumber ? opts.lotNumber.toUpperCase() : '').replace(/[\^\~]/g, '');
+
+    for (let s = 0; s < sheets; s++) {
+      zpl += `^XA\n`;
+      zpl += `^CI28\n`; // UTF-8
+      zpl += `^PW${pw}\n`;
+      zpl += `^LL${ll}\n`;
+      zpl += `^LH0,0\n`;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const ox = c * cellW;
+          const oy = r * cellH;
+          const pad = 12;
+          const boxX = ox + pad;
+          const boxY = oy + pad;
+          const boxW = cellW - (pad * 2);
+          const boxH = cellH - (pad * 2);
+
+          // Outer border
+          zpl += `^FO${boxX},${boxY}^GB${boxW},${boxH},4,B,0^FS\n`;
+
+          let currentY = boxY + 8;
+
+          // Header banner or product title
+          if (cleanProd && boxH > 120) {
+            zpl += `^FO${boxX + 6},${currentY}^A0N,22,20^FB${boxW - 12},1,0,C,0^FD${cleanProd}^FS\n`;
+            currentY += 28;
+            zpl += `^FO${boxX},${currentY}^GB${boxW},2,2,B,0^FS\n`;
+            currentY += 8;
+          } else if (opts.style === 'badge' && boxH > 120) {
+            const bannerH = 26;
+            zpl += `^FO${boxX},${currentY}^GB${boxW},${bannerH},${bannerH},B,0^FS\n`;
+            zpl += `^FO${boxX + 4},${currentY + 4}^A0N,18,18^FR^FB${boxW - 8},1,0,C,0^FD*** VENCIMIENTO ***^FS\n`;
+            currentY += bannerH + 8;
+          }
+
+          // Main Expiration Display: 2 distinct vertical rows (Prefix on top, Date prominent below)
+          const hasLotZpl = cleanLot && boxH > 130;
+          const lotSpace = hasLotZpl ? 34 : 10;
+          const availH = Math.max(40, boxH - (currentY - boxY) - lotSpace);
+
+          // Row 1: Prefix label (smaller, clear)
+          const prefixH = Math.max(14, Math.min(30, Math.floor(availH * 0.24)));
+          const prefixW = Math.floor(prefixH * 0.82);
+
+          // Row 2: Big Bold Expiry Date
+          const maxDateHByWidth = Math.floor((boxW - 16) / Math.max(formattedExp.length, 1) * 1.55);
+          const maxDateHByHeight = Math.floor(availH * 0.56);
+          const dateFontH = Math.max(18, Math.min(maxDateHByHeight, maxDateHByWidth, 85));
+          const dateFontW = Math.floor(dateFontH * 0.84);
+
+          const spacing = Math.max(4, Math.floor(availH * 0.06));
+          const totalContentH = prefixH + spacing + dateFontH;
+          const startY = currentY + Math.max(0, Math.floor((availH - totalContentH) / 2));
+
+          // 1. Prefix row (top)
+          zpl += `^FO${boxX + 6},${startY}^A0N,${prefixH},${prefixW}^FB${boxW - 12},1,0,C,0^FD${cleanPrefix}^FS\n`;
+
+          // 2. Date row (below prefix)
+          const dateY = startY + prefixH + spacing;
+          zpl += `^FO${boxX + 6},${dateY}^A0N,${dateFontH},${dateFontW}^FB${boxW - 12},1,0,C,0^FD${formattedExp}^FS\n`;
+
+          // Secondary row (Lot)
+          if (hasLotZpl) {
+            const subY = boxY + boxH - 28;
+            zpl += `^FO${boxX + 6},${subY}^A0N,20,18^FB${boxW - 12},1,0,C,0^FDLOTE: ${cleanLot}^FS\n`;
+          }
+        }
+      }
+
+      // Cut guidelines if multi-copy
+      if (cols > 1) {
+        for (let i = 1; i < cols; i++) {
+          zpl += `^FO${i * cellW},0^GB2,${ll},2,B,0^FS\n`;
+        }
+      }
+      if (rows > 1) {
+        for (let i = 1; i < rows; i++) {
+          zpl += `^FO0,${i * cellH}^GB${pw},2,2,B,0^FS\n`;
+        }
+      }
+
+      zpl += `^XZ\n`;
+    }
+
+    return zpl;
+  };
+
+  /**
+   * Compiles and downloads a ZPL file for Expiry labels.
+   */
+  window.downloadExpiryZPLFile = function (opts) {
+    const zplCode = window.compileExpiryZPL(opts);
+    const blob = new Blob([zplCode], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `etiquetas_vencimiento_${opts.size}_${Date.now()}.zpl`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  /**
+   * Shows a copyable & downloadable modal for Expiry ZPL code.
+   */
+  window.showExpiryZPLModal = function (opts) {
+    const zplCode = window.compileExpiryZPL(opts);
+
+    Swal.fire({
+      title: 'Código ZPL II - Etiquetas con Vencimiento',
+      html: `
+        <div style="text-align: left; margin-bottom: 0.75rem;">
+          <span style="font-size: 0.85rem; color: var(--color-text-muted);">Código listo para enviar a impresoras Zebra, Rollo o compatibles con ZPL II:</span>
+        </div>
+        <textarea id="swal-expiry-zpl-code-area" readonly style="
+          width: 100%; 
+          height: 180px; 
+          font-family: monospace; 
+          font-size: 0.8rem; 
+          padding: 0.5rem; 
+          background: var(--color-bg); 
+          color: var(--color-text-main); 
+          border: 1px solid var(--color-border); 
+          border-radius: var(--radius-md); 
+          resize: none;
+          box-sizing: border-box;
+        ">${escapeHtml(zplCode)}</textarea>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-clipboard-line" style="margin-right:0.25rem;"></i> Copiar Código',
+      cancelButtonText: 'Cerrar',
+      denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar ZPL',
+      showDenyButton: true,
+      confirmButtonColor: 'var(--color-success)',
+      denyButtonColor: 'var(--color-primary)',
+      focusConfirm: false,
+      preConfirm: () => {
+        const textarea = document.getElementById('swal-expiry-zpl-code-area');
+        if (textarea) {
+          textarea.select();
+          document.execCommand('copy');
+        }
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(zplCode);
+        }
+        return true;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({
+          title: '¡Copiado!',
+          text: 'Código ZPL copiado al portapapeles.',
+          icon: 'success',
+          timer: 1500,
+          showConfirmButton: false
+        });
+      } else if (result.isDenied) {
+        window.downloadExpiryZPLFile(opts);
       }
     });
   };

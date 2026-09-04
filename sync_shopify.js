@@ -366,7 +366,8 @@ async function syncOrders(integration) {
         let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
         let mappedSku = skuMap[cleanSku] || cleanSku;
         let hasEquivalence = !!skuMap[cleanSku];
-        let searchSku = mappedSku || item.variant_id.toString();
+        let fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : 'NO-SKU');
+        let searchSku = mappedSku || fallbackSku;
 
         // Buscar producto en catálogo por comercio y sku
         let query = supabase.from('products')
@@ -379,7 +380,7 @@ async function syncOrders(integration) {
 
         // Auto-crear producto si no existe
         if (!product) {
-          const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
+          const targetSku = hasEquivalence ? mappedSku : (item.sku || fallbackSku);
           const { data: newProd, error: prodErr } = await supabase
             .from('products')
             .insert([{
@@ -501,7 +502,7 @@ async function syncProducts(integration) {
         }
 
         for (const variant of product.variants) {
-          let variantSku = variant.sku || variant.id.toString();
+          let variantSku = variant.sku || (variant.id ? String(variant.id) : '');
           let cleanSku = variantSku.trim();
           if (!cleanSku) continue;
 

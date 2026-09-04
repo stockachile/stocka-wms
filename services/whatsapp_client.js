@@ -3,7 +3,7 @@
  * Compatible con Baileys local o Evolution API remota.
  */
 
-const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || ('http://127.0.0.1:' + (process.env.PORT || '3001'));
+const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com';
 const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
 
 const getHeaders = () => ({
