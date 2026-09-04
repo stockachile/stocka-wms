@@ -55901,17 +55901,16 @@ async function handleRloFormSubmit(e) {
       shipping_complement: customerComplement || null,
       shipping_method: `${shippingMethod} (Logística Inversa - ${type})`,
       operador: courier || 'STOCKA',
+      courier: courier || 'STOCKA',
       origen: 'Logística Inversa',
       external_platform: 'Logística Inversa',
       external_order_number: `LI-${refPedido}-${insertedRl.id.substring(0, 4).toUpperCase()}`,
       cantidad: totalWmsQty,
       sku: wmsSkus,
       item: wmsNames,
-      total_value: 0,
-      shipping_cost: responsablePago === 'comercio' ? costoEnvio : 0,
-      shipping_cost_tax: responsablePago === 'comercio' ? Math.round(costoEnvio * 0.19) : 0
+      total_value: 0
     };
-    
+
     const { data: insertedOrder, error: errOrder } = await supabase
       .from('orders')
       .insert([wmsOrderPayload])
