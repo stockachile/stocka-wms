@@ -514,7 +514,72 @@ serve(async (req) => {
       </div>
     `;
 
-    if (emailType === 'payment_overdue') {
+    if (emailType === 'payment_reminder') {
+      let serviceLabel = '';
+      let deadlineDateStr = '';
+      if (resolvedServiceType === 'fulfillment') {
+        serviceLabel = 'Fulfillment';
+        deadlineDateStr = formatDate(record?.fecha_limite);
+      } else if (resolvedServiceType === 'enviame') {
+        serviceLabel = 'Envíame';
+        deadlineDateStr = formatDate(record?.fecha_limite_enviame);
+      } else {
+        serviceLabel = 'Fulfillment y Envíame';
+        const fulfDate = record?.fecha_limite ? formatDate(record.fecha_limite) : '';
+        const envDate = record?.fecha_limite_enviame ? formatDate(record.fecha_limite_enviame) : '';
+        if (fulfDate && envDate && fulfDate !== envDate) {
+          deadlineDateStr = `${fulfDate} (Fulfillment) / ${envDate} (Envíame)`;
+        } else {
+          deadlineDateStr = fulfDate || envDate || '-';
+        }
+      }
+
+      emailSubject = `${isCorrection ? '[CORRECCION] ' : ''}[Recordatorio] Desglose ${serviceLabel} próximo a vencer - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #0284c7, #0369a1)';
+      emailTitle = 'Recordatorio de Vencimiento de Pago';
+
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Esperamos que se encuentren muy bien. Nos comunicamos para hacerles llegar un <strong>amable recordatorio</strong> respecto al desglose de sus servicios de <strong>${serviceLabel}</strong> correspondientes al periodo <strong>${periodName}</strong>, cuyo plazo de pago vence el próximo <strong>${deadlineDateStr}</strong>.
+        </div>
+
+        <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; border-left: 4px solid #0284c7; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 14px; color: #0369a1; line-height: 1.5;">
+          🗓️ <strong>Fecha límite de pago:</strong> ${deadlineDateStr}<br>
+          <span style="font-size: 13px; color: #0284c7; margin-top: 5px; display: inline-block;">
+            Les enviamos este aviso con anticipación para facilitar la programación de sus transferencias y asegurar la total continuidad y fluidez de sus operaciones logísticas y despachos.
+          </span>
+        </div>
+
+        ${servicesHtml}
+
+        <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total a Pagar:</span>
+          <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+        </div>
+
+        ${appealDeadlineNote}
+
+        ${paymentDetailsHtml}
+
+        <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
+          <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo reportar tu pago una vez realizado?</strong>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
+            <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Ingresa al portal <a href="https://stocka-wms.netlify.app" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">WMS Stocka</a>, navega a la sección <strong>Facturación</strong> y haz clic en el icono de adjunto (clip 📎) en el periodo correspondiente para subir tu comprobante de transferencia.</li>
+            <li style="margin-bottom: 6px;"><strong>Opción 2:</strong> Responde directamente a este correo adjuntando el comprobante emitido por tu banco.</li>
+          </ul>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>¿Ya realizaste la transferencia o tienes alguna consulta?</strong><br>
+          Si ya realizaste el pago en las últimas horas, por favor desestima este mensaje; nuestro equipo validará y actualizará tu estado a la brevedad.<br><br>
+          Si tienes alguna consulta, observación sobre el desglose o requieres asistencia, quedamos atentos respondiendo directamente a este correo o escribiéndonos a <a href="mailto:finanzas@stocka.cl" style="color:#2563eb; font-weight:600; text-decoration:underline;">finanzas@stocka.cl</a>.
+        </div>
+      `;
+    }
+    else if (emailType === 'payment_overdue') {
       let serviceLabel = '';
       if (resolvedServiceType === 'fulfillment') {
         serviceLabel = 'Fulfillment';

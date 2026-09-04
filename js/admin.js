@@ -31258,6 +31258,7 @@ window.openCommerceEmailHistoryModal = async function(recordId, commerceName, pe
     
     const typeTranslations = {
       'billing_summary': 'Resumen/Desglose',
+      'payment_reminder': 'Recordatorio Preventivo',
       'invoice_uploaded': 'Factura Cargada',
       'payment_overdue': 'Aviso de Vencimiento',
       'payment_overdue_manual': 'Aviso de Vencimiento',
@@ -31280,6 +31281,9 @@ window.openCommerceEmailHistoryModal = async function(recordId, commerceName, pe
         extraStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);';
       } else if (log.email_type === 'billing_summary') {
         badgeClass = 'status-purple';
+      } else if (log.email_type === 'payment_reminder') {
+        badgeClass = 'status-blue';
+        extraStyle = 'background: rgba(2, 132, 199, 0.1); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.2);';
       } else if (log.email_type === 'invoice_uploaded') {
         badgeClass = 'status-teal';
       } else {
@@ -42136,6 +42140,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
           <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">3. Tipo de Correo a Enviar</label>
           <select id="email-type-select" class="form-input" style="width: 100%;">
             <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
+            <option value="payment_reminder">Recordatorio de Vencimiento Próximo (Aviso preventivo amable)</option>
             <option value="invoice_uploaded">Notificación de Factura Cargada</option>
             <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
             <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
