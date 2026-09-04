@@ -39014,7 +39014,7 @@ window.showMerchantEditModal = async function(comercioName) {
 
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">ID Enviame</label>
-            <input type="text" id="merchant-edit-enviame-id" class="form-input" value="${commerce.enviame_id || ''}" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
+            <input type="text" id="merchant-edit-enviame-id" class="form-input" value="${commerce.enviame_id && String(commerce.enviame_id).trim().toLowerCase() !== 'null' ? commerce.enviame_id : ''}" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador del comercio en Enviame (número o ID).</p>
           </div>
 
@@ -39074,7 +39074,7 @@ window.showMerchantEditModal = async function(comercioName) {
 
           <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
             <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-catalog-ready" ${commerce.onboarding_checklist && commerce.onboarding_checklist.catalog_ready ? 'checked' : ''}>
+              <input type="checkbox" id="merchant-edit-catalog-ready" ${(commerce.onboarding_checklist && commerce.onboarding_checklist.catalog_ready) || commerce.inventario_seguimiento ? 'checked' : ''}>
               <span class="merchant-slider"></span>
             </label>
             <div>
@@ -39388,20 +39388,22 @@ window.showMerchantEditModal = async function(comercioName) {
     const newKamTelefono = document.getElementById('merchant-edit-kam-telefono')?.value.trim() || '';
     const newKamNotas = document.getElementById('merchant-edit-kam-notas')?.value.trim() || '';
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
-    const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
+    const rawEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
+    const isValidEnviame = !!(rawEnviameId && rawEnviameId.toLowerCase() !== 'null');
+    const newEnviameId = isValidEnviame ? rawEnviameId : null;
     const sendE3 = document.getElementById('merchant-edit-send-e3')?.checked || false;
     const inventoryInput = document.getElementById('merchant-edit-inventory');
     const newInventory = inventoryInput ? inventoryInput.checked : (commerce.inventario_seguimiento || false);
     const catalogReadyInput = document.getElementById('merchant-edit-catalog-ready');
-    const newCatalogReady = catalogReadyInput ? catalogReadyInput.checked : (commerce.onboarding_checklist?.catalog_ready || false);
+    const newCatalogReady = catalogReadyInput ? catalogReadyInput.checked : !!(commerce.onboarding_checklist?.catalog_ready || commerce.inventario_seguimiento);
     const newDefaultWh = document.getElementById('merchant-edit-default-warehouse')?.value || null;
 
     const oldChecklist = commerce.onboarding_checklist || {};
-    const oldCatalogReady = !!oldChecklist.catalog_ready;
+    const oldCatalogReady = !!(oldChecklist.catalog_ready || commerce.inventario_seguimiento);
     const updatedChecklist = {
       ...oldChecklist,
-      catalog_ready: newCatalogReady,
-      shipping_configured: !!newEnviameId
+      catalog_ready: !!(newCatalogReady || newInventory),
+      shipping_configured: isValidEnviame
     };
 
     // Obtener configuración de prefijos por plataforma
@@ -51454,7 +51456,7 @@ async function renderPresentationsDocsManager(container) {
 
         // Cargar y guardar configuración en pricing_config
         const { loadPricingConfig, savePricingConfig } = await import('./pricing_manager.js');
-        const currentConfig = await loadPricingConfig();
+        const currentConfig = await loadPricingConfig(supabase);
         if (!currentConfig.presentations) currentConfig.presentations = {};
 
         currentConfig.presentations.fulfillment_url = finalFulfillmentUrl;
@@ -51469,7 +51471,7 @@ async function renderPresentationsDocsManager(container) {
         if (urlCotizador) currentConfig.presentations.cotizador_url = urlCotizador;
         if (urlMeeting) currentConfig.presentations.meeting_url = urlMeeting;
 
-        await savePricingConfig(currentConfig);
+        await savePricingConfig(currentConfig, supabase);
 
         // Actualizar registros correspondientes en service_docs
         try {

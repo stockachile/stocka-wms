@@ -185,6 +185,93 @@ export async function getLiveUfValue() {
 }
 
 /**
+ * Sanitiza y fusiona cualquier configuración con DEFAULT_PRICING_CONFIG.
+ * Garantiza que order_ranges, storage_discounts, pick_pack_rules, etc.
+ * NUNCA sean undefined o arrays vacíos, incluso si la base de datos o localStorage
+ * contiene un objeto parcial o corrupto.
+ */
+export function sanitizeAndMergeConfig(customConfig) {
+  const defaults = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG));
+  if (!customConfig || typeof customConfig !== 'object') {
+    return defaults;
+  }
+
+  const merged = { ...defaults, ...customConfig };
+
+  // Validar order_ranges
+  if (!Array.isArray(merged.order_ranges) || merged.order_ranges.length === 0) {
+    merged.order_ranges = defaults.order_ranges;
+  }
+
+  // Validar storage_discounts
+  if (!Array.isArray(merged.storage_discounts) || merged.storage_discounts.length === 0) {
+    merged.storage_discounts = defaults.storage_discounts;
+  }
+
+  // Validar pick_pack_rules
+  if (!merged.pick_pack_rules || typeof merged.pick_pack_rules !== 'object') {
+    merged.pick_pack_rules = defaults.pick_pack_rules;
+  } else {
+    merged.pick_pack_rules = { ...defaults.pick_pack_rules, ...merged.pick_pack_rules };
+  }
+
+  // Validar fixed_service_fee
+  if (!merged.fixed_service_fee || typeof merged.fixed_service_fee !== 'object') {
+    merged.fixed_service_fee = defaults.fixed_service_fee;
+  } else {
+    merged.fixed_service_fee = { ...defaults.fixed_service_fee, ...merged.fixed_service_fee };
+  }
+
+  // Validar shipping
+  if (!merged.shipping || typeof merged.shipping !== 'object') {
+    merged.shipping = defaults.shipping;
+  } else {
+    merged.shipping = { ...defaults.shipping, ...merged.shipping };
+  }
+
+  // Validar regional_shipping
+  if (!merged.regional_shipping || typeof merged.regional_shipping !== 'object') {
+    merged.regional_shipping = defaults.regional_shipping;
+  } else {
+    merged.regional_shipping = { ...defaults.regional_shipping, ...merged.regional_shipping };
+    if (!Array.isArray(merged.regional_shipping.weight_brackets) || merged.regional_shipping.weight_brackets.length === 0) {
+      merged.regional_shipping.weight_brackets = defaults.regional_shipping.weight_brackets;
+    }
+    if (!Array.isArray(merged.regional_shipping.popular_destinations) || merged.regional_shipping.popular_destinations.length === 0) {
+      merged.regional_shipping.popular_destinations = defaults.regional_shipping.popular_destinations;
+    }
+  }
+
+  // Validar supplies
+  if (!merged.supplies || typeof merged.supplies !== 'object') {
+    merged.supplies = defaults.supplies;
+  } else {
+    merged.supplies = { ...defaults.supplies, ...merged.supplies };
+  }
+
+  // Validar services
+  if (!merged.services || typeof merged.services !== 'object') {
+    merged.services = defaults.services;
+  } else {
+    merged.services = { ...defaults.services, ...merged.services };
+  }
+
+  // Validar didactic_items
+  if (!Array.isArray(merged.didactic_items) || merged.didactic_items.length === 0) {
+    merged.didactic_items = defaults.didactic_items;
+  }
+
+  // Validar presentations
+  if (!merged.presentations || typeof merged.presentations !== 'object') {
+    merged.presentations = defaults.presentations;
+  } else {
+    merged.presentations = { ...defaults.presentations, ...merged.presentations };
+  }
+
+  return merged;
+}
+
+/**
  * Carga la configuración de precios desde Supabase o localStorage con fallback a la configuración por defecto.
  */
 export async function loadPricingConfig(supabaseClient = null) {
@@ -199,8 +286,7 @@ export async function loadPricingConfig(supabaseClient = null) {
         .eq('config_key', 'current_rates')
         .maybeSingle();
 
-      if (!error && data && data.data) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.data));
+      if (!error && data && data.data && typeof data.data === 'object') {
         loadedConfig = data.data;
       }
     } catch (e) {
@@ -211,10 +297,10 @@ export async function loadPricingConfig(supabaseClient = null) {
   // Fallback a localStorage
   if (!loadedConfig) {
     try {
-      const local = localStorage.getItem(STORAGE_KEY);
+      const local = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
       if (local) {
         const parsed = JSON.parse(local);
-        if (parsed && parsed.order_ranges) {
+        if (parsed && typeof parsed === 'object') {
           loadedConfig = parsed;
         }
       }
@@ -223,30 +309,40 @@ export async function loadPricingConfig(supabaseClient = null) {
     }
   }
 
-  // Fallback definitivo a defaults oficiales
-  if (!loadedConfig) {
-    loadedConfig = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG));
-  }
+  // Sanitizar y fusionar siempre con los defaults para evitar campos faltantes
+  const finalConfig = sanitizeAndMergeConfig(loadedConfig);
 
   // Actualizar UF en vivo para garantizar cálculo exacto con la UF real del día
   try {
     const liveUf = await getLiveUfValue();
     if (liveUf && liveUf > 30000) {
-      loadedConfig.uf_value = liveUf;
+      finalConfig.uf_value = liveUf;
     }
   } catch (e) {}
 
-  return loadedConfig;
+  // Guardar versión sanitizada completa en localStorage
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(finalConfig));
+    }
+  } catch (e) {}
+
+  return finalConfig;
 }
 
 /**
  * Guarda una nueva configuración de tarifas (sincroniza en Supabase y localStorage).
  */
 export async function savePricingConfig(newConfig, supabaseClient = null) {
-  newConfig.updated_at = new Date().toISOString();
+  const sanitized = sanitizeAndMergeConfig(newConfig);
+  sanitized.updated_at = new Date().toISOString();
   
   // Guardar en localStorage
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(newConfig));
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+  } catch (e) {}
 
   // Guardar en Supabase si está disponible
   if (supabaseClient) {
@@ -255,7 +351,7 @@ export async function savePricingConfig(newConfig, supabaseClient = null) {
         .from('pricing_config')
         .upsert({
           config_key: 'current_rates',
-          data: newConfig,
+          data: sanitized,
           updated_at: new Date().toISOString()
         }, { onConflict: 'config_key' });
 
@@ -284,9 +380,10 @@ export async function resetPricingConfigToDefaults(supabaseClient = null) {
  * Motor de Cálculo de Cotización.
  * Calcula Almacenamiento, Pick & Pack, Costo Fijo, Despachos y Extras.
  */
-export function calculateQuotation(inputs, config = DEFAULT_PRICING_CONFIG) {
-  const monthlyOrders = Math.max(0, parseInt(inputs.monthlyOrders, 10) || 0);
-  const storageVolumeM3 = Math.max(0, parseFloat(inputs.storageVolumeM3) || 0);
+export function calculateQuotation(inputs, customConfig = null) {
+  const config = sanitizeAndMergeConfig(customConfig);
+  const monthlyOrders = Math.max(0, parseInt(inputs?.monthlyOrders, 10) || 0);
+  const storageVolumeM3 = Math.max(0, parseFloat(inputs?.storageVolumeM3) || 0);
   const ufValue = parseFloat(config.uf_value) || 38500;
 
   // 1. Determinar el Rango Tarifario Activo según los pedidos mensuales

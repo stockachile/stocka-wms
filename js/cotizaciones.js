@@ -9,17 +9,17 @@ import {
   formatCLP, 
   generateWhatsAppLink,
   sendQuoteEmailViaBrevo
-} from './pricing_manager.js?v=1.3';
+} from './pricing_manager.js?v=1.4';
 
 let currentPricingConfig = null;
 let currentQuoteResult = null;
 let activeStorageMode = 'didactic'; // 'didactic' | 'pallets' | 'direct'
 
-// Elementos del DOM
-const elOrdersSlider = document.getElementById('input-orders-slider');
-const elOrdersNumber = document.getElementById('input-orders-number');
-const elVolumeSlider = document.getElementById('input-volume-slider');
-const elVolumeNumber = document.getElementById('input-volume-number');
+// Getters de Elementos del DOM dinámicos y seguros
+const getOrdersSlider = () => document.getElementById('input-orders-slider');
+const getOrdersNumber = () => document.getElementById('input-orders-number');
+const getVolumeSlider = () => document.getElementById('input-volume-slider');
+const getVolumeNumber = () => document.getElementById('input-volume-number');
 
 // Inicialización
 document.addEventListener('DOMContentLoaded', async () => {
@@ -39,16 +39,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (urlParams.has('pedidos')) {
     const initialOrders = parseInt(urlParams.get('pedidos'), 10);
     if (!isNaN(initialOrders) && initialOrders >= 0) {
-      if (elOrdersSlider) elOrdersSlider.value = initialOrders;
-      if (elOrdersNumber) elOrdersNumber.value = initialOrders;
+      const slider = getOrdersSlider();
+      const numberInput = getOrdersNumber();
+      if (slider) slider.value = initialOrders;
+      if (numberInput) numberInput.value = initialOrders;
     }
   }
   if (urlParams.has('volumen')) {
     const initialVol = parseFloat(urlParams.get('volumen'));
     if (!isNaN(initialVol) && initialVol >= 0) {
       activeStorageMode = 'direct';
-      if (elVolumeSlider) elVolumeSlider.value = initialVol;
-      if (elVolumeNumber) elVolumeNumber.value = initialVol;
+      const volSlider = getVolumeSlider();
+      const volNumber = getVolumeNumber();
+      if (volSlider) volSlider.value = initialVol;
+      if (volNumber) volNumber.value = initialVol;
       
       document.querySelectorAll('.mode-tab-btn').forEach(b => {
         if (b.getAttribute('data-mode') === 'direct') b.classList.add('active');
@@ -77,6 +81,9 @@ document.addEventListener('DOMContentLoaded', async () => {
  * Configuración de Eventos de la Interfaz
  */
 function setupEventListeners() {
+  const elOrdersSlider = getOrdersSlider();
+  const elOrdersNumber = getOrdersNumber();
+
   // Sincronización Slider y Number input de Pedidos
   if (elOrdersSlider && elOrdersNumber) {
     elOrdersSlider.addEventListener('input', () => {
@@ -86,8 +93,11 @@ function setupEventListeners() {
     });
 
     elOrdersNumber.addEventListener('input', () => {
-      elOrdersSlider.value = Math.min(3000, Math.max(0, parseInt(elOrdersNumber.value, 10) || 0));
-      highlightActivePreset(parseInt(elOrdersNumber.value, 10));
+      const val = parseInt(elOrdersNumber.value, 10);
+      if (!isNaN(val)) {
+        elOrdersSlider.value = Math.min(3000, Math.max(0, val));
+        highlightActivePreset(val);
+      }
       recalculateAndRender();
     });
   }
@@ -97,8 +107,10 @@ function setupEventListeners() {
     btn.addEventListener('click', () => {
       const orders = parseInt(btn.getAttribute('data-orders'), 10);
       if (!isNaN(orders)) {
-        if (elOrdersSlider) elOrdersSlider.value = orders;
-        if (elOrdersNumber) elOrdersNumber.value = orders;
+        const slider = getOrdersSlider();
+        const numberInput = getOrdersNumber();
+        if (slider) slider.value = Math.min(3000, orders);
+        if (numberInput) numberInput.value = orders;
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         recalculateAndRender();
@@ -225,6 +237,8 @@ function setupEventListeners() {
   });
 
   // Slider y Number Input de Volumen Directo
+  const elVolumeSlider = getVolumeSlider();
+  const elVolumeNumber = getVolumeNumber();
   if (elVolumeSlider && elVolumeNumber) {
     elVolumeSlider.addEventListener('input', () => {
       elVolumeNumber.value = elVolumeSlider.value;
@@ -248,8 +262,10 @@ function setupEventListeners() {
 
       if (l > 0 && w > 0 && h > 0 && qty > 0) {
         const customM3 = ((l * w * h) / 1000000) * qty;
-        if (elVolumeNumber) elVolumeNumber.value = customM3.toFixed(2);
-        if (elVolumeSlider) elVolumeSlider.value = Math.min(40, customM3.toFixed(2));
+        const volNum = getVolumeNumber();
+        const volSlide = getVolumeSlider();
+        if (volNum) volNum.value = customM3.toFixed(2);
+        if (volSlide) volSlide.value = Math.min(40, customM3.toFixed(2));
         recalculateAndRender();
         alert(`Se han añadido ${customM3.toFixed(2)} m³ correspondientes a ${qty} cajas de ${l}×${w}×${h} cm.`);
       }
@@ -314,6 +330,7 @@ function setupEventListeners() {
  */
 function getCalculatedStorageVolume() {
   if (activeStorageMode === 'direct') {
+    const elVolumeNumber = getVolumeNumber();
     return Math.max(0.1, parseFloat(elVolumeNumber?.value) || 0.1);
   }
 
@@ -337,6 +354,8 @@ function getCalculatedStorageVolume() {
  */
 function syncStorageVolumeFromActiveMode() {
   const vol = getCalculatedStorageVolume();
+  const elVolumeNumber = getVolumeNumber();
+  const elVolumeSlider = getVolumeSlider();
   if (elVolumeNumber) elVolumeNumber.value = vol.toFixed(2);
   if (elVolumeSlider) elVolumeSlider.value = Math.min(40, vol.toFixed(2));
 }
@@ -359,30 +378,35 @@ function highlightActivePreset(orders) {
  * Recalcula todas las tarifas y actualiza el DOM
  */
 function recalculateAndRender() {
-  const monthlyOrders = parseInt(elOrdersNumber?.value, 10) || 0;
-  const storageVolumeM3 = getCalculatedStorageVolume();
+  try {
+    const elOrdersNumber = getOrdersNumber();
+    const monthlyOrders = parseInt(elOrdersNumber?.value, 10) || 0;
+    const storageVolumeM3 = getCalculatedStorageVolume();
 
-  const inputs = {
-    monthlyOrders,
-    storageVolumeM3,
-    skuPerOrder: parseInt(document.getElementById('input-sku-per-order')?.value, 10) || 1,
-    unitsPerOrder: parseInt(document.getElementById('input-units-per-order')?.value, 10) || 1,
-    isProtectedSale: document.getElementById('switch-protected-sale')?.checked || false,
-    hasOver100SkuCatalogue: document.getElementById('switch-catalogue-100')?.checked || false,
-    isMarketplaceCollect: document.getElementById('switch-marketplace-collect')?.checked || false,
-    shipmentsSameDay: parseInt(document.getElementById('input-shipments-sameday')?.value, 10) || 0,
-    shipmentsCourier: parseInt(document.getElementById('input-shipments-courier')?.value, 10) || 0,
-    regionalWeightBracket: document.getElementById('select-regional-weight')?.value || '1_3kg',
-    pickupsExpress: parseInt(document.getElementById('input-pickups-express')?.value, 10) || 0,
-    bubbleWrapSqm: parseFloat(document.getElementById('input-bubble-wrap')?.value) || 0,
-    boxesS: parseInt(document.getElementById('input-box-s')?.value, 10) || 0,
-    hasPosService: document.getElementById('check-pos-service')?.checked || false,
-    hasVitrinaService: document.getElementById('check-vitrina-service')?.checked || false,
-    unloadingVolumeM3: parseFloat(document.getElementById('input-unloading-m3')?.value) || 0
-  };
+    const inputs = {
+      monthlyOrders,
+      storageVolumeM3,
+      skuPerOrder: parseInt(document.getElementById('input-sku-per-order')?.value, 10) || 1,
+      unitsPerOrder: parseInt(document.getElementById('input-units-per-order')?.value, 10) || 1,
+      isProtectedSale: document.getElementById('switch-protected-sale')?.checked || false,
+      hasOver100SkuCatalogue: document.getElementById('switch-catalogue-100')?.checked || false,
+      isMarketplaceCollect: document.getElementById('switch-marketplace-collect')?.checked || false,
+      shipmentsSameDay: parseInt(document.getElementById('input-shipments-sameday')?.value, 10) || 0,
+      shipmentsCourier: parseInt(document.getElementById('input-shipments-courier')?.value, 10) || 0,
+      regionalWeightBracket: document.getElementById('select-regional-weight')?.value || '1_3kg',
+      pickupsExpress: parseInt(document.getElementById('input-pickups-express')?.value, 10) || 0,
+      bubbleWrapSqm: parseFloat(document.getElementById('input-bubble-wrap')?.value) || 0,
+      boxesS: parseInt(document.getElementById('input-box-s')?.value, 10) || 0,
+      hasPosService: document.getElementById('check-pos-service')?.checked || false,
+      hasVitrinaService: document.getElementById('check-vitrina-service')?.checked || false,
+      unloadingVolumeM3: parseFloat(document.getElementById('input-unloading-m3')?.value) || 0
+    };
 
-  currentQuoteResult = calculateQuotation(inputs, currentPricingConfig);
-  renderQuotation(currentQuoteResult);
+    currentQuoteResult = calculateQuotation(inputs, currentPricingConfig);
+    renderQuotation(currentQuoteResult);
+  } catch (err) {
+    console.error("Error en recalculateAndRender:", err);
+  }
 }
 
 /**
