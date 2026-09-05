@@ -651,7 +651,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
   // Buscar pedido en BD
   const { data: existingOrder } = await supabase
     .from("orders")
-    .select("id, status, estado_wms, raw_woocommerce_data")
+    .select("id, status, estado_wms, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
     .eq("comercio", comercio)
     .in("external_order_number", [baseNumber, finalOrderNumber])
     .maybeSingle();
@@ -661,17 +661,32 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     return await handleWooOrderCreate(merchantId, comercio, order);
   }
 
+  const existingRaw = (existingOrder as any).raw_woocommerce_data || {};
+  const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
+  const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+
   const updatedData: Record<string, any> = {
     payment_status: order.date_paid ? "PAID" : (order.status === "processing" || order.status === "completed" ? "PAID" : "PENDING"),
-    total_value: Number(order.total || 0),
-    customer_phone: order.billing?.phone || order.shipping?.phone || "No especificado",
-    customer_name: `${order.shipping?.first_name || order.billing?.first_name || ""} ${order.shipping?.last_name || order.billing?.last_name || ""}`.trim() || "Cliente WooCommerce",
-    shipping_address: order.shipping?.address_1 || order.billing?.address_1 || "No especificada",
-    shipping_city: order.shipping?.city || order.billing?.city || "No especificada",
-    shipping_complement: [order.shipping?.address_2 || order.billing?.address_2, order.shipping?.state || order.billing?.state, order.shipping?.postcode || order.billing?.postcode].filter(Boolean).join(", ") || "",
     shipping_method: order.shipping_lines?.[0]?.method_title || "Por definir",
-    raw_woocommerce_data: order
+    raw_woocommerce_data: {
+      ...order,
+      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+    }
   };
+
+  if (!isWmsItemsEdited) {
+    updatedData.total_value = Number(order.total || 0);
+  }
+
+  if (!isWmsShippingEdited) {
+    updatedData.customer_phone = order.billing?.phone || order.shipping?.phone || "No especificado";
+    updatedData.customer_name = `${order.shipping?.first_name || order.billing?.first_name || ""} ${order.shipping?.last_name || order.billing?.last_name || ""}`.trim() || "Cliente WooCommerce";
+    updatedData.shipping_address = order.shipping?.address_1 || order.billing?.address_1 || "No especificada";
+    updatedData.shipping_city = order.shipping?.city || order.billing?.city || "No especificada";
+    updatedData.shipping_complement = [order.shipping?.address_2 || order.billing?.address_2, order.shipping?.state || order.billing?.state, order.shipping?.postcode || order.billing?.postcode].filter(Boolean).join(", ") || "";
+  }
 
   if (isCancelled && existingOrder.status !== "cancelado") {
     updatedData.status = "cancelado";
@@ -701,8 +716,7 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
     }
   } else {
     // Smart Diffing de ítems si no ha sido editado manualmente en WMS
-    const isWmsEdited = !!(existingOrder.raw_woocommerce_data && existingOrder.raw_woocommerce_data.wms_items_edited);
-    if (!isWmsEdited && order.line_items && Array.isArray(order.line_items)) {
+    if (!isWmsItemsEdited && order.line_items && Array.isArray(order.line_items)) {
       // Cargar equivalencias
       const skuMap: Record<string, string> = {};
       try {

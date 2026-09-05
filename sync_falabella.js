@@ -353,7 +353,7 @@ async function syncMerchantOrders(integration) {
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, label_base64, comercio')
+        .select('id, status, estado_wms, label_base64, comercio, raw_falabella_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderNumber])
         .eq('external_platform', 'Falabella')
@@ -365,35 +365,36 @@ async function syncMerchantOrders(integration) {
 
       if (existingOrder) {
         localOrderId = existingOrder.id;
-        
+        const existingRaw = existingOrder.raw_falabella_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+
+        const updatePayload: Record<string, any> = {
+          payment_status: statusName,
+          shipping_method: shippingMethodVal,
+          tracking_number: trackingNum,
+          courier: courierName,
+          raw_falabella_data: {
+            ...order,
+            ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+            ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+            ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+          }
+        };
+
         // Si el pedido se canceló en origen, actualizar su estado en WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
+          updatePayload.status = 'cancelado';
           await supabase
             .from('orders')
-            .update({ 
-              payment_status: statusName, 
-              status: 'cancelado', 
-              comercio: integration.comercio, 
-              shipping_method: shippingMethodVal,
-              tracking_number: trackingNum,
-              courier: courierName,
-              created_at: new Date(order.CreatedAt).toISOString() 
-            })
+            .update(updatePayload)
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ 
-              payment_status: statusName, 
-              raw_falabella_data: order, 
-              comercio: integration.comercio, 
-              shipping_method: shippingMethodVal,
-              tracking_number: trackingNum,
-              courier: courierName,
-              created_at: new Date(order.CreatedAt).toISOString() 
-            })
+            .update(updatePayload)
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${finalOrderNumber} (Tracking: ${trackingNum}, Courier: ${courierName})`);
         }
@@ -411,15 +412,17 @@ async function syncMerchantOrders(integration) {
           }
         }
 
-        // Verificar si la orden existente ya tiene items en la tabla order_items
-        const { data: existingItems, error: itemsCheckErr } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('order_id', localOrderId);
+        // Verificar si la orden existente ya tiene items en la tabla order_items (solo si no fue editado en WMS)
+        if (!isWmsItemsEdited) {
+          const { data: existingItems, error: itemsCheckErr } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', localOrderId);
 
-        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
-          shouldInsertItems = true;
+          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+            console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+            shouldInsertItems = true;
+          }
         }
       } else {
         // Descargar etiqueta de despacho

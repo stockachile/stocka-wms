@@ -545,7 +545,7 @@ async function syncMerchantOrders(integration) {
       const cleanMeliId = groupId.replace(/\D/g, "");
       const { data: existingOrders } = await supabase
         .from('orders')
-        .select('id, status, comercio, external_order_number')
+        .select('id, status, estado_wms, comercio, external_order_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_platform', 'MercadoLibre')
         .ilike('external_order_number', `%${cleanMeliId}`);
@@ -557,20 +557,27 @@ async function syncMerchantOrders(integration) {
 
       if (existingOrder) {
         localOrderId = existingOrder.id;
+        const existingRaw = existingOrder.raw_meli_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
         // Si se canceló en MercadoLibre, cancelarlo en el WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado', created_at: group.date_created })
+            .update({ payment_status: group.status, status: 'cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido sin sobreescribir el comercio para preservar reasignaciones manuales
           const updatePayload = {
             payment_status: group.status,
-            raw_meli_data: group.orders,
-            created_at: group.date_created,
+            raw_meli_data: {
+              ...(Array.isArray(group.orders) ? { orders: group.orders } : group.orders),
+              ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+              ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+              ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+            },
             shipping_method: shippingMethod
           };
           
@@ -586,14 +593,16 @@ async function syncMerchantOrders(integration) {
           console.log(`📝 Actualizado pedido local ${finalGroupId} (Estado: ${targetStatus}, SLA: ${formattedSla})`);
         }
 
-        // Verificar si tiene ítems registrados
-        const { data: existingItems, error: itemsCheckErr } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('order_id', localOrderId);
+        // Verificar si tiene ítems registrados (solo si no fue editado en WMS)
+        if (!isWmsItemsEdited) {
+          const { data: existingItems, error: itemsCheckErr } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', localOrderId);
 
-        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          shouldInsertItems = true;
+          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+            shouldInsertItems = true;
+          }
         }
       } else {
         // C. Es un pedido nuevo: Procesar ítems y registrar en WMS

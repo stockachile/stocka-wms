@@ -191,7 +191,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   // Verificar si existe el pedido (tolerante a cambios de prefijo)
   const { data: existingOrder } = await supabase
     .from('orders')
-    .select('id, status, estado_wms')
+    .select('id, status, estado_wms, raw_jumpseller_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
     .eq('merchant_id', merchantId)
     .in('external_order_number', [orderNumber, finalOrderNumber])
     .eq('external_platform', 'Jumpseller')
@@ -219,7 +219,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
   const totalValue = Number(order.total || 0);
 
-  const orderData = {
+  const orderData: Record<string, any> = {
     merchant_id: merchantId,
     comercio: comercio,
     external_order_number: finalOrderNumber,
@@ -245,8 +245,36 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   let shouldInsertItems = false;
 
   if (existingOrder) {
+    const existingRaw = (existingOrder as any).raw_jumpseller_data || {};
+    const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
+    const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+    const orderDataToUpdate = { ...orderData };
+
+    if (isWmsItemsEdited) {
+      delete orderDataToUpdate.sku;
+      delete orderDataToUpdate.item;
+      delete orderDataToUpdate.cantidad;
+      delete orderDataToUpdate.total_value;
+    }
+
+    if (isWmsShippingEdited) {
+      delete orderDataToUpdate.customer_name;
+      delete orderDataToUpdate.customer_email;
+      delete orderDataToUpdate.customer_phone;
+      delete orderDataToUpdate.shipping_address;
+      delete orderDataToUpdate.shipping_city;
+      delete orderDataToUpdate.shipping_complement;
+    }
+
+    orderDataToUpdate.raw_jumpseller_data = {
+      ...order,
+      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+    };
+
     // Si ya existe, actualizamos cabecera
-    await supabase.from('orders').update(orderData).eq('id', existingOrder.id);
+    await supabase.from('orders').update(orderDataToUpdate).eq('id', existingOrder.id);
     localOrderId = existingOrder.id;
 
     // Alertas críticas si el pedido ya está siendo preparado o protección si ya está cerrado
@@ -255,7 +283,9 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
     const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
 
-    if (isClosedOrDispatched) {
+    if (isWmsItemsEdited) {
+      console.log(`Pedido ${orderNumber} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items.`);
+    } else if (isClosedOrDispatched) {
       console.log(`Pedido ${orderNumber} ya está en estado final (${existingOrder.status}). Omitiendo diffing.`);
     } else if (estadosCriticos.includes(wmsStatus.toLowerCase())) {
       await supabase.from("order_alerts").insert([{

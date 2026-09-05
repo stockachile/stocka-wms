@@ -267,7 +267,7 @@ async function syncMerchantOrders(integration) {
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, comercio')
+        .select('id, status, estado_wms, comercio, raw_ripley_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, wms_items_edited, wms_shipping_edited')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderId])
         .eq('external_platform', 'Ripley')
@@ -308,20 +308,15 @@ async function syncMerchantOrders(integration) {
 
       // Calcular método de envío
       const baseMethod = order.shipping_type_label || order.shipping_company || 'Despacho Ripley';
-      const limitDateStr = order.shipping_deadline;
       let shippingMethodVal = baseMethod;
-      if (limitDateStr) {
+      if (order.shipping_deadline) {
         try {
-          const dateObj = new Date(limitDateStr);
-          if (!isNaN(dateObj.getTime())) {
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const year = String(dateObj.getFullYear()).slice(-2);
-            shippingMethodVal = `${baseMethod} (Límite: ${day}/${month}/${year})`;
-          }
-        } catch (e) {
-          console.error("Error formatting shipping_deadline:", e);
-        }
+          const dlDate = new Date(order.shipping_deadline);
+          const day = dlDate.getDate().toString().padStart(2, '0');
+          const month = (dlDate.getMonth() + 1).toString().padStart(2, '0');
+          const year = dlDate.getFullYear().toString().slice(-2);
+          shippingMethodVal = `${baseMethod} (Límite: ${day}/${month}/${year})`;
+        } catch (e) {}
       }
 
       // Mapear datos comunes del pedido
@@ -351,33 +346,59 @@ async function syncMerchantOrders(integration) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
+        const existingRaw = existingOrder.raw_ripley_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+        const orderDataToUpdate = { ...orderDataToSave };
+
+        if (isWmsItemsEdited) {
+          delete orderDataToUpdate.sku;
+          delete orderDataToUpdate.item;
+          delete orderDataToUpdate.cantidad;
+          delete orderDataToUpdate.total_value;
+        }
+
+        if (isWmsShippingEdited) {
+          delete orderDataToUpdate.customer_name;
+          delete orderDataToUpdate.customer_email;
+          delete orderDataToUpdate.customer_phone;
+          delete orderDataToUpdate.shipping_address;
+          delete orderDataToUpdate.shipping_city;
+          delete orderDataToUpdate.shipping_complement;
+        }
+
+        orderDataToUpdate.raw_ripley_data = {
+          ...order,
+          ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+          ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+          ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+        };
+
         // No sobreescribir estados terminales en WMS
         const isTerminalWMS = ['despachado', 'cancelado', 'entregado', 'retirado'].includes(existingOrder.status);
         
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ ...orderDataToSave, status: 'cancelado' })
+            .update({ ...orderDataToUpdate, status: 'cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderId} cancelado en Ripley. Actualizado en el WMS.`);
         } else if (!isTerminalWMS) {
           // Actualizar datos del pedido manteniendo el estado WMS actual o transicionando a despachado
-          const dataToUpdate = { ...orderDataToSave };
           if (isDelivered) {
-            dataToUpdate.status = 'despachado';
+            orderDataToUpdate.status = 'despachado';
           }
           await supabase
             .from('orders')
-            .update(dataToUpdate)
+            .update(orderDataToUpdate)
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${finalOrderId}`);
         } else {
-          // Si ya está terminal, actualizar solo la metadata cruda y de soporte sin tocar estado
+          // Si ya está terminal, actualizar solo la metadata cruda y de soporte sin tocar estado ni items editados
           await supabase
             .from('orders')
             .update({
-              raw_ripley_data: order,
-              total_value: totalValue,
+              raw_ripley_data: orderDataToUpdate.raw_ripley_data,
               payment_status: statusName
             })
             .eq('id', existingOrder.id);
@@ -385,14 +406,16 @@ async function syncMerchantOrders(integration) {
         }
         localOrderId = existingOrder.id;
 
-        // Verificar si tiene ítems registrados
-        const { data: existingItems, error: itemsCheckErr } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('order_id', localOrderId);
+        // Verificar si tiene ítems registrados (solo si no fue editado en WMS)
+        if (!isWmsItemsEdited) {
+          const { data: existingItems, error: itemsCheckErr } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', localOrderId);
 
-        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          shouldInsertItems = true;
+          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+            shouldInsertItems = true;
+          }
         }
       } else if (isActive) {
         // Insertar nuevo pedido activo en WMS

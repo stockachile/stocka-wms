@@ -259,7 +259,7 @@ async function syncOrders(integration) {
       // Intentar buscar si el pedido ya existe en nuestra BD
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, comercio')
+        .select('id, comercio, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_order_number', finalOrderNumber)
         .eq('external_platform', 'Shopify')
@@ -292,16 +292,36 @@ async function syncOrders(integration) {
 
       let orderId;
       if (existingOrder) {
-        const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
+        const existingRaw = existingOrder.raw_shopify_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
         
         // Si el pedido fue editado manualmente en WMS, no sobrescribir SKU, item, cantidad ni total_value
-        if (isWmsEdited) {
+        if (isWmsItemsEdited) {
           delete orderDataToUpdate.sku;
           delete orderDataToUpdate.item;
           delete orderDataToUpdate.cantidad;
           delete orderDataToUpdate.total_value;
         }
+
+        // Si los datos de despacho fueron editados en WMS, no sobrescribir dirección ni datos de contacto
+        if (isWmsShippingEdited) {
+          delete orderDataToUpdate.customer_name;
+          delete orderDataToUpdate.customer_email;
+          delete orderDataToUpdate.customer_phone;
+          delete orderDataToUpdate.shipping_address;
+          delete orderDataToUpdate.shipping_city;
+          delete orderDataToUpdate.shipping_complement;
+        }
+
+        // Preservar las banderas dentro de raw_shopify_data para que no se borren en sincronizaciones
+        orderDataToUpdate.raw_shopify_data = {
+          ...order,
+          ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+          ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+          ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+        };
 
         // Actualizar pedido existente
         await supabase
@@ -312,8 +332,8 @@ async function syncOrders(integration) {
         console.log(`Actualizado pedido ${order.name}`);
 
         // Si el pedido fue editado en WMS o ya fue despachado, entregado, retirado o cancelado, NO tocar sus order_items
-        if (isWmsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
-          console.log(`Omite sync de ítems para pedido ${order.name} (${isWmsEdited ? 'Editado en WMS' : existingOrder.status})`);
+        if (isWmsItemsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+          console.log(`Omite sync de ítems para pedido ${order.name} (${isWmsItemsEdited ? 'Editado en WMS' : existingOrder.status})`);
           continue;
         }
       } else {

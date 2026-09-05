@@ -84,6 +84,87 @@
       50% { transform: scale(1.15); opacity: 1; }
       100% { transform: scale(0.9); opacity: 0.8; }
     }
+    
+    /* Floating Mercado Libre Sync Button */
+    .floating-meli-btn {
+      position: fixed;
+      bottom: 150px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
+      background-color: var(--color-surface);
+      color: var(--color-text-main);
+      border: 1px solid var(--color-border);
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: var(--shadow-md);
+      cursor: pointer;
+      z-index: 1000;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+    .floating-meli-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+      border-color: #ffe600;
+    }
+    .floating-meli-btn .badge-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid var(--color-surface);
+      background-color: #6b7280;
+      transition: background-color 0.3s;
+    }
+    .floating-meli-btn.status-active .badge-dot {
+      background-color: #f59e0b;
+      animation: pulse-dot-monitor 1.5s infinite;
+    }
+    .floating-meli-btn.status-success .badge-dot {
+      background-color: #10b981;
+    }
+    .floating-meli-btn.status-error .badge-dot {
+      background-color: #ef4444;
+      animation: pulse-dot-monitor 1s infinite;
+    }
+    .floating-meli-btn .badge-count {
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 99px;
+      background: #ffe600;
+      color: #1e293b;
+      font-size: 0.7rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .meli-panel {
+      position: fixed;
+      bottom: 210px;
+      right: 20px;
+      width: 380px;
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      z-index: 1001;
+      display: none;
+      flex-direction: column;
+      max-height: 520px;
+      overflow: hidden;
+      animation: monitor-slide-up 0.2s ease-out;
+    }
     .monitor-panel {
       position: fixed;
       bottom: 145px;
@@ -1448,13 +1529,17 @@
             <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.35;">
               Establece si el costo (estimado / real) de este ingreso de stock ya fue incorporado en la liquidación o facturación del comercio.
             </p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; align-items: center;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; align-items: center;">
               <div>
                 <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Estado de Cobro</label>
                 <select id="manage-dec-billing-status" class="form-input" style="height: 38px; font-size: 0.85rem; font-weight: 600; background: var(--color-bg); border-radius: 6px;">
                   <option value="Pendiente">⏳ Pendiente de Facturación</option>
                   <option value="Facturado">✅ Incluido en Facturación (Facturado)</option>
                 </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Periodo Facturación</label>
+                <input type="text" id="manage-dec-billing-period" class="form-input" placeholder="Ej: AGOSTO 2026" style="height: 38px; font-size: 0.85rem; font-weight: 700; background: var(--color-bg); border-radius: 6px; text-transform: uppercase;">
               </div>
               <div>
                 <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 3px; font-weight: 600;">Referencia / N° Factura (Opcional)</label>
@@ -2446,6 +2531,10 @@
   <!-- Barcode & QR Code Generator -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <!-- Chart.js, SheetJS & html2pdf -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script type="module" src="./js/label_generator.js"></script>
   <!-- Quill Rich Text Editor JS -->
   <script src="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.min.js"></script>
@@ -2456,10 +2545,35 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.2"></script>
-  <script type="module" src="./js/admin.js?v=1.0.66"></script>
+  <script type="module" src="./js/admin.js?v=1.0.67"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
+  <script type="module" src="./js/billing_generator.js?v=1.0.0"></script>
   <script src="./js/manifests.js"></script>
+
+  <!-- Floating Mercado Libre Sync Button -->
+  <button class="floating-meli-btn" id="meli-monitor-btn" title="Mercado Libre: Sincronización y Nuevos Pedidos" onclick="window.toggleMeliMonitorPanel()" style="display: flex;">
+    <img src="img/mercadolibre.png" alt="Mercado Libre" style="width: 26px; height: 26px; object-fit: contain; pointer-events: none;" onerror="this.outerHTML='<i class=\'ri-shopping-bag-3-fill\' style=\'color: #eab308;\'></i>'">
+    <span class="badge-dot"></span>
+    <span id="meli-badge-count" class="badge-count" style="display: none;">0</span>
+  </button>
+
+  <!-- Mercado Libre Monitor Panel -->
+  <div class="meli-panel" id="meli-monitor-panel">
+    <div class="monitor-panel-header" style="background: linear-gradient(135deg, rgba(255, 230, 0, 0.12) 0%, rgba(255, 230, 0, 0.02) 100%); border-bottom: 1px solid rgba(255, 230, 0, 0.25);">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <img src="img/mercadolibre.png" alt="Mercado Libre" style="width: 22px; height: 22px; object-fit: contain;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Mercado Libre Live</h4>
+      </div>
+      <button onclick="window.toggleMeliMonitorPanel()" style="background: transparent; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center;" title="Cerrar panel"><i class="ri-close-line"></i></button>
+    </div>
+    <div class="monitor-panel-body" id="meli-monitor-body" style="padding: 1rem; display: flex; flex-direction: column; gap: 1rem; max-height: 460px; overflow-y: auto;">
+      <div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: inline-block; margin-bottom: 0.5rem; color: #eab308;"></i>
+        <div>Cargando estado de Mercado Libre...</div>
+      </div>
+    </div>
+  </div>
 
   <!-- Floating Monitor Button -->
   <button class="floating-monitor-btn" id="wms-monitor-btn" title="Monitor de Emisión de Etiquetas" onclick="window.toggleWmsMonitorPanel()" style="display: flex;">

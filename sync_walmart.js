@@ -580,7 +580,7 @@ async function syncMerchantOrders(integration) {
       // B. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, comercio')
+        .select('id, status, estado_wms, comercio, raw_walmart_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_order_number', finalOrderId)
         .eq('external_platform', 'Walmart')
@@ -591,20 +591,27 @@ async function syncMerchantOrders(integration) {
 
       if (existingOrder) {
         localOrderId = existingOrder.id;
+        const existingRaw = existingOrder.raw_walmart_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
         // Si se canceló en Walmart, cancelarlo en el WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: finalWalmartStatus, status: 'cancelado', created_at: order.orderDate })
+            .update({ payment_status: finalWalmartStatus, status: 'cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderId} cancelado en Walmart. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido
           const updatePayload = {
             payment_status: finalWalmartStatus,
-            raw_walmart_data: order,
-            created_at: order.orderDate,
+            raw_walmart_data: {
+              ...order,
+              ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+              ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+              ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+            },
             shipping_method: shippingMethod
           };
           
@@ -620,14 +627,16 @@ async function syncMerchantOrders(integration) {
           console.log(`📝 Actualizado pedido local ${finalOrderId} (Estado: ${targetStatus})`);
         }
 
-        // Verificar si tiene ítems registrados
-        const { data: existingItems, error: itemsCheckErr } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('order_id', localOrderId);
+        // Verificar si tiene ítems registrados (solo si no fue editado en WMS)
+        if (!isWmsItemsEdited) {
+          const { data: existingItems, error: itemsCheckErr } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', localOrderId);
 
-        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          shouldInsertItems = true;
+          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+            shouldInsertItems = true;
+          }
         }
       } else {
         // C. Es un pedido nuevo

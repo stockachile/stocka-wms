@@ -34,8 +34,15 @@ serve(async (req) => {
       })
     }
 
-    // Parse platform from request body early
-    const { platform } = await req.json()
+    // Obtener la plataforma según el método HTTP
+    let platform = 'MercadoLibre'
+    if (req.method === 'GET') {
+      const url = new URL(req.url)
+      platform = url.searchParams.get('platform') || 'MercadoLibre'
+    } else {
+      const body = await req.json().catch(() => ({}))
+      platform = body.platform || 'MercadoLibre'
+    }
 
     // Verificar el rol del usuario
     const { data: profile, error: profErr } = await supabaseClient
@@ -104,6 +111,33 @@ serve(async (req) => {
     if (!githubPat) {
       return new Response(JSON.stringify({ error: 'Configuration error: GITHUB_PAT not set in Supabase Edge Functions' }), {
         status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    // Si es GET, consultar historial de ejecuciones del workflow
+    if (req.method === 'GET') {
+      const githubRes = await fetch(`https://api.github.com/repos/stockachile/stocka-wms/actions/workflows/${workflowFile}/runs?per_page=5`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${githubPat}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'Supabase-Edge-Function'
+        }
+      })
+
+      if (!githubRes.ok) {
+        const errText = await githubRes.text()
+        return new Response(JSON.stringify({ error: `GitHub API error: ${githubRes.status} - ${errText}` }), {
+          status: 502,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const runsData = await githubRes.json()
+      return new Response(JSON.stringify(runsData), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }

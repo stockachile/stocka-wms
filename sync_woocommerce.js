@@ -340,7 +340,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       // Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status')
+        .select('id, status, estado_wms, raw_woocommerce_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_order_number', finalOrderNumber)
         .maybeSingle();
@@ -390,32 +390,62 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
+        const existingRaw = existingOrder.raw_woocommerce_data || {};
+        const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+        const orderDataToUpdate = { ...orderDataToSave };
+
+        if (isWmsItemsEdited) {
+          delete orderDataToUpdate.sku;
+          delete orderDataToUpdate.item;
+          delete orderDataToUpdate.cantidad;
+          delete orderDataToUpdate.total_value;
+        }
+
+        if (isWmsShippingEdited) {
+          delete orderDataToUpdate.customer_name;
+          delete orderDataToUpdate.customer_email;
+          delete orderDataToUpdate.customer_phone;
+          delete orderDataToUpdate.shipping_address;
+          delete orderDataToUpdate.shipping_city;
+          delete orderDataToUpdate.shipping_complement;
+        }
+
+        orderDataToUpdate.raw_woocommerce_data = {
+          ...order,
+          ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+          ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+          ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+        };
+
         // Si el pedido se canceló en origen, actualizar su estado en WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ ...orderDataToSave, status: 'cancelado' })
+            .update({ ...orderDataToUpdate, status: 'cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalOrderNumber} cancelado en WooCommerce. Actualizado en el WMS.`);
         } else {
           // Actualizar datos de pedido manteniendo el estado actual del WMS
           await supabase
             .from('orders')
-            .update(orderDataToSave)
+            .update(orderDataToUpdate)
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${finalOrderNumber}`);
         }
         localOrderId = existingOrder.id;
 
-        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados
-        const { data: existingItems, error: itemsCheckErr } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('order_id', localOrderId);
+        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados (solo si no fue editado en WMS)
+        if (!isWmsItemsEdited) {
+          const { data: existingItems, error: itemsCheckErr } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('order_id', localOrderId);
 
-        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
-          shouldInsertItems = true;
+          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+            console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+            shouldInsertItems = true;
+          }
         }
       } else {
         // Insertar nuevo pedido en WMS

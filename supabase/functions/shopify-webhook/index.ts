@@ -352,7 +352,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status, estado_wms")
+    .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
     .eq("comercio", comercio)
     .eq("external_platform", "Shopify")
     .eq("external_order_number", finalOrderNumber)
@@ -364,18 +364,40 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  // Preparamos datos a actualizar (puede que haya cambiado dirección o estado de pago)
-  const updatedData = {
+  const existingRaw = (existingOrder as any).raw_shopify_data || {};
+  const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
+  const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+
+  // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
+  const updatedData: Record<string, any> = {
     payment_status: order.financial_status,
-    total_value: order.current_total_price,
-    shipping_address: order.shipping_address?.address1,
-    shipping_city: order.shipping_address?.city,
-    shipping_complement: order.shipping_address?.address2,
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
-    raw_shopify_data: order
+    raw_shopify_data: {
+      ...order,
+      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+    }
   };
 
-  // Si es cancelación, forzamos estado (opcional: o solo emitimos alerta y dejamos que operario cancele)
+  if (!isWmsItemsEdited) {
+    updatedData.total_value = order.current_total_price;
+  }
+
+  if (!isWmsShippingEdited) {
+    updatedData.shipping_address = order.shipping_address?.address1;
+    updatedData.shipping_city = order.shipping_address?.city;
+    updatedData.shipping_complement = order.shipping_address?.address2;
+    if (order.shipping_address) {
+      updatedData.customer_name = `${order.shipping_address.first_name || ''} ${order.shipping_address.last_name || ''}`.trim() || undefined;
+      updatedData.customer_phone = order.shipping_address.phone || undefined;
+    }
+    if (order.contact_email || order.email) {
+      updatedData.customer_email = order.contact_email || order.email;
+    }
+  }
+
+  // Si es cancelación, forzamos estado
   if (topic === "orders/cancelled") {
       updatedData.status = "cancelado";
   }
@@ -400,8 +422,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
   const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
   
-  const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
-  if (isWmsEdited) {
+  if (isWmsItemsEdited) {
     console.log(`Pedido ${order.name} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items desde Shopify.`);
     return;
   }

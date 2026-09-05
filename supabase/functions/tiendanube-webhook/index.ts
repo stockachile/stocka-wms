@@ -339,7 +339,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status, estado_wms")
+    .select("id, status, estado_wms, raw_tiendanube_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
     .eq("merchant_id", merchantId)
     .eq("external_order_number", finalOrderNumber)
     .maybeSingle();
@@ -348,6 +348,10 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
     console.log(`Pedido ${finalOrderNumber} no encontrado en WMS, ignorando actualización.`);
     return;
   }
+
+  const existingRaw = (existingOrder as any).raw_tiendanube_data || {};
+  const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
+  const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
   const statusName = order.status; 
   const paymentStatus = order.payment_status;
@@ -366,18 +370,29 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
     ? `${addr.first_name || ""} ${addr.last_name || ""}`.trim() 
     : (order.contact_name || order.customer?.name || "Cliente Tiendanube");
 
-  // Preparamos datos a actualizar
+  // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
   const updatedData: Record<string, any> = {
     payment_status: paymentStatus === "paid" ? "PAID" : "PENDING",
-    total_value: Number(order.total || 0),
-    customer_phone: addr?.phone || order.contact_phone || "No especificado",
-    customer_name: customerName,
-    shipping_address: addressString,
-    shipping_city: addr?.city || "No especificada",
-    shipping_complement: complementString,
     shipping_method: order.shipping_option || "Por definir",
-    raw_tiendanube_data: order
+    raw_tiendanube_data: {
+      ...order,
+      ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+      ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+      ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+    }
   };
+
+  if (!isWmsItemsEdited) {
+    updatedData.total_value = Number(order.total || 0);
+  }
+
+  if (!isWmsShippingEdited) {
+    updatedData.customer_phone = addr?.phone || order.contact_phone || "No especificado";
+    updatedData.customer_name = customerName;
+    updatedData.shipping_address = addressString;
+    updatedData.shipping_city = addr?.city || "No especificada";
+    updatedData.shipping_complement = complementString;
+  }
 
   if (isCancelled) {
     updatedData.status = "cancelado";
@@ -391,6 +406,11 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
 
   if (upErr) {
     console.error("Error actualizando pedido Tiendanube:", upErr);
+    return;
+  }
+
+  if (isWmsItemsEdited) {
+    console.log(`Pedido Tiendanube ${finalOrderNumber} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items.`);
     return;
   }
 

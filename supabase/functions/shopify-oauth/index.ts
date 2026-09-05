@@ -422,7 +422,7 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       const shopifyOrderIdStr = (order.id || "").toString();
       const { data: existingOrder } = await supabase
         .from("orders")
-        .select("id")
+        .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
         .eq("comercio", integration.comercio)
         .eq("external_platform", "Shopify")
         .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name}`)
@@ -430,19 +430,38 @@ async function syncShopifyOrders(integration: any): Promise<number> {
 
       let orderId: string;
       if (existingOrder) {
-        const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
+        const existingRaw = (existingOrder as any).raw_shopify_data || {};
+        const isWmsItemsEdited = (existingOrder as any).wms_items_edited === true || existingRaw.wms_items_edited === true;
+        const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+        
         const orderDataToUpdate = { ...orderDataToSave };
-        if (isWmsEdited) {
+        if (isWmsItemsEdited) {
           delete (orderDataToUpdate as any).sku;
           delete (orderDataToUpdate as any).item;
           delete (orderDataToUpdate as any).cantidad;
           delete (orderDataToUpdate as any).total_value;
         }
 
+        if (isWmsShippingEdited) {
+          delete (orderDataToUpdate as any).customer_name;
+          delete (orderDataToUpdate as any).customer_email;
+          delete (orderDataToUpdate as any).customer_phone;
+          delete (orderDataToUpdate as any).shipping_address;
+          delete (orderDataToUpdate as any).shipping_city;
+          delete (orderDataToUpdate as any).shipping_complement;
+        }
+
+        orderDataToUpdate.raw_shopify_data = {
+          ...order,
+          ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
+          ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
+          ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+        };
+
         await supabase.from("orders").update(orderDataToUpdate).eq("id", existingOrder.id);
         orderId = existingOrder.id;
 
-        if (isWmsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+        if (isWmsItemsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
           count++;
           continue;
         }

@@ -24454,6 +24454,123 @@ window.toggleDeclarationBillingStatus = async function(id, currentStatus) {
   }
 };
 
+window.changeDeclarationBillingPeriod = async function(declarationId, currentVal) {
+  let periodNames = [];
+  try {
+    const { data } = await supabase
+      .from('billing_periods')
+      .select('name, status')
+      .order('created_at', { ascending: false });
+    periodNames = (data || []).map(p => p.name);
+  } catch (e) {
+    console.warn('Error fetching billing_periods for declaration:', e);
+  }
+
+  if (periodNames.length === 0) {
+    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  }
+
+  const optionsHtml = periodNames.map(p => `
+    <option value="${p}" ${p === currentVal ? 'selected' : ''}>${p}</option>
+  `).join('');
+
+  const { value: selectedVal } = await Swal.fire({
+    title: 'Asignar Periodo de Facturación al Ingreso',
+    html: `
+      <div style="text-align: left; margin-bottom: 0.5rem;">
+        <label style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Selecciona el periodo oficial donde se facturará este ingreso de stock:</label>
+        <select id="swal-dec-period-selector" class="swal2-input" style="width: 100%; box-sizing: border-box; font-weight: 700; font-family: Outfit, sans-serif; height: 42px;">
+          <option value="">-- Sin periodo asignado (Pendiente) --</option>
+          ${optionsHtml}
+          <option value="__NEW__">+ Crear Nuevo Periodo...</option>
+        </select>
+        <p style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.6rem; line-height: 1.4;">
+          Al asociar este ingreso al periodo, su costo (real o estimado) se integrará automáticamente en la liquidación mensual de fulfillment de este cliente.
+        </p>
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: async () => {
+      const select = document.getElementById('swal-dec-period-selector');
+      const val = select ? select.value : '';
+      if (val === '__NEW__') {
+        const { value: customName } = await Swal.fire({
+          title: 'Nuevo Periodo de Facturación',
+          input: 'text',
+          inputLabel: 'Nombre del Periodo (ej: AGOSTO 2026)',
+          placeholder: 'MES AÑO',
+          showCancelButton: true,
+          confirmButtonText: 'Crear y Asignar',
+          confirmButtonColor: '#5f06fa'
+        });
+        if (!customName || !customName.trim()) return null;
+        const normName = customName.trim().toUpperCase();
+        try {
+          await supabase.from('billing_periods').insert([{ name: normName, status: 'activo' }]);
+        } catch (e) {}
+        return normName;
+      }
+      return val || null;
+    }
+  });
+
+  if (selectedVal === undefined) return; // cancelado por el usuario
+
+  const val = selectedVal ? selectedVal.trim().toUpperCase() : null;
+  const newBillingStatus = val ? 'Facturado' : 'Pendiente';
+
+  try {
+    const updatePayload = {
+      periodo_facturacion: val,
+      billing_status: newBillingStatus,
+      updated_at: new Date().toISOString()
+    };
+    if (newBillingStatus === 'Facturado') {
+      updatePayload.billed_at = new Date().toISOString();
+    }
+
+    let { error } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .eq('id', declarationId);
+
+    if (error && error.message && error.message.includes('periodo_facturacion')) {
+      console.warn('Columna periodo_facturacion aún no en SQL schema, guardando fallback en billing_notes:', error);
+      delete updatePayload.periodo_facturacion;
+      updatePayload.billing_notes = val ? `Periodo: ${val}` : null;
+      const resFallback = await supabase
+        .from('stock_declarations')
+        .update(updatePayload)
+        .eq('id', declarationId);
+      if (resFallback.error) throw resFallback.error;
+    } else if (error) {
+      throw error;
+    }
+
+    if (window.Swal) {
+      window.Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: val ? `Asignado al Periodo ${val}` : 'Periodo de facturación desvinculado',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+
+    if (typeof renderDeclarationsAdmin === 'function') {
+      renderDeclarationsAdmin();
+    }
+  } catch (err) {
+    console.error('Error actualizando periodo de facturación del ingreso:', err);
+    Swal.fire('Error', 'No se pudo asignar el periodo: ' + (err.message || err), 'error');
+  }
+};
+
 window.renderDeclarationsAdmin = async function() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando declaraciones de ingreso...</p>';
@@ -24592,20 +24709,28 @@ window.renderDeclarationsAdmin = async function() {
 
         const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
 
-        // Estado de Facturación
+        // Estado y Periodo de Facturación
         const billingStatus = dec.billing_status || 'Pendiente';
         const isBilled = billingStatus === 'Facturado';
+        const assignedPeriod = dec.periodo_facturacion || (dec.billing_notes && dec.billing_notes.match(/Periodo:\s*([^,\n]+)/i)?.[1]?.trim()) || '';
         const billingBadgeHtml = isBilled
           ? `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Facturado')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Facturado. Clic para alternar a Pendiente">
                <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
                  <i class="ri-checkbox-circle-fill" style="font-size: 0.85rem;"></i> Facturado
                </span>
-               ${dec.billing_notes ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
              </button>`
           : `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Pendiente')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Pendiente de facturación. Clic para marcar como Facturado">
                <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
                  <i class="ri-time-line" style="font-size: 0.85rem;"></i> Pendiente
                </span>
+             </button>`;
+
+        const periodBadgeHtml = assignedPeriod
+          ? `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-align: left;" title="Periodo asignado. Clic para cambiar">
+               <i class="ri-calendar-event-line"></i> ${assignedPeriod}
+             </button>`
+          : `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 3px; background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 6px; font-size: 0.7rem; font-weight: 500; cursor: pointer;" title="Asignar este ingreso a un periodo de facturación">
+               <i class="ri-calendar-2-line"></i> Asignar Periodo
              </button>`;
 
         rowsHtml += `
@@ -24663,7 +24788,13 @@ window.renderDeclarationsAdmin = async function() {
                 <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
               </div>
             </td>
-            <td style="font-size: 0.85rem;">${billingBadgeHtml}</td>
+            <td style="font-size: 0.85rem;">
+              <div style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start;">
+                ${billingBadgeHtml}
+                ${periodBadgeHtml}
+                ${dec.billing_notes && !dec.billing_notes.startsWith('Periodo:') ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
+              </div>
+            </td>
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
             <td style="font-size: 0.85rem;">${statusBadge}</td>
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -24678,6 +24809,9 @@ window.renderDeclarationsAdmin = async function() {
                   </button>
                   <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
                     <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
+                  </button>
+                  <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
+                    <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
                   </button>
                   <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
                     <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
@@ -25649,6 +25783,11 @@ window.manageDeclaration = async function(id) {
     if (billingStatusEl) {
       billingStatusEl.value = dec.billing_status || 'Pendiente';
     }
+    const billingPeriodEl = document.getElementById('manage-dec-billing-period');
+    if (billingPeriodEl) {
+      const p = dec.periodo_facturacion || (dec.billing_notes && dec.billing_notes.match(/Periodo:\s*([^,\n]+)/i)?.[1]?.trim()) || '';
+      billingPeriodEl.value = p;
+    }
     const billingNotesEl = document.getElementById('manage-dec-billing-notes');
     if (billingNotesEl) {
       billingNotesEl.value = dec.billing_notes || '';
@@ -25797,6 +25936,7 @@ window.saveDeclarationBillingDirect = async function() {
   if (!id) return;
   
   const billingStatus = document.getElementById('manage-dec-billing-status')?.value || 'Pendiente';
+  const billingPeriod = document.getElementById('manage-dec-billing-period')?.value?.trim()?.toUpperCase() || null;
   const billingNotes = document.getElementById('manage-dec-billing-notes')?.value?.trim() || '';
   const adminNotes = document.getElementById('manage-dec-admin-notes')?.value?.trim() || '';
 
@@ -25809,6 +25949,7 @@ window.saveDeclarationBillingDirect = async function() {
   try {
     const updatePayload = {
       billing_status: billingStatus,
+      periodo_facturacion: billingPeriod,
       billing_notes: billingNotes,
       admin_notes: adminNotes,
       updated_at: new Date().toISOString()
@@ -25822,11 +25963,12 @@ window.saveDeclarationBillingDirect = async function() {
       .update(updatePayload)
       .eq('id', id);
 
-    if (error && error.message && error.message.includes('billing_status')) {
-      console.warn('Column billing_status not yet in SQL schema, falling back without billing columns:', error);
-      delete updatePayload.billing_status;
-      delete updatePayload.billing_notes;
-      delete updatePayload.billed_at;
+    if (error && error.message && (error.message.includes('periodo_facturacion') || error.message.includes('billing_status'))) {
+      console.warn('Column periodo_facturacion or billing_status not yet in SQL schema, falling back:', error);
+      delete updatePayload.periodo_facturacion;
+      if (billingPeriod && !billingNotes.includes(billingPeriod)) {
+        updatePayload.billing_notes = (billingNotes ? (billingNotes + ' | ') : '') + `Periodo: ${billingPeriod}`;
+      }
       const resFallback = await supabase
         .from('stock_declarations')
         .update(updatePayload)
@@ -28186,9 +28328,11 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
       <button class="billing-tab-btn" id="tab-notification-logs-btn" onclick="switchBillingAdminTab('notification-logs')"><i class="ri-history-line"></i> Historial de Notificaciones</button>
       <button class="billing-tab-btn" id="tab-observations-btn" onclick="switchBillingAdminTab('observations')"><i class="ri-question-answer-line"></i> Apelaciones / Observaciones <span id="pending-observations-badge" class="badge" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%; background: #d97706; color: white;">0</span></button>
+      <button class="billing-tab-btn" id="tab-generator-btn" onclick="switchBillingAdminTab('generator')"><i class="ri-calculator-line" style="color: #5f06fa;"></i> Gestor de Facturación</button>
       <button class="billing-tab-btn" id="tab-clickup-btn" onclick="switchBillingAdminTab('clickup')"><i class="ri-table-line"></i> Facturación ClickUp</button>
     </div>
     
+    <div id="tab-generator-content" style="display: none;"></div>
     <div id="tab-clickup-content" style="display: none;"></div>
     
     <div id="tab-control-content" style="display: none;">
@@ -28309,7 +28453,7 @@ window.renderBillingAdmin = async function() {
 };
 
 window.switchBillingAdminTab = function(tabName) {
-  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations', 'clickup'];
+  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations', 'generator', 'clickup'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
     const content = document.getElementById(`tab-${t}-content`);
@@ -28340,6 +28484,10 @@ window.switchBillingAdminTab = function(tabName) {
     loadNotificationLogsTab();
   } else if (tabName === 'observations') {
     loadBillingObservationsTab();
+  } else if (tabName === 'generator') {
+    if (window.renderBillingGeneratorAdmin) {
+      window.renderBillingGeneratorAdmin('tab-generator-content');
+    }
   } else if (tabName === 'clickup') {
     if (window.renderClickupFacturacionAdmin) {
       window.renderClickupFacturacionAdmin('tab-clickup-content');
@@ -28950,6 +29098,12 @@ async function loadBillingRecords(periodId, bodyElement) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <div style="display: inline-flex; gap: 0.25rem;">
+              <button class="btn btn-outline btn-sm" 
+                      onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" 
+                      style="padding: 0.15rem 0.35rem; border-color: #5f06fa; color: #5f06fa; background: rgba(95, 6, 250, 0.08);" 
+                      title="⚡ Abrir Gestor de Facturación y Desglose Oficial Stocka">
+                <i class="ri-calculator-line" style="font-size: 0.9rem;"></i>
+              </button>
               <button class="btn btn-outline btn-sm" 
                       onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
                       style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
@@ -40582,15 +40736,57 @@ window.editWmsOrderComuna = async function(orderId) {
       });
 
       try {
+        const targetOrder = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+        const rawKey = targetOrder?.raw_shopify_data ? 'raw_shopify_data' :
+                       (targetOrder?.raw_woocommerce_data ? 'raw_woocommerce_data' :
+                       (targetOrder?.raw_falabella_data ? 'raw_falabella_data' :
+                       (targetOrder?.raw_paris_data ? 'raw_paris_data' :
+                       (targetOrder?.raw_ripley_data ? 'raw_ripley_data' :
+                       (targetOrder?.raw_jumpseller_data ? 'raw_jumpseller_data' :
+                       (targetOrder?.raw_tiendanube_data ? 'raw_tiendanube_data' :
+                       (targetOrder?.raw_meli_data ? 'raw_meli_data' :
+                       (targetOrder?.raw_walmart_data ? 'raw_walmart_data' : null))))))));
+
+        const updatePayload = {
+          shipping_city: newComuna
+        };
+
+        if (rawKey && targetOrder[rawKey]) {
+          updatePayload[rawKey] = {
+            ...targetOrder[rawKey],
+            wms_shipping_edited: true,
+            wms_custom_edited: true
+          };
+        }
+
         const { error: updateErr } = await supabase
           .from('orders')
-          .update({ shipping_city: newComuna })
+          .update(updatePayload)
           .eq('id', orderId);
 
         if (updateErr) throw updateErr;
 
         if (order) {
           order.shipping_city = newComuna;
+          if (rawKey && updatePayload[rawKey]) {
+            order[rawKey] = updatePayload[rawKey];
+          }
+        }
+
+        // Registrar en order_audit_logs
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          await supabase.from('order_audit_logs').insert({
+            order_id: orderId,
+            user_id: session?.user?.id || null,
+            user_email: session?.user?.email || 'admin@stocka.cl',
+            action: 'Modificación de Comuna/Ciudad',
+            details: {
+              changes: [`Comuna/Ciudad cambiada a: "${newComuna}" (anterior: "${currentComuna || 'No registrada'}")`]
+            }
+          });
+        } catch (audErr) {
+          console.warn('Error registrando auditoría de comuna:', audErr);
         }
 
         Swal.fire('¡Éxito!', 'La comuna ha sido actualizada correctamente.', 'success');
@@ -40705,19 +40901,48 @@ window.editWmsOrderShippingDetails = async function(orderId) {
     });
 
     try {
+      const rawKey = order?.raw_shopify_data ? 'raw_shopify_data' :
+                     (order?.raw_woocommerce_data ? 'raw_woocommerce_data' :
+                     (order?.raw_falabella_data ? 'raw_falabella_data' :
+                     (order?.raw_paris_data ? 'raw_paris_data' :
+                     (order?.raw_ripley_data ? 'raw_ripley_data' :
+                     (order?.raw_jumpseller_data ? 'raw_jumpseller_data' :
+                     (order?.raw_tiendanube_data ? 'raw_tiendanube_data' :
+                     (order?.raw_meli_data ? 'raw_meli_data' :
+                     (order?.raw_walmart_data ? 'raw_walmart_data' : null))))))));
+
+      const updatePayload = {
+        customer_name: formValues.name || null,
+        customer_email: formValues.email || null,
+        customer_phone: formValues.phone || null,
+        shipping_address: formValues.address || null,
+        shipping_complement: formValues.complement || null,
+        shipping_city: formValues.city || null
+      };
+
+      if (rawKey && order[rawKey]) {
+        updatePayload[rawKey] = {
+          ...order[rawKey],
+          wms_shipping_edited: true,
+          wms_custom_edited: true
+        };
+      }
+
       const { error: updateErr } = await supabase
         .from('orders')
-        .update({
-          customer_name: formValues.name || null,
-          customer_email: formValues.email || null,
-          customer_phone: formValues.phone || null,
-          shipping_address: formValues.address || null,
-          shipping_complement: formValues.complement || null,
-          shipping_city: formValues.city || null
-        })
+        .update(updatePayload)
         .eq('id', orderId);
 
       if (updateErr) throw updateErr;
+
+      // Track changes for audit log
+      const changesList = [];
+      if (formValues.name !== displayName) changesList.push(`Nombre: "${displayName}" -> "${formValues.name}"`);
+      if (formValues.email !== displayEmail) changesList.push(`Email: "${displayEmail}" -> "${formValues.email}"`);
+      if (formValues.phone !== displayPhone) changesList.push(`Teléfono: "${displayPhone}" -> "${formValues.phone}"`);
+      if (formValues.address !== (order.shipping_address || '')) changesList.push(`Dirección: "${order.shipping_address || ''}" -> "${formValues.address}"`);
+      if (formValues.complement !== (order.shipping_complement || '')) changesList.push(`Complemento: "${order.shipping_complement || ''}" -> "${formValues.complement}"`);
+      if (formValues.city !== (order.shipping_city || '')) changesList.push(`Comuna/Ciudad: "${order.shipping_city || ''}" -> "${formValues.city}"`);
 
       // Update local memory cache
       order.customer_name = formValues.name;
@@ -40726,6 +40951,25 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       order.shipping_address = formValues.address;
       order.shipping_complement = formValues.complement;
       order.shipping_city = formValues.city;
+      if (rawKey && updatePayload[rawKey]) {
+        order[rawKey] = updatePayload[rawKey];
+      }
+
+      // Registrar en order_audit_logs
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await supabase.from('order_audit_logs').insert({
+          order_id: orderId,
+          user_id: session?.user?.id || null,
+          user_email: session?.user?.email || 'admin@stocka.cl',
+          action: 'Modificación de Datos de Despacho',
+          details: {
+            changes: changesList.length > 0 ? changesList : ['Datos de despacho actualizados']
+          }
+        });
+      } catch (audErr) {
+        console.warn('Error registrando auditoría de despacho:', audErr);
+      }
 
       Swal.fire('¡Éxito!', 'Los datos de despacho han sido actualizados correctamente.', 'success');
       window.applyWmsFiltersAndRender();
@@ -42266,20 +42510,69 @@ window.bulkSetWmsOrderOperador = async function() {
 };
 
 window.changeOrderBillingPeriod = async function(orderId, currentVal) {
-  const { value: newPeriod } = await Swal.fire({
+  let periodNames = [];
+  try {
+    const { data } = await supabase
+      .from('billing_periods')
+      .select('name, status')
+      .order('created_at', { ascending: false });
+    periodNames = (data || []).map(p => p.name);
+  } catch (e) {
+    console.warn('Error fetching billing_periods:', e);
+  }
+
+  if (periodNames.length === 0) {
+    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  }
+
+  const optionsHtml = periodNames.map(p => `
+    <option value="${p}" ${p === currentVal ? 'selected' : ''}>${p}</option>
+  `).join('');
+
+  const { value: selectedVal } = await Swal.fire({
     title: 'Asignar Periodo de Facturación',
-    input: 'text',
-    inputLabel: 'Periodo (ej: JUN26, JUL26)',
-    inputValue: currentVal,
-    placeholder: 'Escribe el periodo (dejar vacío para desmarcar)',
+    html: `
+      <div style="text-align: left; margin-bottom: 0.5rem;">
+        <label style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Selecciona un periodo oficial de facturación:</label>
+        <select id="swal-period-selector" class="swal2-input" style="width: 100%; box-sizing: border-box; font-weight: 700; font-family: Outfit, sans-serif; height: 42px;">
+          <option value="">-- Sin periodo asignado (Desmarcar) --</option>
+          ${optionsHtml}
+          <option value="__NEW__">+ Crear Nuevo Periodo...</option>
+        </select>
+      </div>
+    `,
+    focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Guardar',
-    cancelButtonText: 'Cancelar'
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: async () => {
+      const select = document.getElementById('swal-period-selector');
+      const val = select ? select.value : '';
+      if (val === '__NEW__') {
+        const { value: customName } = await Swal.fire({
+          title: 'Nuevo Periodo de Facturación',
+          input: 'text',
+          inputLabel: 'Nombre del Periodo (ej: AGOSTO 2026)',
+          placeholder: 'MES AÑO',
+          showCancelButton: true,
+          confirmButtonText: 'Crear y Asignar',
+          confirmButtonColor: '#5f06fa'
+        });
+        if (!customName || !customName.trim()) return null;
+        const normName = customName.trim().toUpperCase();
+        try {
+          await supabase.from('billing_periods').insert([{ name: normName, status: 'activo' }]);
+        } catch (e) {}
+        return normName;
+      }
+      return val || null;
+    }
   });
   
-  if (newPeriod === undefined) return; // cancelled
+  if (selectedVal === undefined) return; // cancelled
   
-  const val = newPeriod.trim().toUpperCase() || null;
+  const val = selectedVal ? selectedVal.trim().toUpperCase() : null;
   
   try {
     const { error } = await supabase
@@ -42320,19 +42613,69 @@ window.bulkSetWmsOrderBillingPeriod = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
 
-  const { value: newPeriod } = await Swal.fire({
-    title: 'Asignación Masiva: Periodo de Facturación',
-    input: 'text',
-    inputLabel: 'Periodo (ej: JUN26, JUL26)',
-    placeholder: 'Dejar vacío para desmarcar los pedidos seleccionados',
+  let periodNames = [];
+  try {
+    const { data } = await supabase
+      .from('billing_periods')
+      .select('name, status')
+      .order('created_at', { ascending: false });
+    periodNames = (data || []).map(p => p.name);
+  } catch (e) {
+    console.warn('Error fetching billing_periods:', e);
+  }
+
+  if (periodNames.length === 0) {
+    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  }
+
+  const optionsHtml = periodNames.map(p => `
+    <option value="${p}">${p}</option>
+  `).join('');
+
+  const { value: selectedVal } = await Swal.fire({
+    title: `Asignación Masiva: Periodo de Facturación (${ids.length} pedidos)`,
+    html: `
+      <div style="text-align: left; margin-bottom: 0.5rem;">
+        <label style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Selecciona el periodo a asignar a los pedidos seleccionados:</label>
+        <select id="swal-bulk-period-selector" class="swal2-input" style="width: 100%; box-sizing: border-box; font-weight: 700; font-family: Outfit, sans-serif; height: 42px;">
+          <option value="">-- Desmarcar / Quitar periodo de facturación --</option>
+          ${optionsHtml}
+          <option value="__NEW__">+ Crear Nuevo Periodo...</option>
+        </select>
+      </div>
+    `,
+    focusConfirm: false,
     showCancelButton: true,
     confirmButtonText: 'Guardar',
-    cancelButtonText: 'Cancelar'
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: async () => {
+      const select = document.getElementById('swal-bulk-period-selector');
+      const val = select ? select.value : '';
+      if (val === '__NEW__') {
+        const { value: customName } = await Swal.fire({
+          title: 'Nuevo Periodo de Facturación',
+          input: 'text',
+          inputLabel: 'Nombre del Periodo (ej: AGOSTO 2026)',
+          placeholder: 'MES AÑO',
+          showCancelButton: true,
+          confirmButtonText: 'Crear y Asignar',
+          confirmButtonColor: '#5f06fa'
+        });
+        if (!customName || !customName.trim()) return null;
+        const normName = customName.trim().toUpperCase();
+        try {
+          await supabase.from('billing_periods').insert([{ name: normName, status: 'activo' }]);
+        } catch (e) {}
+        return normName;
+      }
+      return val || null;
+    }
   });
 
-  if (newPeriod === undefined) return;
+  if (selectedVal === undefined) return;
 
-  const val = newPeriod.trim().toUpperCase() || null;
+  const val = selectedVal ? selectedVal.trim().toUpperCase() : null;
 
   try {
     Swal.fire({
@@ -43729,20 +44072,46 @@ window.saveEditOrderItems = async function(orderId, comment) {
     const totalValue = window.tempEditOrderItems.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
     const targetOrder = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
-    const updatedRawShopify = {
-      ...((targetOrder && targetOrder.raw_shopify_data) || {}),
-      wms_items_edited: true
+    
+    const rawKeys = [
+      'raw_shopify_data', 'raw_woocommerce_data', 'raw_falabella_data',
+      'raw_paris_data', 'raw_ripley_data', 'raw_jumpseller_data',
+      'raw_tiendanube_data', 'raw_meli_data', 'raw_walmart_data'
+    ];
+
+    const updatePayload = {
+      cantidad: totalCantidad,
+      sku: orderSkus,
+      item: orderItemsNames,
+      total_value: totalValue
     };
+
+    let updatedRawDataObj = null;
+    let foundRawKey = null;
+
+    rawKeys.forEach(key => {
+      if (targetOrder && targetOrder[key]) {
+        foundRawKey = key;
+        updatedRawDataObj = {
+          ...targetOrder[key],
+          wms_items_edited: true,
+          wms_custom_edited: true
+        };
+        updatePayload[key] = updatedRawDataObj;
+      }
+    });
+
+    // Si no tiene ningún rawKey existente, asignamos por defecto a raw_shopify_data para persistencia
+    if (!foundRawKey) {
+      updatePayload.raw_shopify_data = {
+        wms_items_edited: true,
+        wms_custom_edited: true
+      };
+    }
 
     const { error: orderUpdErr } = await supabase
       .from('orders')
-      .update({
-        cantidad: totalCantidad,
-        sku: orderSkus,
-        item: orderItemsNames,
-        total_value: totalValue,
-        raw_shopify_data: updatedRawShopify
-      })
+      .update(updatePayload)
       .eq('id', orderId);
 
     if (orderUpdErr) throw orderUpdErr;
@@ -43768,7 +44137,11 @@ window.saveEditOrderItems = async function(orderId, comment) {
       order.sku = orderSkus;
       order.item = orderItemsNames;
       order.total_value = totalValue;
-      order.raw_shopify_data = updatedRawShopify;
+      if (foundRawKey && updatedRawDataObj) {
+        order[foundRawKey] = updatedRawDataObj;
+      } else {
+        order.raw_shopify_data = updatePayload.raw_shopify_data;
+      }
 
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
@@ -53537,11 +53910,362 @@ window.updateWmsMonitorUI = async function() {
   }
 };
 
-// Iniciar monitoreo cuando el DOM esté listo
+// =======================================================
+// MONITOR FLOTANTE MERCADO LIBRE LIVE & AUTO-SYNC
+// =======================================================
+
+window.meliMonitorState = {
+  lastRuns: [],
+  isPolling: false,
+  pollIntervalId: null,
+  isSyncing: false,
+  lastOrderCount: null
+};
+
+window.toggleMeliMonitorPanel = function() {
+  const panel = document.getElementById('meli-monitor-panel');
+  if (!panel) return;
+  
+  if (panel.style.display === 'none' || !panel.style.display) {
+    const wmsPanel = document.getElementById('wms-monitor-panel');
+    if (wmsPanel) wmsPanel.style.display = 'none';
+
+    panel.style.display = 'flex';
+    window.updateMeliMonitorUI();
+  } else {
+    panel.style.display = 'none';
+  }
+};
+
+window.triggerMeliSyncFromGlobe = async function(btnElement) {
+  if (window.meliMonitorState.isSyncing) return;
+  window.meliMonitorState.isSyncing = true;
+
+  const btn = btnElement || document.getElementById('btn-meli-sync-now');
+  const monitorBtn = document.getElementById('meli-monitor-btn');
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Sincronizando Mercado Libre...`;
+  }
+  if (monitorBtn) {
+    monitorBtn.className = 'floating-meli-btn status-active';
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No autenticado en el WMS.");
+
+    const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ platform: 'MercadoLibre' })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+
+    if (window.Swal) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 4000,
+        timerProgressBar: true,
+        icon: 'info',
+        title: 'Sincronización Iniciada',
+        text: 'Consultando pedidos recientes en Mercado Libre...'
+      });
+    }
+
+    let pollCount = 0;
+    const quickPollInterval = setInterval(async () => {
+      pollCount++;
+      await window.updateMeliMonitorUI();
+      
+      const latest = (window.meliMonitorState.lastRuns || [])[0];
+      if ((latest && latest.status === 'completed' && pollCount > 2) || pollCount > 12) {
+        clearInterval(quickPollInterval);
+        window.meliMonitorState.isSyncing = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i class="ri-refresh-line"></i> Sincronizar Mercado Libre Ahora`;
+        }
+      }
+    }, 4000);
+
+  } catch (err) {
+    console.error('Error al sincronizar Mercado Libre:', err);
+    window.meliMonitorState.isSyncing = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ri-refresh-line"></i> Sincronizar Mercado Libre Ahora`;
+    }
+    if (monitorBtn) {
+      monitorBtn.className = 'floating-meli-btn status-error';
+    }
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error de Sincronización',
+        text: err.message || 'No se pudo iniciar la sincronización de Mercado Libre',
+        confirmButtonColor: '#7117eb'
+      });
+    }
+  }
+};
+
+window.startMeliMonitorPolling = function() {
+  if (window.meliMonitorState.isPolling) return;
+  window.meliMonitorState.isPolling = true;
+
+  window.updateMeliMonitorUI();
+  window.meliMonitorState.pollIntervalId = setInterval(window.updateMeliMonitorUI, 25000);
+};
+
+window.updateMeliMonitorUI = async function() {
+  const body = document.getElementById('meli-monitor-body');
+  const btn = document.getElementById('meli-monitor-btn');
+  const badgeCount = document.getElementById('meli-badge-count');
+  if (!btn) return;
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const todayIso = new Date();
+    todayIso.setHours(0, 0, 0, 0);
+    const startOfDay = todayIso.toISOString();
+
+    const [runsPromise, storesPromise, ordersPromise] = [
+      fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations?platform=MercadoLibre', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      }),
+      supabase.from('merchant_integrations').select('id, comercio, platform, is_active, last_sync_at, last_sync_error, username').eq('platform', 'MercadoLibre').order('comercio', { ascending: true }),
+      supabase.from('orders').select('id, status', { count: 'exact' }).eq('external_platform', 'MercadoLibre').gte('created_at', startOfDay)
+    ];
+
+    const [runsRes, storesRes, ordersRes] = await Promise.all([
+      runsPromise.then(r => r.ok ? r.json() : { workflow_runs: [] }).catch(() => ({ workflow_runs: [] })),
+      storesPromise,
+      ordersPromise
+    ]);
+
+    const runs = runsRes.workflow_runs || [];
+    const prevRuns = window.meliMonitorState.lastRuns || [];
+    window.meliMonitorState.lastRuns = runs;
+
+    const meliStores = storesRes.data || [];
+    const todayOrders = ordersRes.data || [];
+    const todayOrdersCount = ordersRes.count || 0;
+
+    const pendingPrepCount = todayOrders.filter(o => ['en preparación', 'para procesar', 'preparado'].includes(o.status)).length;
+
+    if (badgeCount) {
+      if (pendingPrepCount > 0) {
+        badgeCount.textContent = pendingPrepCount;
+        badgeCount.style.display = 'inline-flex';
+        badgeCount.title = `${pendingPrepCount} pedidos de Mercado Libre pendientes de preparación hoy`;
+      } else {
+        badgeCount.style.display = 'none';
+      }
+    }
+
+    const latestRun = runs[0];
+    const prevLatest = prevRuns[0];
+    if (latestRun && prevLatest && prevLatest.id === latestRun.id && prevLatest.status !== 'completed' && latestRun.status === 'completed') {
+      const isSuccess = latestRun.conclusion === 'success';
+
+      if (window.Swal) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: true,
+          confirmButtonText: 'Ver Pedidos',
+          timer: 10000,
+          timerProgressBar: true,
+          icon: isSuccess ? 'success' : 'error',
+          title: isSuccess ? 'Sincronización MeLi Finalizada' : 'Fallo en Sincronización MeLi',
+          text: isSuccess ? `Sincronización al día. Total pedidos MeLi hoy: ${todayOrdersCount}.` : 'Ocurrió un error en el workflow de sincronización.',
+          didOpen: (toast) => {
+            toast.addEventListener('click', () => {
+              const navOrders = document.querySelector('[data-view=orders_admin]');
+              if (navOrders) navOrders.click();
+              Swal.close();
+            });
+          }
+        });
+      }
+
+      if (isSuccess && typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+    }
+
+    const hasActiveRun = runs.some(r => r.status === 'queued' || r.status === 'in_progress') || window.meliMonitorState.isSyncing;
+    const hasErrorStore = meliStores.some(s => s.last_sync_error);
+    
+    let mostRecentSync = null;
+    meliStores.forEach(s => {
+      if (s.last_sync_at) {
+        const d = new Date(s.last_sync_at);
+        if (!mostRecentSync || d > mostRecentSync) mostRecentSync = d;
+      }
+    });
+
+    let syncMinutesAgo = null;
+    let syncTimeText = 'Sin datos recientes';
+    if (mostRecentSync) {
+      const diffMs = Date.now() - mostRecentSync.getTime();
+      syncMinutesAgo = Math.floor(diffMs / 60000);
+      if (syncMinutesAgo < 2) syncTimeText = 'Hace un momento';
+      else if (syncMinutesAgo < 60) syncTimeText = `Hace ${syncMinutesAgo} min`;
+      else syncTimeText = `Hace ${Math.floor(syncMinutesAgo / 60)}h ${syncMinutesAgo % 60}m`;
+    }
+
+    let btnClass = '';
+    if (hasActiveRun) {
+      btnClass = 'status-active';
+    } else if (hasErrorStore) {
+      btnClass = 'status-error';
+    } else if (syncMinutesAgo !== null && syncMinutesAgo < 35) {
+      btnClass = 'status-success';
+    } else {
+      btnClass = 'status-active';
+    }
+    btn.className = `floating-meli-btn ${btnClass}`;
+
+    const panel = document.getElementById('meli-monitor-panel');
+    if (!panel || panel.style.display === 'none') return;
+
+    const activeStoresCount = meliStores.filter(s => s.is_active).length;
+    const errorStoresCount = meliStores.filter(s => s.last_sync_error).length;
+
+    let panelHtml = `
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.65rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 700; color: var(--color-text-main);">
+            <span style="width: 9px; height: 9px; border-radius: 50%; background: ${hasErrorStore ? '#ef4444' : '#10b981'}; display: inline-block;"></span>
+            ${activeStoresCount} tiendas activas ${errorStoresCount > 0 ? `<span style="color: #ef4444; font-size: 0.75rem;">(${errorStoresCount} con alerta)</span>` : ''}
+          </div>
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);" title="Última sincronización detectada">
+            <i class="ri-time-line"></i> ${syncTimeText}
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; background: var(--color-surface); padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid var(--color-border);">
+          <div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700;">Pedidos MeLi Hoy</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${todayOrdersCount}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700;">En Preparación</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #f59e0b; margin-top: 0.1rem;">${pendingPrepCount}</div>
+          </div>
+        </div>
+
+        <button id="btn-meli-sync-now" onclick="window.triggerMeliSyncFromGlobe(this)" ${hasActiveRun ? 'disabled' : ''} style="width: 100%; height: 38px; border: none; border-radius: var(--radius-md); background: #ffe600; color: #1e293b; font-weight: 700; font-size: 0.85rem; cursor: ${hasActiveRun ? 'not-allowed' : 'pointer'}; display: flex; align-items: center; justify-content: center; gap: 0.4rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
+          ${hasActiveRun 
+            ? `<i class="ri-loader-4-line ri-spin" style="font-size: 1.1rem;"></i> Sincronizando Mercado Libre...` 
+            : `<i class="ri-refresh-line" style="font-size: 1.1rem;"></i> Sincronizar Mercado Libre Ahora`
+          }
+        </button>
+      </div>
+
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Tiendas Conectadas</span>
+          <button onclick="document.querySelector('[data-view=integrations]')?.click(); window.toggleMeliMonitorPanel();" style="background: transparent; border: none; color: var(--color-primary); font-size: 0.72rem; font-weight: 700; cursor: pointer;">
+            Gestionar →
+          </button>
+        </div>
+        <div style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.35rem; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.4rem; background: var(--color-bg);">
+          ${meliStores.map(s => {
+            const hasErr = !!s.last_sync_error;
+            let timeStr = '—';
+            if (s.last_sync_at) {
+              const diffMin = Math.floor((Date.now() - new Date(s.last_sync_at).getTime()) / 60000);
+              timeStr = diffMin < 2 ? 'Ahora' : `${diffMin}m`;
+            }
+            return `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0.5rem; border-radius: 4px; background: var(--color-surface); font-size: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.35rem; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="width: 7px; height: 7px; border-radius: 50%; background: ${hasErr ? '#ef4444' : '#10b981'}; flex-shrink: 0;"></span>
+                  <span style="font-weight: 600; color: var(--color-text-main);">${(window.escapeHtml || (x=>x))(s.comercio)}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">${timeStr}</span>
+                  ${hasErr ? `<span style="color: #ef4444; font-size: 0.85rem;" title="${(window.escapeHtml || (x=>x))(s.last_sync_error)}"><i class="ri-error-warning-fill"></i></span>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <div>
+        <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.4rem;">
+          Últimas Ejecuciones (GitHub)
+        </span>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem; max-height: 120px; overflow-y: auto;">
+          ${runs.length === 0 ? `<div style="text-align: center; color: var(--color-text-muted); font-size: 0.75rem; padding: 0.5rem;">No hay registros recientes.</div>` : runs.slice(0, 3).map(r => {
+            const isCompleted = r.status === 'completed';
+            const isSuccess = r.conclusion === 'success';
+            let icon = isCompleted 
+              ? (isSuccess ? '<i class="ri-checkbox-circle-fill" style="color: #10b981;"></i>' : '<i class="ri-close-circle-fill" style="color: #ef4444;"></i>')
+              : '<i class="ri-loader-4-line ri-spin" style="color: #f59e0b;"></i>';
+            const runDate = new Date(r.created_at);
+            const timeFormatted = runDate.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+            return `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.5rem; background: var(--color-bg); border-radius: 4px; border: 1px solid var(--color-border); font-size: 0.72rem;">
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  ${icon}
+                  <span style="font-weight: 700; color: var(--color-text-main);">#${r.run_number}</span>
+                  <span style="color: var(--color-text-muted);">${isCompleted ? (isSuccess ? 'Completado' : 'Fallo') : 'En curso'}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                  <span style="color: var(--color-text-muted);">${timeFormatted}</span>
+                  <a href="${r.html_url}" target="_blank" style="color: var(--color-primary); text-decoration: none;" title="Ver en GitHub Actions">
+                    <i class="ri-external-link-line"></i>
+                  </a>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+
+    body.innerHTML = panelHtml;
+
+  } catch (err) {
+    console.error('Error updating MeLi monitor UI:', err);
+    if (body) {
+      body.innerHTML = `
+        <div style="text-align: center; padding: 1.5rem; color: var(--color-danger); font-size: 0.8rem;">
+          <i class="ri-error-warning-line" style="font-size: 1.3rem; display: block; margin-bottom: 0.3rem;"></i>
+          No se pudo cargar el estado de Mercado Libre.<br>${err.message}
+        </div>
+      `;
+    }
+  }
+};
+
+// Iniciar monitoreos cuando el DOM esté listo
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => window.startWmsMonitorPolling());
+  document.addEventListener('DOMContentLoaded', () => {
+    window.startWmsMonitorPolling();
+    window.startMeliMonitorPolling();
+  });
 } else {
   window.startWmsMonitorPolling();
+  window.startMeliMonitorPolling();
 }
 
 
