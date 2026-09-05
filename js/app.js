@@ -1099,6 +1099,7 @@ window.dismissOnboardingChecklist = async function() {
     if (cacData) {
       const checklist = cacData.onboarding_checklist || {};
       checklist.dismissed = true;
+      checklist.enabled = false;
 
       const { error } = await supabase
         .from('comercios_adicional_config')
@@ -1237,6 +1238,7 @@ async function renderDashboard() {
 
         if (!onboardingChecklist) {
           onboardingChecklist = {
+            enabled: (cacData?.onboarding_checklist?.enabled !== undefined) ? cacData.onboarding_checklist.enabled : false,
             integrations: false,
             shopify_pin: !!shopifyPartnerPin,
             catalog_ready: isCatalogReady,
@@ -1883,6 +1885,7 @@ async function renderDashboard() {
     let onboardingHtml = '';
     if (!onboardingChecklist) {
       onboardingChecklist = {
+        enabled: false,
         integrations: false,
         shopify_pin: !!shopifyPartnerPin,
         catalog_ready: false,
@@ -1891,7 +1894,11 @@ async function renderDashboard() {
         stock_declared: false
       };
     }
-    if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
+    const isGuideActive = (onboardingChecklist.enabled !== undefined)
+      ? (onboardingChecklist.enabled === true && onboardingChecklist.dismissed !== true)
+      : (onboardingChecklist.dismissed !== true);
+
+    if (onboardingChecklist && isGuideActive) {
       onboardingHtml = `
         <!-- Guía de Inicio Onboarding -->
         <style>

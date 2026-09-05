@@ -36763,6 +36763,12 @@ async function renderMerchantsAdmin() {
           ? `<span class="badge-status enabled" style="background: rgba(239, 68, 68, 0.1); color: var(--color-danger);"><i class="ri-lock-line"></i> Estricto</span>`
           : `<span class="badge-status disabled">Normal</span>`;
 
+        const ob = c.onboarding_checklist || {};
+        const isOnboardingActive = (ob.enabled !== undefined) ? !!ob.enabled : (!ob.dismissed);
+        const onboardingBadge = isOnboardingActive
+          ? `<span class="badge-status active" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Guía de Inicio en este comercio"><i class="ri-rocket-line"></i> Activo</span>`
+          : `<span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Guía de Inicio en este comercio"><i class="ri-forbid-line"></i> Inactivo</span>`;
+
         const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id)
           ? `<div>
                <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
@@ -36797,6 +36803,7 @@ async function renderMerchantsAdmin() {
             <td>${kamInfo}</td>
             <td>${billingBadge}</td>
             <td>${invBadge}</td>
+            <td>${onboardingBadge}</td>
             <td>${siglaBadge}</td>
             <td>${strictBadge}</td>
             <td>
@@ -36836,10 +36843,16 @@ async function renderMerchantsAdmin() {
           <span id="merchants-bulk-count">0 comercios seleccionados</span>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTable()" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(true)" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+            <i class="ri-rocket-line"></i> Activar Onboarding Masivo
+          </button>
+          <button class="btn btn-sm" onclick="window.bulkToggleMerchantOnboarding(false)" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+            <i class="ri-forbid-line"></i> Desactivar Onboarding
+          </button>
+          <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTable()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
             <i class="ri-user-star-line"></i> Asignar KAM Masivo
           </button>
-          <button class="btn btn-sm" onclick="window.clearMerchantSelection()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-size: 0.85rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 4px;">
+          <button class="btn btn-sm" onclick="window.clearMerchantSelection()" style="background: rgba(255,255,255,0.15); color: #ffffff; font-size: 0.85rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 4px;">
             Desmarcar Todos
           </button>
         </div>
@@ -36895,6 +36908,7 @@ async function renderMerchantsAdmin() {
                   <th>Ejecutivo (KAM)</th>
                   <th>Estado Facturación</th>
                   <th>Seguimiento Inventario</th>
+                  <th>Guía Onboarding</th>
                   <th>Pedido trae Sigla</th>
                   <th>Lectura Estricta</th>
                   <th>Contactos Facturación</th>
@@ -37044,6 +37058,103 @@ window.clearMerchantSelection = function() {
   const checkboxes = document.querySelectorAll('.merchant-select-checkbox, #merchant-select-all');
   checkboxes.forEach(cb => cb.checked = false);
   window.updateMerchantSelectionBar();
+};
+
+window.toggleMerchantOnboardingQuick = async function(comercioName, enable, silent = false) {
+  try {
+    const { data: cacData } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, onboarding_checklist, inventario_seguimiento, enviame_id')
+      .ilike('comercio', comercioName.trim())
+      .maybeSingle();
+
+    const checklist = cacData?.onboarding_checklist || {};
+    checklist.enabled = enable;
+    checklist.dismissed = !enable;
+    if (cacData?.inventario_seguimiento) checklist.catalog_ready = true;
+    if (cacData?.enviame_id && String(cacData.enviame_id).trim().toLowerCase() !== 'null') checklist.shipping_configured = true;
+
+    const dbComercioName = cacData?.comercio || comercioName;
+    const { error } = await supabase
+      .from('comercios_adicional_config')
+      .upsert({
+        comercio: dbComercioName,
+        onboarding_checklist: checklist
+      }, { onConflict: 'comercio' });
+
+    if (error) throw error;
+
+    // Actualizar cache local
+    if (window.cachedAdminMerchants) {
+      const c = window.cachedAdminMerchants.find(m => m.nombre === comercioName);
+      if (c) {
+        c.onboarding_checklist = checklist;
+      }
+    }
+
+    if (!silent) {
+      if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+      if (window.Swal) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `Guía de Inicio ${enable ? 'activada' : 'desactivada'} para ${comercioName}`,
+          showConfirmButton: false,
+          timer: 2500
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Error toggling merchant onboarding:", err);
+    if (!silent) {
+      alert("Error al actualizar estado de Onboarding: " + err.message);
+    }
+    throw err;
+  }
+};
+
+window.bulkToggleMerchantOnboarding = async function(enable) {
+  const checkedNodes = document.querySelectorAll('.merchant-select-checkbox:checked');
+  const selectedNames = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedNames.length === 0) {
+    if (window.Swal) Swal.fire('Atención', 'Por favor selecciona al menos un comercio.', 'warning');
+    else alert('Por favor selecciona al menos un comercio.');
+    return;
+  }
+
+  const actionText = enable ? 'ACTIVAR' : 'DESACTIVAR';
+  const confirmResult = await (window.Swal ? Swal.fire({
+    title: `¿${actionText} Guía de Inicio?`,
+    text: `Se ${enable ? 'activará' : 'desactivará'} la Guía de Inicio en el dashboard de ${selectedNames.length} comercio(s).`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: `Sí, ${actionText.toLowerCase()}`,
+    cancelButtonText: 'Cancelar'
+  }) : Promise.resolve({ isConfirmed: confirm(`¿${actionText} la Guía de Inicio para ${selectedNames.length} comercios?`) }));
+
+  if (!confirmResult.isConfirmed) return;
+
+  try {
+    for (const name of selectedNames) {
+      await window.toggleMerchantOnboardingQuick(name, enable, true);
+    }
+    if (window.Swal) {
+      Swal.fire('¡Listo!', `Guía de inicio ${enable ? 'activada' : 'desactivada'} para ${selectedNames.length} comercio(s).`, 'success');
+    } else {
+      alert(`Guía de inicio ${enable ? 'activada' : 'desactivada'} para ${selectedNames.length} comercio(s).`);
+    }
+    window.clearMerchantSelection();
+    if (typeof renderMerchantsAdmin === 'function') {
+      renderMerchantsAdmin();
+    }
+  } catch (e) {
+    console.error('Error en bulk toggle onboarding:', e);
+    if (window.Swal) Swal.fire('Error', e.message, 'error');
+    else alert('Error: ' + e.message);
+  }
 };
 
 window.openBulkAssignKamModalFromTable = function() {
@@ -38635,6 +38746,17 @@ window.showMerchantCreateModal = function() {
 
           <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
             <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-create-onboarding-active" checked>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-create-onboarding-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Mostrar Guía de Inicio (Onboarding)</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa la guía paso a paso en el dashboard del cliente para nuevos comercios.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
               <input type="checkbox" id="merchant-create-picking-strict">
               <span class="merchant-slider"></span>
             </label>
@@ -38840,7 +38962,16 @@ window.showMerchantCreateModal = function() {
             plat_siglas_config: platSiglasConfig,
             email_colaborador: emailColaborador || null,
             enviame_id: enviameId || null,
-            picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false
+            picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false,
+            onboarding_checklist: {
+              enabled: document.getElementById('merchant-create-onboarding-active')?.checked !== false,
+              integrations: false,
+              catalog_ready: inventory,
+              shipping_configured: !!(enviameId && String(enviameId).trim().toLowerCase() !== 'null'),
+              sku_guide: false,
+              stock_declared: false,
+              dismissed: false
+            }
           });
 
         if (configErr) throw configErr;
@@ -39069,6 +39200,22 @@ window.showMerchantEditModal = async function(comercioName) {
             <div>
               <label for="merchant-edit-picking-strict" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Lectura Estricta en Picker</label>
               <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Fuerza a que todos los escaneos de este comercio sean de coincidencia estricta en el sistema de picking, impidiendo la lectura parcial.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-onboarding-active" ${(() => {
+                const ob = commerce.onboarding_checklist;
+                if (!ob) return false;
+                if (ob.enabled !== undefined) return ob.enabled ? 'checked' : '';
+                return ob.dismissed ? '' : 'checked';
+              })()}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-onboarding-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Mostrar Guía de Inicio (Onboarding)</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la guía paso a paso en el dashboard del cliente. Ideal para habilitarlo en clientes nuevos y deshabilitarlo en clientes antiguos o que ya operan.</p>
             </div>
           </div>
 
@@ -39396,12 +39543,16 @@ window.showMerchantEditModal = async function(comercioName) {
     const newInventory = inventoryInput ? inventoryInput.checked : (commerce.inventario_seguimiento || false);
     const catalogReadyInput = document.getElementById('merchant-edit-catalog-ready');
     const newCatalogReady = catalogReadyInput ? catalogReadyInput.checked : !!(commerce.onboarding_checklist?.catalog_ready || commerce.inventario_seguimiento);
+    const onboardingActiveInput = document.getElementById('merchant-edit-onboarding-active');
+    const newOnboardingActive = onboardingActiveInput ? onboardingActiveInput.checked : true;
     const newDefaultWh = document.getElementById('merchant-edit-default-warehouse')?.value || null;
 
     const oldChecklist = commerce.onboarding_checklist || {};
     const oldCatalogReady = !!(oldChecklist.catalog_ready || commerce.inventario_seguimiento);
     const updatedChecklist = {
       ...oldChecklist,
+      enabled: newOnboardingActive,
+      dismissed: !newOnboardingActive,
       catalog_ready: !!(newCatalogReady || newInventory),
       shipping_configured: isValidEnviame
     };
