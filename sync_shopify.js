@@ -331,9 +331,14 @@ async function syncOrders(integration) {
         orderId = existingOrder.id;
         console.log(`Actualizado pedido ${order.name}`);
 
-        // Si el pedido fue editado en WMS o ya fue despachado, entregado, retirado o cancelado, NO tocar sus order_items
-        if (isWmsItemsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
-          console.log(`Omite sync de ítems para pedido ${order.name} (${isWmsItemsEdited ? 'Editado en WMS' : existingOrder.status})`);
+        // Si el pedido fue editado en WMS o ya está en preparación/despachado/etc, NO tocar sus order_items
+        const currentWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
+        const currentStatus = (existingOrder.status || '').toLowerCase().trim();
+        const isProtectedStatus = ['en preparación', 'pickeado', 'despachado', 'entregado', 'retirado', 'cancelado', 'incidencia'].includes(currentWmsStatus) ||
+                                  ['despachado', 'entregado', 'retirado', 'cancelado'].includes(currentStatus);
+
+        if (isWmsItemsEdited || isProtectedStatus) {
+          console.log(`Omite sync de ítems para pedido ${order.name} (${isWmsItemsEdited ? 'Editado en WMS' : existingOrder.estado_wms || existingOrder.status})`);
           continue;
         }
       } else {
@@ -382,6 +387,12 @@ async function syncOrders(integration) {
       const lineItems = order.line_items || [];
 
       for (const item of lineItems) {
+        const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+        if (effectiveQty <= 0) {
+          console.log(`[Shopify Sync] Omitiendo ítem SKU ${item.sku} porque fue eliminado en Shopify (cant: 0).`);
+          continue;
+        }
+
         let product = null;
         let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
         let mappedSku = skuMap[cleanSku] || cleanSku;
@@ -427,11 +438,11 @@ async function syncOrders(integration) {
           if (product.is_pack && packMembers && packMembers.length > 0) {
             for (const pm of packMembers) {
               const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
-              expectedQuantities.set(pm.member_product_id, currentQty + (item.quantity * pm.quantity));
+              expectedQuantities.set(pm.member_product_id, currentQty + (effectiveQty * pm.quantity));
             }
           } else {
             const currentQty = expectedQuantities.get(product.id) || 0;
-            expectedQuantities.set(product.id, currentQty + item.quantity);
+            expectedQuantities.set(product.id, currentQty + effectiveQty);
           }
         }
       }

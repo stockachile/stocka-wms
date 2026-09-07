@@ -84,7 +84,25 @@ async function syncJumpsellerData() {
         integration.merchant_id = activeMerchantId;
       }
 
-      await syncMerchantJumpseller(integration);
+      try {
+        await syncMerchantJumpseller(integration);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: null
+          })
+          .eq('id', integration.id);
+      } catch (merchantErr) {
+        console.error(`❌ Error sincronizando ${integration.comercio}:`, merchantErr.message);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: merchantErr.message
+          })
+          .eq('id', integration.id);
+      }
     }
 
     console.log('\n🎉 Sincronización Jumpseller finalizada.');

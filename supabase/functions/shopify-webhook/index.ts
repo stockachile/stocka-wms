@@ -8,6 +8,33 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const globalShopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
 
+// Configuración de notificaciones WhatsApp
+const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
+const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
+const GESTION_STOCKA_GROUP_JID = "120363422429248666@g.us";
+
+async function notifyWhatsAppGestion(message: string) {
+  try {
+    const res = await fetch(`${WHATSAPP_API_URL}/send-message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": WHATSAPP_API_KEY,
+      },
+      body: JSON.stringify({
+        to: GESTION_STOCKA_GROUP_JID,
+        message: message,
+        withPrefix: false
+      }),
+    });
+    const resData = await res.json();
+    console.log(`[WhatsApp Bot] Notificación enviada a Gestión Stocka:`, resData);
+    return resData;
+  } catch (err: any) {
+    console.error(`[WhatsApp Bot] Error enviando mensaje a WhatsApp:`, err.message);
+  }
+}
+
 serve(async (req) => {
   // Solo aceptamos POST
   if (req.method !== "POST") {
@@ -266,9 +293,15 @@ async function handleOrderCreate(merchantId, comercio, order) {
     
   const warehouseId = whRelation?.warehouse_id || null;
 
-  // Registrar cada item del pedido
+  // Registrar cada item del pedido (excluyendo eliminados)
   const lineItems = order.line_items || [];
   for (const item of lineItems) {
+    const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+    if (effectiveQty <= 0) {
+      console.log(`[Shopify Webhook] Omitiendo ítem SKU ${item.sku} en creación porque fue eliminado en Shopify (cant: 0).`);
+      continue;
+    }
+
     let product = null;
 
     // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
@@ -326,20 +359,20 @@ async function handleOrderCreate(merchantId, comercio, order) {
     }
 
     if (product) {
-      // Registrar el item en order_items
+      // Registrar el item en order_items con la cantidad efectiva
       const { error: itemErr } = await supabase
         .from("order_items")
         .insert([{
           order_id: newOrder.id,
           product_id: product.id,
           warehouse_id: warehouseId,
-          quantity: item.quantity
+          quantity: effectiveQty
         }]);
 
       if (itemErr) {
         console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr);
       } else {
-        console.log(`Registrado item SKU ${item.sku} x ${item.quantity} para el pedido.`);
+        console.log(`Registrado item SKU ${item.sku} x ${effectiveQty} para el pedido.`);
       }
     }
   }
@@ -413,31 +446,58 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  // Lógica de Alertas Condicionales y Protección de Pedidos Cerrados
-  const rawStatus = (existingOrder.status || '').toLowerCase();
-  const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+  // Lógica de Alertas Condicionales y Protección de Pedidos Avanzados
+  const rawStatus = (existingOrder.status || '').toLowerCase().trim();
+  const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase().trim();
   const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
                                ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
 
   const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
-  const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
+  const isAdvancedOrPrep = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus) ||
+                           ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'].includes(rawStatus);
   
   if (isWmsItemsEdited) {
     console.log(`Pedido ${order.name} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items desde Shopify.`);
     return;
   }
 
-  if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {
-    if (isClosedOrDispatched) {
-      console.log(`Pedido ${order.name} ya está en estado final (${existingOrder.status}). Omitiendo diffing de order_items.`);
-      return;
-    }
+  // Verificar si hubo un cambio real en los artículos, montos, estado de pago o cancelación (Order Edit)
+  // para evitar alertas innecesarias cuando solo cambia el estado de preparación (fulfillment), tags o notas en Shopify.
+  const prevItemsSig = ((existingRaw.line_items || []) as any[])
+    .map((i: any) => `${(i.sku || i.id || '').trim().toLowerCase()}:${i.current_quantity !== undefined ? i.current_quantity : i.quantity}`)
+    .sort()
+    .join("|");
 
-    let alertMessage = `El pedido ${order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
+  const newItemsSig = ((order.line_items || []) as any[])
+    .map((i: any) => `${(i.sku || i.id || '').trim().toLowerCase()}:${i.current_quantity !== undefined ? i.current_quantity : i.quantity}`)
+    .sort()
+    .join("|");
+
+  const itemsChanged = prevItemsSig !== newItemsSig;
+  
+  const oldPrice = Number(existingRaw.current_total_price || existingRaw.total_price || (existingOrder as any).total_value || 0);
+  const newPrice = Number(order.current_total_price || order.total_price || 0);
+  const priceChanged = Math.abs(newPrice - oldPrice) > 1;
+
+  const oldFinStatus = String(existingRaw.financial_status || (existingOrder as any).payment_status || '').toLowerCase().trim();
+  const newFinStatus = String(order.financial_status || '').toLowerCase().trim();
+  const paymentStatusChanged = newFinStatus !== oldFinStatus && ['partially_refunded', 'refunded', 'partially_paid'].includes(newFinStatus);
+
+  const isCancelled = topic === "orders/cancelled" || (Boolean(order.cancelled_at) && !existingRaw.cancelled_at);
+
+  const isRealOrderEdit = itemsChanged || priceChanged || paymentStatusChanged || isCancelled;
+
+  if (!isRealOrderEdit) {
+    console.log(`[Shopify Webhook] Actualización de pedido ${order.name} sin cambios en ítems ni montos (ej. cambio en estado de preparación, tags o notas). Se omite notificación a WhatsApp.`);
+    return;
+  }
+
+  if (isClosedOrDispatched || isAdvancedOrPrep) {
+    let alertMessage = `El pedido ${finalOrderNumber || order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = 'MODIFICADO_EN_PREPARACION';
 
     if (topic === "orders/cancelled") {
-        alertMessage = `¡CRÍTICO! El pedido ${order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en WMS con estado: ${wmsStatus}. Detener despacho de inmediato.`;
+        alertMessage = `¡CRÍTICO! El pedido ${finalOrderNumber || order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en WMS con estado: ${wmsStatus}. Detener despacho de inmediato.`;
         alertType = 'CANCELADO_EN_PREPARACION';
     }
 
@@ -452,14 +512,28 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }]);
       
     if (alertErr) console.error("Error creando alerta:", alertErr);
+
+    // Notificar al grupo de WhatsApp "Gestión Stocka"
+    const activeLineItems = (order.line_items || []).filter((i: any) => (i.current_quantity !== undefined ? i.current_quantity : i.quantity) > 0);
+    const totalUnitsPrep = activeLineItems.reduce((s: number, i: any) => s + Number(i.current_quantity !== undefined ? i.current_quantity : i.quantity || 0), 0);
+    const formattedPrice = Number(order.current_total_price || order.total_price || 0).toLocaleString('es-CL');
+    const waMsg = `⚠️ *ALERTA: Pedido Actualizado en Shopify*\n\n` +
+      `🏪 *Comercio:* ${comercio}\n` +
+      `📦 *Pedido:* ${finalOrderNumber || order.name}\n` +
+      `🏷️ *Estado WMS actual:* ${wmsStatus}\n` +
+      `💰 *Total Shopify:* $${formattedPrice} (${totalUnitsPrep} uds.)\n\n` +
+      `ℹ️ *Detalle:* El pedido fue modificado en Shopify mientras se encuentra en *${wmsStatus}*. Por seguridad de picking, los ítems en el WMS se han mantenido intactos.\n\n` +
+      `👉 *Para procesar los cambios:* Devuelva el pedido a *'En procesamiento'* en el WMS y vuelva a sincronizar desde Shopify.`;
+
+    await notifyWhatsAppGestion(waMsg);
   } else {
-    // Si NO está en un estado crítico (ej: está 'para procesar'), sincronizamos los items del pedido
+    // Si NO está en un estado crítico (está 'En procesamiento' o 'para procesar'), sincronizamos los items del pedido
     // para mantener el WMS actualizado antes de que comience la preparación.
     
     // 1. Obtener ítems existentes para Smart Diffing
     const { data: existingItems } = await supabase
       .from("order_items")
-      .select("id, product_id, quantity, warehouse_id")
+      .select("id, product_id, quantity, warehouse_id, products(sku, name)")
       .eq("order_id", existingOrder.id);
 
     const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
@@ -477,7 +551,37 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
 
     // 3. Registrar ítems actualizados de forma inteligente
     const lineItems = order.line_items || [];
+    const activeItems = lineItems.filter((item: any) => {
+      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      return effectiveQty > 0;
+    });
+
+    const totalUnits = activeItems.reduce((sum: number, item: any) => {
+      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      return sum + Number(effectiveQty || 0);
+    }, 0);
+
+    const deletedShopifyItems = lineItems.filter((item: any) => {
+      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      return effectiveQty <= 0;
+    });
+
+    const deletedSkusSet = new Set<string>();
+    deletedShopifyItems.forEach((item: any) => {
+      const sku = (item.sku || "").trim();
+      if (sku) deletedSkusSet.add(sku);
+      else if (item.title || item.name) deletedSkusSet.add((item.title || item.name).trim());
+    });
+
+    let activeItemsCount = 0;
+
     for (const item of lineItems) {
+      const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      if (effectiveQty <= 0) {
+        console.log(`[Shopify Webhook] Omitiendo ítem SKU ${item.sku} en actualización porque fue eliminado en Shopify (cant: 0).`);
+        continue;
+      }
+
       let product = null;
 
       // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
@@ -531,12 +635,13 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
 
       if (product) {
         processedProductIds.add(product.id);
+        activeItemsCount++;
         const existing = existingMap.get(product.id);
 
         if (existing) {
-          if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
+          if (existing.quantity !== effectiveQty || (warehouseId && existing.warehouse_id !== warehouseId)) {
             await supabase.from("order_items").update({
-              quantity: item.quantity,
+              quantity: effectiveQty,
               warehouse_id: warehouseId || existing.warehouse_id
             }).eq("id", existing.id);
           }
@@ -545,19 +650,38 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
             order_id: existingOrder.id,
             product_id: product.id,
             warehouse_id: warehouseId,
-            quantity: item.quantity
+            quantity: effectiveQty
           }]);
         }
       }
     }
 
-    // 4. Eliminar únicamente los ítems que ya no están en la orden
+    // 4. Eliminar únicamente los ítems que ya no están en la orden (o tenían current_quantity === 0)
     for (const [prodId, existingItem] of existingMap.entries()) {
       if (!processedProductIds.has(prodId)) {
         await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
+        const pSku = (existingItem as any).products?.sku;
+        if (pSku) deletedSkusSet.add(pSku.trim());
       }
     }
-    console.log(`Ítems actualizados con éxito para el pedido ${order.name} en estado no crítico.`);
+
+    const deletedSkusList = Array.from(deletedSkusSet);
+    const deletedSkusText = deletedSkusList.length > 0 
+      ? `(SKU eliminados: ${deletedSkusList.join(", ")})` 
+      : `(Sin SKU eliminados)`;
+
+    console.log(`Ítems actualizados con éxito para el pedido ${order.name} en estado En procesamiento.`);
+
+    // Notificar al grupo de WhatsApp "Gestión Stocka"
+    const formattedPrice = Number(order.current_total_price || order.total_price || 0).toLocaleString('es-CL');
+    const waMsg = `ℹ️ *Pedido Actualizado desde Shopify*\n\n` +
+      `🏪 *Comercio:* ${comercio}\n` +
+      `📦 *Pedido:* ${finalOrderNumber || order.name}\n` +
+      `🏷️ *Estado WMS:* En procesamiento\n` +
+      `💰 *Total actualizado:* $${formattedPrice} (${totalUnits} uds.)\n` +
+      `🛒 *SKU activos:* ${activeItemsCount} ${deletedSkusText}`;
+
+    await notifyWhatsAppGestion(waMsg);
   }
 }
 

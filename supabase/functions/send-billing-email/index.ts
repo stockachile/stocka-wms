@@ -136,25 +136,112 @@ serve(async (req) => {
       isCorrection = false
     } = payload;
 
-    // Cargar registro de facturación si se suministra, o buscar el más reciente si solo tenemos commerceName
+    const resolvedServiceType = serviceType || 'both';
+
+    // Cargar registro de facturación si se suministra, o buscar el más adecuado si solo tenemos commerceName
     let record = null;
     const targetCommerce = payloadCommerceName || comercio;
+
+    let commerceRecords: any[] = [];
+    let pendingRecordsList: any[] = [];
+    let totalGlobalPendingDebt = 0;
+
+    // Obtener los posibles nombres asociados por si hay agrupaciones de facturación
+    const commQueryName = targetCommerce;
+    const relatedNames = new Set<string>();
+    if (commQueryName) {
+      relatedNames.add(commQueryName.toLowerCase().trim());
+      try {
+        const { data: mappings } = await supabaseClient
+          .from('billing_mappings')
+          .select('comercio_nombre, billing_name')
+          .or(`comercio_nombre.ilike."${commQueryName}",billing_name.ilike."${commQueryName}"`);
+        if (mappings) {
+          mappings.forEach((m: any) => {
+            if (m.comercio_nombre) relatedNames.add(m.comercio_nombre.toLowerCase().trim());
+            if (m.billing_name) relatedNames.add(m.billing_name.toLowerCase().trim());
+          });
+        }
+      } catch (e) {
+        console.warn('[send-billing-email] Error consultando billing_mappings:', e);
+      }
+    }
+
     if (recordId) {
       const { data } = await supabaseClient
         .from('billing_records')
-        .select('*, billing_periods(name)')
+        .select('*, billing_periods(name, period_month, period_year)')
         .eq('id', recordId)
-        .maybeSingle()
+        .maybeSingle();
       record = data;
-    } else if (targetCommerce) {
-      const { data } = await supabaseClient
-        .from('billing_records')
-        .select('*, billing_periods(name)')
-        .eq('comercio', targetCommerce)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      record = data;
+    }
+
+    // Cargar historial de cobros para este comercio para calcular la deuda acumulada real
+    if (relatedNames.size > 0) {
+      try {
+        const { data: allRecs } = await supabaseClient
+          .from('billing_records')
+          .select('*, billing_periods(name, period_month, period_year)')
+          .order('created_at', { ascending: false });
+
+        if (allRecs) {
+          commerceRecords = allRecs.filter((r: any) => 
+            r.comercio && relatedNames.has(r.comercio.toLowerCase().trim())
+          );
+
+          commerceRecords.forEach((r: any) => {
+            const totFulf = r.total_fulfillment || 0;
+            const abFulf = r.abono_fulfillment || 0;
+            const isFPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_fulfillment);
+            const pFulf = isFPaid ? 0 : Math.max(0, totFulf - abFulf);
+
+            const totEnv = r.enviame || 0;
+            const abEnv = r.abono_enviame || 0;
+            const isEPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(r.pago_enviame);
+            const pEnv = isEPaid ? 0 : Math.max(0, totEnv - abEnv);
+
+            if (pFulf > 0 || pEnv > 0) {
+              pendingRecordsList.push({
+                record: r,
+                recordId: r.id,
+                periodName: r.billing_periods?.name || 'Periodo',
+                totalFulf: totFulf,
+                abonoFulf: abFulf,
+                pagoFulf: r.pago_fulfillment || 'Por solicitar',
+                pendFulf: pFulf,
+                isFulfPaid: isFPaid,
+                totalEnv: totEnv,
+                abonoEnv: abEnv,
+                pagoEnv: r.pago_enviame || 'Por solicitar',
+                pendEnv: pEnv,
+                isEnvPaid: isEPaid,
+                totalPending: pFulf + pEnv
+              });
+              totalGlobalPendingDebt += (pFulf + pEnv);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[send-billing-email] Error calculando deudas acumuladas del comercio:', e);
+      }
+    }
+
+    // Si no venía recordId, seleccionar el registro más adecuado (priorizando los que tienen deuda)
+    if (!record && targetCommerce) {
+      if (pendingRecordsList.length > 0) {
+        record = pendingRecordsList[0].record;
+      } else if (commerceRecords.length > 0) {
+        record = commerceRecords[0];
+      } else {
+        const { data } = await supabaseClient
+          .from('billing_records')
+          .select('*, billing_periods(name, period_month, period_year)')
+          .eq('comercio', targetCommerce)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        record = data;
+      }
     }
 
     // Sincronización a pedido de eventos de lectura (Aperturas y Clics) desde la API de Brevo
@@ -383,15 +470,40 @@ serve(async (req) => {
       })
     }
 
-    const resolvedServiceType = serviceType || 'both';
     const showFulfillment = (resolvedServiceType === 'fulfillment' || resolvedServiceType === 'both') && record;
     const showEnviame = (resolvedServiceType === 'enviame' || resolvedServiceType === 'both') && record;
 
+    const totalFulf = record?.total_fulfillment || 0;
+    const abonoFulf = record?.abono_fulfillment || 0;
+    const pagoFulf = record?.pago_fulfillment || 'Por solicitar';
+    const isFulfPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoFulf);
+    const pendFulf = isFulfPaid ? 0 : Math.max(0, totalFulf - abonoFulf);
+
+    const totalEnv = record?.enviame || 0;
+    const abonoEnv = record?.abono_enviame || 0;
+    const pagoEnv = record?.pago_enviame || 'Por solicitar';
+    const isEnvPaid = ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoEnv);
+    const pendEnv = isEnvPaid ? 0 : Math.max(0, totalEnv - abonoEnv);
+
+    const totalPeriodInvoiced = (showFulfillment ? totalFulf : 0) + (showEnviame ? totalEnv : 0);
+    const totalPeriodPending = (showFulfillment ? pendFulf : 0) + (showEnviame ? pendEnv : 0);
+
     let totalMonto = 0;
+    if (['payment_overdue', 'payment_overdue_manual', 'suspension_warning'].includes(emailType)) {
+      totalMonto = totalPeriodPending;
+    } else if (emailType === 'service_paused') {
+      totalMonto = totalGlobalPendingDebt > 0 ? totalGlobalPendingDebt : totalPeriodPending;
+    } else if (emailType === 'payment_received') {
+      totalMonto = (showFulfillment ? (abonoFulf || totalFulf) : 0) + (showEnviame ? (abonoEnv || totalEnv) : 0);
+    } else if (emailType === 'payment_reminder') {
+      totalMonto = totalPeriodPending > 0 ? totalPeriodPending : totalPeriodInvoiced;
+    } else {
+      totalMonto = (totalPeriodPending > 0 && totalPeriodPending < totalPeriodInvoiced) ? totalPeriodPending : totalPeriodInvoiced;
+    }
+
     let servicesHtml = '';
 
     if (showFulfillment && record) {
-      totalMonto += (record.total_fulfillment || 0);
       let docLink = record.fulfillment_pdf_url || record.fulfillment_link;
       if (docLink) {
         docLink = await getSignedUrlIfPrivate(docLink, supabaseClient);
@@ -406,15 +518,25 @@ serve(async (req) => {
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Monto Facturado:</strong></td>
-              <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(record.total_fulfillment || 0)}</td>
+              <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(totalFulf)}</td>
             </tr>
+            ${abonoFulf > 0 ? `
+            <tr>
+              <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Abono Registrado:</strong></td>
+              <td style="padding: 6px 0; font-size: 14px; color: #166534; text-align: right; font-weight: 600;">-${formatCLP(abonoFulf)}</td>
+            </tr>
+            ` : ''}
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Fecha Límite de Pago:</strong></td>
               <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;">${formatDate(record.fecha_limite)}</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Estado de Pago:</strong></td>
-              <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${record.pago_fulfillment === 'Recibido' ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${record.pago_fulfillment || 'Pendiente'}</span></td>
+              <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${isFulfPaid ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${pagoFulf}</span></td>
+            </tr>
+            <tr style="border-top: 1px dashed #cbd5e1;">
+              <td style="padding: 8px 0 4px 0; font-size: 14px; color: ${isFulfPaid ? '#166534' : '#dc2626'}; font-weight: 700;"><strong>Saldo Pendiente:</strong></td>
+              <td style="padding: 8px 0 4px 0; font-size: 15px; color: ${isFulfPaid ? '#166534' : '#dc2626'}; text-align: right; font-weight: 800;">${isFulfPaid ? '$0 (Pagado)' : formatCLP(pendFulf)}</td>
             </tr>
           </table>
           <div style="margin-top: 15px; text-align: center;">
@@ -425,8 +547,6 @@ serve(async (req) => {
     }
 
     if (showEnviame && record) {
-      totalMonto += (record.enviame || 0);
-      
       let enviameDocsHtml = '';
       if (record.enviame_pdfs && Array.isArray(record.enviame_pdfs) && record.enviame_pdfs.length > 0) {
         const portalUrl = "https://wms.stocka.cl";
@@ -448,15 +568,25 @@ serve(async (req) => {
           <table style="width: 100%; border-collapse: collapse;">
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Monto Facturado:</strong></td>
-              <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(record.enviame || 0)}</td>
+              <td style="padding: 6px 0; font-size: 14px; color: #1e293b; text-align: right; font-weight: 700;">${formatCLP(totalEnv)}</td>
             </tr>
+            ${abonoEnv > 0 ? `
+            <tr>
+              <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Abono Registrado:</strong></td>
+              <td style="padding: 6px 0; font-size: 14px; color: #166534; text-align: right; font-weight: 600;">-${formatCLP(abonoEnv)}</td>
+            </tr>
+            ` : ''}
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Fecha Límite de Pago:</strong></td>
               <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;">${formatDate(record.fecha_limite_enviame)} <span style="font-size: 11px; color: #ea580c; font-weight: bold; display: block;">(Plazo de 3 días fijado por Envíame)</span></td>
             </tr>
             <tr>
               <td style="padding: 6px 0; font-size: 14px; color: #475569;"><strong>Estado de Pago:</strong></td>
-              <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${record.pago_enviame === 'Recibido' ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${record.pago_enviame || 'Pendiente'}</span></td>
+              <td style="padding: 6px 0; font-size: 14px; color: #475569; text-align: right;"><span style="display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: 600; border-radius: 4px; text-transform: uppercase; ${isEnvPaid ? 'background-color: #dcfce7; color: #166534;' : 'background-color: #fef3c7; color: #92400e;'}">${pagoEnv}</span></td>
+            </tr>
+            <tr style="border-top: 1px dashed #cbd5e1;">
+              <td style="padding: 8px 0 4px 0; font-size: 14px; color: ${isEnvPaid ? '#166534' : '#dc2626'}; font-weight: 700;"><strong>Saldo Pendiente:</strong></td>
+              <td style="padding: 8px 0 4px 0; font-size: 15px; color: ${isEnvPaid ? '#166534' : '#dc2626'}; text-align: right; font-weight: 800;">${isEnvPaid ? '$0 (Pagado)' : formatCLP(pendEnv)}</td>
             </tr>
           </table>
           <div style="margin-top: 15px; text-align: center;">
@@ -682,6 +812,22 @@ serve(async (req) => {
       headerGradient = 'linear-gradient(135deg, #dc2626, #991b1b)';
       emailTitle = 'Pausa Temporal de Servicio';
 
+      // Verificar si además de este registro existen otros periodos con saldo adeudado
+      const otherPendingPeriods = pendingRecordsList.filter(p => p.recordId !== record?.id);
+      const otherPendingDebt = otherPendingPeriods.reduce((acc, p) => acc + p.totalPending, 0);
+
+      let accumulatedDebtNotice = '';
+      if (otherPendingDebt > 0) {
+        const otherNames = otherPendingPeriods.map(p => p.periodName).join(', ');
+        accumulatedDebtNotice = `
+          <div style="margin-top: 18px; padding: 14px 16px; background-color: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 8px; font-size: 13px; color: #991b1b; line-height: 1.5;">
+            <strong>⚠️ Deuda acumulada en otros periodos:</strong><br>
+            Tu cuenta registra además saldos pendientes en el/los periodo(s) <strong>${otherNames}</strong> por un subtotal de <strong>${formatCLP(otherPendingDebt)}</strong>.<br>
+            El saldo consolidado total adeudado a la fecha asciende a <strong>${formatCLP(totalMonto + otherPendingDebt)}</strong>.
+          </div>
+        `;
+      }
+
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Estimado equipo de <strong>${commerceName}</strong>,<br><br>
@@ -695,9 +841,11 @@ serve(async (req) => {
         ${servicesHtml}
         
         <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Adeudado:</span>
+          <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Adeudado (${periodName}):</span>
           <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
         </div>
+
+        ${accumulatedDebtNotice}
 
         ${appealDeadlineNote}
 
@@ -716,12 +864,72 @@ serve(async (req) => {
       headerGradient = 'linear-gradient(135deg, #7f1d1d, #450a0a)';
       emailTitle = 'Servicio Temporalmente Suspendido';
 
-      let pendingAmountText = '';
-      if (record) {
-        pendingAmountText = `
-          <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-            <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Monto para Reactivación:</span>
-            <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+      let pendingDebtContentHtml = '';
+
+      if (pendingRecordsList.length > 0) {
+        let rowsHtml = '';
+        pendingRecordsList.forEach(p => {
+          if (p.pendFulf > 0) {
+            rowsHtml += `
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 10px 8px; font-weight: 600; color: #1e293b;">${p.periodName}</td>
+                <td style="padding: 10px 8px; color: #475569;">Fulfillment</td>
+                <td style="padding: 10px 8px; text-align: right; color: #475569;">${formatCLP(p.totalFulf)}</td>
+                <td style="padding: 10px 8px; text-align: right; color: ${p.abonoFulf > 0 ? '#166534' : '#94a3b8'};">${p.abonoFulf > 0 ? '-' + formatCLP(p.abonoFulf) : '—'}</td>
+                <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #dc2626;">${formatCLP(p.pendFulf)}</td>
+                <td style="padding: 10px 8px; text-align: center;"><span style="display: inline-block; padding: 2px 7px; font-size: 11px; font-weight: 600; border-radius: 4px; background-color: #fee2e2; color: #991b1b; text-transform: uppercase;">${p.pagoFulf}</span></td>
+              </tr>
+            `;
+          }
+          if (p.pendEnv > 0) {
+            rowsHtml += `
+              <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 10px 8px; font-weight: 600; color: #1e293b;">${p.periodName}</td>
+                <td style="padding: 10px 8px; color: #475569;">Envíame</td>
+                <td style="padding: 10px 8px; text-align: right; color: #475569;">${formatCLP(p.totalEnv)}</td>
+                <td style="padding: 10px 8px; text-align: right; color: ${p.abonoEnv > 0 ? '#166534' : '#94a3b8'};">${p.abonoEnv > 0 ? '-' + formatCLP(p.abonoEnv) : '—'}</td>
+                <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #dc2626;">${formatCLP(p.pendEnv)}</td>
+                <td style="padding: 10px 8px; text-align: center;"><span style="display: inline-block; padding: 2px 7px; font-size: 11px; font-weight: 600; border-radius: 4px; background-color: #fee2e2; color: #991b1b; text-transform: uppercase;">${p.pagoEnv}</span></td>
+              </tr>
+            `;
+          }
+        });
+
+        pendingDebtContentHtml = `
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+            <div style="font-size: 14.5px; font-weight: 700; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 12px;">
+              Detalle de Servicios y Periodos Pendientes de Pago
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <thead>
+                <tr style="background-color: #f1f5f9; color: #475569; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <th style="padding: 8px 6px; text-align: left;">Periodo</th>
+                  <th style="padding: 8px 6px; text-align: left;">Servicio</th>
+                  <th style="padding: 8px 6px; text-align: right;">Facturado</th>
+                  <th style="padding: 8px 6px; text-align: right;">Abono</th>
+                  <th style="padding: 8px 6px; text-align: right;">Saldo Pendiente</th>
+                  <th style="padding: 8px 6px; text-align: center;">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top: 25px; padding: 18px 20px; background-color: #eff6ff; border: 2px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <span style="font-size: 15px; font-weight: 700; color: #1e3a8a; display: block;">Monto Total para Reactivación:</span>
+              <span style="font-size: 12px; color: #3b82f6;">Suma consolidada de los saldos pendientes a la fecha</span>
+            </div>
+            <span style="font-size: 24px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalGlobalPendingDebt)}</span>
+          </div>
+        `;
+      } else {
+        pendingDebtContentHtml = `
+          <div style="margin-top: 20px; padding: 16px; background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; color: #9a3412; font-size: 13.5px; line-height: 1.5;">
+            <strong>Aviso de Regularización:</strong><br>
+            Tu comercio se encuentra en estado de pausa preventiva. Si ya realizaste transferencias recientes o requieres consultar el detalle contable de tu cuenta para la reactivación, por favor contáctanos de inmediato a <a href="mailto:finanzas@stocka.cl" style="color: #c2410c; font-weight: 700;">finanzas@stocka.cl</a>.
           </div>
         `;
       }
@@ -732,8 +940,8 @@ serve(async (req) => {
           Te informamos que debido al atraso continuo de pago de tus servicios pendientes, <strong>el servicio de tu comercio ha sido pausado temporalmente</strong>.
         </div>
 
-        <div style="background-color: #7f1d1d; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #ffffff; line-height: 1.5; font-weight: 600; text-align: center;">
-          SERVICIO PAUSADO TEMPORALMENTE
+        <div style="background-color: #7f1d1d; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 14.5px; color: #ffffff; line-height: 1.5; font-weight: 600; text-align: center;">
+          ⚠️ SERVICIO PAUSADO TEMPORALMENTE
         </div>
 
         <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
@@ -745,7 +953,7 @@ serve(async (req) => {
           </ul>
         </div>
         
-        ${pendingAmountText}
+        ${pendingDebtContentHtml}
 
         ${paymentDetailsHtml}
       `;
@@ -2463,7 +2671,9 @@ serve(async (req) => {
           .insert([{
             record_id: record?.id || null,
             comercio: commerceName,
-            periodo_nombre: periodName || 'General',
+            periodo_nombre: (emailType === 'service_paused' && pendingRecordsList.length > 0) 
+              ? pendingRecordsList.map((p: any) => p.periodName).join(', ') 
+              : (periodName || 'General'),
             email_type: emailType,
             sent_to: recipientEmails,
             message_id: brevoData.messageId || null,

@@ -764,33 +764,57 @@ async function handleWooOrderUpdate(merchantId: string, comercio: string, order:
         if (defaultWh) warehouseId = defaultWh.id;
       }
 
+      const expectedQuantities = new Map<string, number>();
+
       for (const [sku, qty] of Object.entries(itemQuantities)) {
         let { data: product } = await supabase
           .from("products")
-          .select("id")
+          .select("id, is_pack")
           .eq("sku", sku)
           .eq("comercio", comercio)
           .maybeSingle();
 
         if (product && warehouseId) {
-          processedProductIds.add(product.id);
-          const existing = existingMap.get(product.id);
+          if (product.is_pack) {
+            const { data: packMembers } = await supabase
+              .from("product_pack_items")
+              .select("member_product_id, quantity")
+              .eq("pack_product_id", product.id);
 
-          if (existing) {
-            if (existing.quantity !== (qty as number) || existing.warehouse_id !== warehouseId) {
-              await supabase.from("order_items").update({
-                quantity: qty as number,
-                warehouse_id: warehouseId
-              }).eq("id", existing.id);
+            if (packMembers && packMembers.length > 0) {
+              for (const pm of packMembers) {
+                const currentQty = expectedQuantities.get(pm.member_product_id) || 0;
+                expectedQuantities.set(pm.member_product_id, currentQty + (Number(pm.quantity || 1) * (qty as number)));
+              }
+            } else {
+              const currentQty = expectedQuantities.get(product.id) || 0;
+              expectedQuantities.set(product.id, currentQty + (qty as number));
             }
           } else {
-            await supabase.from("order_items").insert([{
-              order_id: existingOrder.id,
-              product_id: product.id,
-              warehouse_id: warehouseId,
-              quantity: qty as number
-            }]);
+            const currentQty = expectedQuantities.get(product.id) || 0;
+            expectedQuantities.set(product.id, currentQty + (qty as number));
           }
+        }
+      }
+
+      for (const [prodId, totalQty] of expectedQuantities.entries()) {
+        processedProductIds.add(prodId);
+        const existing = existingMap.get(prodId);
+
+        if (existing) {
+          if (existing.quantity !== totalQty || (warehouseId && existing.warehouse_id !== warehouseId)) {
+            await supabase.from("order_items").update({
+              quantity: totalQty,
+              warehouse_id: warehouseId || existing.warehouse_id
+            }).eq("id", existing.id);
+          }
+        } else {
+          await supabase.from("order_items").insert([{
+            order_id: existingOrder.id,
+            product_id: prodId,
+            warehouse_id: warehouseId,
+            quantity: totalQty
+          }]);
         }
       }
 

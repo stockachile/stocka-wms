@@ -623,13 +623,56 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
 // Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
 window.getOriginalPlatformStatus = function(order) {
-  if (order.external_platform === 'Shopify') {
+  if (!order) return null;
+  if (order.external_platform === 'Shopify' || order.origen === 'Shopify' || order.raw_shopify_data) {
     const raw = order.raw_shopify_data || {};
-    const fin = raw.financial_status || 'unknown';
-    const ful = raw.fulfillment_status || 'unfulfilled';
+    const rawFin = String(raw.financial_status || order.payment_status || '').toLowerCase().trim();
+    let finLabel = 'DESCONOCIDO';
+    let finColor = '#6b7280';
+    
+    if (['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'].includes(rawFin)) {
+      finLabel = 'PAGADO';
+      finColor = '#10b981';
+    } else if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
+      finLabel = 'PARCIALMENTE REEMBOLSADO';
+      finColor = '#ef4444';
+    } else if (['refunded', 'reembolsado', 'reembolsada'].includes(rawFin)) {
+      finLabel = 'REEMBOLSADO';
+      finColor = '#ef4444';
+    } else if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
+      finLabel = 'PARCIALMENTE PAGADO';
+      finColor = '#f59e0b';
+    } else if (['pending', 'pendiente', 'unpaid', 'no pagado'].includes(rawFin)) {
+      finLabel = 'PENDIENTE';
+      finColor = '#f59e0b';
+    } else if (['authorized', 'autorizado'].includes(rawFin)) {
+      finLabel = 'AUTORIZADO';
+      finColor = '#3b82f6';
+    } else if (['voided', 'anulado', 'cancelado', 'cancelled'].includes(rawFin)) {
+      finLabel = 'ANULADO';
+      finColor = '#6b7280';
+    } else if (rawFin && rawFin !== 'unknown') {
+      finLabel = rawFin.toUpperCase();
+      finColor = '#f59e0b';
+    }
+
+    const rawFul = String(raw.fulfillment_status || order.shopify_fulfillment_status || '').toLowerCase().trim();
+    let fulLabel = 'NO PREPARADO';
+    let fulColor = '#6b7280';
+    if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
+      fulLabel = 'PREPARADO';
+      fulColor = '#10b981';
+    } else if (['partial', 'parcial'].includes(rawFul)) {
+      fulLabel = 'PARCIAL';
+      fulColor = '#f59e0b';
+    } else if (['restocked'].includes(rawFul)) {
+      fulLabel = 'DEVUELTO A STOCK';
+      fulColor = '#6b7280';
+    }
+
     const details = [
-      { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
-      { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
+      { label: 'Pago', value: finLabel, color: finColor },
+      { label: 'Preparación', value: fulLabel, color: fulColor }
     ];
 
     if (order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
@@ -694,6 +737,288 @@ window.getOriginalPlatformStatus = function(order) {
     };
   }
   return null;
+};
+
+// Helper para badge amigable de pago en columna 1 del modal
+window.getOrderPaymentBadgeHtml = function(order) {
+  if (!order) return '-';
+  const rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+  
+  if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) {
+    return `<span style="background: var(--badge-success-bg); color: var(--badge-success-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Pagado</span>`;
+  }
+  if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
+    return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Parcialmente Reembolsado</span>`;
+  }
+  if (['refunded', 'reembolsado'].includes(rawFin)) {
+    return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Reembolsado</span>`;
+  }
+  if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> Parcialmente Pagado</span>`;
+  }
+  if (['authorized', 'autorizado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Autorizado</span>`;
+  }
+  if (['voided', 'anulado', 'cancelado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-danger-bg); color: var(--badge-danger-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Anulado</span>`;
+  }
+  return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
+};
+
+// Helper para verificar si un ítem de un pedido está eliminado/anulado/cancelado (ej. devuelto o reembolsado en Shopify)
+window.isOrderItemEliminated = function(order, item) {
+  if (!order || !item) return false;
+  // 1. Si la cantidad en el ítem es 0 o menor
+  const qty = parseInt(item.quantity, 10);
+  if (!isNaN(qty) && qty <= 0) return true;
+
+  // 2. Si el ítem tiene flag explícito de eliminado
+  if (item.is_eliminated === true || item.eliminated === true) return true;
+
+  // 3. Verificar contra los datos originales de la plataforma (Shopify)
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify) {
+    const pSku = String(item.products?.sku || item.sku || '').trim().toLowerCase();
+    const pName = String(item.products?.name || item.name || '').trim().toLowerCase();
+    const pId = item.shopify_line_item_id ? String(item.shopify_line_item_id) : null;
+
+    // 3.1 Verificar en line_items de Shopify (current_quantity o fulfillable_quantity en 0)
+    if (Array.isArray(rawShopify.line_items)) {
+      const matched = rawShopify.line_items.find(li => {
+        if (pId && String(li.id) === pId) return true;
+        const liSku = String(li.sku || '').trim().toLowerCase();
+        const liTitle = String(li.title || li.name || '').trim().toLowerCase();
+        return (pSku && liSku && pSku === liSku) || (pName && liTitle && pName === liTitle);
+      });
+
+      if (matched) {
+        if (matched.current_quantity !== undefined && Number(matched.current_quantity) === 0) {
+          return true;
+        }
+        if (matched.fulfillable_quantity !== undefined && Number(matched.fulfillable_quantity) === 0 && Number(matched.quantity || 0) > 0 && matched.current_quantity === 0) {
+          return true;
+        }
+      }
+    }
+
+    // 3.2 Verificar en refunds de Shopify si el ítem fue devuelto/cancelado
+    if (Array.isArray(rawShopify.refunds)) {
+      let totalRefundedQty = 0;
+      rawShopify.refunds.forEach(ref => {
+        (ref.refund_line_items || []).forEach(rli => {
+          const rSku = String(rli.line_item?.sku || '').trim().toLowerCase();
+          const rName = String(rli.line_item?.name || rli.line_item?.title || '').trim().toLowerCase();
+          const rId = rli.line_item_id ? String(rli.line_item_id) : (rli.line_item?.id ? String(rli.line_item.id) : null);
+          if ((pId && rId && pId === rId) || (pSku && rSku && pSku === rSku) || (pName && rName && pName === rName)) {
+            totalRefundedQty += Number(rli.quantity || 0);
+          }
+        });
+      });
+      if (totalRefundedQty > 0 && totalRefundedQty >= (qty || 1)) {
+        return true;
+      }
+    }
+  }
+
+  // 4. Verificar si en notas u observaciones de la orden se indica cancelación del ítem
+  const notesText = `${order.notas || ''} ${order.observation || ''} ${order.raw_shopify_data?.note || ''}`.toLowerCase();
+  if (notesText && (notesText.includes('cancelado') || notesText.includes('eliminado') || notesText.includes('anulado'))) {
+    const pSku = String(item.products?.sku || item.sku || '').trim().toLowerCase();
+    const pName = String(item.products?.name || item.name || '').trim().toLowerCase();
+    if ((pSku && notesText.includes(pSku)) || (pName && notesText.includes(pName))) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+// Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
+window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
+  if (!order) return '-';
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify && Array.isArray(rawShopify.line_items)) {
+    const cleanSku = String(itemSku || '').trim().toLowerCase();
+    const cleanName = String(itemName || '').trim().toLowerCase();
+    const matched = rawShopify.line_items.find(li => {
+      const liSku = String(li.sku || '').trim().toLowerCase();
+      const liTitle = String(li.title || li.name || '').trim().toLowerCase();
+      return (cleanSku && liSku && cleanSku === liSku) || (cleanName && liTitle && cleanName === liTitle);
+    });
+
+    if (matched) {
+      if (matched.current_quantity !== undefined && matched.current_quantity === 0) {
+        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
+      }
+      if (matched.fulfillment_status === 'fulfilled') {
+        return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+      }
+      if (matched.fulfillment_status === 'partial') {
+        return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+      }
+    }
+  }
+
+  // Estado basado en el ciclo WMS
+  const wms = (order.estado_wms || '').toLowerCase().trim();
+  if (wms === 'despachado' || wms === 'entregado' || wms === 'retirado') {
+    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-truck-line"></i> Despachado</span>`;
+  }
+  if (wms === 'pickeado') {
+    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Pickeado</span>`;
+  }
+  if (wms === 'en preparación') {
+    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> En preparación</span>`;
+  }
+  if (wms === 'cancelado') {
+    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
+  }
+  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hourglass-line"></i> No preparado</span>`;
+};
+
+// Función para actualizar y conciliar un pedido individual directamente desde Shopify
+window.resyncShopifyOrder = async function(orderId) {
+  const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (!order) {
+    alert('Pedido no encontrado en memoria.');
+    return;
+  }
+
+  const currentWms = (order.estado_wms || '').trim();
+  if (currentWms !== 'En procesamiento') {
+    alert(`El pedido se encuentra actualmente en estado '${currentWms}'.\n\nPara que el sistema admita y procese los cambios de Shopify (eliminación de productos, ajuste de ítems y stock), debes devolver el pedido al estado 'En procesamiento' antes de actualizar.`);
+    return;
+  }
+
+  const isItemsEdited = order.raw_shopify_data?.wms_items_edited === true;
+  let confirmMsg = `¿Deseas consultar y conciliar las últimas modificaciones del pedido ${order.external_order_number || order.id} directamente desde Shopify?`;
+  if (isItemsEdited) {
+    confirmMsg += `\n\n(Nota: Los ítems y cantidades editados manualmente en el WMS se mantendrán protegidos y prevalecerán).`;
+  }
+  if (!confirm(confirmMsg)) return;
+
+  const btn = document.getElementById(`btn-resync-shopify-${orderId}`);
+  const origBtnHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Sincronizando...';
+  }
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token || '';
+
+    const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/resync-shopify-order', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ order_id: orderId })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+
+    // Actualizar únicamente este pedido en memoria sin recargar todo el gestor de pedidos
+    const singleOrderSelect = `
+      id,
+      status,
+      estado_wms,
+      created_at,
+      external_order_number,
+      external_platform,
+      origen,
+      item,
+      cantidad,
+      sku,
+      total_value,
+      customer_name,
+      customer_email,
+      customer_phone,
+      shipping_address,
+      shipping_city,
+      shipping_complement,
+      shipping_method,
+      payment_status,
+      tracking_number,
+      tracking_url,
+      courier,
+      shopify_exported,
+      raw_shopify_data,
+      comercio,
+      categoria_entrega,
+      agenda,
+      operador,
+      fecha_procesamiento,
+      sucursal_pickeo,
+      periodo_facturacion,
+      order_items (quantity, product_id, warehouse_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+    `.replace(/\s+/g, ' ').trim();
+
+    const { data: refreshedOrder, error: refreshErr } = await supabase
+      .from('orders')
+      .select(singleOrderSelect)
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (refreshedOrder && Array.isArray(window.loadedOrders)) {
+      const idx = window.loadedOrders.findIndex(o => o.id === orderId);
+      if (idx !== -1) {
+        window.loadedOrders[idx] = { ...window.loadedOrders[idx], ...refreshedOrder };
+      }
+      if (window.fetchInventoryForOrders) {
+        await window.fetchInventoryForOrders([refreshedOrder]);
+      }
+    }
+
+    // Mantener la fila del pedido expandida y preservar la posición de scroll
+    if (!window.wmsExpandedOrderIds) window.wmsExpandedOrderIds = new Set();
+    window.wmsExpandedOrderIds.add(orderId);
+
+    const scrollY = window.scrollY;
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+    window.scrollTo(0, scrollY);
+
+    if (window.loadOrderAuditLogs) {
+      window.loadOrderAuditLogs(orderId);
+    }
+
+    const delSkusMsg = result.deletedSkus && result.deletedSkus.length > 0 ? `(SKU eliminados: ${result.deletedSkus.join(', ')})` : '(Sin SKU eliminados)';
+    if (result.wmsItemsProtected) {
+      alert(`¡Sincronizado!\n\nPedido ${order.external_order_number || order.id} actualizado desde Shopify.\n\n🛡️ Los ítems y cantidades modificados manualmente en el WMS se mantuvieron protegidos y prevalecen.`);
+    } else {
+      alert(`¡Sincronizado!\n\nPedido ${order.external_order_number || order.id} conciliado exitosamente con Shopify.\n- Unidades activas: ${result.totalUnits}\n- ${delSkusMsg}`);
+    }
+    
+    if (typeof Swal !== 'undefined' && Swal.fire) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Pedido Actualizado',
+        html: `<b>${order.external_order_number || order.id}</b> sincronizado exitosamente desde Shopify.<br><br>` +
+              `• <b>SKU activos:</b> ${result.activeItemsCount} ${delSkusMsg}<br>` +
+              `• <b>Total actualizado:</b> $${Number(result.totalValue).toLocaleString('es-CL')} (${result.totalUnits || result.activeItemsCount} uds.)`,
+        timer: 4000,
+        timerProgressBar: true,
+        showConfirmButton: true,
+        confirmButtonColor: 'var(--color-primary, #3b82f6)'
+      });
+    } else {
+      alert(`¡Pedido ${order.external_order_number || order.id} actualizado exitosamente desde Shopify!\n\n- SKU activos: ${result.activeItemsCount} ${delSkusMsg}\n- Total actualizado: $${Number(result.totalValue).toLocaleString('es-CL')} (${result.totalUnits || result.activeItemsCount} uds.)`);
+    }
+  } catch (err) {
+    console.error('Error al actualizar desde Shopify:', err);
+    alert(`Error al actualizar desde Shopify: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
 };
 
 // Función global para descargar la etiqueta de un pedido desde Supabase bajo demanda
@@ -2167,7 +2492,7 @@ const ALL_STATUSES = [
 async function updateOrderStatus(orderId, newStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
   if (order && (newStatus === 'en preparación' || newStatus === 'despachado')) {
-    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
     if (itemsToCheck.length > 0) {
       const productIds = itemsToCheck.map(item => item.product_id);
       const { data: invData, error: invErr } = await supabase
@@ -2314,6 +2639,90 @@ window.toggleOrderRow = function(orderId) {
     if (window.loadOrderAuditLogs) {
       window.loadOrderAuditLogs(orderId);
     }
+  }
+};
+
+window.loadOrderAuditLogs = async function(orderId) {
+  const container = document.getElementById(`wms-order-audit-timeline-${orderId}`);
+  if (!container) return;
+
+  try {
+    let targetUuid = orderId;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetUuid)) {
+      const matched = (window.loadedOrders || []).find(o => o.external_order_number === orderId || o.id === orderId);
+      if (matched && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(matched.id)) {
+        targetUuid = matched.id;
+      } else {
+        container.innerHTML = `
+          <div style="padding: 0.5rem; color: var(--color-text-muted); font-style: italic;">
+            No hay registros de modificaciones para este pedido.
+          </div>
+        `;
+        return;
+      }
+    }
+
+    const { data: logs, error } = await supabase
+      .from('order_audit_logs')
+      .select('*')
+      .eq('order_id', targetUuid)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    if (!logs || logs.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 0.5rem; color: var(--color-text-muted); font-style: italic;">
+          No hay registros de modificaciones para este pedido.
+        </div>
+      `;
+      return;
+    }
+
+    const escape = window.escapeHtml || (s => String(s || ''));
+
+    let html = `<div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">`;
+    logs.forEach(log => {
+      const dateStr = new Date(log.created_at).toLocaleString('es-CL');
+      const userStr = log.user_email ? escape(log.user_email) : 'Usuario Desconocido';
+      
+      let detailsHtml = '';
+      if (log.details) {
+        if (log.details.changes && Array.isArray(log.details.changes)) {
+          detailsHtml = `<ul style="margin: 0.25rem 0 0 1.25rem; padding: 0; list-style-type: disc; font-size: 0.775rem; color: var(--color-text-main);">` + 
+            log.details.changes.map(c => `<li>${escape(c)}</li>`).join('') + 
+            `</ul>`;
+        } else if (typeof log.details === 'string') {
+          detailsHtml = `<div style="margin-top: 0.25rem; font-size: 0.775rem;">${escape(log.details)}</div>`;
+        }
+        
+        if (log.details.comment) {
+          detailsHtml += `<div style="margin-top: 0.25rem; font-size: 0.775rem; font-style: italic; color: var(--color-text-muted);">Motivo: "${escape(log.details.comment)}"</div>`;
+        }
+      }
+
+      html += `
+        <div style="border-left: 2px solid var(--color-primary); padding-left: 0.75rem; position: relative; text-align: left;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); position: absolute; left: -5px; top: 4px;"></div>
+          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">
+            ${escape(log.action)} <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.75rem;">por ${userStr}</span>
+          </div>
+          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.1rem;">
+            📅 ${dateStr}
+          </div>
+          ${detailsHtml}
+        </div>
+      `;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
+  } catch (err) {
+    console.error("Error loading order audit logs:", err);
+    container.innerHTML = `
+      <div style="color: var(--color-danger); padding: 0.5rem; font-size: 0.8rem;">
+        Error al cargar historial: ${err.message}
+      </div>
+    `;
   }
 };
 window.toggleRawOrderJson = async function(orderId) {
@@ -2494,6 +2903,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         tracking_url,
         courier,
         shopify_exported,
+        raw_shopify_data,
         comercio,
         categoria_entrega,
         agenda,
@@ -3571,7 +3981,7 @@ window.applyWmsFiltersAndRender = function() {
     let hasStockAlert = false;
     let stockAlertDetails = [];
     if (shouldProcessStock) {
-      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
       if (itemsToCheck.length > 0) {
         const invMap = window.loadedOrdersInventoryMap || {};
         itemsToCheck.forEach(item => {
@@ -3656,7 +4066,9 @@ window.applyWmsFiltersAndRender = function() {
       paymentBadgeHtml = `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-circle-line"></i> PAGADO</span>`;
     } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
       paymentBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-error-warning-line"></i> PAGO PENDIENTE</span>`;
-    } else if (payStatus === 'refunded' || payStatus === 'partially_refunded' || payStatus === 'voided') {
+    } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
+      paymentBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-refund-line"></i> PARCIALMENTE REEMBOLSADO</span>`;
+    } else if (payStatus === 'refunded' || payStatus === 'voided') {
       paymentBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-refund-line"></i> REEMBOLSADO</span>`;
     } else if (order.payment_status) {
       paymentBadgeHtml = `<span class="badge" style="background-color: #e5e7eb; color: #4b5563; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${order.payment_status.toUpperCase()}</span>`;
@@ -3921,7 +4333,9 @@ window.applyWmsFiltersAndRender = function() {
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
-        if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
+        if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
+        } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
           const invMap = window.loadedOrdersInventoryMap || {};
           const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
           if (available < item.quantity) {
@@ -3948,6 +4362,7 @@ window.applyWmsFiltersAndRender = function() {
               <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
             </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
+            <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, item.sku, item.name)}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
@@ -3962,6 +4377,7 @@ window.applyWmsFiltersAndRender = function() {
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
           <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">${order.item || 'Sin Nombre'}</td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, order.sku, order.item)}</td>
           <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
@@ -4175,7 +4591,7 @@ window.applyWmsFiltersAndRender = function() {
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Categoría:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span></p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;"><strong>Pago:</strong> ${window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(order) : order.payment_status}</p>
                 
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
                   <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
@@ -4211,6 +4627,7 @@ window.applyWmsFiltersAndRender = function() {
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                        <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Estado</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
@@ -4221,7 +4638,7 @@ window.applyWmsFiltersAndRender = function() {
                     </tbody>
                     <tfoot>
                       <tr style="border-top: 2px solid var(--color-border); font-weight: 700;">
-                        <td colspan="5" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
+                        <td colspan="6" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
                         <td style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(order.total_value)}</td>
                       </tr>
                     </tfoot>
@@ -4255,6 +4672,13 @@ window.applyWmsFiltersAndRender = function() {
                     <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
                   </div>
                   ${originalPlatformStatusHtml}
+                  ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || order.raw_shopify_data) ? `
+                    <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--color-border);">
+                      <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" title="Llama a la actualización del pedido directamente desde Shopify">
+                        <i class="ri-refresh-line"></i> Actualizar desde Shopify
+                      </button>
+                    </div>
+                  ` : ''}
                 </div>
 
                 <!-- Grupo 2: Courier y Tracking -->
@@ -4304,8 +4728,13 @@ window.applyWmsFiltersAndRender = function() {
 
             <!-- Fila inferior: Historial de Modificaciones (Full width) -->
             <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-              <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-history-line"></i> Historial de Modificaciones
+              <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between;">
+                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-history-line"></i> Historial de Modificaciones
+                </span>
+                <button type="button" onclick="window.loadOrderAuditLogs('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;" title="Actualizar historial de modificaciones">
+                  <i class="ri-refresh-line"></i> Actualizar
+                </button>
               </h4>
               <div id="wms-order-audit-timeline-${order.id}" style="font-size: 0.825rem; color: var(--color-text-muted); text-align: center; padding: 0.5rem;">
                 <i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block;"></i>
@@ -4375,6 +4804,15 @@ window.applyWmsFiltersAndRender = function() {
 
   // 7. Renderizar barra de acciones masivas
   renderWmsBulkActionsBar();
+
+  // 8. Cargar historial de modificaciones para todos los pedidos actualmente expandidos
+  if (window.wmsExpandedOrderIds && window.wmsExpandedOrderIds.size > 0 && typeof window.loadOrderAuditLogs === 'function') {
+    paginatedOrders.forEach(order => {
+      if (window.wmsExpandedOrderIds.has(order.id)) {
+        window.loadOrderAuditLogs(order.id);
+      }
+    });
+  }
 };
 
 window.setWmsTab = function(tab) {
@@ -4740,7 +5178,7 @@ window.applyBulkWmsStatus = async function() {
       if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
       (order.order_items || []).forEach(item => {
-        if (!item.products?.is_virtual) {
+        if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
           allItemsToCheck.push({
             orderId: order.id,
             orderNum: order.external_order_number || order.id,
@@ -5432,7 +5870,7 @@ async function validateOrderStockForDispatch(ordersList) {
     } else {
       const warehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
       (order.order_items || []).forEach(item => {
-        if (!item.products?.is_virtual) {
+        if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
           itemsToCheck.push({
             order,
             item,
@@ -5503,7 +5941,7 @@ async function validateOrderStockForDispatch(ordersList) {
 
     ordersToPrompt.forEach(order => {
       (order.order_items || []).forEach(item => {
-        if (!item.products?.is_virtual) {
+        if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
           itemsToCheck.push({
             order,
             item,
@@ -5707,7 +6145,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     const itemsToCheck = isStockTrackingActive 
-      ? (order.order_items || []).filter(item => !item.products?.is_virtual)
+      ? (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item))
       : [];
     if (itemsToCheck.length > 0) {
       const productIds = itemsToCheck.map(item => item.product_id);
@@ -41635,7 +42073,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'Pendiente (Obs)',
@@ -41685,23 +42123,43 @@ window.sendSingleOrderToPicker = async function(order) {
     .delete()
     .eq('order_number', orderNumber);
 
-  const items = order.order_items || [];
-  const physicalItems = items.filter(item => !item.products?.is_virtual);
+  let items = order.order_items || [];
+  if (items.length === 0 && order.id) {
+    try {
+      const { data: freshItems } = await supabase
+        .from('order_items')
+        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker)')
+        .eq('order_id', order.id);
+      if (freshItems && freshItems.length > 0) {
+        items = freshItems;
+        order.order_items = freshItems;
+      }
+    } catch (e) {
+      console.warn("No se pudieron recargar items para", orderNumber, e);
+    }
+  }
+
+  const physicalItems = items.filter(item => !item.products?.is_virtual && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
+
+  const opUpper = (order.operador || '').toUpperCase().trim();
+  const curUpper = (order.courier || '').toUpperCase().trim();
+  const isIgnoredOperator = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
+                            opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY');
+  const isIgnoredCourier = curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
+                           curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
+
+  const isStkAgenda = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
+  const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
+  const cleanTracking = isStkAgenda 
+    ? cleanStkTracking 
+    : ((isIgnoredCourier || isIgnoredOperator) ? '' : (order.tracking_number || ''));
+  const cleanOperator = isIgnoredOperator ? '' : (order.operador || '');
 
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
-    const opUpper = (order.operador || '').toUpperCase().trim();
-    const curUpper = (order.courier || '').toUpperCase().trim();
-    const isIgnoredOp = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
-                        opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY') ||
-                        curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
-                        curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
-
-    const cleanTracking = isIgnoredOp ? '' : ((order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''));
-    const cleanOperator = isIgnoredOp ? '' : (order.operador || '');
 
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
@@ -41732,11 +42190,44 @@ window.sendSingleOrderToPicker = async function(order) {
     });
   }
 
+  // Fallback si la orden no tiene order_items pero tiene información de item/sku en cabecera
+  if (payloads.length === 0 && (order.sku || order.item)) {
+    payloads.push({
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      order_number: orderNumber,
+      agenda: order.agenda || 'STK',
+      quantity: parseInt(order.cantidad, 10) || 1,
+      sku: order.sku || 'SKU-TEMP',
+      name: order.item || 'Producto WMS',
+      color: null,
+      talla: null,
+      manga: null,
+      cuello: null,
+      client_name: order.customer_name || 'Sin nombre',
+      tracking: cleanTracking,
+      operator: cleanOperator,
+      totu: parseInt(order.cantidad, 10) || 1,
+      sheet_status: 'EN PREPARACIÓN',
+      observation: order.observation || '',
+      contact_data_q: order.customer_email || '',
+      contact_data_r: order.customer_phone || '',
+      contact_data_s: order.shipping_address || '',
+      contact_data_t: order.shipping_city || '',
+      contact_data_u: order.shipping_complement || '',
+      extra_col_v: '',
+      comercio: order.comercio || 'MAGIC MAKEUP',
+      picking_match_strict: commerceStrict || false,
+      created_by: 'Sistema WMS'
+    });
+  }
+
   if (payloads.length > 0) {
     const { error: insErr } = await pickerSupabase
       .from('active_orders')
       .insert(payloads);
     if (insErr) throw insErr;
+  } else {
+    throw new Error(`El pedido ${orderNumber} no tiene productos físicos para enviar al Picker.`);
   }
 };
 
@@ -43195,6 +43686,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
             <option value="invoice_uploaded">Notificación de Factura Cargada</option>
             <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
             <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
+            <option value="service_paused">Notificación Formal de Servicio Pausado (Corte efectivo)</option>
             <option value="service_restored">Confirmación de Re-activación del Servicio</option>
           </select>
           <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; background: rgba(239, 68, 68, 0.05); border: 1px dashed rgba(239, 68, 68, 0.2); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
@@ -43672,73 +44164,6 @@ window.applyColFilter = function(columnKey) {
   applyWmsFiltersAndRender();
 };
 
-window.loadOrderAuditLogs = async function(orderId) {
-  const container = document.getElementById(`wms-order-audit-timeline-${orderId}`);
-  if (!container) return;
-
-  try {
-    const { data: logs, error } = await supabase
-      .from('order_audit_logs')
-      .select('*')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    if (!logs || logs.length === 0) {
-      container.innerHTML = `
-        <div style="padding: 0.5rem; color: var(--color-text-muted); font-style: italic;">
-          No hay registros de modificaciones para este pedido.
-        </div>
-      `;
-      return;
-    }
-
-    let html = `<div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">`;
-    logs.forEach(log => {
-      const dateStr = new Date(log.created_at).toLocaleString();
-      const userStr = log.user_email ? log.user_email : 'Usuario Desconocido';
-      
-      let detailsHtml = '';
-      if (log.details) {
-        if (log.details.changes && Array.isArray(log.details.changes)) {
-          detailsHtml = `<ul style="margin: 0.25rem 0 0 1.25rem; padding: 0; list-style-type: disc; font-size: 0.775rem; color: var(--color-text-main);">` + 
-            log.details.changes.map(c => `<li>${c}</li>`).join('') + 
-            `</ul>`;
-        } else if (typeof log.details === 'string') {
-          detailsHtml = `<div style="margin-top: 0.25rem; font-size: 0.775rem;">${log.details}</div>`;
-        }
-        
-        if (log.details.comment) {
-          detailsHtml += `<div style="margin-top: 0.25rem; font-size: 0.775rem; font-style: italic; color: var(--color-text-muted);">Motivo: "${log.details.comment}"</div>`;
-        }
-      }
-
-      html += `
-        <div style="border-left: 2px solid var(--color-primary); padding-left: 0.75rem; position: relative;">
-          <div style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); position: absolute; left: -5px; top: 4px;"></div>
-          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">
-            ${log.action} <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.75rem;">por ${userStr}</span>
-          </div>
-          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.1rem;">
-            📅 ${dateStr}
-          </div>
-          ${detailsHtml}
-        </div>
-      `;
-    });
-    html += `</div>`;
-    container.innerHTML = html;
-  } catch (err) {
-    console.error("Error loading order audit logs:", err);
-    container.innerHTML = `
-      <div style="color: var(--color-danger); padding: 0.5rem; font-size: 0.8rem;">
-        Error al cargar historial: ${err.message}
-      </div>
-    `;
-  }
-};
-
 window.openEditOrderItemsModal = async function(orderId) {
   Swal.fire({
     title: 'Cargando datos...',
@@ -43800,7 +44225,66 @@ window.openEditOrderItemsModal = async function(orderId) {
   }
 };
 
-window.renderEditOrderItemsModal = function(orderId, commerce) {
+window.findProductInCommerce = function(rawQuery) {
+  if (!rawQuery) return null;
+  const q = rawQuery.trim().toLowerCase();
+  const commerceProducts = window.tempCommerceProducts || [];
+
+  // 1. Coincidencia exacta por SKU
+  let prod = commerceProducts.find(p => (p.sku || '').trim().toLowerCase() === q);
+  if (prod) return prod;
+
+  // 2. Coincidencia si el usuario seleccionó del datalist "SKU - Nombre" o empezó con SKU
+  prod = commerceProducts.find(p => {
+    const s = (p.sku || '').trim().toLowerCase();
+    const full = `${s} - ${(p.name || '').trim().toLowerCase()}`;
+    return full === q || q.startsWith(s + ' -') || q.startsWith(s + ' ');
+  });
+  if (prod) return prod;
+
+  // 3. Coincidencia exacta por Nombre
+  prod = commerceProducts.find(p => (p.name || '').trim().toLowerCase() === q);
+  if (prod) return prod;
+
+  // 4. Coincidencia si contiene el SKU o Nombre (si es único)
+  const partials = commerceProducts.filter(p => 
+    (p.sku || '').trim().toLowerCase().includes(q) || 
+    (p.name || '').trim().toLowerCase().includes(q)
+  );
+  if (partials.length === 1) return partials[0];
+
+  return null;
+};
+
+window.tryAddTempEditItem = function(orderId, commerce, rawSku, rawQty) {
+  const qty = parseInt(rawQty, 10);
+  if (isNaN(qty) || qty < 1) return false;
+
+  const product = window.findProductInCommerce(rawSku);
+  if (!product) return false;
+
+  const existingIdx = window.tempEditOrderItems.findIndex(item => item.product_id === product.id);
+  if (existingIdx !== -1) {
+    window.tempEditOrderItems[existingIdx].quantity += qty;
+  } else {
+    const firstItemWh = window.tempEditOrderItems.length > 0 ? window.tempEditOrderItems[0].warehouse_id : null;
+    const centralWh = (window.tempWarehouses || []).find(w => w.name.toLowerCase().includes('central') || w.name.toLowerCase().includes('ñuñoa'));
+    const defaultWarehouseId = firstItemWh || (centralWh ? centralWh.id : (window.tempWarehouses && window.tempWarehouses.length > 0 ? window.tempWarehouses[0].id : null));
+
+    window.tempEditOrderItems.push({
+      id: null,
+      product_id: product.id,
+      sku: product.sku,
+      name: product.name,
+      price: product.price || 0,
+      quantity: qty,
+      warehouse_id: defaultWarehouseId
+    });
+  }
+  return true;
+};
+
+window.renderEditOrderItemsModal = function(orderId, commerce, existingComment = '') {
   let rowsHtml = '';
   if (window.tempEditOrderItems.length === 0) {
     rowsHtml = `
@@ -43843,6 +44327,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce) {
   }
 
   const commerceProducts = window.tempCommerceProducts || [];
+  const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
 
   const htmlContent = `
     <div style="text-align: left; max-height: 70vh; overflow-y: auto;">
@@ -43870,7 +44355,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce) {
           <div style="flex-grow: 1; min-width: 180px;">
             <input type="text" id="swal-add-item-sku" list="swal-products-datalist" placeholder="Escribe SKU o Nombre del producto..." style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
             <datalist id="swal-products-datalist">
-              ${commerceProducts.map(p => `<option value="${p.sku}" data-id="${p.id}">${p.sku} - ${p.name}</option>`).join('')}
+              ${commerceProducts.map(p => `<option value="${p.sku}">${p.sku} - ${p.name}</option>`).join('')}
             </datalist>
           </div>
           <div style="width: 70px;">
@@ -43882,7 +44367,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce) {
 
       <div class="form-group" style="margin-bottom: 0.5rem;">
         <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Motivo / Comentario de la Modificación <span style="color: var(--color-danger);">*</span></label>
-        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);" required></textarea>
+        <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);" required>${escapeFn(existingComment)}</textarea>
       </div>
     </div>
   `;
@@ -43896,6 +44381,19 @@ window.renderEditOrderItemsModal = function(orderId, commerce) {
     cancelButtonText: 'Cancelar',
     allowOutsideClick: false,
     preConfirm: () => {
+      // Auto-agregar si el usuario escribió un producto pero no presionó el botón Agregar
+      const skuInput = document.getElementById('swal-add-item-sku');
+      const qtyInput = document.getElementById('swal-add-item-qty');
+      if (skuInput && skuInput.value.trim()) {
+        const rawSku = skuInput.value.trim();
+        const rawQty = qtyInput ? qtyInput.value : 1;
+        const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty);
+        if (!success) {
+          Swal.showValidationMessage(`El producto "${rawSku}" no fue encontrado en ${commerce}. Selecciona un SKU válido del listado desplegable.`);
+          return false;
+        }
+      }
+
       const comment = document.getElementById('swal-edit-items-comment').value.trim();
       if (!comment) {
         Swal.showValidationMessage('El motivo de la modificación es obligatorio.');
@@ -43922,8 +44420,9 @@ window.updateTempEditItemWarehouse = function(index, val) {
 };
 
 window.removeTempEditItem = function(index, orderId, commerce) {
+  const commentVal = document.getElementById('swal-edit-items-comment')?.value || '';
   window.tempEditOrderItems.splice(index, 1);
-  window.renderEditOrderItemsModal(orderId, commerce);
+  window.renderEditOrderItemsModal(orderId, commerce, commentVal);
 };
 
 window.addTempEditItem = function(orderId, commerce) {
@@ -43931,46 +44430,22 @@ window.addTempEditItem = function(orderId, commerce) {
   const qtyInput = document.getElementById('swal-add-item-qty');
   if (!skuInput || !qtyInput) return;
 
-  const sku = skuInput.value.trim();
-  const qty = parseInt(qtyInput.value, 10);
+  const rawSku = skuInput.value.trim();
+  const rawQty = qtyInput.value.trim();
 
-  if (!sku) {
+  if (!rawSku) {
     alert('Por favor escribe o selecciona un SKU.');
     return;
   }
-  if (isNaN(qty) || qty < 1) {
-    alert('Cantidad inválida.');
+
+  const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty);
+  if (!success) {
+    alert(`Producto "${rawSku}" no encontrado en ${commerce}. Por favor selecciona un SKU válido de la lista desplegable.`);
     return;
   }
 
-  const commerceProducts = window.tempCommerceProducts || [];
-  const product = commerceProducts.find(p => p.sku === sku);
-  if (!product) {
-    alert('Producto no encontrado. Por favor, selecciona un SKU válido de la lista desplegable.');
-    return;
-  }
-
-  const existingIdx = window.tempEditOrderItems.findIndex(item => item.product_id === product.id);
-  if (existingIdx !== -1) {
-    window.tempEditOrderItems[existingIdx].quantity += qty;
-  } else {
-    const bodegaCentral = (window.tempWarehouses || []).find(w => w.name.toLowerCase().includes('central'));
-    const defaultWarehouseId = window.tempEditOrderItems.length > 0 
-      ? window.tempEditOrderItems[0].warehouse_id 
-      : (bodegaCentral ? bodegaCentral.id : (window.tempWarehouses && window.tempWarehouses.length > 0 ? window.tempWarehouses[0].id : null));
-
-    window.tempEditOrderItems.push({
-      id: null,
-      product_id: product.id,
-      sku: product.sku,
-      name: product.name,
-      price: product.price || 0,
-      quantity: qty,
-      warehouse_id: defaultWarehouseId
-    });
-  }
-
-  window.renderEditOrderItemsModal(orderId, commerce);
+  const commentVal = document.getElementById('swal-edit-items-comment')?.value || '';
+  window.renderEditOrderItemsModal(orderId, commerce, commentVal);
 };
 
 window.saveEditOrderItems = async function(orderId, comment) {
@@ -44089,11 +44564,22 @@ window.saveEditOrderItems = async function(orderId, comment) {
     let updatedRawDataObj = null;
     let foundRawKey = null;
 
+    const newRawLineItems = window.tempEditOrderItems.map((item, idx) => ({
+      id: item.shopify_line_item_id || (16800000000000 + idx),
+      sku: item.sku,
+      title: item.name,
+      name: item.name,
+      quantity: item.quantity,
+      current_quantity: item.quantity,
+      price: String(item.price || 0)
+    }));
+
     rawKeys.forEach(key => {
       if (targetOrder && targetOrder[key]) {
         foundRawKey = key;
         updatedRawDataObj = {
           ...targetOrder[key],
+          line_items: newRawLineItems,
           wms_items_edited: true,
           wms_custom_edited: true
         };
@@ -44104,6 +44590,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
     // Si no tiene ningún rawKey existente, asignamos por defecto a raw_shopify_data para persistencia
     if (!foundRawKey) {
       updatePayload.raw_shopify_data = {
+        line_items: newRawLineItems,
         wms_items_edited: true,
         wms_custom_edited: true
       };

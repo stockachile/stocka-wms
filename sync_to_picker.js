@@ -174,7 +174,7 @@ async function run() {
               manga: opt.manga || null,
               cuello: opt.cuello || null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
-              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? orderNo : (wmsOrder.tracking_number || ''),
+              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) : (wmsOrder.tracking_number || ''),
               operator: wmsOrder.operador || '',
               totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
@@ -200,10 +200,37 @@ async function run() {
         }
 
       } else {
-        // === CASO B: El pedido ya no existe en Picker active_orders (puede haber finalizado) ===
-        console.log(`🔍 Pedido ${orderNo} no está activo en Picker. Verificando historial de completado...`);
+        // === CASO B: El pedido no está activo en Picker active_orders ===
+        console.log(`🔍 Pedido ${orderNo} no está activo en Picker. Verificando estado en Punto de Retiro e historial de completado...`);
 
-        // Consultar en logs de completado del Picker
+        // B.1 Verificar si es retiro y ya fue cancelado o entregado en sucursal_pickups
+        let isPickupHandled = false;
+        try {
+          const { data: pickupCheck } = await pickerClient
+            .from('sucursal_pickups')
+            .select('estado_pedido')
+            .eq('pedido', orderNo)
+            .maybeSingle();
+
+          if (pickupCheck) {
+            const st = (pickupCheck.estado_pedido || '').trim().toUpperCase();
+            if (st === 'CANCELADO') {
+              console.log(`🚫 Pedido ${orderNo} fue cancelado en Punto de Retiro. Sincronizando WMS a 'Cancelado'...`);
+              await wmsClient.from('orders').update({ estado_wms: 'Cancelado' }).eq('id', wmsOrder.id);
+              isPickupHandled = true;
+            } else if (st === 'ENTREGADO') {
+              console.log(`📦 Pedido ${orderNo} fue entregado en Punto de Retiro. Sincronizando WMS a 'Pickeado'...`);
+              await wmsClient.from('orders').update({ estado_wms: 'Pickeado' }).eq('id', wmsOrder.id);
+              isPickupHandled = true;
+            }
+          }
+        } catch (pickErr) {
+          console.error(`Error verificando sucursal_pickups para ${orderNo}:`, pickErr.message);
+        }
+
+        if (isPickupHandled) continue;
+
+        // B.2 Consultar en logs de completado del Picker
         const { data: logs, error: logsErr } = await pickerClient
           .from('history_logs')
           .select('pedido, estado, comentarios')
@@ -232,7 +259,65 @@ async function run() {
             console.log(`✅ Pedido ${orderNo} marcado exitosamente como 'Pickeado' en WMS.`);
           }
         } else {
-          console.log(`ℹ️ El pedido ${orderNo} aún no registra completado en el Picker. Continúa en preparación.`);
+          // B.3 CASO SELF-HEALING: El pedido está 'En preparación' en WMS pero NO está en active_orders ni en logs de completado.
+          // Se reinyecta automáticamente en active_orders para que los operarios puedan prepararlo.
+          console.log(`🩹 [SELF-HEALING] Pedido ${orderNo} en preparación sin registro activo en Picker. Re-insertando en active_orders...`);
+
+          const physicalItems = (wmsOrder.order_items || []).filter(oi => !oi.products?.is_virtual);
+          const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
+          const commerceStrict = strictComerciosSet.has(String(wmsOrder.comercio || '').trim().toUpperCase());
+          const isRetiro = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO');
+          const defaultSucursal = isRetiro ? 'Sucursal Ñuñoa' : 'Sucursal Virtual (Hub)';
+
+          const payloads = [];
+          physicalItems.forEach(oi => {
+            const prod = oi.products || {};
+            const opt = prod.options || {};
+            payloads.push({
+              sucursal: wmsOrder.sucursal_pickeo || defaultSucursal,
+              order_number: orderNo,
+              agenda: wmsOrder.agenda || (isRetiro ? 'RETIRO' : 'STK'),
+              quantity: parseInt(oi.quantity, 10) || 1,
+              sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode)
+                ? prod.barcode
+                : (prod.sku || 'SKU-TEMP'),
+              name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim())
+                ? prod.alias.trim()
+                : (prod.name || 'Producto WMS'),
+              color: opt.color || null,
+              talla: opt.talla || opt.size || null,
+              manga: opt.manga || null,
+              cuello: opt.cuello || null,
+              client_name: wmsOrder.customer_name || 'Sin nombre',
+              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK')
+                ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo)
+                : (wmsOrder.tracking_number || (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : '')),
+              operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : ''),
+              totu: totu,
+              sheet_status: 'EN PREPARACIÓN',
+              observation: '',
+              fecha: new Date().toISOString().split('T')[0],
+              contact_data_q: wmsOrder.customer_email || '',
+              contact_data_r: wmsOrder.customer_phone || '',
+              contact_data_s: wmsOrder.shipping_address || '',
+              contact_data_t: wmsOrder.shipping_city || '',
+              contact_data_u: wmsOrder.shipping_complement || '',
+              extra_col_v: prod.image_url || '',
+              comercio: wmsOrder.comercio || 'STOCKA',
+              created_by: 'Self-Healing Sync',
+              picking_match_strict: commerceStrict || prod.picking_match_strict || false
+            });
+          });
+
+          if (payloads.length > 0) {
+            await pickerClient.from('active_orders').delete().eq('order_number', orderNo);
+            const { error: insErr } = await pickerClient.from('active_orders').insert(payloads);
+            if (insErr) {
+              console.error(`❌ [SELF-HEALING] Error insertando pedido ${orderNo} en Picker:`, insErr.message);
+            } else {
+              console.log(`✅ [SELF-HEALING] Pedido ${orderNo} recuperado e insertado exitosamente en Picker active_orders.`);
+            }
+          }
         }
       }
     }
@@ -244,7 +329,13 @@ async function run() {
   console.log(`[${new Date().toISOString()}] Sincronización finalizada.`);
 }
 
-run();
+if (require.main === module) {
+  run();
+}
+
+module.exports = {
+  runSyncToPicker: run
+};
 
 async function registerPickupIfNeeded(order) {
   const orderNumber = String(order.external_order_number || order.id);

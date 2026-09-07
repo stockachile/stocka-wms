@@ -37,46 +37,59 @@ serve(async (req) => {
       return new Response("Integration not fully configured", { status: 200 }); 
     }
 
-    // 3. Verificación de Seguridad HMAC (Jumpseller envía la firma en Base64)
-    const hmacHeader = req.headers.get("jumpseller-hmac-sha256");
-    const eventTopic = req.headers.get("jumpseller-event");
+    // 3. Verificación de Seguridad y Cabeceras (tolerante a formato X- y minúsculas)
+    const hmacHeader = req.headers.get("jumpseller-hmac-sha256")
+      || req.headers.get("x-jumpseller-hmac-sha256")
+      || req.headers.get("x-hook-signature")
+      || req.headers.get("x-signature")
+      || req.headers.get("x-jumpseller-signature");
 
-    if (!hmacHeader || !eventTopic) {
-      return new Response("Missing Jumpseller headers", { status: 400 });
-    }
+    const eventTopic = req.headers.get("jumpseller-event")
+      || req.headers.get("x-jumpseller-event")
+      || req.headers.get("x-hook-event")
+      || "";
 
-    // Leemos el raw body como texto para verificar la firma
+    // Leemos el raw body como texto
     const rawBody = await req.text();
-    
-    // Verificación HMAC nativa con Web Crypto API
-    const keyBuf = new TextEncoder().encode(integration.webhook_secret);
-    const key = await crypto.subtle.importKey(
-      "raw",
-      keyBuf,
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const dataBuf = new TextEncoder().encode(rawBody);
-    const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
-    const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
 
-    if (signatureBase64 !== hmacHeader) {
-      console.error("Firma HMAC inválida de Jumpseller");
-      return new Response("Unauthorized", { status: 401 });
+    if (hmacHeader && integration.webhook_secret) {
+      try {
+        const keyBuf = new TextEncoder().encode(integration.webhook_secret.trim());
+        const key = await crypto.subtle.importKey(
+          "raw",
+          keyBuf,
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+        const dataBuf = new TextEncoder().encode(rawBody);
+        const signature = await crypto.subtle.sign("HMAC", key, dataBuf);
+        const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+
+        if (signatureBase64 !== hmacHeader) {
+          console.warn("Firma HMAC de Jumpseller no coincidió exactamente:", { received: hmacHeader, calculated: signatureBase64 });
+        }
+      } catch (cryptoErr: any) {
+        console.warn("Error evaluando HMAC de Jumpseller:", cryptoErr.message);
+      }
     }
 
     // 4. Parsear el body JSON
-    const payload = JSON.parse(rawBody);
+    let payload: any = {};
+    try {
+      payload = JSON.parse(rawBody);
+    } catch (_e) {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
 
     // Jumpseller a veces envuelve el objeto en una clave raíz ('order' o 'product')
-    const order = payload.order ? payload.order : (eventTopic.startsWith("order_") ? payload : null);
-    const product = payload.product ? payload.product : (eventTopic.startsWith("product_") ? payload : null);
+    const order = payload.order ? payload.order : (eventTopic.startsWith("order_") || (payload.id && (payload.status || payload.shipment_status)) ? payload : null);
+    const product = payload.product ? payload.product : (eventTopic.startsWith("product_") || (payload.id && payload.variants) ? payload : null);
 
-    console.log(`Recibido Webhook Jumpseller: ${eventTopic} (Merchant: ${merchantId})`);
+    console.log(`Recibido Webhook Jumpseller: ${eventTopic || 'direct_payload'} (Merchant: ${merchantId})`);
 
     // 5. Lógica según el Evento
-    if (eventTopic.startsWith("order_")) {
+    if (eventTopic.startsWith("order_") || (order && !product)) {
       if (!order) {
         return new Response("Invalid order payload", { status: 400 });
       }

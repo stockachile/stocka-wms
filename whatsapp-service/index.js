@@ -375,8 +375,11 @@ app.listen(PORT, () => {
   connectToWhatsApp();
 
   // Iniciar worker de fondo cada 60 segundos
+  let syncCycleCounter = 0;
   setInterval(async () => {
     if (connectionStatus === 'CONNECTED') {
+      syncCycleCounter++;
+
       // A. Procesar retiros automáticos
       try {
         const { processAllPendingPickups } = getAutoPickupService();
@@ -391,6 +394,18 @@ app.listen(PORT, () => {
         await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
       } catch (err) {
         console.error('[ManualOrders Worker Error]:', err.message);
+      }
+
+      // C. Sincronización y auto-recuperación (Self-Healing) WMS <-> Picker cada 5 minutos
+      if (syncCycleCounter % 5 === 0) {
+        try {
+          const syncPicker = require('../sync_to_picker');
+          if (syncPicker && syncPicker.runSyncToPicker) {
+            await syncPicker.runSyncToPicker();
+          }
+        } catch (err) {
+          console.error('[SyncToPicker Worker Error]:', err.message);
+        }
       }
     }
   }, 60000);

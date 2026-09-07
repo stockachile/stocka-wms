@@ -221,7 +221,7 @@ async function sendSingleOrderToPicker(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',

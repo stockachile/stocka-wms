@@ -130,6 +130,31 @@ function generatePin() {
 }
 
 /**
+ * Inserta órdenes en active_orders del Picker con reintentos automáticos
+ */
+async function insertActiveOrdersWithRetry(client, payloads, orderNo, maxRetries = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await client.from('active_orders').delete().eq('order_number', orderNo);
+      const { error } = await client.from('active_orders').insert(payloads);
+      if (!error) {
+        return true;
+      }
+      lastError = error;
+      console.warn(`[AutoPickup] ⚠️ Intento ${attempt}/${maxRetries} falló al insertar en active_orders para ${orderNo}: ${error.message}`);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[AutoPickup] ⚠️ Intento ${attempt}/${maxRetries} excepción al insertar en active_orders para ${orderNo}: ${err.message}`);
+    }
+    if (attempt < maxRetries) {
+      await new Promise(res => setTimeout(res, 500 * attempt));
+    }
+  }
+  throw new Error(`Fallo definitivo insertando en Picker active_orders tras ${maxRetries} intentos: ${lastError?.message || lastError}`);
+}
+
+/**
  * Procesa un pedido individual para validarlo, enviarlo a preparación y notificar por WhatsApp
  */
 async function autoProcessSinglePickupOrder(orderId, options = {}) {
@@ -381,28 +406,7 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     };
   }
 
-  // 3. Acción WMS: Actualizar orden a 'En preparación'
-  const updatePayload = {
-    estado_wms: 'En preparación',
-    agenda: 'RETIRO',
-    operador: 'SUCURSAL ÑUÑOA',
-    sucursal_pickeo: 'Sucursal Ñuñoa'
-  };
-
-  const { error: updateErr } = await wmsClient
-    .from('orders')
-    .update(updatePayload)
-    .eq('id', order.id);
-
-  if (updateErr) throw new Error(`Error actualizando orden en WMS: ${updateErr.message}`);
-
-  // Actualizar warehouse_id de los ítems a Matriz Ñuñoa
-  await wmsClient
-    .from('order_items')
-    .update({ warehouse_id: NUNOA_WAREHOUSE_ID })
-    .eq('order_id', order.id);
-
-  // 4. Acción Picker: Insertar en active_orders del Picker
+  // 3. Acción Picker: Insertar en active_orders del Picker (con reintentos automáticos)
   const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
   const pickerPayloads = [];
 
@@ -421,10 +425,12 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: orderNo,
+      tracking: String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo,
       operator: 'SUCURSAL ÑUÑOA',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
+      observation: '',
+      fecha: new Date().toISOString().split('T')[0],
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',
@@ -438,16 +444,14 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   });
 
   if (pickerPayloads.length > 0) {
-    // Limpiar anteriores si existieran y reinsertar
-    await pickerClient.from('active_orders').delete().eq('order_number', orderNo);
-    const { error: insPickerErr } = await pickerClient.from('active_orders').insert(pickerPayloads);
-    if (insPickerErr) console.error(`[AutoPickup] Error insertando en Picker:`, insPickerErr.message);
+    await insertActiveOrdersWithRetry(pickerClient, pickerPayloads, orderNo, 3);
+    console.log(`[AutoPickup] ✅ Pedido ${orderNo} insertado exitosamente en Picker active_orders.`);
   }
 
-  // 5. Registrar en Punto de Retiro (WMS store_pickups y Picker sucursal_pickups)
+  // 4. Registrar en Punto de Retiro (WMS store_pickups y Picker sucursal_pickups)
   const pin = generatePin();
   
-  // 5.1 En WMS (store_pickups)
+  // 4.1 En WMS (store_pickups)
   try {
     const { data: wmsPickupExists } = await wmsClient
       .from('store_pickups')
@@ -484,7 +488,7 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     console.error('[AutoPickup] Error en store_pickups WMS:', e.message);
   }
 
-  // 5.2 En Picker (sucursal_pickups) - Módulo Punto de Retiro
+  // 4.2 En Picker (sucursal_pickups) - Módulo Punto de Retiro
   try {
     const { data: pickerPickupExists } = await pickerClient
       .from('sucursal_pickups')
@@ -511,6 +515,27 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   } catch (e) {
     console.error('[AutoPickup] Error en sucursal_pickups Picker:', e.message);
   }
+
+  // 5. Acción WMS: SOLO una vez confirmado el Picker, actualizar orden a 'En preparación'
+  const updatePayload = {
+    estado_wms: 'En preparación',
+    agenda: 'RETIRO',
+    operador: 'SUCURSAL ÑUÑOA',
+    sucursal_pickeo: 'Sucursal Ñuñoa'
+  };
+
+  const { error: updateErr } = await wmsClient
+    .from('orders')
+    .update(updatePayload)
+    .eq('id', order.id);
+
+  if (updateErr) throw new Error(`Error actualizando orden en WMS: ${updateErr.message}`);
+
+  // Actualizar warehouse_id de los ítems a Matriz Ñuñoa
+  await wmsClient
+    .from('order_items')
+    .update({ warehouse_id: NUNOA_WAREHOUSE_ID })
+    .eq('order_id', order.id);
 
   // 6. Acción WhatsApp: Stox notifica confirmación de auto-procesado
   const notificationText = [

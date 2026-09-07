@@ -4162,8 +4162,9 @@ import supabase from './supabase.js';
   window.printCustomShippingLabel = function (order, displayName, displayPhone, options) {
     const selectedSize = options.size || '10x15';
     
-    // Generate barcode SVG for the external order number (fallback to id)
-    const codeVal = order.external_order_number || order.id;
+    // Generate barcode SVG for the external order number (fallback to id), ignoring special characters like #
+    const rawCode = String(order.external_order_number || order.id);
+    const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
     // Generate barcode with JsBarcode
     const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
 
@@ -4696,7 +4697,8 @@ import supabase from './supabase.js';
         if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
       }
 
-      const codeVal = order.external_order_number || order.id;
+      const rawCode = String(order.external_order_number || order.id);
+      const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
       const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
       const courierVal = options.courier || order.courier || 'POR DEFINIR';
 

@@ -134,16 +134,67 @@ window.downloadBase64Pdf = function(base64, filename) {
 
 // Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
 window.getOriginalPlatformStatus = function(order) {
-  if (order.external_platform === 'Shopify' && order.raw_shopify_data) {
-    const raw = order.raw_shopify_data;
-    const fin = raw.financial_status || 'unknown';
-    const ful = raw.fulfillment_status || 'unfulfilled';
+  if (!order) return null;
+  if (order.external_platform === 'Shopify' || order.origen === 'Shopify' || order.raw_shopify_data) {
+    const raw = order.raw_shopify_data || {};
+    const rawFin = String(raw.financial_status || order.payment_status || '').toLowerCase().trim();
+    let finLabel = 'DESCONOCIDO';
+    let finColor = '#6b7280';
+    
+    if (['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'].includes(rawFin)) {
+      finLabel = 'PAGADO';
+      finColor = '#10b981';
+    } else if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
+      finLabel = 'PARCIALMENTE REEMBOLSADO';
+      finColor = '#ef4444';
+    } else if (['refunded', 'reembolsado', 'reembolsada'].includes(rawFin)) {
+      finLabel = 'REEMBOLSADO';
+      finColor = '#ef4444';
+    } else if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
+      finLabel = 'PARCIALMENTE PAGADO';
+      finColor = '#f59e0b';
+    } else if (['pending', 'pendiente', 'unpaid', 'no pagado'].includes(rawFin)) {
+      finLabel = 'PENDIENTE';
+      finColor = '#f59e0b';
+    } else if (['authorized', 'autorizado'].includes(rawFin)) {
+      finLabel = 'AUTORIZADO';
+      finColor = '#3b82f6';
+    } else if (['voided', 'anulado', 'cancelado', 'cancelled'].includes(rawFin)) {
+      finLabel = 'ANULADO';
+      finColor = '#6b7280';
+    } else if (rawFin && rawFin !== 'unknown') {
+      finLabel = rawFin.toUpperCase();
+      finColor = '#f59e0b';
+    }
+
+    const rawFul = String(raw.fulfillment_status || order.shopify_fulfillment_status || '').toLowerCase().trim();
+    let fulLabel = 'NO PREPARADO';
+    let fulColor = '#6b7280';
+    if (['fulfilled', 'despachado'].includes(rawFul) || order.estado_wms === 'Despachado') {
+      fulLabel = 'PREPARADO';
+      fulColor = '#10b981';
+    } else if (['partial', 'parcial'].includes(rawFul)) {
+      fulLabel = 'PARCIAL';
+      fulColor = '#f59e0b';
+    } else if (['restocked'].includes(rawFul)) {
+      fulLabel = 'DEVUELTO A STOCK';
+      fulColor = '#6b7280';
+    }
+
+    const details = [
+      { label: 'Pago', value: finLabel, color: finColor },
+      { label: 'Preparación', value: fulLabel, color: fulColor }
+    ];
+
+    if (order.shopify_fulfillment_status === 'synced' || order.shopify_fulfillment_id) {
+      details.push({ label: 'Sync WMS', value: 'Despachado en Shopify', color: '#10b981' });
+    } else if (order.shopify_fulfillment_status === 'error') {
+      details.push({ label: 'Sync WMS', value: 'Error Retorno', color: '#ef4444' });
+    }
+
     return {
       platform: 'Shopify',
-      details: [
-        { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
-        { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
-      ]
+      details: details
     };
   }
   if (order.raw_woocommerce_data) {
@@ -197,6 +248,75 @@ window.getOriginalPlatformStatus = function(order) {
     };
   }
   return null;
+};
+
+// Helper para badge amigable de pago en columna 1 del modal
+window.getOrderPaymentBadgeHtml = function(order) {
+  if (!order) return '-';
+  const rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+  
+  if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) {
+    return `<span style="background: var(--badge-success-bg); color: var(--badge-success-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Pagado</span>`;
+  }
+  if (['partially_refunded', 'parcialmente_reembolsado'].includes(rawFin)) {
+    return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Parcialmente Reembolsado</span>`;
+  }
+  if (['refunded', 'reembolsado'].includes(rawFin)) {
+    return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Reembolsado</span>`;
+  }
+  if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> Parcialmente Pagado</span>`;
+  }
+  if (['authorized', 'autorizado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Autorizado</span>`;
+  }
+  if (['voided', 'anulado', 'cancelado'].includes(rawFin)) {
+    return `<span style="background: var(--badge-danger-bg); color: var(--badge-danger-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Anulado</span>`;
+  }
+  return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
+};
+
+// Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
+window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
+  if (!order) return '-';
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify && Array.isArray(rawShopify.line_items)) {
+    const cleanSku = String(itemSku || '').trim().toLowerCase();
+    const cleanName = String(itemName || '').trim().toLowerCase();
+    const matched = rawShopify.line_items.find(li => {
+      const liSku = String(li.sku || '').trim().toLowerCase();
+      const liTitle = String(li.title || li.name || '').trim().toLowerCase();
+      return (cleanSku && liSku && cleanSku === liSku) || (cleanName && liTitle && cleanName === liTitle);
+    });
+
+    if (matched) {
+      if (matched.current_quantity !== undefined && matched.current_quantity === 0) {
+        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
+      }
+      if (matched.fulfillment_status === 'fulfilled') {
+        return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+      }
+      if (matched.fulfillment_status === 'partial') {
+        return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+      }
+    }
+  }
+
+  // Estado basado en el ciclo WMS
+  const wms = (order.estado_wms || '').toLowerCase().trim();
+  if (wms === 'despachado' || wms === 'entregado' || wms === 'retirado') {
+    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-truck-line"></i> Despachado</span>`;
+  }
+  if (wms === 'pickeado') {
+    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Pickeado</span>`;
+  }
+  if (wms === 'en preparación') {
+    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> En preparación</span>`;
+  }
+  if (wms === 'cancelado') {
+    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
+  }
+  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hourglass-line"></i> No preparado</span>`;
 };
 
 // Global function to toggle table action menus
@@ -7162,6 +7282,7 @@ window.applyClientWmsFiltersAndRender = function() {
               <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
             </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
+            <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, item.sku, item.name)}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
@@ -7176,6 +7297,7 @@ window.applyClientWmsFiltersAndRender = function() {
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
           <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">${order.item || 'Sin Nombre'}</td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, order.sku, order.item)}</td>
           <td style="padding: 0.5rem; text-align: center;">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
@@ -7398,7 +7520,7 @@ window.applyClientWmsFiltersAndRender = function() {
               </p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;"><strong>Pago:</strong> ${window.getOrderPaymentBadgeHtml(order)}</p>
               
               <!-- Información de Logística Adicional -->
               <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
@@ -7421,6 +7543,7 @@ window.applyClientWmsFiltersAndRender = function() {
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Estado</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
@@ -7431,7 +7554,7 @@ window.applyClientWmsFiltersAndRender = function() {
                   </tbody>
                   <tfoot>
                     <tr style="border-top: 2px solid var(--color-border); font-weight: 700;">
-                      <td colspan="5" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
+                      <td colspan="6" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
                       <td style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(order.total_value)}</td>
                     </tr>
                   </tfoot>
