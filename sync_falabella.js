@@ -135,10 +135,15 @@ async function syncFalabellaData() {
  */
 function mapFalabellaStatus(statusName) {
   const s = (statusName || '').toLowerCase().trim();
-  if (s.includes('cancel') || s.includes('refund') || s.includes('refus')) {
+  if (s.includes('cancel') || s.includes('refund') || s.includes('refus') || s.includes('fail')) {
     return 'cancelado';
   }
-  if (s.includes('ship') || s.includes('send') || s.includes('dispatch') || s.includes('deliv') || s.includes('receiv') || s.includes('close')) {
+  // En Falabella Seller Center, ready_to_ship significa que el pedido ya fue confirmado
+  // y cuenta con etiqueta/documento de despacho listo para que la bodega lo empaque y despache.
+  if (s === 'ready_to_ship' || s.includes('ready_to_ship')) {
+    return 'en preparación';
+  }
+  if (s === 'shipped' || s.includes('shipped') || s.includes('send') || s.includes('dispatch') || s.includes('deliv') || s.includes('receiv') || s.includes('close')) {
     // Para pedidos despachados o entregados, asignamos 'despachado'
     // Esto asegura que se descuente el stock físico al realizar la actualización de estado
     return 'despachado';
@@ -369,7 +374,7 @@ async function syncMerchantOrders(integration) {
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
-        const updatePayload: Record<string, any> = {
+        const updatePayload = {
           payment_status: statusName,
           shipping_method: shippingMethodVal,
           tracking_number: trackingNum,
@@ -402,7 +407,7 @@ async function syncMerchantOrders(integration) {
         // Si existe pero no tiene etiqueta de despacho, intentar descargarla
         if (!labelBase64) {
           console.log(`📄 Descargando etiqueta pendiente para pedido existente...`);
-          labelBase64 = await downloadLabelBase64(integration, orderId);
+          labelBase64 = await downloadLabelBase64(integration, orderId, items);
           if (labelBase64) {
             await supabase
               .from('orders')
@@ -427,7 +432,7 @@ async function syncMerchantOrders(integration) {
       } else {
         // Descargar etiqueta de despacho
         console.log(`--> Descargando etiqueta de despacho...`);
-        labelBase64 = await downloadLabelBase64(integration, orderId);
+        labelBase64 = await downloadLabelBase64(integration, orderId, items);
 
         // Mapear datos comunes del pedido
         const orderDataToSave = {
@@ -635,11 +640,18 @@ async function fetchProductBarcode(integration, sku) {
 /**
  * Descarga la etiqueta de despacho en PDF y la codifica en Base64
  */
-async function downloadLabelBase64(integration, orderId) {
-  const url = buildSignedUrl(integration.shop_url, integration.access_token, integration.username, 'GetDocument', {
-    'DocumentType': 'ShippingLabel',
-    'OrderIdList': `[${orderId}]`
-  });
+async function downloadLabelBase64(integration, orderId, items = []) {
+  const orderItemIds = (items || []).map(i => i.OrderItemId).filter(Boolean);
+  const extraParams = {
+    'DocumentType': 'shippingLabel'
+  };
+  if (orderItemIds.length > 0) {
+    extraParams['OrderItemIds'] = `[${orderItemIds.join(',')}]`;
+  } else {
+    extraParams['OrderIdList'] = `[${orderId}]`;
+  }
+
+  const url = buildSignedUrl(integration.shop_url, integration.access_token, integration.username, 'GetDocument', extraParams);
 
   try {
     const res = await fetch(url);
@@ -654,7 +666,8 @@ async function downloadLabelBase64(integration, orderId) {
     const text = await res.text();
     try {
       const json = JSON.parse(text);
-      const fileContent = json?.SuccessResponse?.Body?.Documents?.Document?.FileContent;
+      const doc = json?.SuccessResponse?.Body?.Documents?.Document;
+      const fileContent = doc?.File || doc?.FileContent;
       if (fileContent) return fileContent;
     } catch (err) {
       // Ignorar error si no es JSON
