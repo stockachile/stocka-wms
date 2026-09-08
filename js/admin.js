@@ -36045,6 +36045,23 @@ async function buildShopifyExportDataset(selectedOrders) {
     console.error("Error al cargar componentes de packs para exportación:", err);
   }
 
+  // Cargar mapa de siglas de comercios para asegurar inclusión de prefijos
+  const comercioSiglasMap = {};
+  try {
+    const { data: comConfig } = await supabase
+      .from('v_comercios_config')
+      .select('nombre, sigla');
+    if (comConfig) {
+      comConfig.forEach(c => {
+        if (c.nombre && c.sigla) {
+          comercioSiglasMap[c.nombre.trim().toUpperCase()] = c.sigla.trim().toUpperCase();
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("Aviso cargando siglas para exportación:", err);
+  }
+
   const exportRows = [];
 
   sortedOrders.forEach(order => {
@@ -36120,7 +36137,12 @@ async function buildShopifyExportDataset(selectedOrders) {
     const billingCountry = raw.billing_address?.country_code || shippingCountry;
     const billingPhone = raw.billing_address?.phone || shippingPhone;
     
-    let orderName = raw.name || order.external_order_number || `#${order.id.split('-')[0]}`;
+    let orderName = (order.external_order_number || raw.name || `#${order.id.split('-')[0]}`).trim();
+    const comName = (order.comercio || '').trim().toUpperCase();
+    const sigla = comercioSiglasMap[comName];
+    if (sigla && !orderName.toUpperCase().startsWith(sigla)) {
+      orderName = `${sigla}${orderName}`;
+    }
     const email = raw.email || order.customer_email || "";
     
     const rawPayStatus = String(raw.financial_status || order.payment_status || '').toLowerCase().trim();
