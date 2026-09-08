@@ -4,7 +4,7 @@
 // registro editable tipo Excel, desglose estético Stocka (#5f06fa) y analítica con gráficos.
 
 import supabase from './supabase.js';
-import { DEFAULT_PRICING_CONFIG, loadPricingConfig, sanitizeAndMergeConfig } from './pricing_manager.js';
+import { DEFAULT_PRICING_CONFIG, loadPricingConfig, sanitizeAndMergeConfig, getDeliveryTypes, savePricingConfig } from './pricing_manager.js';
 
 // --- CONSTANTES DE MARCA Y SISTEMA STOCKA ---
 export const STOCKA_BRAND = {
@@ -426,6 +426,55 @@ function injectBillingGeneratorStyles() {
       border: 1px solid #e2e8f0;
       padding: 1px 4px;
       border-radius: 4px;
+    }
+
+    /* Badges de Estado WMS */
+    .bg-order-wms-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      letter-spacing: 0.2px;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .bg-wms-despachado {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+    .bg-wms-pickeado {
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #bae6fd;
+    }
+    .bg-wms-preparacion {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .bg-wms-procesamiento {
+      background: #ede9fe;
+      color: #6d28d9;
+      border: 1px solid #ddd6fe;
+    }
+    .bg-wms-incidencia {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    .bg-wms-archivado {
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+    }
+    .bg-wms-default {
+      background: #f8fafc;
+      color: #475569;
+      border: 1px solid #e2e8f0;
     }
 
     .bg-order-shipping-method {
@@ -862,6 +911,39 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.pricingConfig = sanitizeAndMergeConfig(rawPricing);
   const cfg = billingState.pricingConfig;
 
+  // 1.1 Consultar si ya existe un registro guardado previamente (Supabase o localStorage)
+  let savedSnapshot = null;
+  let savedRecordStatus = null;
+  if (billingState.currentPeriodId && commerceName && !customOverrides.forceFresh) {
+    try {
+      const { data: bRec } = await supabase
+        .from('billing_records')
+        .select('desglose_fulfillment, total_fulfillment, fulfillment_details')
+        .eq('period_id', billingState.currentPeriodId)
+        .eq('comercio', commerceName)
+        .maybeSingle();
+
+      if (bRec) {
+        savedRecordStatus = bRec.desglose_fulfillment;
+        if (bRec.fulfillment_details && typeof bRec.fulfillment_details === 'object') {
+          savedSnapshot = bRec.fulfillment_details;
+        }
+      }
+    } catch (errRec) {
+      console.warn('Error consultando billing_records previo:', errRec);
+    }
+
+    if (!savedSnapshot) {
+      try {
+        const localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
+        if (localStr) savedSnapshot = JSON.parse(localStr);
+      } catch (e) {}
+    }
+  }
+
+  billingState.isSaved = !!(savedRecordStatus === 'Creado' || (savedSnapshot && savedSnapshot.generatedAt));
+  billingState.savedRecordStatus = savedRecordStatus || (billingState.isSaved ? 'Creado' : 'Pendiente');
+
   // 2. Extraer año y mes del periodo (ej: "AGOSTO 2026")
   let periodYear = 2026;
   let periodMonth = 8;
@@ -895,7 +977,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.volumeDaysLogged = volData.daysCount;
   billingState.volumeM3 = customOverrides.volumeM3 !== undefined 
     ? parseFloat(customOverrides.volumeM3) 
-    : volData.averageM3;
+    : (savedSnapshot && savedSnapshot.volumeM3 !== undefined ? parseFloat(savedSnapshot.volumeM3) : volData.averageM3);
 
   const dailyLogs = volData.dailyLogs || [];
   const vols = dailyLogs.map(l => l.volume).filter(v => typeof v === 'number');
@@ -1054,9 +1136,24 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
   billingState.activeRange = activeRange;
 
+  const deliveryTypesList = getDeliveryTypes(cfg);
+  const getDeliveryPrice = (key, fallback = 0) => {
+    const found = deliveryTypesList.find(d => d.key === key);
+    return found ? found.price : fallback;
+  };
+
+  const savedOrderMap = {};
+  if (savedSnapshot && savedSnapshot.orders && Array.isArray(savedSnapshot.orders)) {
+    savedSnapshot.orders.forEach(so => {
+      if (so && so.id) savedOrderMap[so.id] = so;
+    });
+  }
+
   // 8. Procesar cada pedido: tarifa base, recargos y despacho
   const processedOrders = ordersList.map((ord, idx) => {
-    const isExcluded = customOverrides.excludedOrderIds && customOverrides.excludedOrderIds.includes(ord.id);
+    const savedOrder = savedOrderMap[ord.id];
+    const isExcluded = (customOverrides.excludedOrderIds && customOverrides.excludedOrderIds.includes(ord.id)) ||
+                       (customOverrides.orders && customOverrides.orders[ord.id]?.isExcluded !== undefined ? customOverrides.orders[ord.id].isExcluded : (savedOrder ? !!savedOrder.isExcluded : false));
     
     // Conteo de SKUs y Unidades
     let skuCount = 1;
@@ -1102,7 +1199,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const cityNorm = String(ord.shipping_city || '').toLowerCase().trim();
     const isColina = cityNorm.includes('colina') || String(ord.shipping_address || '').toLowerCase().includes('colina');
 
-    // Envíos Flex cobran $3.200 + IVA a TODO destino (Confirmado por el usuario)
+    // Envíos Flex
     const isFlex = agendaUpper.includes('FLEX') || 
                    shippingMethodUpper.includes('FLEX') || 
                    (platformUpper.includes('MERCADO') && shippingMethodUpper.includes('FLEX'));
@@ -1112,37 +1209,70 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       operadorUpper.includes(c) || agendaUpper === c
     );
 
+    const isRetiro = String(ord.categoria_entrega || '').toUpperCase() === 'RETIRO' || agendaUpper.includes('RETIRO');
+    const isCentroEnvios = agendaUpper.includes('CENTRO DE ENVIOS') || 
+                           shippingMethodUpper.includes('CENTRO DE ENVIOS') || 
+                           (operadorUpper.includes('MERCADOLIBRE') && !isFlex);
+    const isEnviameRegion = agendaUpper.includes('REGION') || 
+                            ['STARKEN', 'CHILEXPRESS', 'BLUEXPRESS', 'CORREOS', 'ENVIAME'].some(c => operadorUpper.includes(c)) ||
+                            shippingMethodUpper.includes('REGION') ||
+                            shippingMethodUpper.includes('ENVIAME');
+
     let deliveryType = 'OTHER';
     let shippingFreight = 0;
 
-    if (String(ord.categoria_entrega || '').toUpperCase() === 'RETIRO') {
+    if (isRetiro) {
       deliveryType = 'RETIRO';
-      shippingFreight = 0;
+      shippingFreight = getDeliveryPrice('RETIRO', 0);
     } else if (isFlex) {
       deliveryType = 'FLEX';
-      shippingFreight = 3200; // Flex cobra 3200 a todo destino
+      shippingFreight = getDeliveryPrice('FLEX', 3200);
     } else if (isStkRmCourier) {
       if (isColina) {
         deliveryType = 'COLINA';
-        shippingFreight = 3490; // Colina 3490 + IVA
+        shippingFreight = getDeliveryPrice('COLINA', 3490);
       } else {
         deliveryType = 'RM_STK';
-        shippingFreight = 3200; // RM Stocka 3200 + IVA
+        shippingFreight = getDeliveryPrice('RM_STK', 3200);
       }
+    } else if (isCentroEnvios) {
+      deliveryType = 'CENTRO_ENVIOS';
+      shippingFreight = getDeliveryPrice('CENTRO_ENVIOS', 0);
+    } else if (isEnviameRegion) {
+      deliveryType = 'ENVIAME_REGION';
+      shippingFreight = getDeliveryPrice('ENVIAME_REGION', 0);
     } else {
       // Operadores tradicionales (STARKEN, CHILEXPRESS, BLUEXPRESS, ENVIAME) van a $0 en fulfillment
       deliveryType = 'ENVIAME_REGION';
-      shippingFreight = 0;
+      shippingFreight = getDeliveryPrice('ENVIAME_REGION', 0);
     }
 
-    // Sobreescritura manual por pedido si el admin ya lo editó
-    const manualOrderOverride = customOverrides.orders && customOverrides.orders[ord.id];
+    // Sobreescritura manual por pedido si el admin ya lo editó (o si estaba guardado en snapshot)
+    const manualOrderOverride = (customOverrides.orders && customOverrides.orders[ord.id]) || savedOrder;
     const finalBaseRate = manualOrderOverride?.baseRate !== undefined ? manualOrderOverride.baseRate : basePickPackRate;
     const finalSurchargeSku = manualOrderOverride?.surchargeSku !== undefined ? manualOrderOverride.surchargeSku : surchargeSku;
     const finalSurchargeUnits = manualOrderOverride?.surchargeUnits !== undefined ? manualOrderOverride.surchargeUnits : surchargeUnits;
     const finalSurchargeMarketplace = manualOrderOverride?.surchargeMarketplace !== undefined ? manualOrderOverride.surchargeMarketplace : surchargeMarketplace;
-    const finalShippingFreight = manualOrderOverride?.shippingFreight !== undefined ? manualOrderOverride.shippingFreight : shippingFreight;
     const finalDeliveryType = manualOrderOverride?.deliveryType || deliveryType;
+    let finalShippingFreight = shippingFreight;
+    if (manualOrderOverride?.shippingFreight !== undefined) {
+      finalShippingFreight = manualOrderOverride.shippingFreight;
+    } else if (manualOrderOverride?.deliveryType) {
+      finalShippingFreight = getDeliveryPrice(manualOrderOverride.deliveryType, shippingFreight);
+    }
+    // Ticket de venta del pedido (monto de compra cliente)
+    let ticketVenta = 0;
+    if (ord.total_value !== null && ord.total_value !== undefined && !isNaN(Number(ord.total_value))) {
+      ticketVenta = Math.round(Number(ord.total_value));
+    } else if (ord.raw_shopify_data?.total_price) {
+      ticketVenta = Math.round(Number(ord.raw_shopify_data.total_price)) || 0;
+    } else if (ord.raw_woocommerce_data?.total) {
+      ticketVenta = Math.round(Number(ord.raw_woocommerce_data.total)) || 0;
+    } else if (ord.raw_meli_data?.total_amount) {
+      ticketVenta = Math.round(Number(ord.raw_meli_data.total_amount)) || 0;
+    }
+
+    const finalTicketVenta = manualOrderOverride?.ticketVenta !== undefined ? manualOrderOverride.ticketVenta : ticketVenta;
 
     const finalPickPackTotal = finalBaseRate + finalSurchargeSku + finalSurchargeUnits + finalSurchargeMarketplace;
     const finalOrderTotal = finalPickPackTotal + finalShippingFreight;
@@ -1162,6 +1292,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : '',
       agenda: (ord.agenda && String(ord.agenda).trim() !== '' && String(ord.agenda).trim() !== '—') ? String(ord.agenda).trim() : '',
       shippingMethod: (ord.shipping_method && String(ord.shipping_method).trim() !== '' && String(ord.shipping_method).trim() !== '—') ? String(ord.shipping_method).trim() : '',
+      ticketVenta: finalTicketVenta,
       deliveryType: finalDeliveryType,
       baseRate: finalBaseRate,
       surchargeSku: finalSurchargeSku,
@@ -1181,8 +1312,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   const billableOrders = processedOrders.filter(o => !o.isExcluded);
   const totalPickPackNet = billableOrders.reduce((acc, o) => acc + o.pickPackTotal, 0);
 
-  const rmFlexOrders = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'COLINA' || o.deliveryType === 'FLEX');
-  const totalRmFlexNet = rmFlexOrders.reduce((acc, o) => acc + o.shippingFreight, 0);
+  const billableShippingOrders = billableOrders.filter(o => (o.shippingFreight || 0) > 0);
+  const totalRmFlexNet = billableShippingOrders.reduce((acc, o) => acc + (o.shippingFreight || 0), 0);
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
 
@@ -1316,12 +1447,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
 
   // 12. Insumos y Ajustes Adicionales (Punto F)
-  billingState.supplies = customOverrides.supplies || [
+  billingState.supplies = customOverrides.supplies || (savedSnapshot && savedSnapshot.supplies) || [
     { id: 'box_s', name: 'Insumos: cajas de despacho a Regiones', unit: 'gl.', qty: enviameOrders.length > 0 ? 1 : 0, unitPrice: 450, total: enviameOrders.length > 0 ? 450 : 0 }
   ];
   const totalSuppliesNet = billingState.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
 
-  billingState.adjustments = customOverrides.adjustments || [];
+  billingState.adjustments = customOverrides.adjustments || (savedSnapshot && savedSnapshot.adjustments) || [];
   const totalAdjustmentsNet = billingState.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
 
   // 13. Totales Finales Consolidados
@@ -1338,7 +1469,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     storageDiscountAmount,
     storageNet: netStorageCost,
     pickPackNet: totalPickPackNet,
-    shippingRmFlexCount: rmFlexOrders.length,
+    shippingRmFlexCount: billableShippingOrders.length,
     shippingRmFlexNet: totalRmFlexNet,
     shippingEnviameCount: enviameOrders.length,
     shippingEnviameNet: 0,
@@ -1773,19 +1904,26 @@ export function exportBillingToExcel() {
 
   // Pestaña 2: Auditoría Detalle Pedido por Pedido
   const ordersHeaders = [
-    "N°", "ID Pedido", "N° Pedido Ext", "Fecha", "Destino / Comuna", "Tipo Entrega",
-    "SKU", "Unidades", "Marketplace?", "Tarifa Base Prep ($)", "Recargo SKU ($)",
+    "N°", "ID Pedido", "N° Pedido Ext", "Fecha", "Agenda", "Destino / Comuna", "Operador", "Método Envío",
+    "Ticket Venta ($)", "Tipo Entrega", "SKU", "Unidades", "Marketplace?", "Tarifa Base Prep ($)", "Recargo SKU ($)",
     "Recargo Unidades ($)", "Recargo Market ($)", "Total Pick & Pack ($)",
     "Costo Despacho ($)", "Total Pedido ($)", "Estado WMS", "Incluido en Factura"
   ];
+
+  const deliveryTypesList = getDeliveryTypes(b.pricingConfig);
+  const deliveryTypesMap = Object.fromEntries(deliveryTypesList.map(dt => [dt.key, `${dt.name} (${formatCLP(dt.price)})`]));
 
   const ordersRows = b.orders.map(o => [
     o.rowNumber,
     o.id,
     o.orderNumber,
     o.date,
+    o.agenda || 'Sin agenda',
     o.destination,
-    o.deliveryType,
+    o.operador || 'S/Op',
+    o.shippingMethod || '—',
+    o.ticketVenta || 0,
+    deliveryTypesMap[o.deliveryType] || o.deliveryType,
     o.skuCount,
     o.unitsCount,
     o.isMarketplace ? 'SI' : 'NO',
@@ -1967,6 +2105,8 @@ export async function saveBillingRecordToSupabase() {
     }
 
     billingState.isSaved = true;
+    billingState.savedRecordStatus = 'Creado';
+    renderKPIsUI();
     Swal.fire('¡Facturación Guardada!', `Se actualizó el monto total a ${formatCLP(t.totalToPay)} y el estado a "Creado" para ${b.currentCommerce}.`, 'success');
 
     if (typeof window.loadBillingPeriods === 'function') {
@@ -2007,6 +2147,8 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   // Cálculos analíticos clave
   const totalOrders = orders.length || 1;
   const avgCostPerOrder = Math.round(t.totalNet / totalOrders);
+  const totalSalesAmount = orders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
+  const avgTicket = totalOrders > 0 ? Math.round(totalSalesAmount / totalOrders) : 0;
   const rmPct = ((t.shippingRmFlexCount / totalOrders) * 100).toFixed(1);
   const envPct = ((t.shippingEnviameCount / totalOrders) * 100).toFixed(1);
   const mktCount = orders.filter(o => o.isMarketplace).length;
@@ -2029,7 +2171,10 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
 
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
         <span style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
-          <i class="ri-wallet-3-line" style="color: #5f06fa;"></i> Costo Promedio: ${formatCLP(avgCostPerOrder)} / pedido
+          <i class="ri-wallet-3-line" style="color: #5f06fa;"></i> Costo Promedio Logística: ${formatCLP(avgCostPerOrder)} / pedido
+        </span>
+        <span style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.8rem; font-weight: 700; color: #0f766e; display: inline-flex; align-items: center; gap: 0.35rem;" title="Ticket promedio de venta de los pedidos del periodo">
+          <i class="ri-shopping-cart-2-line" style="color: #0f766e;"></i> Ticket Promedio Venta: ${formatCLP(avgTicket)}
         </span>
       </div>
     </div>
@@ -2430,25 +2575,36 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     }
   });
 
-  // 2. Chart Delivery Types
-  const typeMap = { 'RM Stocka ($3.200)': 0, 'Colina ($3.490)': 0, 'Flex ($3.200)': 0, 'Envíame Regiones ($0)': 0, 'Retiro ($0)': 0 };
-  orders.forEach(o => {
-    if (o.deliveryType === 'RM_STK') typeMap['RM Stocka ($3.200)']++;
-    else if (o.deliveryType === 'COLINA') typeMap['Colina ($3.490)']++;
-    else if (o.deliveryType === 'FLEX') typeMap['Flex ($3.200)']++;
-    else if (o.deliveryType === 'ENVIAME_REGION') typeMap['Envíame Regiones ($0)']++;
-    else if (o.deliveryType === 'RETIRO') typeMap['Retiro ($0)']++;
+  // 2. Chart Delivery Types (Dinámico según configuración de tarifas)
+  const configuredDeliveryTypes = getDeliveryTypes(b.pricingConfig);
+  const typeMap = {};
+  configuredDeliveryTypes.forEach(dt => {
+    typeMap[dt.key] = { label: `${dt.name} (${formatCLP(dt.price)})`, count: 0 };
   });
-  const typeLabels = Object.keys(typeMap).filter(k => typeMap[k] > 0);
-  const typeCounts = typeLabels.map(k => typeMap[k]);
+
+  orders.forEach(o => {
+    if (typeMap[o.deliveryType]) {
+      typeMap[o.deliveryType].count++;
+    } else {
+      const fallbackLabel = o.deliveryType || 'Otro';
+      if (!typeMap[fallbackLabel]) {
+        typeMap[fallbackLabel] = { label: fallbackLabel, count: 0 };
+      }
+      typeMap[fallbackLabel].count++;
+    }
+  });
+
+  const activeEntries = Object.values(typeMap).filter(item => item.count > 0);
+  const typeLabels = activeEntries.map(item => item.label);
+  const typeCounts = activeEntries.map(item => item.count);
 
   new Chart(document.getElementById('chart-delivery-types'), {
     type: 'pie',
     data: {
-      labels: typeLabels,
+      labels: typeLabels.length > 0 ? typeLabels : ['Sin despachos'],
       datasets: [{
-        data: typeCounts,
-        backgroundColor: corporatePalette.slice(0, typeLabels.length),
+        data: typeCounts.length > 0 ? typeCounts : [1],
+        backgroundColor: corporatePalette.slice(0, Math.max(typeLabels.length, 1)),
         borderWidth: 2,
         borderColor: '#ffffff',
         hoverOffset: 4
@@ -2603,6 +2759,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
         </div>
 
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding-top: 1.15rem;">
+          <button id="bg-btn-config-delivery" class="btn btn-outline" style="border-color: #5f06fa; color: #5f06fa; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px;" title="Configurar y editar tipos de entrega">
+            <i class="ri-settings-4-line"></i> Tipos de Entrega
+          </button>
           <button id="bg-btn-export-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px;" title="Descargar Excel con fórmulas">
             <i class="ri-file-excel-2-fill"></i> Exportar Excel (.xlsx)
           </button>
@@ -2652,6 +2811,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               </div>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Insumo o Caja">+ Insumo</button>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Descuento / Ajuste">+ Ajuste Comercial</button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="window.openBulkEditOrdersModal()" style="background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" title="Editar masivamente pedidos filtrados o seleccionados">
+                <i class="ri-edit-2-line"></i> Edición Masiva
+              </button>
             </div>
           </div>
 
@@ -2676,6 +2838,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <button type="button" class="bg-quick-filter-btn" id="qf-enviame" onclick="window.setBgQuickFilter('enviame')">
                 Envíame / Región (<span id="qf-count-enviame">0</span>)
               </button>
+              <button type="button" class="bg-quick-filter-btn" id="qf-centro-envios" onclick="window.setBgQuickFilter('centro-envios')">
+                Centro Envíos (<span id="qf-count-centro-envios">0</span>)
+              </button>
               <button type="button" class="bg-quick-filter-btn" id="qf-mkt" onclick="window.setBgQuickFilter('mkt')">
                 Marketplace (<span id="qf-count-mkt">0</span>)
               </button>
@@ -2685,6 +2850,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <span id="bg-filter-count-badge" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 4px 8px; border-radius: 6px;">
                 Mostrando 0 de 0 pedidos
               </span>
+              <button id="bg-btn-bulk-edit-filtered" class="btn btn-sm btn-outline" style="height: 28px; font-size: 0.72rem; padding: 0 8px; border-radius: 6px; border-color: #5f06fa; color: #5f06fa; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;" onclick="window.openBulkEditOrdersModal('filtered')" title="Editar masivamente solo los pedidos visibles según filtros actuales">
+                <i class="ri-edit-line"></i> Editar Filtrados
+              </button>
               <button id="bg-btn-clear-all-filters" class="btn btn-sm btn-outline" style="height: 28px; font-size: 0.72rem; padding: 0 8px; border-radius: 6px; display: none; border-color: #cbd5e1;" onclick="window.clearBgTableFilters()">
                 <i class="ri-filter-off-line"></i> Limpiar Filtros
               </button>
@@ -2695,11 +2863,21 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             <table class="bg-excel-table" id="bg-orders-excel-grid">
               <thead>
                 <tr>
-                  <th style="width: 42px; text-align: center;">Inc.</th>
+                  <th style="width: 42px; text-align: center;">
+                    <input type="checkbox" id="bg-master-inclusion-checkbox" title="Marcar / Desmarcar todos los pedidos visibles" onchange="window.toggleAllVisibleOrdersInclusion(this.checked)" style="cursor: pointer; width: 15px; height: 15px; accent-color: #5f06fa;">
+                  </th>
                   <th style="width: 42px; text-align: center;">N°</th>
-                  <th style="min-width: 200px;">ID Pedido / Agenda</th>
-                  <th style="min-width: 230px;">Destino / Operador / Método</th>
-                  <th style="width: 145px;">Tipo Entrega</th>
+                  <th style="min-width: 250px;">ID Pedido / Agenda</th>
+                  <th style="min-width: 220px;">Destino / Operador / Método</th>
+                  <th style="width: 125px; text-align: right;">Ticket Venta ($)</th>
+                  <th style="width: 175px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                      <span>Tipo Entrega</span>
+                      <button type="button" onclick="window.openDeliveryTypesManagerModal()" title="Configurar y editar tipos de entrega" style="background: rgba(95,6,250,0.08); border: 1px solid rgba(95,6,250,0.25); border-radius: 4px; cursor: pointer; color: #5f06fa; font-size: 0.72rem; padding: 1px 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-settings-4-line"></i> Editar
+                      </button>
+                    </div>
+                  </th>
                   <th style="width: 55px; text-align: center;">SKUs</th>
                   <th style="width: 55px; text-align: center;">Unid.</th>
                   <th style="width: 55px; text-align: center;">Mkt?</th>
@@ -2728,9 +2906,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   </th>
                   <th style="padding: 3px 6px;">
                     <div style="display: flex; gap: 4px; align-items: center;">
-                      <input type="text" id="bg-col-filter-order" class="bg-col-filter-input" placeholder="ID / Fecha..." oninput="window.applyBgColumnFilters()" style="flex: 1;">
-                      <select id="bg-col-filter-agenda" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 95px;" title="Filtrar por estado de agenda">
-                        <option value="">Agendas</option>
+                      <input type="text" id="bg-col-filter-order" class="bg-col-filter-input" placeholder="ID / Fecha..." oninput="window.applyBgColumnFilters()" style="flex: 1; min-width: 80px;">
+                      <select id="bg-col-filter-agenda" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 125px; text-overflow: ellipsis;" title="Filtrar por agenda específica o estado">
+                        <option value="">Todas las Agendas</option>
                         <option value="empty">⚠️ Sin Agenda</option>
                         <option value="with">Con Agenda</option>
                       </select>
@@ -2739,14 +2917,16 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   <th style="padding: 3px 6px;">
                     <input type="text" id="bg-col-filter-dest" class="bg-col-filter-input" placeholder="Comuna, Operador o Método..." oninput="window.applyBgColumnFilters()">
                   </th>
+                  <th style="padding: 3px 3px; text-align: right;">
+                    <div style="display: flex; gap: 3px; align-items: center;">
+                      <input type="number" id="bg-col-filter-ticket-min" class="bg-col-filter-input" placeholder="Min $" style="width: 50%; min-width: 0; text-align: right; padding: 2px 4px; font-size: 0.7rem;" oninput="window.applyBgColumnFilters()" title="Filtrar por ticket de venta mínimo">
+                      <span style="font-size: 0.65rem; color: #94a3b8; user-select: none;">-</span>
+                      <input type="number" id="bg-col-filter-ticket-max" class="bg-col-filter-input" placeholder="Max $" style="width: 50%; min-width: 0; text-align: right; padding: 2px 4px; font-size: 0.7rem;" oninput="window.applyBgColumnFilters()" title="Filtrar por ticket de venta máximo">
+                    </div>
+                  </th>
                   <th style="padding: 3px 4px;">
                     <select id="bg-col-filter-delivery" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 100%;">
                       <option value="">Todos los tipos</option>
-                      <option value="RM_STK">RM-STK ($3.200)</option>
-                      <option value="COLINA">Colina ($3.490)</option>
-                      <option value="FLEX">Flex ($3.200)</option>
-                      <option value="ENVIAME_REGION">Envíame / Región ($0)</option>
-                      <option value="RETIRO">Retiro ($0)</option>
                     </select>
                   </th>
                   <th style="padding: 3px 2px; text-align: center;">
@@ -2792,6 +2972,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   `;
 
   // Asignar listeners de eventos
+  document.getElementById('bg-btn-config-delivery')?.addEventListener('click', () => {
+    window.openDeliveryTypesManagerModal();
+  });
+
   document.getElementById('bg-btn-recalculate')?.addEventListener('click', () => {
     executeCalculationFromUI();
   });
@@ -2883,7 +3067,12 @@ function renderKPIsUI() {
 
   container.innerHTML = `
     <div class="bg-kpi-card" style="border-left: 4px solid #5f06fa;">
-      <div class="bg-kpi-title"><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> TOTAL FACTURA (CON IVA)</div>
+      <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between;">
+        <span><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> TOTAL FACTURA (CON IVA)</span>
+        ${b.isSaved 
+          ? '<span style="background: #dcfce7; color: #166534; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-checkbox-circle-line"></i> Guardado</span>' 
+          : '<span style="background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>'}
+      </div>
       <div class="bg-kpi-value text-stocka-purple">${formatCLP(t.totalToPay)}</div>
       <div class="bg-kpi-subtitle">Neto: ${formatCLP(t.totalNet)} + IVA: ${formatCLP(t.iva)}</div>
     </div>
@@ -2916,9 +3105,45 @@ function renderKPIsUI() {
   `;
 }
 
+// Generador del badge de Estado WMS (Despachado, Pickeado, En preparación, etc.)
+export function getWmsStatusBadgeHTML(status) {
+  const raw = (status || 'Completado').trim();
+  const lower = raw.toLowerCase();
+
+  let cls = 'bg-wms-default';
+  let icon = 'ri-record-circle-line';
+
+  if (lower.includes('despachado') || lower.includes('entregado')) {
+    cls = 'bg-wms-despachado';
+    icon = 'ri-truck-line';
+  } else if (lower.includes('pickeado')) {
+    cls = 'bg-wms-pickeado';
+    icon = 'ri-check-double-line';
+  } else if (lower.includes('preparación') || lower.includes('preparacion')) {
+    cls = 'bg-wms-preparacion';
+    icon = 'ri-time-line';
+  } else if (lower.includes('procesamiento')) {
+    cls = 'bg-wms-procesamiento';
+    icon = 'ri-loader-4-line';
+  } else if (lower.includes('incidencia')) {
+    cls = 'bg-wms-incidencia';
+    icon = 'ri-error-warning-line';
+  } else if (lower.includes('cancelado')) {
+    cls = 'bg-wms-incidencia';
+    icon = 'ri-close-circle-line';
+  } else if (lower.includes('archivado')) {
+    cls = 'bg-wms-archivado';
+    icon = 'ri-archive-line';
+  } else {
+    cls = 'bg-wms-despachado';
+    icon = 'ri-checkbox-circle-line';
+  }
+
+  return `<span class="bg-order-wms-badge ${cls}" title="Estado WMS: ${escapeHtml(raw)}"><i class="${icon}"></i> ${escapeHtml(raw)}</span>`;
+}
+
 // Renderizar Filas de la Tabla Editable
-// Renderizar Filas de la Tabla Editable
-function renderOrdersTableUI() {
+export function renderOrdersTableUI() {
   const tbody = document.getElementById('bg-orders-table-body');
   if (!tbody) return;
 
@@ -2926,7 +3151,7 @@ function renderOrdersTableUI() {
   if (orders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="15" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+        <td colspan="16" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
           <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: #5f06fa;"></i>
           No se encontraron pedidos asignados al periodo <strong>${billingState.currentPeriodName}</strong> para este comercio.<br>
           <span style="font-size: 0.8rem; margin-top: 0.25rem; display: inline-block;">Asigna el periodo en el <strong>Gestor de Pedidos</strong> para que aparezcan aquí automáticamente.</span>
@@ -2934,10 +3159,14 @@ function renderOrdersTableUI() {
       </tr>
     `;
     updateQuickPillCounts([]);
+    updateAgendaFilterOptions([]);
+    updateDeliveryFilterOptions();
     const countBadge = document.getElementById('bg-filter-count-badge');
     if (countBadge) countBadge.textContent = 'Mostrando 0 de 0 pedidos';
     return;
   }
+
+  const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
 
   tbody.innerHTML = orders.map((o) => {
     const isChecked = !o.isExcluded;
@@ -2949,6 +3178,10 @@ function renderOrdersTableUI() {
     const agendaBadge = hasAgenda
       ? `<span class="bg-order-agenda-badge" title="Agenda asignada: ${escapeHtml(agendaText)}"><i class="ri-calendar-event-line"></i> ${escapeHtml(agendaText)}</span>`
       : `<span class="bg-order-agenda-badge-empty" title="Sin agenda asignada en el Gestor de Pedidos"><i class="ri-alert-line"></i> Sin Agenda</span>`;
+
+    // 1b. Estado WMS al lado de la etiqueta de agenda
+    const wmsStatusText = o.estadoWms || 'Completado';
+    const wmsStatusBadge = getWmsStatusBadgeHTML(wmsStatusText);
 
     // 2. Operador junto a la comuna, y abajo el método de envío
     const hasOperador = o.operador && o.operador.trim() !== '' && o.operador !== '—';
@@ -2967,9 +3200,11 @@ function renderOrdersTableUI() {
           data-date="${escapeHtml((o.date || '').toLowerCase())}"
           data-agenda="${escapeHtml(agendaText.toLowerCase())}"
           data-has-agenda="${hasAgenda ? '1' : '0'}"
+          data-wms="${escapeHtml((wmsStatusText || '').toLowerCase())}"
           data-dest="${escapeHtml((o.destination || '').toLowerCase())}"
           data-operador="${escapeHtml(operadorText.toLowerCase())}"
           data-method="${escapeHtml(shippingMethodText.toLowerCase())}"
+          data-ticket="${o.ticketVenta || 0}"
           data-delivery="${o.deliveryType}"
           data-skus="${o.skuCount}"
           data-units="${o.unitsCount}"
@@ -2983,6 +3218,7 @@ function renderOrdersTableUI() {
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
             <strong style="color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(o.orderNumber)}</strong>
             ${agendaBadge}
+            ${wmsStatusBadge}
           </div>
           <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">
             <i class="ri-calendar-line"></i> ${escapeHtml(o.date)}
@@ -2999,13 +3235,16 @@ function renderOrdersTableUI() {
             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;">${escapeHtml(shippingMethodText)}</span>
           </div>
         </td>
+        <td style="text-align: right;">
+          <input type="number" class="bg-excel-input" value="${o.ticketVenta || 0}" style="text-align: right; width: 85px; font-weight: 700; color: #0f766e;" onchange="window.updateBgOrderCell('${o.id}', 'ticketVenta', this.value)" title="Ticket de venta del pedido (monto de compra cliente: ${formatCLP(o.ticketVenta || 0)})">
+        </td>
         <td>
           <select class="bg-excel-select" onchange="window.updateBgOrderDeliveryType('${o.id}', this.value)" style="width: 100%;">
-            <option value="RM_STK" ${o.deliveryType === 'RM_STK' ? 'selected' : ''}>RM-STK ($3.200)</option>
-            <option value="COLINA" ${o.deliveryType === 'COLINA' ? 'selected' : ''}>Colina ($3.490)</option>
-            <option value="FLEX" ${o.deliveryType === 'FLEX' ? 'selected' : ''}>Flex ($3.200)</option>
-            <option value="ENVIAME_REGION" ${o.deliveryType === 'ENVIAME_REGION' ? 'selected' : ''}>Envíame / Región ($0)</option>
-            <option value="RETIRO" ${o.deliveryType === 'RETIRO' ? 'selected' : ''}>Retiro ($0)</option>
+            ${deliveryTypes.map(dt => `
+              <option value="${escapeHtml(dt.key)}" ${o.deliveryType === dt.key ? 'selected' : ''}>
+                ${escapeHtml(dt.name)} (${formatCLP(dt.price)})
+              </option>
+            `).join('')}
           </select>
         </td>
         <td style="text-align: center;">
@@ -3042,8 +3281,10 @@ function renderOrdersTableUI() {
     `;
   }).join('');
 
-  // 3. Actualizar conteos de filtros rápidos
+  // 3. Actualizar conteos de filtros rápidos y opciones dinámicas de agendas y tipos de entrega
   updateQuickPillCounts(orders);
+  updateAgendaFilterOptions(orders);
+  updateDeliveryFilterOptions(orders);
 
   // 4. Restaurar valores en los inputs de filtros si estaban activos
   if (window.bgFilterState) {
@@ -3056,6 +3297,8 @@ function renderOrdersTableUI() {
     setVal('bg-col-filter-order', window.bgFilterState.order);
     setVal('bg-col-filter-agenda', window.bgFilterState.agenda);
     setVal('bg-col-filter-dest', window.bgFilterState.dest);
+    setVal('bg-col-filter-ticket-min', window.bgFilterState.ticketMin);
+    setVal('bg-col-filter-ticket-max', window.bgFilterState.ticketMax);
     setVal('bg-col-filter-delivery', window.bgFilterState.delivery);
     setVal('bg-col-filter-skus', window.bgFilterState.skus);
     setVal('bg-col-filter-units', window.bgFilterState.units);
@@ -3079,12 +3322,11 @@ window.updateBgOrderDeliveryType = function(orderId, newType) {
   const order = billingState.orders.find(o => o.id === orderId);
   if (!order) return;
 
+  const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
+  const dt = deliveryTypes.find(d => d.key === newType);
+
   order.deliveryType = newType;
-  if (newType === 'RM_STK') order.shippingFreight = 3200;
-  else if (newType === 'COLINA') order.shippingFreight = 3490;
-  else if (newType === 'FLEX') order.shippingFreight = 3200;
-  else if (newType === 'ENVIAME_REGION') order.shippingFreight = 0;
-  else if (newType === 'RETIRO') order.shippingFreight = 0;
+  order.shippingFreight = dt ? dt.price : 0;
 
   order.orderTotal = order.pickPackTotal + order.shippingFreight;
   recalculateFromCurrentState();
@@ -3109,12 +3351,358 @@ window.updateBgOrderCell = function(orderId, field, value) {
     order.baseRate = Math.max(0, parseInt(value, 10) || 0);
   } else if (field === 'shippingFreight') {
     order.shippingFreight = Math.max(0, parseInt(value, 10) || 0);
+  } else if (field === 'ticketVenta') {
+    order.ticketVenta = Math.max(0, parseInt(value, 10) || 0);
   }
 
   order.pickPackTotal = order.baseRate + order.surchargeSku + order.surchargeUnits + order.surchargeMarketplace;
   order.orderTotal = order.pickPackTotal + order.shippingFreight;
 
   recalculateFromCurrentState();
+};
+
+// Marcar / Desmarcar inclusión de todos los pedidos actualmente visibles
+window.toggleAllVisibleOrdersInclusion = function(isChecked) {
+  const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
+  if (visibleRows.length === 0) return;
+  const visibleIds = new Set(visibleRows.map(r => r.getAttribute('data-id')));
+
+  let changedCount = 0;
+  (billingState.orders || []).forEach(o => {
+    if (visibleIds.has(o.id)) {
+      if (o.isExcluded !== !isChecked) {
+        o.isExcluded = !isChecked;
+        changedCount++;
+      }
+    }
+  });
+
+  if (changedCount > 0) {
+    recalculateFromCurrentState();
+  }
+};
+
+// Modal de Edición Masiva de Pedidos
+window.openBulkEditOrdersModal = async function(preselectedScope = null) {
+  const allOrders = billingState.orders || [];
+  if (allOrders.length === 0) {
+    Swal.fire('Sin pedidos', 'No hay pedidos cargados para editar en este periodo.', 'info');
+    return;
+  }
+
+  // 1. Obtener pedidos visibles según los filtros activos actuales en el DOM
+  const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
+  const visibleIds = new Set(visibleRows.map(r => r.getAttribute('data-id')));
+  const filteredOrders = allOrders.filter(o => visibleIds.has(o.id));
+  const includedOrders = allOrders.filter(o => !o.isExcluded);
+
+  const filteredCount = filteredOrders.length;
+  const includedCount = includedOrders.length;
+  const totalCount = allOrders.length;
+
+  // Determinar alcance por defecto
+  let defaultScope = preselectedScope;
+  if (!defaultScope) {
+    if (filteredCount < totalCount && filteredCount > 0) {
+      defaultScope = 'filtered';
+    } else {
+      defaultScope = 'all';
+    }
+  }
+
+  const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
+  const defaultBaseRate = billingState.activeRange?.pick_pack_base || 1250;
+
+  // Construir HTML del modal
+  const modalHTML = `
+    <div style="text-align: left; font-size: 0.85rem; color: var(--color-text-main);">
+      <!-- 1. Selección del Alcance -->
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+        <div style="font-weight: 800; color: #1e293b; font-size: 0.82rem; margin-bottom: 8px; display: flex; align-items: center; gap: 5px;">
+          <i class="ri-focus-3-line" style="color: #5f06fa; font-size: 1rem;"></i> 1. ALCANCE: ¿QUÉ PEDIDOS DESEAS MODIFICAR?
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background 0.15s;" class="bulk-scope-label">
+            <input type="radio" name="bulk-scope" value="filtered" ${defaultScope === 'filtered' ? 'checked' : ''} style="accent-color: #5f06fa; width: 15px; height: 15px;">
+            <span style="font-weight: 600; color: #334155;">Pedidos filtrados / visibles actualmente</span>
+            <span style="margin-left: auto; background: rgba(95, 6, 250, 0.1); color: #5f06fa; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 10px;">
+              ${filteredCount} pedidos
+            </span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background 0.15s;" class="bulk-scope-label">
+            <input type="radio" name="bulk-scope" value="included" ${defaultScope === 'included' ? 'checked' : ''} style="accent-color: #5f06fa; width: 15px; height: 15px;">
+            <span style="font-weight: 600; color: #334155;">Todos los pedidos incluidos para cobro</span>
+            <span style="margin-left: auto; background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 10px;">
+              ${includedCount} pedidos
+            </span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background 0.15s;" class="bulk-scope-label">
+            <input type="radio" name="bulk-scope" value="all" ${defaultScope === 'all' ? 'checked' : ''} style="accent-color: #5f06fa; width: 15px; height: 15px;">
+            <span style="font-weight: 600; color: #334155;">Todos los pedidos del periodo (sin excepción)</span>
+            <span style="margin-left: auto; background: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 10px;">
+              ${totalCount} pedidos
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. Columnas a Actualizar -->
+      <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
+        <div style="font-weight: 800; color: #1e293b; font-size: 0.82rem; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
+          <i class="ri-checkbox-line" style="color: #5f06fa; font-size: 1rem;"></i> 2. SELECCIONA LAS COLUMNAS A MODIFICAR
+        </div>
+        <p style="font-size: 0.72rem; color: #64748b; margin-bottom: 12px; line-height: 1.3;">
+          Marca únicamente las casillas de las columnas que deseas cambiar. Las que dejes desmarcadas <strong>no se modificarán</strong>.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          
+          <!-- Columna: Tipo de Entrega -->
+          <div class="bulk-edit-row" id="row-bulk-delivery" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <div style="flex: 1;">
+              <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b;">
+                <input type="checkbox" id="bulk-chk-delivery" class="bulk-col-toggle" data-target="bulk-val-delivery" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+                <span>Tipo de Entrega</span>
+              </label>
+              <div id="bulk-box-sync-freight" style="margin-top: 6px; margin-left: 21px; display: none;">
+                <label style="font-size: 0.72rem; color: #5f06fa; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-weight: 600;">
+                  <input type="checkbox" id="bulk-sync-freight" checked style="accent-color: #5f06fa;">
+                  Actualizar flete según tarifa del tipo
+                </label>
+              </div>
+            </div>
+            <div style="width: 200px;">
+              <select id="bulk-val-delivery" class="form-input" style="height: 32px; font-size: 0.78rem; padding: 2px 6px; width: 100%; border-radius: 6px;" disabled>
+                ${deliveryTypes.map(dt => `<option value="${escapeHtml(dt.key)}">${escapeHtml(dt.name)} (${formatCLP(dt.price)})</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <!-- Columna: Flete Envío ($) -->
+          <div class="bulk-edit-row" id="row-bulk-freight" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-freight" class="bulk-col-toggle" data-target="bulk-val-freight" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Flete Envío ($)</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-freight" class="form-input" placeholder="0" value="0" min="0" step="50" style="height: 32px; font-size: 0.78rem; text-align: right; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          <!-- Columna: SKUs -->
+          <div class="bulk-edit-row" id="row-bulk-skus" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-skus" class="bulk-col-toggle" data-target="bulk-val-skus" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Cantidad SKUs</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-skus" class="form-input" placeholder="1" value="1" min="1" style="height: 32px; font-size: 0.78rem; text-align: center; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          <!-- Columna: Unidades -->
+          <div class="bulk-edit-row" id="row-bulk-units" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-units" class="bulk-col-toggle" data-target="bulk-val-units" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Cantidad Unidades</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-units" class="form-input" placeholder="1" value="1" min="1" style="height: 32px; font-size: 0.78rem; text-align: center; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          <!-- Columna: Marketplace? -->
+          <div class="bulk-edit-row" id="row-bulk-mkt" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-mkt" class="bulk-col-toggle" data-target="bulk-val-mkt" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>¿Es Marketplace?</span>
+            </label>
+            <div style="width: 200px;">
+              <select id="bulk-val-mkt" class="form-input" style="height: 32px; font-size: 0.78rem; padding: 2px 6px; width: 100%; border-radius: 6px;" disabled>
+                <option value="no">No (Recargo $0)</option>
+                <option value="yes">Sí (Recargo $100)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Columna: Tarifa Base Pick & Pack ($) -->
+          <div class="bulk-edit-row" id="row-bulk-baserate" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-baserate" class="bulk-col-toggle" data-target="bulk-val-baserate" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Base Pick & Pack ($)</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-baserate" class="form-input" placeholder="${defaultBaseRate}" value="${defaultBaseRate}" min="0" step="50" style="height: 32px; font-size: 0.78rem; text-align: right; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          <!-- Columna: Inclusión en Facturación -->
+          <div class="bulk-edit-row" id="row-bulk-inclusion" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-inclusion" class="bulk-col-toggle" data-target="bulk-val-inclusion" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Inclusión (Inc.)</span>
+            </label>
+            <div style="width: 200px;">
+              <select id="bulk-val-inclusion" class="form-input" style="height: 32px; font-size: 0.78rem; padding: 2px 6px; width: 100%; border-radius: 6px;" disabled>
+                <option value="inc">✓ Incluir en cobro (Activo)</option>
+                <option value="exc">✗ Excluir de cobro (Omitir)</option>
+              </select>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  `;
+
+  const { value: bulkResult } = await Swal.fire({
+    title: '<span style="color: #1e293b; font-size: 1.15rem; font-weight: 800; display: inline-flex; align-items: center; gap: 6px;"><i class="ri-edit-2-line" style="color: #5f06fa;"></i> Edición Masiva de Pedidos</span>',
+    html: modalHTML,
+    width: '640px',
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    focusConfirm: false,
+    didOpen: () => {
+      // Activar / desactivar inputs al marcar o desmarcar la casilla de cada columna
+      document.querySelectorAll('.bulk-col-toggle').forEach(chk => {
+        chk.addEventListener('change', (e) => {
+          const targetId = e.target.getAttribute('data-target');
+          const inputEl = document.getElementById(targetId);
+          const rowEl = e.target.closest('.bulk-edit-row');
+          if (inputEl) {
+            inputEl.disabled = !e.target.checked;
+            if (e.target.checked) inputEl.focus();
+          }
+          if (rowEl) {
+            rowEl.style.background = e.target.checked ? '#f5f3ff' : '#fcfcfd';
+            rowEl.style.borderColor = e.target.checked ? '#c4b5fd' : '#e2e8f0';
+          }
+          if (e.target.id === 'bulk-chk-delivery') {
+            const syncBox = document.getElementById('bulk-box-sync-freight');
+            if (syncBox) syncBox.style.display = e.target.checked ? 'block' : 'none';
+          }
+        });
+      });
+    },
+    preConfirm: () => {
+      // 1. Validar alcance
+      const selectedScopeEl = document.querySelector('input[name="bulk-scope"]:checked');
+      const scope = selectedScopeEl ? selectedScopeEl.value : 'filtered';
+
+      let targetOrders = [];
+      if (scope === 'filtered') {
+        targetOrders = allOrders.filter(o => visibleIds.has(o.id));
+      } else if (scope === 'included') {
+        targetOrders = allOrders.filter(o => !o.isExcluded);
+      } else {
+        targetOrders = allOrders;
+      }
+
+      if (targetOrders.length === 0) {
+        Swal.showValidationMessage('No hay ningún pedido en el alcance seleccionado para modificar.');
+        return false;
+      }
+
+      // 2. Validar que al menos una columna fue seleccionada
+      const chkDelivery = document.getElementById('bulk-chk-delivery')?.checked;
+      const chkFreight = document.getElementById('bulk-chk-freight')?.checked;
+      const chkSkus = document.getElementById('bulk-chk-skus')?.checked;
+      const chkUnits = document.getElementById('bulk-chk-units')?.checked;
+      const chkMkt = document.getElementById('bulk-chk-mkt')?.checked;
+      const chkBaseRate = document.getElementById('bulk-chk-baserate')?.checked;
+      const chkInclusion = document.getElementById('bulk-chk-inclusion')?.checked;
+
+      if (!chkDelivery && !chkFreight && !chkSkus && !chkUnits && !chkMkt && !chkBaseRate && !chkInclusion) {
+        Swal.showValidationMessage('Selecciona al menos una columna para aplicar cambios masivos.');
+        return false;
+      }
+
+      return {
+        scope,
+        targetOrders,
+        updates: {
+          delivery: chkDelivery ? document.getElementById('bulk-val-delivery')?.value : null,
+          syncFreight: chkDelivery ? !!document.getElementById('bulk-sync-freight')?.checked : false,
+          freight: chkFreight ? Math.max(0, parseInt(document.getElementById('bulk-val-freight')?.value, 10) || 0) : null,
+          skus: chkSkus ? Math.max(1, parseInt(document.getElementById('bulk-val-skus')?.value, 10) || 1) : null,
+          units: chkUnits ? Math.max(1, parseInt(document.getElementById('bulk-val-units')?.value, 10) || 1) : null,
+          mkt: chkMkt ? (document.getElementById('bulk-val-mkt')?.value === 'yes') : null,
+          baseRate: chkBaseRate ? Math.max(0, parseInt(document.getElementById('bulk-val-baserate')?.value, 10) || 0) : null,
+          inclusion: chkInclusion ? (document.getElementById('bulk-val-inclusion')?.value === 'inc') : null
+        }
+      };
+    }
+  });
+
+  if (!bulkResult) return;
+
+  const { targetOrders, updates } = bulkResult;
+  const count = targetOrders.length;
+
+  targetOrders.forEach(ord => {
+    // A. Inclusión
+    if (updates.inclusion !== null) {
+      ord.isExcluded = !updates.inclusion;
+    }
+
+    // B. Tipo de Entrega y sincronización de Flete
+    if (updates.delivery !== null) {
+      ord.deliveryType = updates.delivery;
+      if (updates.syncFreight && updates.freight === null) {
+        const dt = deliveryTypes.find(d => d.key === updates.delivery);
+        ord.shippingFreight = dt ? dt.price : 0;
+      }
+    }
+
+    // C. Flete Envío explícito (anula sync automático si se especificó)
+    if (updates.freight !== null) {
+      ord.shippingFreight = updates.freight;
+    }
+
+    // D. SKUs
+    if (updates.skus !== null) {
+      ord.skuCount = updates.skus;
+      const extraSku = Math.max(0, ord.skuCount - 3);
+      ord.surchargeSku = extraSku * 100;
+    }
+
+    // E. Unidades
+    if (updates.units !== null) {
+      ord.unitsCount = updates.units;
+      const extraUnits = Math.max(0, ord.unitsCount - 10);
+      ord.surchargeUnits = extraUnits * 50;
+    }
+
+    // F. Marketplace
+    if (updates.mkt !== null) {
+      ord.isMarketplace = updates.mkt;
+      ord.surchargeMarketplace = ord.isMarketplace ? 100 : 0;
+    }
+
+    // G. Tarifa Base Pick & Pack
+    if (updates.baseRate !== null) {
+      ord.baseRate = updates.baseRate;
+    }
+
+    // Recalcular totales por pedido
+    ord.pickPackTotal = ord.baseRate + ord.surchargeSku + ord.surchargeUnits + ord.surchargeMarketplace;
+    ord.orderTotal = ord.pickPackTotal + ord.shippingFreight;
+  });
+
+  // Re-ejecutar cálculo reactivo general y actualizar UI
+  recalculateFromCurrentState();
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: 'Edición masiva completada',
+    text: `Se actualizaron ${count} pedidos correctamente.`,
+    showConfirmButton: false,
+    timer: 3500
+  });
 };
 
 // Recálculo rápido de totales a partir del estado de pedidos editado
@@ -3124,8 +3712,9 @@ function recalculateFromCurrentState() {
 
   const totalPickPackNet = billableOrders.reduce((acc, o) => acc + o.pickPackTotal, 0);
 
-  const rmFlexOrders = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'COLINA' || o.deliveryType === 'FLEX');
-  const totalRmFlexNet = rmFlexOrders.reduce((acc, o) => acc + o.shippingFreight, 0);
+  // Todo flete facturable en fulfillment (costo de flete > 0)
+  const billableShippingOrders = billableOrders.filter(o => (o.shippingFreight || 0) > 0);
+  const totalShippingNet = billableShippingOrders.reduce((acc, o) => acc + (o.shippingFreight || 0), 0);
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
 
@@ -3155,7 +3744,7 @@ function recalculateFromCurrentState() {
   const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
 
   const inboundNet = b.totals.inboundNet || 0;
-  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundNet + fixedFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
+  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
 
@@ -3165,8 +3754,8 @@ function recalculateFromCurrentState() {
     billableOrdersCount: billableOrders.length,
     storageNet: netStorageCost,
     pickPackNet: totalPickPackNet,
-    shippingRmFlexCount: rmFlexOrders.length,
-    shippingRmFlexNet: totalRmFlexNet,
+    shippingRmFlexCount: billableShippingOrders.length,
+    shippingRmFlexNet: totalShippingNet,
     shippingEnviameCount: enviameOrders.length,
     fixedFeeUF,
     fixedFeeNet: fixedFeeCLP,
@@ -3268,6 +3857,323 @@ window.addNewManualAdjustmentRow = async function() {
   }
 };
 
+// Modal de Configuración y Edición de Tipos de Entrega y Tarifas
+window.openDeliveryTypesManagerModal = async function() {
+  const currentConfig = billingState.pricingConfig || DEFAULT_PRICING_CONFIG;
+  const deliveryTypes = JSON.parse(JSON.stringify(getDeliveryTypes(currentConfig)));
+
+  const renderModalRowsHTML = (types) => {
+    return types.map((dt, idx) => `
+      <tr class="swal-dt-row" data-index="${idx}" data-key="${escapeHtml(dt.key)}" data-is-base="${dt.is_base ? '1' : '0'}" style="border-bottom: 1px solid #f1f5f9;">
+        <td style="padding: 6px 8px;">
+          <input type="text" class="swal2-input dt-name-input" value="${escapeHtml(dt.name)}" style="margin: 0; height: 36px; font-size: 0.85rem; font-weight: 700; width: 100%; border-radius: 6px;" placeholder="Nombre de entrega">
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          <span style="font-family: monospace; font-size: 0.75rem; font-weight: 700; color: #475569; background: #f1f5f9; padding: 4px 6px; border-radius: 4px; display: inline-block;">
+            ${escapeHtml(dt.key)}
+          </span>
+        </td>
+        <td style="padding: 6px 8px; text-align: right;">
+          <div style="position: relative; display: inline-block; width: 100%;">
+            <input type="number" class="swal2-input dt-price-input" value="${dt.price}" min="0" step="50" style="margin: 0; height: 36px; font-size: 0.85rem; font-weight: 700; width: 100%; text-align: right; color: #5f06fa; border-radius: 6px;" placeholder="0">
+          </div>
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          <select class="swal2-select dt-billable-select" style="margin: 0; height: 36px; font-size: 0.8rem; font-weight: 600; width: 100%; border-radius: 6px;">
+            <option value="1" ${dt.is_billable !== false ? 'selected' : ''}>Sí (Flete)</option>
+            <option value="0" ${dt.is_billable === false ? 'selected' : ''}>No ($0)</option>
+          </select>
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          ${dt.is_base ? `
+            <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; display: inline-flex; align-items: center; gap: 2px;" title="Tipo base protegido del sistema">
+              <i class="ri-lock-line"></i> Base
+            </span>
+          ` : `
+            <button type="button" class="btn-delete-dt" onclick="window.removeDeliveryTypeRow(this)" title="Eliminar este tipo de entrega" style="background: #fee2e2; border: 1px solid #fecaca; color: #dc2626; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          `}
+        </td>
+      </tr>
+    `).join('');
+  };
+
+  window.removeDeliveryTypeRow = function(btn) {
+    const row = btn.closest('tr');
+    if (row) row.remove();
+  };
+
+  const modalHtml = `
+    <div style="text-align: left; max-height: 70vh; overflow-y: auto; padding-right: 4px;">
+      <p style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 1rem;">
+        Personaliza los nombres y las tarifas netas ($ CLP) de cada tipo de entrega, o define nuevos tipos según los acuerdos logísticos de tu operación.
+      </p>
+
+      <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 1.25rem;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+          <thead>
+            <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; text-align: left; color: #475569; font-weight: 700; font-size: 0.75rem;">
+              <th style="padding: 8px 10px;">Nombre / Etiqueta</th>
+              <th style="padding: 8px 10px; width: 140px; text-align: center;">Clave / Código</th>
+              <th style="padding: 8px 10px; width: 110px; text-align: right;">Tarifa ($ CLP)</th>
+              <th style="padding: 8px 10px; width: 105px; text-align: center;">Facturable</th>
+              <th style="padding: 8px 10px; width: 65px; text-align: center;">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="swal-dt-tbody">
+            ${renderModalRowsHTML(deliveryTypes)}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Formulario para agregar nuevo tipo de entrega -->
+      <div style="background: rgba(95, 6, 250, 0.04); border: 1px dashed rgba(95, 6, 250, 0.35); border-radius: 8px; padding: 0.85rem 1rem;">
+        <div style="font-weight: 800; font-size: 0.825rem; color: #5f06fa; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 4px;">
+          <i class="ri-add-circle-line" style="font-size: 1rem;"></i> Agregar Nuevo Tipo de Entrega
+        </div>
+        <div style="display: grid; grid-template-columns: 1.8fr 1.2fr 1fr 1fr auto; gap: 6px; align-items: flex-end;">
+          <div>
+            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">Nombre:</label>
+            <input type="text" id="swal-new-dt-name" class="swal2-input" placeholder="Ej: Chilexpress Express" style="margin: 0; height: 34px; font-size: 0.8rem; width: 100%; border-radius: 6px;">
+          </div>
+          <div>
+            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">Clave / Código:</label>
+            <input type="text" id="swal-new-dt-key" class="swal2-input" placeholder="CHILEXPRESS" style="margin: 0; height: 34px; font-size: 0.8rem; width: 100%; border-radius: 6px; font-family: monospace; text-transform: uppercase;">
+          </div>
+          <div>
+            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">Tarifa ($):</label>
+            <input type="number" id="swal-new-dt-price" class="swal2-input" placeholder="0" value="0" min="0" step="50" style="margin: 0; height: 34px; font-size: 0.8rem; width: 100%; text-align: right; border-radius: 6px;">
+          </div>
+          <div>
+            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">Facturable:</label>
+            <select id="swal-new-dt-billable" class="swal2-select" style="margin: 0; height: 34px; font-size: 0.78rem; width: 100%; border-radius: 6px;">
+              <option value="1">Sí (Flete)</option>
+              <option value="0">No ($0)</option>
+            </select>
+          </div>
+          <div>
+            <button type="button" id="swal-btn-add-dt" class="btn btn-primary" style="height: 34px; background: #5f06fa; border-color: #5f06fa; font-size: 0.78rem; font-weight: 700; border-radius: 6px; padding: 0 10px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;">
+              <i class="ri-add-line"></i> Añadir
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const { value: updatedTypes } = await Swal.fire({
+    title: '<div style="display: flex; align-items: center; gap: 8px; color: #5f06fa; font-size: 1.2rem; font-weight: 800;"><i class="ri-settings-4-line"></i> Configuración de Tipos de Entrega</div>',
+    html: modalHtml,
+    width: '840px',
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-save-3-line"></i> Guardar Configuración',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#94a3b8',
+    didOpen: () => {
+      const nameInput = document.getElementById('swal-new-dt-name');
+      const keyInput = document.getElementById('swal-new-dt-key');
+      const priceInput = document.getElementById('swal-new-dt-price');
+      const billableSelect = document.getElementById('swal-new-dt-billable');
+      const addBtn = document.getElementById('swal-btn-add-dt');
+      const tbody = document.getElementById('swal-dt-tbody');
+
+      let userEditedKey = false;
+      keyInput?.addEventListener('input', () => { userEditedKey = true; });
+
+      nameInput?.addEventListener('input', (e) => {
+        if (!userEditedKey) {
+          const autoKey = e.target.value.trim().toUpperCase()
+            .replace(/[ÁÀÄÂ]/g, 'A')
+            .replace(/[ÉÈËÊ]/g, 'E')
+            .replace(/[ÍÌÏÎ]/g, 'I')
+            .replace(/[ÓÒÖÔ]/g, 'O')
+            .replace(/[ÚÙÜÛ]/g, 'U')
+            .replace(/Ñ/g, 'N')
+            .replace(/[^A-Z0-9]/g, '_')
+            .replace(/_+/g, '_')
+            .replace(/^_|_$/g, '');
+          keyInput.value = autoKey;
+        }
+      });
+
+      addBtn?.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        let key = keyInput.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        const price = Math.max(0, parseInt(priceInput.value, 10) || 0);
+        const isBillable = billableSelect.value === '1';
+
+        if (!name) {
+          Swal.showValidationMessage('Ingresa un nombre para el nuevo tipo de entrega.');
+          return;
+        }
+        if (!key) {
+          key = name.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        }
+
+        // Verificar unicidad de clave
+        const existingKeys = Array.from(tbody.querySelectorAll('tr.swal-dt-row')).map(r => r.getAttribute('data-key'));
+        if (existingKeys.includes(key)) {
+          Swal.showValidationMessage(`La clave "${key}" ya existe en la lista.`);
+          return;
+        }
+
+        // Crear fila nueva
+        const tr = document.createElement('tr');
+        tr.className = 'swal-dt-row';
+        tr.setAttribute('data-key', key);
+        tr.setAttribute('data-is-base', '0');
+        tr.style.borderBottom = '1px solid #f1f5f9';
+        tr.innerHTML = `
+          <td style="padding: 6px 8px;">
+            <input type="text" class="swal2-input dt-name-input" value="${escapeHtml(name)}" style="margin: 0; height: 36px; font-size: 0.85rem; font-weight: 700; width: 100%; border-radius: 6px;">
+          </td>
+          <td style="padding: 6px 8px; text-align: center;">
+            <span style="font-family: monospace; font-size: 0.75rem; font-weight: 700; color: #475569; background: #f1f5f9; padding: 4px 6px; border-radius: 4px; display: inline-block;">
+              ${escapeHtml(key)}
+            </span>
+          </td>
+          <td style="padding: 6px 8px; text-align: right;">
+            <input type="number" class="swal2-input dt-price-input" value="${price}" min="0" step="50" style="margin: 0; height: 36px; font-size: 0.85rem; font-weight: 700; width: 100%; text-align: right; color: #5f06fa; border-radius: 6px;">
+          </td>
+          <td style="padding: 6px 8px; text-align: center;">
+            <select class="swal2-select dt-billable-select" style="margin: 0; height: 36px; font-size: 0.8rem; font-weight: 600; width: 100%; border-radius: 6px;">
+              <option value="1" ${isBillable ? 'selected' : ''}>Sí (Flete)</option>
+              <option value="0" ${!isBillable ? 'selected' : ''}>No ($0)</option>
+            </select>
+          </td>
+          <td style="padding: 6px 8px; text-align: center;">
+            <button type="button" class="btn-delete-dt" onclick="window.removeDeliveryTypeRow(this)" title="Eliminar este tipo de entrega" style="background: #fee2e2; border: 1px solid #fecaca; color: #dc2626; border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 0.85rem;">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+
+        // Limpiar inputs
+        nameInput.value = '';
+        keyInput.value = '';
+        priceInput.value = '0';
+        billableSelect.value = '1';
+        userEditedKey = false;
+        Swal.resetValidationMessage();
+      });
+    },
+    preConfirm: () => {
+      const tbody = document.getElementById('swal-dt-tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr.swal-dt-row'));
+
+      // Si el usuario escribió en el formulario de nuevo tipo y no pulsó 'Añadir', agregarlo si tiene nombre
+      const pendingName = document.getElementById('swal-new-dt-name')?.value.trim();
+      let pendingKey = document.getElementById('swal-new-dt-key')?.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      const pendingPrice = Math.max(0, parseInt(document.getElementById('swal-new-dt-price')?.value, 10) || 0);
+      const pendingBillable = document.getElementById('swal-new-dt-billable')?.value === '1';
+
+      if (pendingName) {
+        if (!pendingKey) pendingKey = pendingName.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        const existingKeys = rows.map(r => r.getAttribute('data-key'));
+        if (!existingKeys.includes(pendingKey)) {
+          rows.push({
+            getAttribute: (attr) => attr === 'data-key' ? pendingKey : (attr === 'data-is-base' ? '0' : null),
+            querySelector: (sel) => {
+              if (sel === '.dt-name-input') return { value: pendingName };
+              if (sel === '.dt-price-input') return { value: pendingPrice };
+              if (sel === '.dt-billable-select') return { value: pendingBillable ? '1' : '0' };
+              return null;
+            }
+          });
+        }
+      }
+
+      if (rows.length === 0) {
+        Swal.showValidationMessage('Debe existir al menos un tipo de entrega.');
+        return false;
+      }
+
+      const results = [];
+      const seenKeys = new Set();
+
+      for (const r of rows) {
+        const key = r.getAttribute('data-key');
+        const name = r.querySelector('.dt-name-input')?.value?.trim();
+        const priceVal = r.querySelector('.dt-price-input')?.value;
+        const price = Math.max(0, parseInt(priceVal, 10) || 0);
+        const isBillable = r.querySelector('.dt-billable-select')?.value === '1';
+        const isBase = r.getAttribute('data-is-base') === '1';
+
+        if (!name) {
+          Swal.showValidationMessage(`El tipo con clave "${key}" tiene el nombre vacío.`);
+          return false;
+        }
+
+        if (seenKeys.has(key)) {
+          Swal.showValidationMessage(`Clave duplicada encontrada: "${key}".`);
+          return false;
+        }
+        seenKeys.add(key);
+
+        results.push({
+          key,
+          name,
+          price,
+          is_billable: isBillable,
+          is_base: isBase
+        });
+      }
+
+      return results;
+    }
+  });
+
+  if (!updatedTypes || updatedTypes.length === 0) return;
+
+  // Actualizar y guardar en pricing_config
+  const updatedConfig = {
+    ...(billingState.pricingConfig || DEFAULT_PRICING_CONFIG),
+    delivery_types: updatedTypes
+  };
+
+  try {
+    await savePricingConfig(updatedConfig, supabase);
+    billingState.pricingConfig = updatedConfig;
+
+    // Actualizar tarifas de los pedidos en memoria
+    const typeMap = {};
+    updatedTypes.forEach(dt => { typeMap[dt.key] = dt; });
+
+    (billingState.orders || []).forEach(ord => {
+      const matched = typeMap[ord.deliveryType];
+      if (matched) {
+        ord.shippingFreight = matched.price;
+      } else {
+        // Tipo eliminado: reasignar a RETIRO
+        ord.deliveryType = 'RETIRO';
+        ord.shippingFreight = 0;
+      }
+      ord.orderTotal = ord.pickPackTotal + ord.shippingFreight;
+    });
+
+    // Recalcular y actualizar UI completa
+    recalculateFromCurrentState();
+    renderOrdersTableUI(billingState.orders);
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Tipos de entrega actualizados',
+      text: 'Tarifas guardadas y pedidos actualizados con éxito.',
+      showConfirmButton: false,
+      timer: 3000
+    });
+  } catch (err) {
+    console.error('Error al guardar configuración de tipos de entrega:', err);
+    Swal.fire('Error', 'No se pudo guardar la configuración en la base de datos: ' + err.message, 'error');
+  }
+};
+
 // --- MOTOR DE FILTRADO POR COLUMNAS Y FILTROS RÁPIDOS EN REGISTRO EDITABLE ---
 window.bgFilterState = {
   global: '',
@@ -3275,6 +4181,8 @@ window.bgFilterState = {
   order: '',
   agenda: '',
   dest: '',
+  ticketMin: '',
+  ticketMax: '',
   delivery: '',
   skus: '',
   units: '',
@@ -3289,6 +4197,7 @@ function updateQuickPillCounts(orders) {
   const withAgenda = total - noAgenda;
   const rmFlex = orders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'COLINA' || o.deliveryType === 'FLEX').length;
   const enviame = orders.filter(o => o.deliveryType === 'ENVIAME_REGION').length;
+  const centroEnvios = orders.filter(o => o.deliveryType === 'CENTRO_ENVIOS').length;
   const mkt = orders.filter(o => o.isMarketplace).length;
 
   const setElText = (id, val) => {
@@ -3300,7 +4209,83 @@ function updateQuickPillCounts(orders) {
   setElText('qf-count-with-agenda', withAgenda);
   setElText('qf-count-rm-flex', rmFlex);
   setElText('qf-count-enviame', enviame);
+  setElText('qf-count-centro-envios', centroEnvios);
   setElText('qf-count-mkt', mkt);
+}
+
+// Actualizar dinámicamente las opciones del selector de Agendas (ej: CENTRO DE ENVIOS, FLEX, RM, STK, etc.)
+function updateAgendaFilterOptions(orders) {
+  const select = document.getElementById('bg-col-filter-agenda');
+  if (!select) return;
+
+  const currentVal = select.value || (window.bgFilterState?.agenda || '');
+
+  let noAgendaCount = 0;
+  let withAgendaCount = 0;
+  const agendaMap = {};
+
+  orders.forEach(o => {
+    const rawAgenda = (o.agenda || '').trim();
+    if (!rawAgenda || rawAgenda === '—' || rawAgenda === '-') {
+      noAgendaCount++;
+    } else {
+      withAgendaCount++;
+      agendaMap[rawAgenda] = (agendaMap[rawAgenda] || 0) + 1;
+    }
+  });
+
+  const sortedAgendas = Object.keys(agendaMap).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  let optionsHTML = `
+    <option value="">Todas las Agendas</option>
+    <option value="empty" ${currentVal === 'empty' ? 'selected' : ''}>⚠️ Sin Agenda (${noAgendaCount})</option>
+    <option value="with" ${currentVal === 'with' ? 'selected' : ''}>✓ Con Agenda (${withAgendaCount})</option>
+  `;
+
+  if (sortedAgendas.length > 0) {
+    optionsHTML += `
+      <optgroup label="Agendas Asignadas (${sortedAgendas.length})">
+        ${sortedAgendas.map(ag => {
+          const isSel = currentVal.toLowerCase() === ag.toLowerCase();
+          return `<option value="${escapeHtml(ag)}" ${isSel ? 'selected' : ''}>${escapeHtml(ag)} (${agendaMap[ag]})</option>`;
+        }).join('')}
+      </optgroup>
+    `;
+  }
+
+  select.innerHTML = optionsHTML;
+  if (currentVal) {
+    const matchOpt = Array.from(select.options).find(o => o.value.toLowerCase() === currentVal.toLowerCase());
+    if (matchOpt) select.value = matchOpt.value;
+  }
+}
+
+// Actualizar dinámicamente las opciones del selector de Tipo de Entrega
+function updateDeliveryFilterOptions(orders = null) {
+  const select = document.getElementById('bg-col-filter-delivery');
+  if (!select) return;
+
+  const currentVal = select.value || (window.bgFilterState?.delivery || '');
+  const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
+
+  const ordersList = orders || billingState.orders || [];
+  const countMap = {};
+  ordersList.forEach(o => {
+    countMap[o.deliveryType] = (countMap[o.deliveryType] || 0) + 1;
+  });
+
+  let optionsHTML = '<option value="">Todos los tipos</option>';
+  deliveryTypes.forEach(dt => {
+    const isSel = currentVal === dt.key;
+    const count = countMap[dt.key] || 0;
+    optionsHTML += `<option value="${escapeHtml(dt.key)}" ${isSel ? 'selected' : ''}>${escapeHtml(dt.name)} (${formatCLP(dt.price)})${ordersList.length > 0 ? ` [${count}]` : ''}</option>`;
+  });
+
+  select.innerHTML = optionsHTML;
+  if (currentVal) {
+    const matchOpt = Array.from(select.options).find(o => o.value === currentVal);
+    if (matchOpt) select.value = matchOpt.value;
+  }
 }
 
 // Aplicar filtros por columnas de forma combinada y reactiva
@@ -3310,6 +4295,8 @@ window.applyBgColumnFilters = function() {
   const orderInput = document.getElementById('bg-col-filter-order');
   const agendaSelect = document.getElementById('bg-col-filter-agenda');
   const destInput = document.getElementById('bg-col-filter-dest');
+  const ticketMinInput = document.getElementById('bg-col-filter-ticket-min');
+  const ticketMaxInput = document.getElementById('bg-col-filter-ticket-max');
   const deliverySelect = document.getElementById('bg-col-filter-delivery');
   const skusInput = document.getElementById('bg-col-filter-skus');
   const unitsInput = document.getElementById('bg-col-filter-units');
@@ -3320,11 +4307,15 @@ window.applyBgColumnFilters = function() {
   const orderQuery = (orderInput ? orderInput.value : (window.bgFilterState?.order || '')).toLowerCase().trim();
   const agendaFilter = agendaSelect ? agendaSelect.value : (window.bgFilterState?.agenda || '');
   const destQuery = (destInput ? destInput.value : (window.bgFilterState?.dest || '')).toLowerCase().trim();
+  const ticketMinVal = ticketMinInput ? ticketMinInput.value : (window.bgFilterState?.ticketMin || '');
+  const ticketMaxVal = ticketMaxInput ? ticketMaxInput.value : (window.bgFilterState?.ticketMax || '');
   const deliveryFilter = deliverySelect ? deliverySelect.value : (window.bgFilterState?.delivery || '');
   const skusVal = skusInput ? skusInput.value : (window.bgFilterState?.skus || '');
   const unitsVal = unitsInput ? unitsInput.value : (window.bgFilterState?.units || '');
   const mktFilter = mktSelect ? mktSelect.value : (window.bgFilterState?.mkt || '');
 
+  const ticketMin = ticketMinVal !== '' ? parseInt(ticketMinVal, 10) : NaN;
+  const ticketMax = ticketMaxVal !== '' ? parseInt(ticketMaxVal, 10) : NaN;
   const skusMin = skusVal !== '' ? parseInt(skusVal, 10) : NaN;
   const unitsMin = unitsVal !== '' ? parseInt(unitsVal, 10) : NaN;
 
@@ -3334,6 +4325,8 @@ window.applyBgColumnFilters = function() {
     order: orderQuery,
     agenda: agendaFilter,
     dest: destQuery,
+    ticketMin: ticketMinVal,
+    ticketMax: ticketMaxVal,
     delivery: deliveryFilter,
     skus: skusVal,
     units: unitsVal,
@@ -3352,19 +4345,32 @@ window.applyBgColumnFilters = function() {
     if (incFilter === 'inc' && r.getAttribute('data-inc') !== '1') match = false;
     else if (incFilter === 'exc' && r.getAttribute('data-inc') !== '0') match = false;
 
-    // 2. ID Pedido, fecha o agenda
+    // 2. ID Pedido, fecha, agenda o estado WMS
     if (match && orderQuery) {
       const orderText = ((r.getAttribute('data-order') || '') + ' ' +
                          (r.getAttribute('data-agenda') || '') + ' ' +
+                         (r.getAttribute('data-wms') || '') + ' ' +
                          (r.getAttribute('data-date') || '')).toLowerCase();
       if (!orderText.includes(orderQuery)) match = false;
     }
 
-    // 3. Estado de Agenda (con agenda vs sin agenda roja)
+    // 3. Estado o Nombre de Agenda (ej: 'empty', 'with', 'CENTRO DE ENVIOS', 'FLEX', 'RM', 'STK')
     if (match && agendaFilter) {
       const hasAgenda = r.getAttribute('data-has-agenda') === '1';
-      if (agendaFilter === 'empty' && hasAgenda) match = false;
-      if (agendaFilter === 'with' && !hasAgenda) match = false;
+      if (agendaFilter === 'empty') {
+        if (hasAgenda) match = false;
+      } else if (agendaFilter === 'with') {
+        if (!hasAgenda) match = false;
+      } else {
+        const rowAgenda = (r.getAttribute('data-agenda') || '').trim().toLowerCase();
+        const targetAgenda = agendaFilter.trim().toLowerCase();
+        const words = rowAgenda.split(/[\s\-_/+,|]+/);
+        const matchesExact = rowAgenda === targetAgenda;
+        const matchesWord = words.includes(targetAgenda);
+        if (!matchesExact && !matchesWord && !rowAgenda.startsWith(targetAgenda) && !rowAgenda.endsWith(targetAgenda)) {
+          match = false;
+        }
+      }
     }
 
     // 4. Destino, Operador y Método de Envío
@@ -3373,6 +4379,13 @@ window.applyBgColumnFilters = function() {
                         (r.getAttribute('data-operador') || '') + ' ' +
                         (r.getAttribute('data-method') || '')).toLowerCase();
       if (!destText.includes(destQuery)) match = false;
+    }
+
+    // 4b. Ticket de Venta Mínimo y Máximo ($)
+    if (match && (!isNaN(ticketMin) || !isNaN(ticketMax))) {
+      const ticket = parseInt(r.getAttribute('data-ticket'), 10) || 0;
+      if (!isNaN(ticketMin) && ticket < ticketMin) match = false;
+      if (!isNaN(ticketMax) && ticket > ticketMax) match = false;
     }
 
     // 5. Tipo Entrega
@@ -3415,7 +4428,25 @@ window.applyBgColumnFilters = function() {
     countBadge.textContent = `Mostrando ${visibleCount} de ${totalCount} pedidos`;
   }
 
-  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || agendaFilter || destQuery || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
+  // Actualizar checkbox maestro de inclusión según el estado de las filas visibles
+  const masterCheckbox = document.getElementById('bg-master-inclusion-checkbox');
+  if (masterCheckbox) {
+    if (visibleCount === 0) {
+      masterCheckbox.checked = false;
+      masterCheckbox.indeterminate = false;
+    } else {
+      let includedVisibleCount = 0;
+      rows.forEach(r => {
+        if (r.style.display !== 'none' && r.getAttribute('data-inc') === '1') {
+          includedVisibleCount++;
+        }
+      });
+      masterCheckbox.checked = includedVisibleCount === visibleCount;
+      masterCheckbox.indeterminate = includedVisibleCount > 0 && includedVisibleCount < visibleCount;
+    }
+  }
+
+  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || agendaFilter || destQuery || !isNaN(ticketMin) || !isNaN(ticketMax) || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
   const clearBtn = document.getElementById('bg-btn-clear-all-filters');
   if (clearBtn) {
     clearBtn.style.display = isAnyFilterActive ? 'inline-flex' : 'none';
@@ -3430,6 +4461,8 @@ window.clearBgTableFilters = function(resetQuickButtons = true) {
     'bg-col-filter-order',
     'bg-col-filter-agenda',
     'bg-col-filter-dest',
+    'bg-col-filter-ticket-min',
+    'bg-col-filter-ticket-max',
     'bg-col-filter-delivery',
     'bg-col-filter-skus',
     'bg-col-filter-units',
@@ -3471,6 +4504,9 @@ window.setBgQuickFilter = function(filterType) {
   } else if (filterType === 'enviame') {
     const el = document.getElementById('bg-col-filter-delivery');
     if (el) el.value = 'ENVIAME_REGION';
+  } else if (filterType === 'centro-envios') {
+    const el = document.getElementById('bg-col-filter-delivery');
+    if (el) el.value = 'CENTRO_ENVIOS';
   } else if (filterType === 'mkt') {
     const el = document.getElementById('bg-col-filter-mkt');
     if (el) el.value = 'yes';

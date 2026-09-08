@@ -489,7 +489,17 @@ window.findValidOptionMatch = function(type, val) {
   if (!trimmed || trimmed === '-') return '';
   const options = type === 'agenda' ? (window.agendaOptions || []) : (window.operadorOptions || []);
   const match = options.find(opt => opt.trim().toLowerCase() === trimmed.toLowerCase());
-  return match || null;
+  if (match) return match;
+  if (window.loadedOrders) {
+    const existing = window.loadedOrders.find(o => {
+      const fieldVal = type === 'agenda' ? o.agenda : o.operador;
+      return fieldVal && String(fieldVal).trim().toLowerCase() === trimmed.toLowerCase();
+    });
+    if (existing) {
+      return (type === 'agenda' ? existing.agenda : existing.operador).trim();
+    }
+  }
+  return null;
 };
 
 window.validateOptionLiveInput = function(input, type) {
@@ -1022,7 +1032,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -2982,7 +2992,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -3545,6 +3555,10 @@ window.applyWmsFiltersAndRender = function() {
     const tracking = (order.tracking_number || '').toLowerCase();
     const orderIdLower = order.id.toLowerCase();
     const sucursal = (order.sucursal_pickeo || '').toLowerCase();
+    const shippingMethodStr = (order.shipping_method || '').toLowerCase();
+    const shippingCityStr = (order.shipping_city || '').toLowerCase();
+    const operadorStr = (order.operador || '').toLowerCase();
+    const agendaStr = (order.agenda || '').toLowerCase();
 
     const matchesSearch = !searchText || 
       orderIdLower.includes(searchText) || 
@@ -3554,7 +3568,11 @@ window.applyWmsFiltersAndRender = function() {
       company.includes(searchText) || 
       customer.includes(searchText) ||
       tracking.includes(searchText) ||
-      sucursal.includes(searchText);
+      sucursal.includes(searchText) ||
+      shippingMethodStr.includes(searchText) ||
+      shippingCityStr.includes(searchText) ||
+      operadorStr.includes(searchText) ||
+      agendaStr.includes(searchText);
 
     const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
@@ -4389,8 +4407,15 @@ window.applyWmsFiltersAndRender = function() {
             quantity: 0,
             price: Number(oi.products?.price) || 0,
             warehouseId: oi.warehouse_id,
-            warehouseName: pWhName
+            warehouseName: pWhName,
+            tag: oi.tag,
+            is_gift: oi.is_gift,
+            campaign_id: oi.campaign_id
           };
+        } else {
+          if (oi.tag) grouped[groupKey].tag = oi.tag;
+          if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
+          if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
         }
         grouped[groupKey].quantity += pQty;
       });
@@ -4401,6 +4426,10 @@ window.applyWmsFiltersAndRender = function() {
 
         // Determinar stock de bodega
         const origItem = order.order_items.find(oi => (oi.products?.sku || order.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
+        const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
+        const campaignBadgeHtml = tagLabel
+          ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
+          : '';
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
@@ -4427,7 +4456,10 @@ window.applyWmsFiltersAndRender = function() {
 
         itemsRowsHtml += `
           <tr style="${rowStyle}">
-            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">
+              ${item.sku}
+              ${campaignBadgeHtml}
+            </td>
             <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
               ${item.name}<br>
               <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
@@ -4509,29 +4541,21 @@ window.applyWmsFiltersAndRender = function() {
     `;
 
     const agendaSelectHtml = `
-      <input type="text" 
-             list="wms-global-agenda-list" 
-             value="${currentAgenda}" 
-             placeholder="-" 
-             onfocus="this.select()" 
-             oninput="window.validateOptionLiveInput(this, 'agenda')" 
-             onblur="window.validateOptionLiveInput(this, 'agenda')" 
-             onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value.trim().toUpperCase())" 
-             style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
-             autocomplete="off" />
+      <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" 
+              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 110px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              title="Cambiar agenda de este pedido">
+        <option value="">-</option>
+        ${tempAgendas.map(opt => `<option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+      </select>
     `;
 
     const operadorSelectHtml = `
-      <input type="text" 
-             list="wms-global-operador-list" 
-             value="${currentOperador}" 
-             placeholder="-" 
-             onfocus="this.select()" 
-             oninput="window.validateOptionLiveInput(this, 'operador')" 
-             onblur="window.validateOptionLiveInput(this, 'operador')" 
-             onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value.trim().toUpperCase())" 
-             style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 105px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;" 
-             autocomplete="off" />
+      <select onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" 
+              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; max-width: 120px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              title="Cambiar operador de este pedido">
+        <option value="">-</option>
+        ${tempOperadores.map(opt => `<option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+      </select>
     `;
 
     const fechaProcHtml = `
@@ -4834,7 +4858,14 @@ window.applyWmsFiltersAndRender = function() {
     `;
   });
 
-  const globalDatalistsHtml = `
+  let dlContainer = document.getElementById('wms-global-datalists-holder');
+  if (!dlContainer) {
+    dlContainer = document.createElement('div');
+    dlContainer.id = 'wms-global-datalists-holder';
+    dlContainer.style.display = 'none';
+    document.body.appendChild(dlContainer);
+  }
+  dlContainer.innerHTML = `
     <datalist id="wms-global-agenda-list">
       ${(window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('')}
     </datalist>
@@ -4843,7 +4874,7 @@ window.applyWmsFiltersAndRender = function() {
     </datalist>
   `;
 
-  tbody.innerHTML = rowsHtml + globalDatalistsHtml;
+  tbody.innerHTML = rowsHtml;
 
   // 5. Renderizar paginación
   const pagContainer = document.getElementById('wms-pagination-container');
@@ -5091,26 +5122,23 @@ function renderWmsBulkActionsBar() {
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem;">
-          <button onclick="window.bulkSetWmsOrderPickingInfo()" class="btn" style="background: #ff9800; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-edit-line"></i> Asignar Agenda / Sucursal
+          <button onclick="window.bulkSetWmsOrderAgenda()" class="btn" style="background: #ff9800; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar agenda a los pedidos seleccionados">
+            <i class="ri-calendar-check-line"></i> Agenda
           </button>
-          <button onclick="window.bulkSetWmsOrderOperador()" class="btn" style="background: #00bcd4; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-truck-line"></i> Asignar Operador
+          <button onclick="window.bulkSetWmsOrderOperador()" class="btn" style="background: #00bcd4; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar operador logístico / courier a los pedidos seleccionados">
+            <i class="ri-truck-line"></i> Operador
+          </button>
+          <button onclick="window.bulkSetWmsOrderPickingInfo()" class="btn" style="background: #6366f1; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar sucursal, agenda y fecha de preparación completa">
+            <i class="ri-edit-line"></i> Picking
           </button>
           <button onclick="window.bulkCreateLightDataLabels(this)" class="btn" style="background: #e91e63; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-barcode-box-line"></i> Etiqueta Alpha
-          </button>
-          <button onclick="window.bulkSyncLightDataTracking(this)" class="btn" style="background: #7117eb; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Buscar y vincular tracking de LightData para los pedidos seleccionados">
-            <i class="ri-radar-line"></i> Sincronizar LightData
+            <i class="ri-barcode-box-line"></i> Alpha
           </button>
           <button onclick="window.bulkSetWmsOrderBillingPeriod()" class="btn" style="background: #9c27b0; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-price-tag-3-line"></i> Asignar Facturación
-          </button>
-          <button onclick="window.previewAndCopyExportData()" class="btn" style="background: #2e7d32; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Previsualizar y copiar datos estructurados para Excel o Google Sheets">
-            <i class="ri-file-copy-2-line"></i> Previsualizar y Copiar
+            <i class="ri-price-tag-3-line"></i> Facturación
           </button>
           <button onclick="window.exportAdminShopifyOrdersCsv()" class="btn" style="background: #96bf48; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-download-2-line"></i> Exportar Shopify (CSV)
+            <i class="ri-download-2-line"></i> Exportar CSV
           </button>
           <button onclick="window.markAdminOrdersAsExported()" class="btn" style="background: transparent; color: white; border: 1px solid rgba(255,255,255,0.4); font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-check-double-line"></i> Marcar Exportado
@@ -43066,6 +43094,90 @@ window.bulkSetWmsOrderPickingInfo = async function() {
   }
 };
 
+window.bulkSetWmsOrderAgenda = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) return;
+
+  const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const agendas = [...new Set(selectedOrders.map(o => o.agenda).filter(Boolean))];
+  const defaultAgenda = agendas.length === 1 ? agendas[0] : '';
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Asignación Masiva: Agenda',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona o escribe la Agenda de preparación para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
+        <input id="swal-bulk-set-agenda-only" list="swal-bulk-set-agenda-only-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0; box-sizing: border-box;">
+        <datalist id="swal-bulk-set-agenda-only-list">
+          ${agendaDatalistHtml}
+        </datalist>
+        <div id="swal-bulk-set-agenda-only-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+      </div>
+    `,
+    didOpen: () => {
+      const agInput = document.getElementById('swal-bulk-set-agenda-only');
+      if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+    },
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#ff9800',
+    preConfirm: () => {
+      const agendaInput = document.getElementById('swal-bulk-set-agenda-only').value;
+      let matchAgenda = '';
+      if (agendaInput && agendaInput.trim()) {
+        matchAgenda = window.findValidOptionMatch('agenda', agendaInput);
+        if (!matchAgenda) {
+          Swal.showValidationMessage(`"${agendaInput}" no es una Agenda válida. Solo se permiten opciones del desplegable.`);
+          return false;
+        }
+      }
+      return {
+        agenda: matchAgenda
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Actualizando agenda...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        agenda: formValues.agenda || null
+      })
+      .in('id', ids);
+
+    if (error) throw error;
+
+    for (const id of ids) {
+      const order = window.loadedOrders.find(o => o.id === id);
+      if (order) {
+        order.agenda = formValues.agenda || null;
+        if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
+          await window.propagateOrderUpdateToPicker(order);
+        }
+      }
+    }
+
+    Swal.fire('¡Éxito!', `Se asignó la agenda a los ${ids.length} pedidos.`, 'success');
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+  }
+};
+
 window.bulkSetWmsOrderOperador = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
@@ -43131,6 +43243,9 @@ window.bulkSetWmsOrderOperador = async function() {
       const order = window.loadedOrders.find(o => o.id === id);
       if (order) {
         order.operador = formValues.operador || null;
+        if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
+          await window.propagateOrderUpdateToPicker(order);
+        }
       }
     }
 
@@ -44215,7 +44330,8 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
   popover.style.borderRadius = 'var(--radius-md)';
   popover.style.boxShadow = 'var(--shadow-lg)';
   popover.style.zIndex = '10000';
-  popover.style.width = '240px';
+  popover.style.minWidth = '270px';
+  popover.style.maxWidth = '340px';
   popover.style.padding = '0.75rem';
   popover.style.fontFamily = 'inherit';
   popover.style.color = 'var(--color-text-main)';
@@ -44223,39 +44339,61 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
   // Posicionar el popover respecto al icono cliqueado
   const rect = event.target.getBoundingClientRect();
   popover.style.top = `${rect.bottom + window.scrollY + 5}px`;
-  popover.style.left = `${rect.left + window.scrollX - 100}px`;
+  popover.style.left = `${Math.max(10, rect.left + window.scrollX - 120)}px`;
   
   let checkboxesHtml = sortedValues.map((val, idx) => {
     const displayVal = val === '' ? '(Vacío)' : val;
     // Si no hay filtro configurado (vacío), por defecto todos seleccionados. Si hay filtro, se marcan los incluidos.
     const checked = activeSelections.length === 0 || activeSelections.includes(val) ? 'checked' : '';
+    const safeText = val.toLowerCase().replace(/"/g, '&quot;');
     return `
-      <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem; cursor: pointer; user-select: none; color: var(--color-text-main);">
-        <input type="checkbox" class="wms-col-filter-cb" data-value="${val}" ${checked} style="width: 14px; height: 14px; accent-color: var(--color-primary); cursor: pointer; margin: 0;">
-        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayVal}</span>
+      <label class="wms-col-filter-item" data-text="${safeText}" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem 0.35rem; cursor: pointer; user-select: none; color: var(--color-text-main); border-radius: 4px; transition: background 0.15s;" onmouseover="this.style.background='rgba(0,0,0,0.04)'" onmouseout="this.style.background='transparent'">
+        <input type="checkbox" class="wms-col-filter-cb" data-value="${val.replace(/"/g, '&quot;')}" ${checked} style="width: 14px; height: 14px; accent-color: var(--color-primary); cursor: pointer; margin: 0; flex-shrink: 0;">
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayVal.replace(/"/g, '&quot;')}">${displayVal}</span>
       </label>
     `;
   }).join('');
   
   popover.innerHTML = `
-    <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; color: var(--color-text-main);">
+    <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: center; color: var(--color-text-main);">
       <span>Filtrar ${columnName}</span>
-      <i class="ri-close-line" onclick="document.getElementById('wms-col-filter-popover').remove()" style="cursor: pointer; font-size: 1rem; color: var(--color-text-muted);"></i>
+      <i class="ri-close-line" onclick="document.getElementById('wms-col-filter-popover').remove()" style="cursor: pointer; font-size: 1.1rem; color: var(--color-text-muted);" title="Cerrar"></i>
     </div>
-    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-      <button onclick="window.setAllColFilters(true)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Todos</button>
-      <button onclick="window.setAllColFilters(false)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Ninguno</button>
+    <div style="position: relative; margin-bottom: 0.5rem;">
+      <i class="ri-search-line" style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; color: var(--color-text-muted); pointer-events: none;"></i>
+      <input type="text" id="wms-col-filter-search" class="form-input" placeholder="Buscar por texto..." autocomplete="off"
+        style="width: 100%; padding: 0.35rem 0.5rem 0.35rem 1.8rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); box-sizing: border-box; outline: none;"
+        oninput="window.filterColPopoverOptions(this.value)"
+        onkeydown="if(event.key === 'Enter') { event.preventDefault(); window.applyColFilterSearch('${columnKey}'); }"
+      />
     </div>
-    <div style="max-height: 180px; overflow-y: auto; margin-bottom: 0.75rem; border: 1px solid var(--color-border); padding: 0.25rem; border-radius: var(--radius-sm); background: var(--color-bg);">
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center; justify-content: space-between;">
+      <div style="display: flex; gap: 0.35rem; flex: 1;">
+        <button type="button" id="btn-col-filter-all" onclick="window.setAllColFilters(true)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Todos</button>
+        <button type="button" id="btn-col-filter-none" onclick="window.setAllColFilters(false)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Ninguno</button>
+      </div>
+      <span id="wms-col-filter-counter" style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; white-space: nowrap;">${sortedValues.length} opciones</span>
+    </div>
+    <div id="wms-col-filter-list" style="max-height: 190px; overflow-y: auto; margin-bottom: 0.75rem; border: 1px solid var(--color-border); padding: 0.25rem; border-radius: var(--radius-sm); background: var(--color-bg);">
       ${checkboxesHtml}
+      <div id="wms-col-no-matches" style="display: none; padding: 1rem 0.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">
+        <i class="ri-search-line" style="font-size: 1.2rem; display: block; margin-bottom: 0.25rem; opacity: 0.5;"></i>
+        No se encontraron coincidencias
+      </div>
     </div>
     <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--color-border); padding-top: 0.5rem;">
       <button onclick="window.clearColFilter('${columnKey}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto; cursor: pointer;">Limpiar</button>
-      <button onclick="window.applyColFilter('${columnKey}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto; cursor: pointer; color: white;">Aplicar</button>
+      <button onclick="window.applyColFilter('${columnKey}')" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.75rem; height: auto; cursor: pointer; color: white; font-weight: 600;">Aplicar</button>
     </div>
   `;
   
   document.body.appendChild(popover);
+
+  // Auto-enfocar buscador para que el usuario pueda escribir inmediatamente
+  setTimeout(() => {
+    const searchInput = document.getElementById('wms-col-filter-search');
+    if (searchInput) searchInput.focus();
+  }, 50);
   
   // Cerrar al hacer clic fuera del popover
   setTimeout(() => {
@@ -44270,9 +44408,62 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
   }, 0);
 };
 
+window.filterColPopoverOptions = function(query) {
+  const normQuery = (query || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const items = document.querySelectorAll('.wms-col-filter-item');
+  let visibleCount = 0;
+  
+  items.forEach(item => {
+    const text = (item.getAttribute('data-text') || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (!normQuery || text.includes(normQuery)) {
+      item.style.display = 'flex';
+      visibleCount++;
+    } else {
+      item.style.display = 'none';
+    }
+  });
+
+  const noMatches = document.getElementById('wms-col-no-matches');
+  if (noMatches) {
+    noMatches.style.display = visibleCount === 0 ? 'block' : 'none';
+  }
+
+  const counter = document.getElementById('wms-col-filter-counter');
+  if (counter) {
+    counter.textContent = normQuery ? `${visibleCount} coincidencia${visibleCount === 1 ? '' : 's'}` : `${items.length} opciones`;
+  }
+
+  const btnAll = document.getElementById('btn-col-filter-all');
+  const btnNone = document.getElementById('btn-col-filter-none');
+  if (btnAll) btnAll.textContent = normQuery ? 'Marcar visibles' : 'Todos';
+  if (btnNone) btnNone.textContent = normQuery ? 'Desmarcar' : 'Ninguno';
+};
+
 window.setAllColFilters = function(checked) {
-  const cbs = document.querySelectorAll('.wms-col-filter-cb');
-  cbs.forEach(cb => cb.checked = checked);
+  const items = document.querySelectorAll('.wms-col-filter-item');
+  items.forEach(item => {
+    if (item.style.display !== 'none') {
+      const cb = item.querySelector('.wms-col-filter-cb');
+      if (cb) cb.checked = checked;
+    }
+  });
+};
+
+window.applyColFilterSearch = function(columnKey) {
+  const searchInput = document.getElementById('wms-col-filter-search');
+  const query = searchInput ? searchInput.value.trim() : '';
+  
+  if (query) {
+    const items = document.querySelectorAll('.wms-col-filter-item');
+    items.forEach(item => {
+      const cb = item.querySelector('.wms-col-filter-cb');
+      if (cb) {
+        cb.checked = (item.style.display !== 'none');
+      }
+    });
+  }
+  
+  window.applyColFilter(columnKey);
 };
 
 window.clearColFilter = function(columnKey) {
@@ -49789,10 +49980,23 @@ async function renderCampaignsTab(commerce) {
         const toggleBtnText = c.active ? 'Desactivar' : 'Activar';
         const toggleBtnColor = c.active ? 'var(--color-text-muted)' : 'var(--color-success)';
 
+        let retroBadgeHtml = '';
+        if (c.is_retroactive) {
+          const appliedDate = c.retroactive_applied_at ? new Date(c.retroactive_applied_at).toLocaleDateString('es-CL') : 'Pendiente';
+          retroBadgeHtml = `
+            <div style="margin-top: 0.35rem;">
+              <span class="badge" style="background-color: rgba(99, 102, 241, 0.1); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Campaña retroactiva (Aplicada: ${appliedDate})">
+                <i class="ri-history-line"></i> Retroactiva
+              </span>
+            </div>
+          `;
+        }
+
         const statusBadgeHtml = `
           <span class="badge" style="background-color: ${c.active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)'}; color: ${c.active ? '#10b981' : '#6b7280'}; border: 1px solid ${c.active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.2)'}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
             ${statusText}
           </span>
+          ${retroBadgeHtml}
         `;
 
         const deleteBtn = isObserver 
@@ -49948,9 +50152,14 @@ function openCampaignModal(commerce, campaign = null) {
   const giftSkuVal = isEdit ? campaign.gift_sku : '';
   const giftQtyVal = isEdit ? campaign.gift_quantity : 1;
   const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
-  const minSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
+  const minDistinctSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
   const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
+  const isRetroactiveVal = isEdit && campaign.is_retroactive ? true : false;
+  const retroactiveChecked = isRetroactiveVal ? 'checked' : '';
+  const targetStatusesVal = isEdit && Array.isArray(campaign.retroactive_target_statuses) && campaign.retroactive_target_statuses.length > 0
+    ? campaign.retroactive_target_statuses
+    : ['para procesar', 'en preparación'];
 
   // Renderizar condiciones de pedido existentes
   const conditionsList = isEdit && campaign.conditions && Array.isArray(campaign.conditions) ? campaign.conditions : [];
@@ -49964,7 +50173,7 @@ function openCampaignModal(commerce, campaign = null) {
   modal.id = 'modal-campaign';
   modal.style.zIndex = '1500';
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 600px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+    <div class="modal-content" style="max-width: 620px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">${modalTitle}</h3>
         <button class="modal-close" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);" onclick="this.closest('.modal-overlay').remove()">&times;</button>
@@ -50009,7 +50218,7 @@ function openCampaignModal(commerce, campaign = null) {
             </div>
             <div>
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKUs Distintos Mínimos</label>
-              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minSkusVal}" style="width: 100%;">
+              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minDistinctSkusVal}" style="width: 100%;">
             </div>
           </div>
 
@@ -50035,6 +50244,38 @@ function openCampaignModal(commerce, campaign = null) {
             <div>
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad *</label>
               <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" required style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <div style="background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="campaign-is-retroactive" ${retroactiveChecked} style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="campaign-is-retroactive" style="font-weight: 600; cursor: pointer; user-select: none; color: #6366f1; font-size: 0.95rem;">
+                  <i class="ri-history-line"></i> Campaña Retroactiva
+                </label>
+              </div>
+            </div>
+            <p style="margin: 0.35rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+              Aplica esta campaña a pedidos históricos ya creados del comercio que se encuentren en estado de procesamiento y sin etiqueta emitida. Si el producto ya existe en el pedido, sumará las unidades y lo identificará con el tag <strong>Campaña</strong>.
+            </p>
+            <div id="retroactive-options-panel" style="display: ${isRetroactiveVal ? 'block' : 'none'}; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed rgba(99, 102, 241, 0.3);">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">Estados de pedidos objetivo:</label>
+              <div style="display: flex; gap: 1rem; font-size: 0.825rem; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                  <input type="checkbox" class="retro-status-chk" value="para procesar" ${targetStatusesVal.includes('para procesar') ? 'checked' : ''}> Para procesar
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                  <input type="checkbox" class="retro-status-chk" value="en preparación" ${targetStatusesVal.includes('en preparación') ? 'checked' : ''}> En preparación
+                </label>
+              </div>
+              <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" id="btn-preview-retroactive" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; border-color: #6366f1; color: #6366f1; display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-search-eye-line"></i> Previsualizar Pedidos Elegibles
+                </button>
+                <span id="preview-retroactive-feedback" style="font-size: 0.8rem; color: var(--color-text-muted);"></span>
+              </div>
             </div>
           </div>
 
@@ -50075,6 +50316,43 @@ function openCampaignModal(commerce, campaign = null) {
     });
   }
 
+  // Toggle panel retroactivo
+  const retroChk = document.getElementById('campaign-is-retroactive');
+  const retroPanel = document.getElementById('retroactive-options-panel');
+  if (retroChk && retroPanel) {
+    retroChk.addEventListener('change', () => {
+      retroPanel.style.display = retroChk.checked ? 'block' : 'none';
+    });
+  }
+
+  // Previsualizar pedidos elegibles
+  const btnPrev = document.getElementById('btn-preview-retroactive');
+  const prevFeedback = document.getElementById('preview-retroactive-feedback');
+  if (btnPrev && prevFeedback) {
+    btnPrev.addEventListener('click', async () => {
+      if (!isEdit || !campaign?.id) {
+        prevFeedback.innerHTML = '<span style="color:var(--color-primary);"><i class="ri-information-line"></i> Al crear la campaña, el sistema previsualizará los pedidos antes de aplicar.</span>';
+        return;
+      }
+      btnPrev.disabled = true;
+      prevFeedback.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Consultando...';
+      const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
+      try {
+        const { data: prev, error: pErr } = await supabase.rpc('preview_campaign_retroactive', {
+          p_campaign_id: campaign.id,
+          p_target_statuses: targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación']
+        });
+        if (pErr) throw pErr;
+        const stockStatus = prev.sufficient_stock ? '<span style="color:var(--color-success); font-weight:600;">Stock suficiente</span>' : '<span style="color:var(--color-danger); font-weight:600;">Stock insuficiente</span>';
+        prevFeedback.innerHTML = `<strong>${prev.eligible_orders_count}</strong> pedidos elegibles (${prev.total_units_required} un. requeridas, disp: ${prev.available_stock}). ${stockStatus}`;
+      } catch (err) {
+        prevFeedback.innerHTML = `<span style="color:var(--color-danger);">${err.message}</span>`;
+      } finally {
+        btnPrev.disabled = false;
+      }
+    });
+  }
+
   const form = document.getElementById('form-campaign');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -50088,6 +50366,9 @@ function openCampaignModal(commerce, campaign = null) {
     const minDistinctSkusRaw = document.getElementById('campaign-min-distinct-skus').value;
     const giftSku = document.getElementById('campaign-gift-sku').value.trim();
     const giftQty = parseInt(document.getElementById('campaign-gift-qty').value) || 1;
+    const is_retroactive = document.getElementById('campaign-is-retroactive')?.checked || false;
+    const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
+    const retroactive_target_statuses = targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'];
 
     if (!name || !giftSku) {
       alert('Nombre y SKU de Regalo son requeridos.');
@@ -50136,7 +50417,9 @@ function openCampaignModal(commerce, campaign = null) {
       min_distinct_skus,
       gift_sku: giftSku,
       gift_quantity: giftQty,
-      conditions
+      conditions,
+      is_retroactive,
+      retroactive_target_statuses
     };
 
     const submitBtn = document.getElementById('btn-save-campaign-submit');
@@ -50145,6 +50428,7 @@ function openCampaignModal(commerce, campaign = null) {
 
     try {
       let response;
+      let campaignId = isEdit ? campaign.id : null;
       if (isEdit) {
         response = await supabase
           .from('campaigns')
@@ -50153,12 +50437,66 @@ function openCampaignModal(commerce, campaign = null) {
       } else {
         response = await supabase
           .from('campaigns')
-          .insert(payload);
+          .insert(payload)
+          .select('id')
+          .single();
+        if (response.data) {
+          campaignId = response.data.id;
+        }
       }
 
       if (response.error) throw response.error;
 
-      alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      // Si es retroactiva, evaluar y aplicar con confirmación del usuario
+      if (is_retroactive && campaignId) {
+        submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Evaluando pedidos retroactivos...';
+        try {
+          const { data: preview, error: prevErr } = await supabase.rpc('preview_campaign_retroactive', {
+            p_campaign_id: campaignId,
+            p_target_statuses: retroactive_target_statuses
+          });
+
+          if (!prevErr && preview && preview.eligible_orders_count > 0) {
+            const stockWarning = !preview.sufficient_stock
+              ? `\n⚠️ ADVERTENCIA: El stock disponible (${preview.available_stock}) es MENOR al requerido (${preview.total_units_required}).`
+              : `\nStock disponible en bodega: ${preview.available_stock} unidades.`;
+
+            const confirmApply = confirm(
+              `✅ Campaña guardada correctamente.\n\n` +
+              `Se detectaron ${preview.eligible_orders_count} pedidos en procesamiento que cumplen las condiciones de esta campaña.\n` +
+              `Se requerirán ${preview.total_units_required} unidades del SKU de regalo "${preview.gift_sku}".${stockWarning}\n\n` +
+              `¿Deseas aplicar el regalo a estos ${preview.eligible_orders_count} pedidos ahora?`
+            );
+
+            if (confirmApply) {
+              submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Aplicando a pedidos...';
+              const { data: applyRes, error: applyErr } = await supabase.rpc('apply_campaign_retroactively', {
+                p_campaign_id: campaignId,
+                p_target_statuses: retroactive_target_statuses,
+                p_merge_existing: true
+              });
+
+              if (applyErr) {
+                alert('La campaña se guardó, pero hubo un error al aplicarla a pedidos existentes: ' + applyErr.message);
+              } else {
+                alert(`🎉 ¡Campaña aplicada retroactivamente a ${applyRes.applied_orders_count} pedidos con éxito!`);
+              }
+            } else {
+              alert('Campaña guardada (no se aplicó a pedidos existentes por cancelación del usuario).');
+            }
+          } else if (!prevErr && preview && preview.eligible_orders_count === 0) {
+            alert('Campaña guardada correctamente. No se encontraron pedidos antiguos en procesamiento que califiquen para retroactividad.');
+          } else {
+            alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+          }
+        } catch (rpcErr) {
+          console.warn('Error en RPC retroactivo:', rpcErr);
+          alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+        }
+      } else {
+        alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      }
+
       modal.remove();
       renderCampaignsTab(commerce);
     } catch (err) {

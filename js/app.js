@@ -6217,7 +6217,7 @@ async function renderOrders() {
       operador,
       fecha_procesamiento,
       sucursal_pickeo,
-      order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
+      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `;
 
     const orders = await window.fetchAllSupabaseRows('orders', selectStr, q => {
@@ -6313,7 +6313,7 @@ async function renderOrders() {
             agenda,
             operador,
             fecha_procesamiento,
-            order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
+            order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth);
 
@@ -7244,8 +7244,15 @@ window.applyClientWmsFiltersAndRender = function() {
             name: pName,
             quantity: 0,
             warehouseId: oi.warehouse_id,
-            warehouseName: pWhName
+            warehouseName: pWhName,
+            tag: oi.tag,
+            is_gift: oi.is_gift,
+            campaign_id: oi.campaign_id
           };
+        } else {
+          if (oi.tag) grouped[groupKey].tag = oi.tag;
+          if (oi.is_gift) grouped[groupKey].is_gift = oi.is_gift;
+          if (oi.campaign_id) grouped[groupKey].campaign_id = oi.campaign_id;
         }
         grouped[groupKey].quantity += pQty;
       });
@@ -7256,6 +7263,10 @@ window.applyClientWmsFiltersAndRender = function() {
 
         // Determinar stock de bodega para el cliente
         const origItem = order.order_items.find(oi => (oi.products?.sku || oi.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
+        const tagLabel = item.tag || origItem?.tag || ((item.is_gift || item.campaign_id || origItem?.is_gift || origItem?.campaign_id) ? 'Campaña' : null);
+        const campaignBadgeHtml = tagLabel
+          ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
+          : '';
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
@@ -7276,7 +7287,10 @@ window.applyClientWmsFiltersAndRender = function() {
 
         itemsRowsHtml += `
           <tr style="${rowStyle}">
-            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">
+              ${item.sku}
+              ${campaignBadgeHtml}
+            </td>
             <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
               ${item.name}<br>
               <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
@@ -33097,10 +33111,23 @@ async function renderCampaignsTab(commerce) {
         const toggleBtnText = c.active ? 'Desactivar' : 'Activar';
         const toggleBtnColor = c.active ? 'var(--color-text-muted)' : 'var(--color-success)';
 
+        let retroBadgeHtml = '';
+        if (c.is_retroactive) {
+          const appliedDate = c.retroactive_applied_at ? new Date(c.retroactive_applied_at).toLocaleDateString('es-CL') : 'Pendiente';
+          retroBadgeHtml = `
+            <div style="margin-top: 0.35rem;">
+              <span class="badge" style="background-color: rgba(99, 102, 241, 0.1); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Campaña retroactiva (Aplicada: ${appliedDate})">
+                <i class="ri-history-line"></i> Retroactiva
+              </span>
+            </div>
+          `;
+        }
+
         const statusBadgeHtml = `
           <span class="badge" style="background-color: ${c.active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)'}; color: ${c.active ? '#10b981' : '#6b7280'}; border: 1px solid ${c.active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.2)'}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
             ${statusText}
           </span>
+          ${retroBadgeHtml}
         `;
 
         const deleteBtn = isObserver 
@@ -33251,14 +33278,18 @@ function openCampaignModal(commerce, campaign = null) {
       endVal = campaign.end_date.split('T')[0];
     }
   }
-
   const triggerSkusVal = isEdit && campaign.trigger_skus ? campaign.trigger_skus.join(', ') : '';
   const giftSkuVal = isEdit ? campaign.gift_sku : '';
   const giftQtyVal = isEdit ? campaign.gift_quantity : 1;
   const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
-  const minSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
+  const minDistinctSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
   const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
+  const isRetroactiveVal = isEdit && campaign.is_retroactive ? true : false;
+  const retroactiveChecked = isRetroactiveVal ? 'checked' : '';
+  const targetStatusesVal = isEdit && Array.isArray(campaign.retroactive_target_statuses) && campaign.retroactive_target_statuses.length > 0
+    ? campaign.retroactive_target_statuses
+    : ['para procesar', 'en preparación'];
 
   // Renderizar condiciones de pedido existentes
   const conditionsList = isEdit && campaign.conditions && Array.isArray(campaign.conditions) ? campaign.conditions : [];
@@ -33272,7 +33303,7 @@ function openCampaignModal(commerce, campaign = null) {
   modal.id = 'modal-campaign';
   modal.style.zIndex = '1500';
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 600px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+    <div class="modal-content" style="max-width: 620px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">${modalTitle}</h3>
         <button class="modal-close" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);" onclick="this.closest('.modal-overlay').remove()">&times;</button>
@@ -33317,7 +33348,7 @@ function openCampaignModal(commerce, campaign = null) {
             </div>
             <div>
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKUs Distintos Mínimos</label>
-              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minSkusVal}" style="width: 100%;">
+              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minDistinctSkusVal}" style="width: 100%;">
             </div>
           </div>
 
@@ -33343,6 +33374,38 @@ function openCampaignModal(commerce, campaign = null) {
             <div>
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad *</label>
               <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" required style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <div style="background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="campaign-is-retroactive" ${retroactiveChecked} style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="campaign-is-retroactive" style="font-weight: 600; cursor: pointer; user-select: none; color: #6366f1; font-size: 0.95rem;">
+                  <i class="ri-history-line"></i> Campaña Retroactiva
+                </label>
+              </div>
+            </div>
+            <p style="margin: 0.35rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+              Aplica esta campaña a pedidos históricos ya creados del comercio que se encuentren en estado de procesamiento y sin etiqueta emitida. Si el producto ya existe en el pedido, sumará las unidades y lo identificará con el tag <strong>Campaña</strong>.
+            </p>
+            <div id="retroactive-options-panel" style="display: ${isRetroactiveVal ? 'block' : 'none'}; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed rgba(99, 102, 241, 0.3);">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">Estados de pedidos objetivo:</label>
+              <div style="display: flex; gap: 1rem; font-size: 0.825rem; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                  <input type="checkbox" class="retro-status-chk" value="para procesar" ${targetStatusesVal.includes('para procesar') ? 'checked' : ''}> Para procesar
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                  <input type="checkbox" class="retro-status-chk" value="en preparación" ${targetStatusesVal.includes('en preparación') ? 'checked' : ''}> En preparación
+                </label>
+              </div>
+              <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" id="btn-preview-retroactive" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; border-color: #6366f1; color: #6366f1; display: inline-flex; align-items: center; gap: 0.3rem;">
+                  <i class="ri-search-eye-line"></i> Previsualizar Pedidos Elegibles
+                </button>
+                <span id="preview-retroactive-feedback" style="font-size: 0.8rem; color: var(--color-text-muted);"></span>
+              </div>
             </div>
           </div>
 
@@ -33383,6 +33446,43 @@ function openCampaignModal(commerce, campaign = null) {
     });
   }
 
+  // Toggle panel retroactivo
+  const retroChk = document.getElementById('campaign-is-retroactive');
+  const retroPanel = document.getElementById('retroactive-options-panel');
+  if (retroChk && retroPanel) {
+    retroChk.addEventListener('change', () => {
+      retroPanel.style.display = retroChk.checked ? 'block' : 'none';
+    });
+  }
+
+  // Previsualizar pedidos elegibles
+  const btnPrev = document.getElementById('btn-preview-retroactive');
+  const prevFeedback = document.getElementById('preview-retroactive-feedback');
+  if (btnPrev && prevFeedback) {
+    btnPrev.addEventListener('click', async () => {
+      if (!isEdit || !campaign?.id) {
+        prevFeedback.innerHTML = '<span style="color:var(--color-primary);"><i class="ri-information-line"></i> Al crear la campaña, el sistema previsualizará los pedidos antes de aplicar.</span>';
+        return;
+      }
+      btnPrev.disabled = true;
+      prevFeedback.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Consultando...';
+      const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
+      try {
+        const { data: prev, error: pErr } = await supabase.rpc('preview_campaign_retroactive', {
+          p_campaign_id: campaign.id,
+          p_target_statuses: targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación']
+        });
+        if (pErr) throw pErr;
+        const stockStatus = prev.sufficient_stock ? '<span style="color:var(--color-success); font-weight:600;">Stock suficiente</span>' : '<span style="color:var(--color-danger); font-weight:600;">Stock insuficiente</span>';
+        prevFeedback.innerHTML = `<strong>${prev.eligible_orders_count}</strong> pedidos elegibles (${prev.total_units_required} un. requeridas, disp: ${prev.available_stock}). ${stockStatus}`;
+      } catch (err) {
+        prevFeedback.innerHTML = `<span style="color:var(--color-danger);">${err.message}</span>`;
+      } finally {
+        btnPrev.disabled = false;
+      }
+    });
+  }
+
   const form = document.getElementById('form-campaign');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -33396,6 +33496,9 @@ function openCampaignModal(commerce, campaign = null) {
     const minDistinctSkusRaw = document.getElementById('campaign-min-distinct-skus').value;
     const giftSku = document.getElementById('campaign-gift-sku').value.trim();
     const giftQty = parseInt(document.getElementById('campaign-gift-qty').value) || 1;
+    const is_retroactive = document.getElementById('campaign-is-retroactive')?.checked || false;
+    const targetStatuses = Array.from(document.querySelectorAll('.retro-status-chk:checked')).map(c => c.value);
+    const retroactive_target_statuses = targetStatuses.length > 0 ? targetStatuses : ['para procesar', 'en preparación'];
 
     if (!name || !giftSku) {
       alert('Nombre y SKU de Regalo son requeridos.');
@@ -33444,7 +33547,9 @@ function openCampaignModal(commerce, campaign = null) {
       min_distinct_skus,
       gift_sku: giftSku,
       gift_quantity: giftQty,
-      conditions
+      conditions,
+      is_retroactive,
+      retroactive_target_statuses
     };
 
     const submitBtn = document.getElementById('btn-save-campaign-submit');
@@ -33453,6 +33558,7 @@ function openCampaignModal(commerce, campaign = null) {
 
     try {
       let response;
+      let campaignId = isEdit ? campaign.id : null;
       if (isEdit) {
         response = await supabase
           .from('campaigns')
@@ -33461,12 +33567,66 @@ function openCampaignModal(commerce, campaign = null) {
       } else {
         response = await supabase
           .from('campaigns')
-          .insert(payload);
+          .insert(payload)
+          .select('id')
+          .single();
+        if (response.data) {
+          campaignId = response.data.id;
+        }
       }
 
       if (response.error) throw response.error;
 
-      alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      // Si es retroactiva, evaluar y aplicar con confirmación del usuario
+      if (is_retroactive && campaignId) {
+        submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Evaluando pedidos retroactivos...';
+        try {
+          const { data: preview, error: prevErr } = await supabase.rpc('preview_campaign_retroactive', {
+            p_campaign_id: campaignId,
+            p_target_statuses: retroactive_target_statuses
+          });
+
+          if (!prevErr && preview && preview.eligible_orders_count > 0) {
+            const stockWarning = !preview.sufficient_stock
+              ? `\n⚠️ ADVERTENCIA: El stock disponible (${preview.available_stock}) es MENOR al requerido (${preview.total_units_required}).`
+              : `\nStock disponible en bodega: ${preview.available_stock} unidades.`;
+
+            const confirmApply = confirm(
+              `✅ Campaña guardada correctamente.\n\n` +
+              `Se detectaron ${preview.eligible_orders_count} pedidos en procesamiento que cumplen las condiciones de esta campaña.\n` +
+              `Se requerirán ${preview.total_units_required} unidades del SKU de regalo "${preview.gift_sku}".${stockWarning}\n\n` +
+              `¿Deseas aplicar el regalo a estos ${preview.eligible_orders_count} pedidos ahora?`
+            );
+
+            if (confirmApply) {
+              submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Aplicando a pedidos...';
+              const { data: applyRes, error: applyErr } = await supabase.rpc('apply_campaign_retroactively', {
+                p_campaign_id: campaignId,
+                p_target_statuses: retroactive_target_statuses,
+                p_merge_existing: true
+              });
+
+              if (applyErr) {
+                alert('La campaña se guardó, pero hubo un error al aplicarla a pedidos existentes: ' + applyErr.message);
+              } else {
+                alert(`🎉 ¡Campaña aplicada retroactivamente a ${applyRes.applied_orders_count} pedidos con éxito!`);
+              }
+            } else {
+              alert('Campaña guardada (no se aplicó a pedidos existentes por cancelación del usuario).');
+            }
+          } else if (!prevErr && preview && preview.eligible_orders_count === 0) {
+            alert('Campaña guardada correctamente. No se encontraron pedidos antiguos en procesamiento que califiquen para retroactividad.');
+          } else {
+            alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+          }
+        } catch (rpcErr) {
+          console.warn('Error en RPC retroactivo:', rpcErr);
+          alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+        }
+      } else {
+        alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      }
+
       modal.remove();
       renderCampaignsTab(commerce);
     } catch (err) {

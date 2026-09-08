@@ -61,6 +61,16 @@ export const DEFAULT_PRICING_CONFIG = {
     pickup_express_extra_sku: 150 // Recargo $150/sku extra (tope 6)
   },
 
+  // 5b. Catálogo Dinámico de Tipos de Entrega y Despacho en Fulfillment
+  delivery_types: [
+    { key: 'RM_STK', name: 'RM-STK', price: 3200, is_billable: true, description: 'Despacho Same Day Stocka Express RM' },
+    { key: 'COLINA', name: 'Colina', price: 3490, is_billable: true, description: 'Despacho zona Colina / Chicureo' },
+    { key: 'FLEX', name: 'Flex', price: 3200, is_billable: true, description: 'Mercado Envíos Flex a todo destino' },
+    { key: 'ENVIAME_REGION', name: 'Envíame / Región', price: 0, is_billable: false, description: 'Despacho externo / regiones (flete $0 en fulfillment)' },
+    { key: 'CENTRO_ENVIOS', name: 'Centro de Envíos', price: 0, is_billable: false, description: 'Mercado Envíos Centro de Envíos / Colecta Marketplace' },
+    { key: 'RETIRO', name: 'Retiro', price: 0, is_billable: false, description: 'Retiro presencial en bodega' }
+  ],
+
   // 6. Insumos Opcionales (Empaque adicional no estándar)
   supplies: {
     bubble_wrap_sqm: 360, // m2 plástico burbuja ($360 + IVA)
@@ -268,7 +278,39 @@ export function sanitizeAndMergeConfig(customConfig) {
     merged.presentations = { ...defaults.presentations, ...merged.presentations };
   }
 
+  // Validar delivery_types
+  if (!Array.isArray(merged.delivery_types) || merged.delivery_types.length === 0) {
+    merged.delivery_types = defaults.delivery_types;
+  } else {
+    // Asegurar que cada elemento tenga key, name, price y flags válidos
+    merged.delivery_types = merged.delivery_types.map(dt => ({
+      key: String(dt.key || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_') || `DELIVERY_${Date.now()}`,
+      name: String(dt.name || '').trim() || 'Sin Nombre',
+      price: Math.max(0, parseInt(dt.price, 10) || 0),
+      is_billable: dt.is_billable !== undefined ? !!dt.is_billable : ((parseInt(dt.price, 10) || 0) > 0),
+      description: String(dt.description || '').trim()
+    }));
+
+    // Asegurar que tipos base esenciales (ej. CENTRO_ENVIOS) existan
+    const existingKeys = new Set(merged.delivery_types.map(dt => dt.key));
+    defaults.delivery_types.forEach(baseDt => {
+      if (!existingKeys.has(baseDt.key)) {
+        merged.delivery_types.push(baseDt);
+      }
+    });
+  }
+
   return merged;
+}
+
+/**
+ * Retorna los tipos de entrega disponibles desde una configuración dada.
+ */
+export function getDeliveryTypes(config = null) {
+  if (config && Array.isArray(config.delivery_types) && config.delivery_types.length > 0) {
+    return config.delivery_types;
+  }
+  return DEFAULT_PRICING_CONFIG.delivery_types;
 }
 
 /**
