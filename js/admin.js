@@ -5163,6 +5163,94 @@ function getWarehouseIdFromSucursal(sucursalName) {
   return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central / Default
 }
 
+window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
+  if (!selectedOrders || selectedOrders.length === 0) {
+    return `<div style="color: var(--color-text-muted); font-size: 0.85rem; text-align: center; padding: 1.5rem;">No hay pedidos seleccionados.</div>`;
+  }
+
+  const totalUnits = selectedOrders.reduce((sum, order) => {
+    const q = Number(order.cantidad) || (order.order_items ? order.order_items.reduce((s, it) => s + (Number(it.quantity) || 1), 0) : 1);
+    return sum + q;
+  }, 0);
+
+  const filterInputHtml = selectedOrders.length > 3 ? `
+    <div style="margin-bottom: 0.45rem;">
+      <input type="text" placeholder="🔍 Filtrar en la lista..." oninput="window.filterBulkModalSummary(this.value)" style="width: 100%; padding: 0.25rem 0.5rem; font-size: 0.75rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 4px; background: var(--color-surface, #ffffff); color: var(--color-text-main, #0f172a); box-sizing: border-box;">
+    </div>
+  ` : '';
+
+  const ordersListHtml = selectedOrders.map(order => {
+    const orderNo = order.external_order_number || (`#${order.id.split('-')[0]}`);
+    const comercio = order.comercio || 'Comercio';
+    const customer = order.customer_name || 'Sin cliente registrado';
+    const city = order.shipping_city || '';
+    const currentAgenda = order.agenda 
+      ? `<span style="background: rgba(255,152,0,0.12); color: #b45309; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Agenda actual"><i class="ri-calendar-line"></i> ${window.escapeHtml(order.agenda)}</span>` 
+      : '<span style="color: var(--color-text-muted, #94a3b8); font-size: 0.68rem;"><i class="ri-calendar-line"></i> Sin agenda</span>';
+    const currentOp = order.operador 
+      ? `<span style="background: rgba(0,188,212,0.12); color: #0e7490; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Operador actual"><i class="ri-truck-line"></i> ${window.escapeHtml(order.operador)}</span>` 
+      : '<span style="color: var(--color-text-muted, #94a3b8); font-size: 0.68rem;"><i class="ri-truck-line"></i> Sin operador</span>';
+    const qty = Number(order.cantidad) || (order.order_items ? order.order_items.reduce((s, it) => s + (Number(it.quantity) || 1), 0) : 1);
+
+    return `
+      <div class="bulk-order-summary-item" style="background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03); display: flex; flex-direction: column; gap: 0.2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+          <span style="font-family: monospace; font-weight: 700; color: var(--color-primary, #2563eb); font-size: 0.82rem; letter-spacing: 0.3px;">
+            ${window.escapeHtml(orderNo)}
+          </span>
+          <span style="font-size: 0.68rem; font-weight: 600; background: rgba(99,102,241,0.1); color: #4f46e5; padding: 1px 5px; border-radius: 4px; text-transform: uppercase; white-space: nowrap;">
+            ${window.escapeHtml(comercio)}
+          </span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted, #64748b); font-size: 0.72rem; gap: 0.5rem;">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;" title="${window.escapeHtml(customer)}">
+            <i class="ri-user-3-line" style="font-size: 0.72rem;"></i> ${window.escapeHtml(customer)}
+          </span>
+          <span style="white-space: nowrap; font-size: 0.7rem; color: var(--color-text-muted, #64748b);">
+            ${city ? `<i class="ri-map-pin-line"></i> ${window.escapeHtml(city)}` : ''}
+          </span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; margin-top: 1px; border-top: 1px dashed var(--color-border, #e2e8f0); padding-top: 3px;">
+          <div style="display: flex; gap: 0.25rem; align-items: center; flex-wrap: wrap;">
+            ${currentAgenda}
+            ${currentOp}
+          </div>
+          <span style="font-weight: 700; color: var(--color-text-main, #334155); font-size: 0.7rem; white-space: nowrap;">
+            ${qty} un.
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div style="display: flex; flex-direction: column; height: 100%; min-height: 0;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--color-border, #e2e8f0);">
+        <div style="display: flex; align-items: center; gap: 0.35rem; font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">
+          <i class="ri-file-list-3-line" style="color: var(--color-primary, #6366f1);"></i>
+          <span>Pedidos a asignar (${selectedOrders.length})</span>
+        </div>
+        <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
+          ${totalUnits} unidades
+        </span>
+      </div>
+      ${filterInputHtml}
+      <div id="bulk-modal-summary-list-container" style="flex: 1; overflow-y: auto; max-height: 310px; padding-right: 3px;">
+        ${ordersListHtml}
+      </div>
+    </div>
+  `;
+};
+
+window.filterBulkModalSummary = function(term) {
+  const q = (term || '').toLowerCase().trim();
+  const items = document.querySelectorAll('.bulk-order-summary-item');
+  items.forEach(el => {
+    const text = el.textContent.toLowerCase();
+    el.style.display = !q || text.includes(q) ? '' : 'none';
+  });
+};
+
 window.applyBulkWmsStatus = async function() {
   const newStatus = document.getElementById('bulk-wms-status').value;
   const ids = Array.from(window.wmsSelectedOrderIds);
@@ -5192,34 +5280,43 @@ window.applyBulkWmsStatus = async function() {
     // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda, Operador y Fecha Procesamiento
     const { value: formValues } = await Swal.fire({
       title: 'Asignación Masiva: Sucursal, Agenda y Procesamiento',
+      width: '820px',
       html: `
-        <div style="text-align: left; font-size: 0.9rem;">
-          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Los ${ids.length} pedidos seleccionados se enviarán al Picker.</p>
-          
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
-          <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
-            <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
-            <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
-            <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' || !defaultSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
-          </select>
-          
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-          <datalist id="swal-bulk-agenda-list">
-            ${agendaDatalistHtml}
-          </datalist>
-          <div id="swal-bulk-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+        <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+          <!-- Columna Izquierda: Formulario de Asignación -->
+          <div style="flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column;">
+            <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Los <strong>${ids.length}</strong> pedidos seleccionados se enviarán al Picker.</p>
+            
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+            <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+              <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+              <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+              <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' || !defaultSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+            </select>
+            
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
+            <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <datalist id="swal-bulk-agenda-list">
+              ${agendaDatalistHtml}
+            </datalist>
+            <div id="swal-bulk-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <input id="swal-bulk-operador" list="swal-bulk-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-          <datalist id="swal-bulk-operador-list">
-            ${operadorDatalistHtml}
-          </datalist>
-          <div id="swal-bulk-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
+            <input id="swal-bulk-operador" list="swal-bulk-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <datalist id="swal-bulk-operador-list">
+              ${operadorDatalistHtml}
+            </datalist>
+            <div id="swal-bulk-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
-          <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Fecha de Procesamiento (DD-MM)</label>
+            <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;" maxlength="5">
+          </div>
+
+          <!-- Columna Derecha: Listado Resumen de Pedidos -->
+          <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+            ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+          </div>
         </div>
       `,
       didOpen: () => {
@@ -42968,39 +43065,49 @@ window.bulkSetWmsOrderPickingInfo = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
 
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
   const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
   const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
 
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Picking e Info Logística',
+    width: '820px',
     html: `
-      <div style="text-align: left; font-size: 0.9rem;">
-        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Define la sucursal, agenda, operador y fecha de preparación para los ${ids.length} pedidos seleccionados.</p>
-        
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
-        <select id="swal-bulk-set-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-          <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
-          <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
-          <option value="Sucursal La Reina">Sucursal La Reina</option>
-          <option value="Sucursal Recoleta">Sucursal Recoleta</option>
-        </select>
-        
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-        <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-        <datalist id="swal-bulk-set-agenda-list">
-          ${agendaDatalistHtml}
-        </datalist>
-        <div id="swal-bulk-set-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+      <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+        <!-- Columna Izquierda: Formulario -->
+        <div style="flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Define la sucursal, agenda, operador y fecha de preparación para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+          
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+          <select id="swal-bulk-set-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
+            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina">Sucursal La Reina</option>
+            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
+          </select>
+          
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
+          <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+          <datalist id="swal-bulk-set-agenda-list">
+            ${agendaDatalistHtml}
+          </datalist>
+          <div id="swal-bulk-set-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-        <datalist id="swal-bulk-set-operador-list">
-          ${operadorDatalistHtml}
-        </datalist>
-        <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
+          <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+          <datalist id="swal-bulk-set-operador-list">
+            ${operadorDatalistHtml}
+          </datalist>
+          <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento</label>
-        <input id="swal-bulk-set-fechaproc" class="swal2-input" type="text" placeholder="DD-MM (ej: 14-07)" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Fecha de Procesamiento</label>
+          <input id="swal-bulk-set-fechaproc" class="swal2-input" type="text" placeholder="DD-MM (ej: 14-07)" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;" maxlength="5">
+        </div>
+
+        <!-- Columna Derecha: Resumen de Pedidos Seleccionados -->
+        <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+          ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+        </div>
       </div>
     `,
     didOpen: () => {
@@ -43128,15 +43235,22 @@ window.bulkSetWmsOrderAgenda = async function() {
 
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Agenda',
+    width: '780px',
     html: `
-      <div style="text-align: left; font-size: 0.9rem;">
-        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona o escribe la Agenda de preparación para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-        <input id="swal-bulk-set-agenda-only" list="swal-bulk-set-agenda-only-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0; box-sizing: border-box;">
-        <datalist id="swal-bulk-set-agenda-only-list">
-          ${agendaDatalistHtml}
-        </datalist>
-        <div id="swal-bulk-set-agenda-only-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+      <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+        <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Selecciona o escribe la Agenda de preparación para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda</label>
+          <input id="swal-bulk-set-agenda-only" list="swal-bulk-set-agenda-only-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+          <datalist id="swal-bulk-set-agenda-only-list">
+            ${agendaDatalistHtml}
+          </datalist>
+          <div id="swal-bulk-set-agenda-only-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+        </div>
+
+        <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+          ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+        </div>
       </div>
     `,
     didOpen: () => {
@@ -43192,11 +43306,11 @@ window.bulkSetWmsOrderAgenda = async function() {
       }
     }
 
-    Swal.fire('¡Éxito!', `Se asignó la agenda a los ${ids.length} pedidos.`, 'success');
+    Swal.fire('¡Éxito!', `Se actualizó la agenda para los ${ids.length} pedidos.`, 'success');
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error(err);
-    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+    Swal.fire('Error', 'No se pudo actualizar la agenda: ' + err.message, 'error');
   }
 };
 
@@ -43205,18 +43319,26 @@ window.bulkSetWmsOrderOperador = async function() {
   if (ids.length === 0) return;
 
   const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
 
   const { value: formValues } = await Swal.fire({
     title: 'Asignación Masiva: Operador',
+    width: '780px',
     html: `
-      <div style="text-align: left; font-size: 0.9rem;">
-        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona o escribe el operador logístico (transportista) para los ${ids.length} pedidos seleccionados.</p>
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador</label>
-        <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0; box-sizing: border-box;">
-        <datalist id="swal-bulk-set-operador-list">
-          ${operadorDatalistHtml}
-        </datalist>
-        <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+      <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+        <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Selecciona o escribe el operador logístico (transportista) para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador</label>
+          <input id="swal-bulk-set-operador" list="swal-bulk-set-operador-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+          <datalist id="swal-bulk-set-operador-list">
+            ${operadorDatalistHtml}
+          </datalist>
+          <div id="swal-bulk-set-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: 0.25rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+        </div>
+
+        <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+          ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+        </div>
       </div>
     `,
     didOpen: () => {
