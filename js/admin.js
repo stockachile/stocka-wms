@@ -833,6 +833,73 @@ window.isOrderItemEliminated = function(order, item) {
   return false;
 };
 
+// Helper para obtener las notas del pedido desde cualquiera de sus plataformas (Shopify, WooCommerce, MeLi, etc.) o WMS
+window.getOrderNoteText = function(order) {
+  if (!order) return '';
+  if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
+  if (typeof order.observation === 'string' && order.observation.trim()) return order.observation.trim();
+
+  // Shopify
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify) {
+    if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
+    if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
+    if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
+      const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
+      if (noteAttr) return noteAttr;
+    }
+  }
+
+  // WooCommerce
+  const rawWoo = order.raw_woocommerce_data;
+  if (rawWoo) {
+    if (typeof rawWoo.customer_note === 'string' && rawWoo.customer_note.trim()) return rawWoo.customer_note.trim();
+    if (typeof rawWoo.note === 'string' && rawWoo.note.trim()) return rawWoo.note.trim();
+  }
+
+  // MercadoLibre
+  const rawMeli = order.raw_meli_data;
+  if (rawMeli) {
+    if (typeof rawMeli.comments === 'string' && rawMeli.comments.trim()) return rawMeli.comments.trim();
+    if (typeof rawMeli.notes === 'string' && rawMeli.notes.trim()) return rawMeli.notes.trim();
+  }
+
+  // Jumpseller
+  const rawJump = order.raw_jumpseller_data;
+  if (rawJump) {
+    if (typeof rawJump.customer_notes === 'string' && rawJump.customer_notes.trim()) return rawJump.customer_notes.trim();
+    if (typeof rawJump.notes === 'string' && rawJump.notes.trim()) return rawJump.notes.trim();
+  }
+
+  // TiendaNube
+  const rawTn = order.raw_tiendanube_data;
+  if (rawTn && typeof rawTn.note === 'string' && rawTn.note.trim()) return rawTn.note.trim();
+
+  // Falabella / Paris / Ripley
+  if (order.raw_falabella_data?.comments) return String(order.raw_falabella_data.comments).trim();
+  if (order.raw_paris_data?.comments) return String(order.raw_paris_data.comments).trim();
+  if (order.raw_ripley_data?.comments) return String(order.raw_ripley_data.comments).trim();
+
+  return '';
+};
+
+// Helper para construir la observación que se envía al Picker en active_orders (campo observation / Nota)
+window.buildPickerObservation = function(order, prodDescription) {
+  const note = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+  const existingObs = (order?.observation || prodDescription || '').trim();
+
+  if (note && existingObs) {
+    if (existingObs.toLowerCase().includes(note.toLowerCase())) {
+      return existingObs;
+    }
+    return `${note} | ${existingObs}`;
+  } else if (note) {
+    return note;
+  } else {
+    return existingObs;
+  }
+};
+
 // Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
 window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (!order) return '-';
@@ -2904,6 +2971,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         courier,
         shopify_exported,
         raw_shopify_data,
+        raw_woocommerce_data,
+        raw_meli_data,
+        raw_jumpseller_data,
+        raw_tiendanube_data,
         comercio,
         categoria_entrega,
         agenda,
@@ -4495,6 +4566,12 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
+    const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+    let noteBadgeHtml = '';
+    if (orderNote) {
+      noteBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')}"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
+    }
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
@@ -4555,7 +4632,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
           </div>
         </td>
       </tr>
@@ -4592,6 +4669,16 @@ window.applyWmsFiltersAndRender = function() {
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Categoría:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;"><strong>Pago:</strong> ${window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(order) : order.payment_status}</p>
+
+                <!-- Notas del Pedido -->
+                <div style="margin-top: 0.65rem; margin-bottom: 0.5rem; background: ${orderNote ? 'rgba(245, 158, 11, 0.08)' : 'var(--color-bg)'}; border: 1px solid ${orderNote ? 'rgba(245, 158, 11, 0.3)' : 'var(--color-border)'}; border-left: 3px solid ${orderNote ? '#f59e0b' : 'var(--color-text-muted)'}; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm);">
+                  <strong style="color: ${orderNote ? '#d97706' : 'var(--color-text-muted)'}; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.2rem;">
+                    <i class="ri-chat-3-line"></i> Notas del Pedido:
+                  </strong>
+                  <div style="font-size: 0.825rem; color: var(--color-text-main); font-weight: ${orderNote ? '600' : 'normal'}; word-break: break-word; white-space: pre-wrap; line-height: 1.35;">
+                    ${orderNote ? window.escapeHtml(orderNote) : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: normal;">Sin notas</span>'}
+                  </div>
+                </div>
                 
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
                   <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
@@ -41275,6 +41362,8 @@ window.editWmsOrderShippingDetails = async function(orderId) {
     }
   }
 
+  const displayNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+
   const { value: formValues } = await Swal.fire({
     title: 'Editar Datos de Despacho',
     html: `
@@ -41303,6 +41392,10 @@ window.editWmsOrderShippingDetails = async function(orderId) {
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Ciudad / Comuna</label>
           <input id="swal-cust-city" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${order.shipping_city || ''}">
         </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Notas del Pedido</label>
+          <textarea id="swal-cust-note" class="swal2-textarea" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box; min-height: 70px; resize: vertical;" placeholder="Notas o instrucciones especiales del pedido">${window.escapeHtml(displayNote)}</textarea>
+        </div>
       </div>
     `,
     focusConfirm: false,
@@ -41317,6 +41410,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       const address = document.getElementById('swal-cust-address').value.trim();
       const complement = document.getElementById('swal-cust-complement').value.trim();
       const city = document.getElementById('swal-cust-city').value.trim();
+      const note = document.getElementById('swal-cust-note') ? document.getElementById('swal-cust-note').value.trim() : '';
 
       if (!address) {
         Swal.showValidationMessage('La dirección es obligatoria.');
@@ -41327,7 +41421,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
         return false;
       }
 
-      return { name, email, phone, address, complement, city };
+      return { name, email, phone, address, complement, city, note };
     }
   });
 
@@ -41347,7 +41441,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
                      (order?.raw_jumpseller_data ? 'raw_jumpseller_data' :
                      (order?.raw_tiendanube_data ? 'raw_tiendanube_data' :
                      (order?.raw_meli_data ? 'raw_meli_data' :
-                     (order?.raw_walmart_data ? 'raw_walmart_data' : null))))))));
+                     (order?.raw_walmart_data ? 'raw_walmart_data' : 'raw_shopify_data'))))))));
 
       const updatePayload = {
         customer_name: formValues.name || null,
@@ -41355,12 +41449,15 @@ window.editWmsOrderShippingDetails = async function(orderId) {
         customer_phone: formValues.phone || null,
         shipping_address: formValues.address || null,
         shipping_complement: formValues.complement || null,
-        shipping_city: formValues.city || null
+        shipping_city: formValues.city || null,
+        wms_shipping_edited: true,
+        wms_custom_edited: true
       };
 
-      if (rawKey && order[rawKey]) {
+      if (rawKey) {
         updatePayload[rawKey] = {
-          ...order[rawKey],
+          ...(order[rawKey] || {}),
+          note: formValues.note,
           wms_shipping_edited: true,
           wms_custom_edited: true
         };
@@ -41381,6 +41478,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       if (formValues.address !== (order.shipping_address || '')) changesList.push(`Dirección: "${order.shipping_address || ''}" -> "${formValues.address}"`);
       if (formValues.complement !== (order.shipping_complement || '')) changesList.push(`Complemento: "${order.shipping_complement || ''}" -> "${formValues.complement}"`);
       if (formValues.city !== (order.shipping_city || '')) changesList.push(`Comuna/Ciudad: "${order.shipping_city || ''}" -> "${formValues.city}"`);
+      if (formValues.note !== displayNote) changesList.push(`Notas: "${displayNote}" -> "${formValues.note}"`);
 
       // Update local memory cache
       order.customer_name = formValues.name;
@@ -41391,6 +41489,50 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       order.shipping_city = formValues.city;
       if (rawKey && updatePayload[rawKey]) {
         order[rawKey] = updatePayload[rawKey];
+      }
+
+      // Sincronizar con el Picker si el pedido está activo en el Picker
+      if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
+        try {
+          const orderNumber = String(order.external_order_number || order.id);
+          const newObservation = window.buildPickerObservation ? window.buildPickerObservation(order, '') : (formValues.note || '');
+          const { data: activeCheck } = await pickerSupabase
+            .from('active_orders')
+            .select('id')
+            .eq('order_number', orderNumber)
+            .limit(1);
+
+          if (activeCheck && activeCheck.length > 0) {
+            await pickerSupabase
+              .from('active_orders')
+              .update({
+                client_name: formValues.name || 'Sin nombre',
+                contact_data_q: formValues.email || '',
+                contact_data_r: formValues.phone || '',
+                contact_data_s: formValues.address || '',
+                contact_data_t: formValues.city || '',
+                contact_data_u: formValues.complement || '',
+                observation: newObservation
+              })
+              .eq('order_number', orderNumber);
+            console.log(`✅ Datos de despacho y notas sincronizados en Picker active_orders para ${orderNumber}`);
+          }
+
+          // Si existe en sucursal_pickups, sincronizar también
+          try {
+            await pickerSupabase
+              .from('sucursal_pickups')
+              .update({
+                nombre_apellido: formValues.name || 'Sin nombre',
+                observaciones: `${formValues.name || 'Cliente'} | ${formValues.note ? formValues.note + ' | ' : ''}Ingreso automático desde WMS`
+              })
+              .eq('pedido', orderNumber);
+          } catch (pErr) {
+            // opcional
+          }
+        } catch (pickerSyncErr) {
+          console.warn('Error sincronizando cambios de despacho/notas a Picker:', pickerSyncErr);
+        }
       }
 
       // Registrar en order_audit_logs
@@ -42077,7 +42219,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'Pendiente (Obs)',
-      observation: `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`,
+      observation: window.buildPickerObservation ? window.buildPickerObservation(order, `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`) : `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`,
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',
@@ -42177,7 +42319,7 @@ window.sendSingleOrderToPicker = async function(order) {
       operator: cleanOperator,
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
-      observation: order.observation || prod.description || '',
+      observation: window.buildPickerObservation ? window.buildPickerObservation(order, prod.description) : (order.observation || prod.description || ''),
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',
@@ -42208,7 +42350,7 @@ window.sendSingleOrderToPicker = async function(order) {
       operator: cleanOperator,
       totu: parseInt(order.cantidad, 10) || 1,
       sheet_status: 'EN PREPARACIÓN',
-      observation: order.observation || '',
+      observation: window.buildPickerObservation ? window.buildPickerObservation(order, '') : (order.observation || ''),
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',

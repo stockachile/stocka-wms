@@ -193,14 +193,20 @@ serve(async (req) => {
         .maybeSingle();
       const warehouseId = whRel?.warehouse_id || null;
 
-      // Obtener order_items actuales en BD incluyendo SKU para identificar eliminados
+      // 1. Obtener order_items actuales en BD incluyendo SKU para identificar eliminados y agrupar por product_id
       const { data: existingOrderItems } = await supabase
         .from("order_items")
         .select("id, product_id, quantity, warehouse_id, products(sku, name)")
         .eq("order_id", order.id);
 
-      const existingMap = new Map((existingOrderItems || []).map((i: any) => [i.product_id, i]));
-      const processedProductIds = new Set();
+      const existingByProduct = new Map<string, any[]>();
+      (existingOrderItems || []).forEach((i: any) => {
+        if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
+        existingByProduct.get(i.product_id)!.push(i);
+      });
+
+      // 2. Consolidar cantidades esperadas por product_id (agrupando líneas repetidas del mismo SKU)
+      const expectedQuantities = new Map<string, number>();
 
       for (const item of activeItems) {
         const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
@@ -233,38 +239,51 @@ serve(async (req) => {
         }
 
         if (prod) {
-          processedProductIds.add(prod.id);
-          const existing = existingMap.get(prod.id);
-          if (existing) {
-            if (existing.quantity !== effectiveQty || (warehouseId && existing.warehouse_id !== warehouseId)) {
-              await supabase
-                .from("order_items")
-                .update({
-                  quantity: effectiveQty,
-                  warehouse_id: warehouseId || existing.warehouse_id,
-                })
-                .eq("id", existing.id);
-            }
-          } else {
+          const currentQty = expectedQuantities.get(prod.id) || 0;
+          expectedQuantities.set(prod.id, currentQty + effectiveQty);
+        }
+      }
+
+      // 3. Conciliar contra existingOrderItems consolidando duplicados
+      for (const [prodId, expQty] of expectedQuantities.entries()) {
+        const rows = existingByProduct.get(prodId) || [];
+        if (rows.length === 0) {
+          await supabase
+            .from("order_items")
+            .insert([{
+              order_id: order.id,
+              product_id: prodId,
+              warehouse_id: warehouseId,
+              quantity: expQty,
+            }]);
+        } else {
+          const primaryRow = rows[0];
+          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
             await supabase
               .from("order_items")
-              .insert([{
-                order_id: order.id,
-                product_id: prod.id,
-                warehouse_id: warehouseId,
-                quantity: effectiveQty,
-              }]);
+              .update({
+                quantity: expQty,
+                warehouse_id: warehouseId || primaryRow.warehouse_id,
+              })
+              .eq("id", primaryRow.id);
+          }
+          if (rows.length > 1) {
+            for (let k = 1; k < rows.length; k++) {
+              await supabase.from("order_items").delete().eq("id", rows[k].id);
+            }
           }
         }
       }
 
-      // Eliminar de order_items aquellos que ya no están activos
-      for (const [prodId, existingItem] of existingMap.entries()) {
-        if (!processedProductIds.has(prodId)) {
-          await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
-          deletedCount++;
-          const pSku = (existingItem as any).products?.sku;
-          if (pSku) deletedSkusSet.add(pSku.trim());
+      // 4. Eliminar de order_items aquellos productos que ya no están activos
+      for (const [prodId, rows] of existingByProduct.entries()) {
+        if (!expectedQuantities.has(prodId)) {
+          for (const row of rows) {
+            await supabase.from("order_items").delete().eq("id", row.id);
+            deletedCount++;
+            const pSku = row.products?.sku;
+            if (pSku) deletedSkusSet.add(pSku.trim());
+          }
         }
       }
     }

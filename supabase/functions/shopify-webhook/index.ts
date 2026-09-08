@@ -294,7 +294,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const warehouseId = whRelation?.warehouse_id || null;
 
   // Registrar cada item del pedido (excluyendo eliminados)
-  const lineItems = order.line_items || [];
+  // Preparamos mapa de cantidades esperadas por product_id para evitar duplicar filas si el mismo SKU viene varias veces
+  const expectedQuantitiesCreate = new Map<string, { product: any, sku: string, quantity: number }>();
+
   for (const item of lineItems) {
     const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
     if (effectiveQty <= 0) {
@@ -335,7 +337,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
 
     // Auto-crear producto si no existe en el catálogo
     if (!product) {
-      const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
+      const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id?.toString() || "NO-SKU");
       const { data: newProd, error: prodErr } = await supabase
         .from("products")
         .insert([{
@@ -359,21 +361,29 @@ async function handleOrderCreate(merchantId, comercio, order) {
     }
 
     if (product) {
-      // Registrar el item en order_items con la cantidad efectiva
-      const { error: itemErr } = await supabase
-        .from("order_items")
-        .insert([{
-          order_id: newOrder.id,
-          product_id: product.id,
-          warehouse_id: warehouseId,
-          quantity: effectiveQty
-        }]);
-
-      if (itemErr) {
-        console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr);
+      const current = expectedQuantitiesCreate.get(product.id);
+      if (current) {
+        current.quantity += effectiveQty;
       } else {
-        console.log(`Registrado item SKU ${item.sku} x ${effectiveQty} para el pedido.`);
+        expectedQuantitiesCreate.set(product.id, { product, sku: item.sku, quantity: effectiveQty });
       }
+    }
+  }
+
+  for (const [prodId, info] of expectedQuantitiesCreate.entries()) {
+    const { error: itemErr } = await supabase
+      .from("order_items")
+      .insert([{
+        order_id: newOrder.id,
+        product_id: prodId,
+        warehouse_id: warehouseId,
+        quantity: info.quantity
+      }]);
+
+    if (itemErr) {
+      console.error(`Error insertando item SKU ${info.sku} en order_items:`, itemErr);
+    } else {
+      console.log(`Registrado item SKU ${info.sku} x ${info.quantity} para el pedido.`);
     }
   }
 }
@@ -530,14 +540,17 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     // Si NO está en un estado crítico (está 'En procesamiento' o 'para procesar'), sincronizamos los items del pedido
     // para mantener el WMS actualizado antes de que comience la preparación.
     
-    // 1. Obtener ítems existentes para Smart Diffing
+    // 1. Obtener ítems existentes para Smart Diffing y agrupar por product_id
     const { data: existingItems } = await supabase
       .from("order_items")
       .select("id, product_id, quantity, warehouse_id, products(sku, name)")
       .eq("order_id", existingOrder.id);
 
-    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
-    const processedProductIds = new Set();
+    const existingByProduct = new Map<string, any[]>();
+    (existingItems || []).forEach((i: any) => {
+      if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
+      existingByProduct.get(i.product_id)!.push(i);
+    });
 
     // 2. Obtener primera bodega asignada al comerciante
     const { data: whRelation } = await supabase
@@ -573,15 +586,11 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       else if (item.title || item.name) deletedSkusSet.add((item.title || item.name).trim());
     });
 
-    let activeItemsCount = 0;
+    // Consolidar cantidades esperadas por product_id
+    const expectedQuantitiesUpdate = new Map<string, number>();
 
-    for (const item of lineItems) {
+    for (const item of activeItems) {
       const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-      if (effectiveQty <= 0) {
-        console.log(`[Shopify Webhook] Omitiendo ítem SKU ${item.sku} en actualización porque fue eliminado en Shopify (cant: 0).`);
-        continue;
-      }
-
       let product = null;
 
       // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
@@ -615,7 +624,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
 
       // Auto-crear producto si no existe
       if (!product) {
-        const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
+        const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id?.toString() || "NO-SKU");
         const { data: newProd } = await supabase
           .from("products")
           .insert([{
@@ -634,34 +643,45 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }
 
       if (product) {
-        processedProductIds.add(product.id);
-        activeItemsCount++;
-        const existing = existingMap.get(product.id);
+        const curQty = expectedQuantitiesUpdate.get(product.id) || 0;
+        expectedQuantitiesUpdate.set(product.id, curQty + effectiveQty);
+      }
+    }
 
-        if (existing) {
-          if (existing.quantity !== effectiveQty || (warehouseId && existing.warehouse_id !== warehouseId)) {
-            await supabase.from("order_items").update({
-              quantity: effectiveQty,
-              warehouse_id: warehouseId || existing.warehouse_id
-            }).eq("id", existing.id);
+    // Conciliar contra existingByProduct consolidando duplicados
+    for (const [prodId, expQty] of expectedQuantitiesUpdate.entries()) {
+      const rows = existingByProduct.get(prodId) || [];
+      if (rows.length === 0) {
+        await supabase.from("order_items").insert([{
+          order_id: existingOrder.id,
+          product_id: prodId,
+          warehouse_id: warehouseId,
+          quantity: expQty
+        }]);
+      } else {
+        const primaryRow = rows[0];
+        if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
+          await supabase.from("order_items").update({
+            quantity: expQty,
+            warehouse_id: warehouseId || primaryRow.warehouse_id
+          }).eq("id", primaryRow.id);
+        }
+        if (rows.length > 1) {
+          for (let k = 1; k < rows.length; k++) {
+            await supabase.from("order_items").delete().eq("id", rows[k].id);
           }
-        } else {
-          await supabase.from("order_items").insert([{
-            order_id: existingOrder.id,
-            product_id: product.id,
-            warehouse_id: warehouseId,
-            quantity: effectiveQty
-          }]);
         }
       }
     }
 
     // 4. Eliminar únicamente los ítems que ya no están en la orden (o tenían current_quantity === 0)
-    for (const [prodId, existingItem] of existingMap.entries()) {
-      if (!processedProductIds.has(prodId)) {
-        await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
-        const pSku = (existingItem as any).products?.sku;
-        if (pSku) deletedSkusSet.add(pSku.trim());
+    for (const [prodId, rows] of existingByProduct.entries()) {
+      if (!expectedQuantitiesUpdate.has(prodId)) {
+        for (const row of rows) {
+          await supabase.from("order_items").delete().eq("id", row.id);
+          const pSku = row.products?.sku;
+          if (pSku) deletedSkusSet.add(pSku.trim());
+        }
       }
     }
 

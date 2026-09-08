@@ -471,17 +471,25 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         else continue;
       }
 
-      // Sincronizar ítems con Smart Diffing
+      // Sincronizar ítems con Smart Diffing agrupando duplicados
       const { data: existingItems } = await supabase
         .from("order_items")
         .select("id, product_id, quantity, warehouse_id")
         .eq("order_id", orderId);
 
-      const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
-      const processedProductIds = new Set();
+      const existingByProduct = new Map<string, any[]>();
+      (existingItems || []).forEach((i: any) => {
+        if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
+        existingByProduct.get(i.product_id)!.push(i);
+      });
+
       const lineItems = order.line_items || [];
+      const expectedQuantities = new Map<string, number>();
 
       for (const item of lineItems) {
+        const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+        if (effectiveQty <= 0) continue;
+
         const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
         if (!targetSku) continue;
 
@@ -510,28 +518,39 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         }
 
         if (product) {
-          processedProductIds.add(product.id);
-          const existing = existingMap.get(product.id);
+          const curQty = expectedQuantities.get(product.id) || 0;
+          expectedQuantities.set(product.id, curQty + effectiveQty);
+        }
+      }
 
-          if (existing) {
-            if (existing.quantity !== item.quantity) {
-              await supabase.from("order_items").update({
-                quantity: item.quantity
-              }).eq("id", existing.id);
+      for (const [prodId, expQty] of expectedQuantities.entries()) {
+        const rows = existingByProduct.get(prodId) || [];
+        if (rows.length === 0) {
+          await supabase.from("order_items").insert([{
+            order_id: orderId,
+            product_id: prodId,
+            quantity: expQty
+          }]);
+        } else {
+          const primaryRow = rows[0];
+          if (primaryRow.quantity !== expQty) {
+            await supabase.from("order_items").update({
+              quantity: expQty
+            }).eq("id", primaryRow.id);
+          }
+          if (rows.length > 1) {
+            for (let k = 1; k < rows.length; k++) {
+              await supabase.from("order_items").delete().eq("id", rows[k].id);
             }
-          } else {
-            await supabase.from("order_items").insert([{
-              order_id: orderId,
-              product_id: product.id,
-              quantity: item.quantity
-            }]);
           }
         }
       }
 
-      for (const [prodId, existingItem] of existingMap.entries()) {
-        if (!processedProductIds.has(prodId)) {
-          await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
+      for (const [prodId, rows] of existingByProduct.entries()) {
+        if (!expectedQuantities.has(prodId)) {
+          for (const row of rows) {
+            await supabase.from("order_items").delete().eq("id", row.id);
+          }
         }
       }
       count++;

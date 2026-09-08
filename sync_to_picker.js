@@ -41,6 +41,71 @@ if (!WMS_KEY) {
 const wmsClient = createClient(WMS_URL, WMS_KEY);
 const pickerClient = createClient(PICKER_URL, PICKER_KEY);
 
+// Helper para extraer notas del pedido desde los datos crudos o WMS
+function getOrderNoteText(order) {
+  if (!order) return '';
+  if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
+  if (typeof order.observation === 'string' && order.observation.trim()) return order.observation.trim();
+
+  // Shopify
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify) {
+    if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
+    if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
+    if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
+      const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
+      if (noteAttr) return noteAttr;
+    }
+  }
+
+  // WooCommerce
+  const rawWoo = order.raw_woocommerce_data;
+  if (rawWoo) {
+    if (typeof rawWoo.customer_note === 'string' && rawWoo.customer_note.trim()) return rawWoo.customer_note.trim();
+    if (typeof rawWoo.note === 'string' && rawWoo.note.trim()) return rawWoo.note.trim();
+  }
+
+  // MercadoLibre
+  const rawMeli = order.raw_meli_data;
+  if (rawMeli) {
+    if (typeof rawMeli.comments === 'string' && rawMeli.comments.trim()) return rawMeli.comments.trim();
+    if (typeof rawMeli.notes === 'string' && rawMeli.notes.trim()) return rawMeli.notes.trim();
+  }
+
+  // Jumpseller
+  const rawJump = order.raw_jumpseller_data;
+  if (rawJump) {
+    if (typeof rawJump.customer_notes === 'string' && rawJump.customer_notes.trim()) return rawJump.customer_notes.trim();
+    if (typeof rawJump.notes === 'string' && rawJump.notes.trim()) return rawJump.notes.trim();
+  }
+
+  // TiendaNube
+  const rawTn = order.raw_tiendanube_data;
+  if (rawTn && typeof rawTn.note === 'string' && rawTn.note.trim()) return rawTn.note.trim();
+
+  // Falabella / Paris / Ripley
+  if (order.raw_falabella_data?.comments) return String(order.raw_falabella_data.comments).trim();
+  if (order.raw_paris_data?.comments) return String(order.raw_paris_data.comments).trim();
+  if (order.raw_ripley_data?.comments) return String(order.raw_ripley_data.comments).trim();
+
+  return '';
+}
+
+function buildPickerObservation(order, defaultObs) {
+  const note = getOrderNoteText(order);
+  const def = (defaultObs || '').trim();
+  if (note && def) {
+    if (def.toLowerCase().includes(note.toLowerCase())) {
+      return def;
+    }
+    return `${note} | ${def}`;
+  } else if (note) {
+    return note;
+  } else {
+    return def;
+  }
+}
+
 async function run() {
   console.log(`[${new Date().toISOString()}] Iniciando sincronización bidireccional WMS <-> Picker...`);
 
@@ -70,6 +135,15 @@ async function run() {
         agenda,
         sucursal_pickeo,
         operador,
+        raw_shopify_data,
+        raw_woocommerce_data,
+        raw_meli_data,
+        raw_jumpseller_data,
+        raw_tiendanube_data,
+        raw_falabella_data,
+        raw_paris_data,
+        raw_ripley_data,
+        raw_walmart_data,
         order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
       `)
       .eq('estado_wms', 'En preparación');
@@ -178,7 +252,7 @@ async function run() {
               operator: wmsOrder.operador || '',
               totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
-              observation: `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`,
+              observation: buildPickerObservation(wmsOrder, `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`),
               contact_data_q: wmsOrder.customer_email || '',
               contact_data_r: wmsOrder.customer_phone || '',
               contact_data_s: wmsOrder.shipping_address || '',
@@ -295,7 +369,7 @@ async function run() {
               operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : ''),
               totu: totu,
               sheet_status: 'EN PREPARACIÓN',
-              observation: '',
+              observation: buildPickerObservation(wmsOrder, ''),
               fecha: new Date().toISOString().split('T')[0],
               contact_data_q: wmsOrder.customer_email || '',
               contact_data_r: wmsOrder.customer_phone || '',
