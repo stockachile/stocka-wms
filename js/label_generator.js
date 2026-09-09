@@ -51,6 +51,24 @@ import supabase from './supabase.js';
     sheetsCount: 1
   };
 
+  // Reverse Logistics Exchange label generator options
+  const exchangeState = {
+    size: '10x15', // '10x15' | '10x10'
+    headerTitle: 'ETIQUETA DE CAMBIO',
+    courierInstruction: 'ENTREGAR PRODUCTO NUEVO Y RETIRAR PRODUCTO DE CAMBIO SIMULTÁNEAMENTE',
+    includeBarcode: true,
+    includeProductsDetail: true,
+    includeComments: true,
+    includeSignature: true,
+    includeCommerce: true,
+    statusFilter: 'all', // 'all' | 'pendiente' | 'procesado'
+    searchQuery: '',
+    reverseRecords: [], // cached records from reverse_logistics
+    selectedReverseIds: new Set(),
+    previewIndex: 0,
+    isLoading: false
+  };
+
   // High-contrast vector SVGs for Fragile & Handling logistics symbols (ISO compliant)
   const FRAGILE_ICONS = {
     glass: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
@@ -403,6 +421,9 @@ import supabase from './supabase.js';
         </button>
         <button type="button" id="btn-label-tab-expiry" class="btn ${currentLabelTab === 'expiry' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
           <i class="ri-calendar-event-line" style="font-size: 1.1rem; color: ${currentLabelTab === 'expiry' ? '#ffffff' : 'var(--color-primary)'};"></i> Etiquetas con Vencimiento / Lote
+        </button>
+        <button type="button" id="btn-label-tab-exchange" class="btn ${currentLabelTab === 'exchange' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
+          <i class="ri-repeat-2-line" style="font-size: 1.1rem; color: ${currentLabelTab === 'exchange' ? '#ffffff' : 'var(--color-success)'};"></i> Etiquetas de Cambio (Logística Inversa)
         </button>
       </div>
 
@@ -938,6 +959,185 @@ import supabase from './supabase.js';
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: REVERSE LOGISTICS EXCHANGE LABELS -->
+      <div id="label-tab-exchange-content" style="display: ${currentLabelTab === 'exchange' ? 'block' : 'none'}; animation: fadeIn 0.25s ease;">
+        <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: stretch;">
+          
+          <!-- Left Panel: Reverse Logistics Orders Selection -->
+          <div class="card" style="flex: 1 1 540px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+                <i class="ri-repeat-2-line" style="color: var(--color-success);"></i> Pedidos de Cambio (Logística Inversa)
+              </h3>
+              <button type="button" id="btn-refresh-exchange-orders" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem;" title="Recargar pedidos de cambio">
+                <i class="ri-refresh-line"></i> Actualizar
+              </button>
+            </div>
+
+            <!-- Filters bar -->
+            <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.5rem; align-items: center;">
+              <div style="position: relative;">
+                <input type="text" id="exchange-search-input" class="form-input" placeholder="Buscar por N° Pedido, cliente, comuna o tracking..." style="width: 100%; height: 38px; padding-left: 2rem; font-size: 0.85rem; border-radius: var(--radius-md);">
+                <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
+              </div>
+              <select id="exchange-status-filter" class="form-input" style="height: 38px; padding: 0.3rem 0.6rem; font-size: 0.82rem; border-radius: var(--radius-md);">
+                <option value="all">Todos los estados</option>
+                <option value="pendiente">Solo Pendientes</option>
+                <option value="procesado">Solo Procesados</option>
+              </select>
+              <button type="button" id="btn-exchange-clear-filters" class="btn btn-outline" style="height: 38px; padding: 0.3rem 0.6rem; font-size: 0.8rem; border-radius: var(--radius-md);" title="Limpiar filtros">
+                <i class="ri-filter-off-line"></i>
+              </button>
+            </div>
+
+            <!-- Selection toolbar & Stats -->
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(37,99,235,0.03); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.82rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <input type="checkbox" id="exchange-select-all-cb" style="cursor: pointer;">
+                <label for="exchange-select-all-cb" style="font-weight: 600; cursor: pointer; color: var(--color-text-main); margin: 0; user-select: none;">
+                  Seleccionar visibles
+                </label>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span id="exchange-selection-badge" class="badge" style="background: rgba(16,185,129,0.1); color: #059669; border: 1px solid rgba(16,185,129,0.25); font-weight: 600; font-size: 0.78rem;">
+                  0 pedidos seleccionados
+                </span>
+                <button type="button" id="btn-exchange-deselect-all" style="background: none; border: none; color: var(--color-text-muted); font-size: 0.75rem; cursor: pointer; text-decoration: underline;">
+                  Deseleccionar
+                </button>
+              </div>
+            </div>
+
+            <!-- Table Container -->
+            <div id="exchange-table-container" style="max-height: 480px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+              <table class="data-table" style="width: 100%; font-size: 0.83rem; border-collapse: collapse;">
+                <thead style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; border-bottom: 2px solid var(--color-border);">
+                  <tr>
+                    <th style="width: 32px; text-align: center; padding: 0.5rem 0.25rem;"></th>
+                    <th style="text-align: left; padding: 0.5rem 0.4rem;">Fecha</th>
+                    <th style="text-align: left; padding: 0.5rem 0.4rem;">Ref. Pedido</th>
+                    <th style="text-align: left; padding: 0.5rem 0.4rem;">Cliente / Destino</th>
+                    <th style="text-align: left; padding: 0.5rem 0.4rem;">Cambio (Sale / Entra)</th>
+                    <th style="text-align: left; padding: 0.5rem 0.4rem;">Courier</th>
+                    <th style="text-align: center; padding: 0.5rem 0.4rem;">Estado</th>
+                    <th style="text-align: center; width: 44px; padding: 0.5rem 0.25rem;">Ver</th>
+                  </tr>
+                </thead>
+                <tbody id="exchange-orders-tbody">
+                  <tr>
+                    <td colspan="8" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+                      <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                      Cargando pedidos de cambio desde Logística Inversa...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--color-text-muted);">
+              <span>* Selecciona los pedidos que deseas rotular con la etiqueta física de cambio.</span>
+              <span id="exchange-table-total-count">Cargando...</span>
+            </div>
+          </div>
+
+          <!-- Right Panel: Label Customization & Live Preview -->
+          <div class="card" style="flex: 1 1 360px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+                  <i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Formato de Etiqueta
+                </h3>
+                <span id="exchange-preview-aspect-badge" class="badge" style="font-size: 0.75rem; background: rgba(59,130,246,0.1); color: var(--color-primary); font-weight: 600;">
+                  10 x 15 cm
+                </span>
+              </div>
+              <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0;">
+                Etiqueta oficial con instrucción de entrega y retiro simultáneo.
+              </p>
+            </div>
+
+            <!-- Size Selector -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-aspect-ratio-line" style="margin-right: 4px;"></i> Tamaño de Etiqueta Adhesiva
+              </label>
+              <select id="exchange-label-size" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.65rem; border-radius: var(--radius-md); font-weight: 500;">
+                <option value="10x15" ${exchangeState.size === '10x15' ? 'selected' : ''}>10 x 15 cm (Vertical grande / Estándar Courier Oficial)</option>
+                <option value="10x10" ${exchangeState.size === '10x10' ? 'selected' : ''}>10 x 10 cm (Cuadrada grande)</option>
+              </select>
+            </div>
+
+            <!-- Title & Instruction -->
+            <div style="background: rgba(37,99,235,0.02); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem;">
+              <div>
+                <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Título de la Etiqueta</label>
+                <input type="text" id="exchange-header-title" class="form-input" value="${escapeHtml(exchangeState.headerTitle)}" style="width: 100%; height: 34px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-size: 0.82rem; font-weight: 700; text-transform: uppercase;">
+              </div>
+              <div>
+                <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Instrucción al Courier / Conductor</label>
+                <input type="text" id="exchange-courier-instruction" class="form-input" value="${escapeHtml(exchangeState.courierInstruction)}" style="width: 100%; height: 34px; padding: 0.3rem 0.5rem; border-radius: var(--radius-md); font-size: 0.78rem; font-weight: 600;">
+              </div>
+            </div>
+
+            <!-- Toggles -->
+            <div style="display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.82rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="exchange-opt-barcode" ${exchangeState.includeBarcode ? 'checked' : ''}>
+                <span>Código de barras del N° de Pedido / Seguimiento</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="exchange-opt-products" ${exchangeState.includeProductsDetail ? 'checked' : ''}>
+                <span>Tabla comparativa (➡️ Entrega / ⬅️ Retiro)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="exchange-opt-comments" ${exchangeState.includeComments ? 'checked' : ''}>
+                <span>Incluir observaciones / motivo del cambio</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="exchange-opt-signature" ${exchangeState.includeSignature ? 'checked' : ''}>
+                <span>Casilla para firma de recepción del cliente</span>
+              </label>
+            </div>
+
+            <!-- Preview Carousel header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+              <span style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-main);">
+                Vista Previa en Vivo:
+              </span>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <button type="button" id="btn-exchange-prev-preview" class="btn btn-outline" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; height: 26px;" title="Ver anterior">
+                  <i class="ri-arrow-left-s-line"></i>
+                </button>
+                <span id="exchange-preview-indicator" style="font-size: 0.75rem; color: var(--color-text-muted); min-width: 60px; text-align: center;">
+                  1 de 1
+                </span>
+                <button type="button" id="btn-exchange-next-preview" class="btn btn-outline" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; height: 26px;" title="Ver siguiente">
+                  <i class="ri-arrow-right-s-line"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Preview Simulation Box -->
+            <div id="exchange-live-preview-box-wrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 0.75rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border); min-height: 320px; overflow: hidden;">
+              <!-- Simulated label rendered dynamically -->
+            </div>
+
+            <!-- Action buttons -->
+            <div style="display: flex; gap: 0.6rem; width: 100%;">
+              <button id="btn-emit-exchange-labels" class="btn btn-primary" style="flex: 2; height: 46px; justify-content: center; font-size: 0.92rem; font-weight: 600; gap: 0.4rem; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(16,185,129,0.25); background: #059669; border-color: #059669;">
+                <i class="ri-printer-line" style="font-size: 1.1rem;"></i> Imprimir (<span id="exchange-btn-total-count">0</span>)
+              </button>
+              <button id="btn-download-exchange-zpl" class="btn btn-outline" style="flex: 1; height: 46px; justify-content: center; font-size: 0.88rem; font-weight: 600; gap: 0.3rem; border-radius: var(--radius-md); border-color: var(--color-accent); color: var(--color-accent);">
+                <i class="ri-download-2-line"></i> ZPL (<span id="exchange-btn-zpl-count">0</span>)
+              </button>
+            </div>
+            <button type="button" id="btn-view-exchange-zpl" style="background: none; border: none; color: var(--color-primary); font-size: 0.78rem; text-decoration: underline; cursor: pointer; text-align: center; margin-top: -0.3rem;">
+              <i class="ri-code-line"></i> Ver / Copiar código ZPL II
+            </button>
+          </div>
+
         </div>
       </div>
     `;
@@ -1825,16 +2025,557 @@ import supabase from './supabase.js';
   }
 
   /**
+   * Helper to parse incoming (devolución) and outgoing (reemplazo) items from a reverse_logistics record
+   */
+  function parseExchangeProducts(record) {
+    const incoming = [];
+    const outgoing = [];
+
+    if (record && Array.isArray(record.productos) && record.productos.length > 0) {
+      record.productos.forEach(p => {
+        // 1. Incoming (Devuelto)
+        if (p.producto_devuelto || p.sku_devuelto || p.name_devuelto) {
+          const raw = p.producto_devuelto || p.name_devuelto || p.sku_devuelto || '';
+          let sku = p.sku_devuelto || '';
+          let name = raw;
+          if (!sku && raw.includes(' - ')) {
+            const parts = raw.split(' - ');
+            sku = parts[0].trim();
+            name = parts.slice(1).join(' - ').trim();
+          }
+          const qty = p.qty_devuelto !== undefined ? p.qty_devuelto : (p.cantidad || 1);
+          incoming.push({ sku: sku || 'DEV', name: name || 'Producto Devuelto', qty, comment: p.comentario || '' });
+        }
+
+        // 2. Outgoing (Reemplazo)
+        if (p.producto_reemplazo || p.sku_reemplazo || p.name_reemplazo) {
+          const raw = p.producto_reemplazo || p.name_reemplazo || p.sku_reemplazo || '';
+          let sku = p.sku_reemplazo || '';
+          let name = raw;
+          if (!sku && raw.includes(' - ')) {
+            const parts = raw.split(' - ');
+            sku = parts[0].trim();
+            name = parts.slice(1).join(' - ').trim();
+          }
+          const qty = p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.cantidad || 1);
+          outgoing.push({ sku: sku || 'REP', name: name || 'Producto Reemplazo', qty });
+        }
+      });
+    }
+
+    // Graceful fallbacks if items weren't structured in array
+    if (incoming.length === 0) {
+      incoming.push({ sku: 'DEV', name: record.comentarios || 'Producto para cambio / retorno', qty: record.cantidad_total || 1 });
+    }
+    if (outgoing.length === 0) {
+      outgoing.push({ sku: 'REP', name: 'Producto de reemplazo solicitado', qty: record.cantidad_total || 1 });
+    }
+
+    return { incoming, outgoing };
+  }
+
+  /**
+   * Fetches reverse logistics records of type CAMBIO from Supabase
+   */
+  async function fetchReverseLogisticsExchanges() {
+    const tbody = document.getElementById('exchange-orders-tbody');
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem; color: var(--color-primary);"></i>
+            Cargando pedidos de cambio desde Logística Inversa...
+          </td>
+        </tr>
+      `;
+    }
+
+    exchangeState.isLoading = true;
+    try {
+      const activeCommerce = getActiveCommerce();
+      let query = supabase
+        .from('reverse_logistics')
+        .select('*')
+        .eq('tipo_movimiento', 'CAMBIO')
+        .order('created_at', { ascending: false });
+
+      if (activeCommerce && activeCommerce !== 'all' && activeCommerce.toLowerCase() !== 'all') {
+        const companyList = [];
+        activeCommerce.split(',').forEach(c => {
+          const trimmed = c.trim();
+          if (trimmed) {
+            companyList.push(trimmed);
+            companyList.push(trimmed.toLowerCase());
+            companyList.push(trimmed.toUpperCase());
+          }
+        });
+        if (companyList.length > 0) {
+          query = query.in('comercio', companyList);
+        }
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      exchangeState.reverseRecords = data || [];
+      exchangeState.isLoading = false;
+
+      // By default select the first record for preview if none selected
+      if (exchangeState.selectedReverseIds.size === 0 && exchangeState.reverseRecords.length > 0) {
+        exchangeState.selectedReverseIds.add(exchangeState.reverseRecords[0].id);
+      }
+
+      renderExchangeTableRows();
+      renderExchangeLivePreview();
+      return exchangeState.reverseRecords;
+    } catch (err) {
+      console.error("Error loading reverse logistics exchange records:", err);
+      exchangeState.isLoading = false;
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="padding: 2rem; text-align: center; color: var(--color-danger);">
+              <i class="ri-error-warning-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+              Error al cargar pedidos de cambio: ${escapeHtml(err.message || 'Error de conexión')}
+            </td>
+          </tr>
+        `;
+      }
+      return [];
+    }
+  }
+
+  /**
+   * Initializes or activates the Exchange tab
+   */
+  function initExchangeTab() {
+    if (!exchangeState.reverseRecords || exchangeState.reverseRecords.length === 0) {
+      fetchReverseLogisticsExchanges();
+    } else {
+      renderExchangeTableRows();
+      renderExchangeLivePreview();
+    }
+  }
+
+  /**
+   * Filters and renders the rows in the Exchange tab table
+   */
+  function renderExchangeTableRows() {
+    const tbody = document.getElementById('exchange-orders-tbody');
+    const totalCountEl = document.getElementById('exchange-table-total-count');
+    const selectAllCb = document.getElementById('exchange-select-all-cb');
+    const selectionBadge = document.getElementById('exchange-selection-badge');
+    const btnTotalCount = document.getElementById('exchange-btn-total-count');
+    const btnZplCount = document.getElementById('exchange-btn-zpl-count');
+
+    if (!tbody) return;
+
+    const query = (exchangeState.searchQuery || '').toLowerCase().trim();
+    const statusFilter = exchangeState.statusFilter || 'all';
+
+    const filtered = (exchangeState.reverseRecords || []).filter(r => {
+      // 1. Status Filter
+      if (statusFilter !== 'all') {
+        const rStatus = (r.status || 'pendiente').toLowerCase();
+        if (rStatus !== statusFilter) return false;
+      }
+
+      // 2. Search Query
+      if (query) {
+        const ref = (r.referencia_pedido || '').toLowerCase();
+        const client = (r.customer_name || '').toLowerCase();
+        const city = (r.shipping_city || r.sucursal || '').toLowerCase();
+        const tracking = (r.referencia_transporte || '').toLowerCase();
+        const commerce = (r.comercio || '').toLowerCase();
+        const comment = (r.comentarios || '').toLowerCase();
+
+        const match = ref.includes(query) || 
+                      client.includes(query) || 
+                      city.includes(query) || 
+                      tracking.includes(query) || 
+                      commerce.includes(query) || 
+                      comment.includes(query);
+        if (!match) return false;
+      }
+
+      return true;
+    });
+
+    if (totalCountEl) {
+      totalCountEl.textContent = `${filtered.length} registro(s) encontrado(s)`;
+    }
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+            No se encontraron pedidos de cambio con los filtros aplicados.
+          </td>
+        </tr>
+      `;
+      if (selectAllCb) selectAllCb.checked = false;
+      return;
+    }
+
+    let allVisibleSelected = true;
+    const rowsHtml = filtered.map(r => {
+      const isChecked = exchangeState.selectedReverseIds.has(r.id);
+      if (!isChecked) allVisibleSelected = false;
+
+      const d = r.created_at ? new Date(r.created_at) : null;
+      const dateStr = d ? `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}` : 'N/A';
+
+      const { incoming, outgoing } = parseExchangeProducts(r);
+      const outSummary = outgoing.map(i => `${i.qty}x ${i.sku}`).join(', ') || 'Reemplazo';
+      const inSummary = incoming.map(i => `${i.qty}x ${i.sku}`).join(', ') || 'Devolución';
+
+      const statusVal = (r.status || 'pendiente').toLowerCase();
+      const statusBadge = statusVal === 'pendiente'
+        ? `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a; font-size: 0.72rem;">Pendiente</span>`
+        : `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0; font-size: 0.72rem;">Procesado</span>`;
+
+      return `
+        <tr class="exchange-order-row ${isChecked ? 'selected-row' : ''}" data-id="${r.id}" style="transition: background 0.15s; cursor: pointer; ${isChecked ? 'background: rgba(16,185,129,0.06);' : ''}">
+          <td style="text-align: center; padding: 0.4rem 0.25rem;">
+            <input type="checkbox" class="exchange-row-cb" data-id="${r.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer;">
+          </td>
+          <td style="white-space: nowrap; font-size: 0.75rem; color: var(--color-text-muted); padding: 0.4rem 0.4rem;">
+            ${dateStr}
+          </td>
+          <td style="padding: 0.4rem 0.4rem;">
+            <strong style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${escapeHtml(r.referencia_pedido || 'N/A')}</strong>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">${escapeHtml(r.comercio || '')}</div>
+          </td>
+          <td style="padding: 0.4rem 0.4rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <div style="font-weight: 600; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis;">${escapeHtml(r.customer_name || 'Cliente')}</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;">
+              <i class="ri-map-pin-line" style="margin-right: 2px;"></i>${escapeHtml(r.shipping_city || r.sucursal || 'S/C')}
+            </div>
+          </td>
+          <td style="padding: 0.4rem 0.4rem; font-size: 0.75rem; max-width: 170px;">
+            <div style="color: #059669; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ➡️ ${escapeHtml(outSummary)}
+            </div>
+            <div style="color: #dc2626; font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ⬅️ ${escapeHtml(inSummary)}
+            </div>
+          </td>
+          <td style="padding: 0.4rem 0.4rem; font-size: 0.75rem; color: var(--color-text-muted);">
+            <div style="font-weight: 500;">${escapeHtml(r.transporte || 'Envío')}</div>
+            ${r.referencia_transporte && r.referencia_transporte !== 'N/A' ? `
+              <div style="font-family: monospace; font-size: 0.68rem;">${escapeHtml(r.referencia_transporte)}</div>
+            ` : ''}
+          </td>
+          <td style="text-align: center; padding: 0.4rem 0.4rem;">
+            ${statusBadge}
+          </td>
+          <td style="text-align: center; padding: 0.4rem 0.25rem;">
+            <button type="button" class="btn-preview-single-exchange" data-id="${r.id}" style="background: none; border: none; cursor: pointer; color: var(--color-primary); font-size: 1.1rem; padding: 2px 4px; border-radius: 4px;" title="Ver en vista previa">
+              <i class="ri-eye-line"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.innerHTML = rowsHtml;
+
+    if (selectAllCb) {
+      selectAllCb.checked = allVisibleSelected && filtered.length > 0;
+    }
+
+    const selectedCount = exchangeState.selectedReverseIds.size;
+    if (selectionBadge) {
+      selectionBadge.textContent = `${selectedCount} pedido(s) seleccionado(s)`;
+    }
+    if (btnTotalCount) btnTotalCount.textContent = selectedCount;
+    if (btnZplCount) btnZplCount.textContent = selectedCount;
+  }
+
+  /**
+   * Generates HTML markup for a single physical Exchange Shipping Label (10x15 or 10x10 cm)
+   */
+  function renderSingleExchangeLabel(record, opts, isPrint) {
+    if (!record) {
+      return `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#666; font-size:0.85rem; text-align:center; padding:1.5rem;">
+          <i class="ri-inbox-line" style="font-size:2rem; margin-bottom:0.5rem; opacity:0.5;"></i>
+          <span>Selecciona un pedido de cambio en la lista para previsualizar la etiqueta.</span>
+        </div>
+      `;
+    }
+
+    const is10x10 = opts.size === '10x10';
+    const { incoming, outgoing } = parseExchangeProducts(record);
+
+    // Barcode value (prefer reference, order ID, or tracking)
+    const rawCode = String(record.referencia_pedido || record.referencia_transporte || record.id || '').trim();
+    const cleanCodeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
+    const barcodeHtml = opts.includeBarcode && window.generateBarcodeSVG
+      ? window.generateBarcodeSVG(cleanCodeVal, true, opts.size)
+      : '';
+
+    // Outgoing products HTML (Sale / Reemplazo)
+    let outgoingHtml = outgoing.map(item => `
+      <div style="line-height: 1.15; margin-bottom: 2px;">
+        <span style="font-weight: 800; color: #000;">${item.qty}x</span>
+        <strong style="color: #111; font-family: monospace;">${escapeHtml(item.sku)}</strong>
+        <div style="font-size: 0.85em; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.name)}</div>
+      </div>
+    `).join('');
+    if (!outgoingHtml) {
+      outgoingHtml = `<div style="color: #666; font-style: italic;">Sin detalle de salida</div>`;
+    }
+
+    // Incoming products HTML (Entra / Devolución)
+    let incomingHtml = incoming.map(item => `
+      <div style="line-height: 1.15; margin-bottom: 2px;">
+        <span style="font-weight: 800; color: #000;">${item.qty}x</span>
+        <strong style="color: #111; font-family: monospace;">${escapeHtml(item.sku)}</strong>
+        <div style="font-size: 0.85em; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.name)}</div>
+      </div>
+    `).join('');
+    if (!incomingHtml) {
+      incomingHtml = `<div style="color: #666; font-style: italic;">Sin detalle de entrada</div>`;
+    }
+
+    const cleanCustomer = record.customer_name || 'Cliente Particular';
+    const cleanAddress = record.shipping_address || record.sucursal || 'Dirección de destino';
+    const cleanCity = record.shipping_city || record.sucursal || 'SANTIAGO';
+    const cleanPhone = record.customer_phone || 'Sin teléfono';
+    const cleanCommerce = record.comercio || getActiveCommerce() || 'STOCKA LOGÍSTICA';
+    const cleanRef = record.referencia_pedido || 'N/A';
+    const cleanCourier = record.transporte || 'Despacho a Domicilio';
+    const cleanTracking = record.referencia_transporte || 'PENDIENTE';
+
+    return `
+      <div class="exchange-label-card size-${opts.size}" style="
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        background: #ffffff;
+        color: #000000;
+        border: ${isPrint ? '2.5px solid #000000' : '2px solid #1e293b'};
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        overflow: hidden;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.25;
+      ">
+        <!-- 1. Header Banner -->
+        <div style="background: #000000; color: #ffffff; padding: 4px 8px; text-align: center; border-bottom: 2px solid #000000;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.65em; font-weight: 800; letter-spacing: 0.5px; opacity: 0.9;">STOCKA LOGÍSTICA</span>
+            <strong style="font-size: 0.85em; letter-spacing: 1px; text-transform: uppercase;">${escapeHtml(opts.headerTitle || 'ETIQUETA DE CAMBIO')}</strong>
+            <span style="font-size: 0.65em; font-weight: 700; background: #ffffff; color: #000000; padding: 1px 4px; border-radius: 2px;">CAMBIO</span>
+          </div>
+        </div>
+
+        <!-- 2. High Priority Courier Instruction Banner -->
+        <div style="background: #f8fafc; border-bottom: 2px dashed #000000; padding: 3px 6px; text-align: center;">
+          <div style="font-size: 0.72em; font-weight: 900; color: #000000; text-transform: uppercase; letter-spacing: 0.3px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+            <span style="font-size: 1.1em;">⚠️</span>
+            <span>${escapeHtml(opts.courierInstruction || 'ENTREGAR PRODUCTO NUEVO Y RETIRAR PRODUCTO DE CAMBIO SIMULTÁNEAMENTE')}</span>
+          </div>
+        </div>
+
+        <!-- 3. Body Content -->
+        <div style="flex: 1; padding: 4px 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px;">
+          
+          <!-- Recipient / Delivery Info -->
+          <div style="border-bottom: 1.5px solid #000000; padding-bottom: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="font-size: 0.65em; font-weight: 800; color: #444; text-transform: uppercase;">DESTINATARIO / ENTREGA:</span>
+              <span style="font-size: 0.7em; font-weight: 700; color: #000;">Tel: ${escapeHtml(cleanPhone)}</span>
+            </div>
+            <div style="font-size: 0.95em; font-weight: 900; color: #000; margin: 1px 0; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(cleanCustomer)}
+            </div>
+            <div style="font-size: 0.78em; font-weight: 600; color: #111;">
+              ${escapeHtml(cleanAddress)}
+              ${record.shipping_complement ? `<span style="font-weight: 400; color: #444;"> (${escapeHtml(record.shipping_complement)})</span>` : ''}
+            </div>
+            <!-- Large Prominent Commune Box -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; background: #000; color: #fff; padding: 2px 6px; border-radius: 2px;">
+              <span style="font-size: 0.65em; font-weight: 700; letter-spacing: 0.5px;">COMUNA:</span>
+              <strong style="font-size: 0.95em; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;">
+                ${escapeHtml(cleanCity)}
+              </strong>
+            </div>
+          </div>
+
+          <!-- Order Reference & Courier Info Bar -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 0.7em; border-bottom: 1.5px solid #000000; padding-bottom: 4px;">
+            <div>
+              <span style="display: block; font-weight: 700; color: #555;">REMITENTE / TIENDA:</span>
+              <strong style="font-size: 1.05em; color: #000; text-transform: uppercase;">${escapeHtml(cleanCommerce)}</strong>
+              <div style="color: #333;">N° Pedido: <strong style="font-family: monospace; font-size: 1.1em;">${escapeHtml(cleanRef)}</strong></div>
+            </div>
+            <div style="text-align: right;">
+              <span style="display: block; font-weight: 700; color: #555;">COURIER / TRANSPORTE:</span>
+              <strong style="font-size: 0.95em; color: #000;">${escapeHtml(cleanCourier)}</strong>
+              ${cleanTracking && cleanTracking !== 'N/A' ? `
+                <div style="font-family: monospace; font-size: 0.9em; color: #333;">OT: ${escapeHtml(cleanTracking)}</div>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- Barcode Section -->
+          ${opts.includeBarcode ? `
+            <div style="display: flex; justify-content: center; align-items: center; padding: 2px 0; max-height: ${is10x10 ? '38px' : '48px'}; overflow: hidden;">
+              ${barcodeHtml}
+            </div>
+          ` : ''}
+
+          <!-- Exchange Products Comparison Table -->
+          ${opts.includeProductsDetail ? `
+            <div style="border: 1.5px solid #000000; border-radius: 2px; overflow: hidden; margin: 2px 0;">
+              <div style="background: #000000; color: #ffffff; font-size: 0.62em; font-weight: 800; text-transform: uppercase; padding: 2px 4px; text-align: center; letter-spacing: 0.5px;">
+                DETALLE DE PRODUCTOS DEL CAMBIO
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0; font-size: 0.68em;">
+                <!-- 1. Entregar (Sale / Reemplazo) -->
+                <div style="padding: 3px 5px; border-right: 1px solid #000; background: #f0fdf4;">
+                  <div style="font-weight: 800; color: #15803d; border-bottom: 1px dashed #15803d; padding-bottom: 1px; margin-bottom: 2px; display: flex; align-items: center; gap: 2px;">
+                    <span>➡️ ENTREGAR (NUEVO):</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px; max-height: ${is10x10 ? '45px' : '85px'}; overflow: hidden;">
+                    ${outgoingHtml}
+                  </div>
+                </div>
+                <!-- 2. Retirar (Entra / Devolución) -->
+                <div style="padding: 3px 5px; background: #fef2f2;">
+                  <div style="font-weight: 800; color: #b91c1c; border-bottom: 1px dashed #b91c1c; padding-bottom: 1px; margin-bottom: 2px; display: flex; align-items: center; gap: 2px;">
+                    <span>⬅️ RETIRAR (USADO):</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px; max-height: ${is10x10 ? '45px' : '85px'}; overflow: hidden;">
+                    ${incomingHtml}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Comments / Observations if present -->
+          ${opts.includeComments && record.comentarios ? `
+            <div style="border: 1px dashed #666; padding: 2px 5px; border-radius: 2px; font-size: 0.62em; color: #111; background: #fffbeb;">
+              <strong>Observaciones:</strong> ${escapeHtml(record.comentarios)}
+            </div>
+          ` : ''}
+
+          <!-- Signature Block -->
+          ${opts.includeSignature ? `
+            <div style="border: 1px solid #444; border-radius: 2px; padding: 3px 6px; font-size: 0.6em; display: flex; justify-content: space-between; align-items: flex-end; margin-top: 1px;">
+              <div style="width: 65%;">
+                <span style="display: block; font-weight: 700; color: #555;">Firma Cliente (Recepción y Entrega):</span>
+                <div style="border-bottom: 1px solid #000; height: 16px; margin-top: 2px;"></div>
+              </div>
+              <div style="width: 30%; text-align: right;">
+                <span style="display: block; font-weight: 700; color: #555;">Fecha:</span>
+                <div style="border-bottom: 1px solid #000; height: 16px; margin-top: 2px; font-family: monospace;">__/__/202_</div>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- 4. Footer Bar -->
+        <div style="background: #000000; color: #ffffff; padding: 2px 6px; font-size: 0.55em; text-align: center; letter-spacing: 0.5px; font-weight: 600;">
+          STOCKA LOGÍSTICA WMS • LOGÍSTICA INVERSA & RETIROS • WWW.STOCKA.CL
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Updates the Live Preview box for Exchange labels
+   */
+  function renderExchangeLivePreview() {
+    const previewWrapper = document.getElementById('exchange-live-preview-box-wrapper');
+    const aspectBadge = document.getElementById('exchange-preview-aspect-badge');
+    const indicator = document.getElementById('exchange-preview-indicator');
+    const btnTotalCount = document.getElementById('exchange-btn-total-count');
+    const btnZplCount = document.getElementById('exchange-btn-zpl-count');
+
+    if (!previewWrapper) return;
+
+    // Get list of selected records
+    const selectedList = (exchangeState.reverseRecords || []).filter(r => exchangeState.selectedReverseIds.has(r.id));
+    const totalSelected = selectedList.length;
+
+    if (btnTotalCount) btnTotalCount.textContent = totalSelected;
+    if (btnZplCount) btnZplCount.textContent = totalSelected;
+
+    // Determine preview record
+    let recordToPreview = null;
+    if (totalSelected > 0) {
+      if (exchangeState.previewIndex >= totalSelected) {
+        exchangeState.previewIndex = 0;
+      }
+      recordToPreview = selectedList[exchangeState.previewIndex];
+      if (indicator) {
+        indicator.textContent = `${exchangeState.previewIndex + 1} de ${totalSelected}`;
+      }
+    } else if (exchangeState.reverseRecords && exchangeState.reverseRecords.length > 0) {
+      recordToPreview = exchangeState.reverseRecords[0];
+      if (indicator) {
+        indicator.textContent = `0 sel (Ejemplo 1)`;
+      }
+    } else {
+      if (indicator) {
+        indicator.textContent = `0 de 0`;
+      }
+    }
+
+    // Dimensions for preview
+    let w = '200px';
+    let h = '300px';
+    let fontSize = '11px';
+
+    if (exchangeState.size === '10x10') {
+      w = '230px';
+      h = '230px';
+      fontSize = '10px';
+      if (aspectBadge) aspectBadge.textContent = '10 x 10 cm';
+    } else {
+      w = '200px';
+      h = '300px';
+      fontSize = '11px';
+      if (aspectBadge) aspectBadge.textContent = '10 x 15 cm';
+    }
+
+    previewWrapper.innerHTML = `
+      <div class="exchange-preview-sheet" style="
+        position: relative;
+        width: ${w};
+        height: ${h};
+        background: #ffffff;
+        box-shadow: var(--shadow-md);
+        border-radius: 4px;
+        box-sizing: border-box;
+        overflow: hidden;
+        font-size: ${fontSize};
+      ">
+        ${renderSingleExchangeLabel(recordToPreview, exchangeState, false)}
+      </div>
+    `;
+  }
+
+  /**
    * Bind event listeners for the bulk label generator layout
    */
   function initGeneratorListeners() {
+
     // 1. Tab Switching Listeners
     const btnTabCatalog = document.getElementById('btn-label-tab-catalog');
     const btnTabFragile = document.getElementById('btn-label-tab-fragile');
     const btnTabExpiry = document.getElementById('btn-label-tab-expiry');
+    const btnTabExchange = document.getElementById('btn-label-tab-exchange');
     const tabCatalogContent = document.getElementById('label-tab-catalog-content');
     const tabFragileContent = document.getElementById('label-tab-fragile-content');
     const tabExpiryContent = document.getElementById('label-tab-expiry-content');
+    const tabExchangeContent = document.getElementById('label-tab-exchange-content');
 
     const switchLabelTab = (tab) => {
       currentLabelTab = tab;
@@ -1843,7 +2584,8 @@ import supabase from './supabase.js';
       const tabItems = [
         { btn: btnTabCatalog, id: 'catalog', activeColor: '#ffffff', inactiveColor: 'var(--color-primary)' },
         { btn: btnTabFragile, id: 'fragile', activeColor: '#ffffff', inactiveColor: 'var(--color-warning)' },
-        { btn: btnTabExpiry, id: 'expiry', activeColor: '#ffffff', inactiveColor: 'var(--color-primary)' }
+        { btn: btnTabExpiry, id: 'expiry', activeColor: '#ffffff', inactiveColor: 'var(--color-primary)' },
+        { btn: btnTabExchange, id: 'exchange', activeColor: '#ffffff', inactiveColor: 'var(--color-success)' }
       ];
 
       tabItems.forEach(item => {
@@ -1862,6 +2604,7 @@ import supabase from './supabase.js';
       if (tabCatalogContent) tabCatalogContent.style.display = (tab === 'catalog') ? 'block' : 'none';
       if (tabFragileContent) tabFragileContent.style.display = (tab === 'fragile') ? 'block' : 'none';
       if (tabExpiryContent) tabExpiryContent.style.display = (tab === 'expiry') ? 'block' : 'none';
+      if (tabExchangeContent) tabExchangeContent.style.display = (tab === 'exchange') ? 'block' : 'none';
 
       if (tab === 'catalog') {
         updateQueueUI();
@@ -1871,12 +2614,15 @@ import supabase from './supabase.js';
       } else if (tab === 'expiry') {
         renderExpiryCopiesButtonGroup();
         renderExpiryLivePreview();
+      } else if (tab === 'exchange') {
+        initExchangeTab();
       }
     };
 
     btnTabCatalog?.addEventListener('click', () => switchLabelTab('catalog'));
     btnTabFragile?.addEventListener('click', () => switchLabelTab('fragile'));
     btnTabExpiry?.addEventListener('click', () => switchLabelTab('expiry'));
+    btnTabExchange?.addEventListener('click', () => switchLabelTab('exchange'));
 
     // 2. Catalog Tab Listeners
     const sizeSelect = document.getElementById('global-label-size');
@@ -2374,6 +3120,229 @@ import supabase from './supabase.js';
     const btnDownloadExpiryZpl = document.getElementById('btn-download-expiry-zpl');
     btnDownloadExpiryZpl?.addEventListener('click', () => {
       window.showExpiryZPLModal(expiryState);
+    });
+
+    // 4. Exchange Tab Listeners (Logística Inversa)
+    const exchangeSearchInput = document.getElementById('exchange-search-input');
+    const exchangeStatusFilter = document.getElementById('exchange-status-filter');
+    const btnExchangeClearFilters = document.getElementById('btn-exchange-clear-filters');
+    const btnRefreshExchange = document.getElementById('btn-refresh-exchange-orders');
+    const exchangeSelectAllCb = document.getElementById('exchange-select-all-cb');
+    const btnExchangeDeselectAll = document.getElementById('btn-exchange-deselect-all');
+    const exchangeOrdersTbody = document.getElementById('exchange-orders-tbody');
+
+    const exchangeLabelSize = document.getElementById('exchange-label-size');
+    const exchangeHeaderTitle = document.getElementById('exchange-header-title');
+    const exchangeCourierInstruction = document.getElementById('exchange-courier-instruction');
+    const exchangeOptBarcode = document.getElementById('exchange-opt-barcode');
+    const exchangeOptProducts = document.getElementById('exchange-opt-products');
+    const exchangeOptComments = document.getElementById('exchange-opt-comments');
+    const exchangeOptSignature = document.getElementById('exchange-opt-signature');
+
+    const btnExchangePrev = document.getElementById('btn-exchange-prev-preview');
+    const btnExchangeNext = document.getElementById('btn-exchange-next-preview');
+    const btnEmitExchange = document.getElementById('btn-emit-exchange-labels');
+    const btnDownloadExchangeZpl = document.getElementById('btn-download-exchange-zpl');
+    const btnViewExchangeZpl = document.getElementById('btn-view-exchange-zpl');
+
+    // Search with debounce
+    let searchDebounceTimer = null;
+    exchangeSearchInput?.addEventListener('input', (e) => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        exchangeState.searchQuery = e.target.value;
+        renderExchangeTableRows();
+      }, 250);
+    });
+
+    // Status filter
+    exchangeStatusFilter?.addEventListener('change', (e) => {
+      exchangeState.statusFilter = e.target.value;
+      renderExchangeTableRows();
+    });
+
+    // Clear filters
+    btnExchangeClearFilters?.addEventListener('click', () => {
+      if (exchangeSearchInput) exchangeSearchInput.value = '';
+      if (exchangeStatusFilter) exchangeStatusFilter.value = 'all';
+      exchangeState.searchQuery = '';
+      exchangeState.statusFilter = 'all';
+      renderExchangeTableRows();
+    });
+
+    // Refresh orders
+    btnRefreshExchange?.addEventListener('click', () => {
+      fetchReverseLogisticsExchanges();
+    });
+
+    // Select all visible
+    exchangeSelectAllCb?.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const visibleCbs = document.querySelectorAll('.exchange-row-cb');
+      visibleCbs.forEach(cb => {
+        const id = cb.getAttribute('data-id');
+        if (id) {
+          if (isChecked) {
+            exchangeState.selectedReverseIds.add(id);
+          } else {
+            exchangeState.selectedReverseIds.delete(id);
+          }
+        }
+      });
+      renderExchangeTableRows();
+      renderExchangeLivePreview();
+    });
+
+    // Deselect all
+    btnExchangeDeselectAll?.addEventListener('click', () => {
+      exchangeState.selectedReverseIds.clear();
+      renderExchangeTableRows();
+      renderExchangeLivePreview();
+    });
+
+    // Table rows selection & preview delegation
+    exchangeOrdersTbody?.addEventListener('click', (e) => {
+      const target = e.target;
+
+      // Click on preview eye button
+      const previewBtn = target.closest('.btn-preview-single-exchange');
+      if (previewBtn) {
+        e.stopPropagation();
+        const id = previewBtn.getAttribute('data-id');
+        const rec = exchangeState.reverseRecords.find(r => r.id === id);
+        if (rec) {
+          if (!exchangeState.selectedReverseIds.has(id)) {
+            exchangeState.selectedReverseIds.add(id);
+            renderExchangeTableRows();
+          }
+          const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+          const idx = selectedList.findIndex(r => r.id === id);
+          exchangeState.previewIndex = Math.max(0, idx);
+          renderExchangeLivePreview();
+        }
+        return;
+      }
+
+      // Click on row or row checkbox
+      const row = target.closest('.exchange-order-row');
+      if (!row) return;
+
+      const id = row.getAttribute('data-id');
+      if (!id) return;
+
+      const cb = row.querySelector('.exchange-row-cb');
+      if (target === cb) {
+        if (cb.checked) {
+          exchangeState.selectedReverseIds.add(id);
+        } else {
+          exchangeState.selectedReverseIds.delete(id);
+        }
+      } else {
+        if (exchangeState.selectedReverseIds.has(id)) {
+          exchangeState.selectedReverseIds.delete(id);
+        } else {
+          exchangeState.selectedReverseIds.add(id);
+        }
+      }
+
+      renderExchangeTableRows();
+      renderExchangeLivePreview();
+    });
+
+    // Size change
+    exchangeLabelSize?.addEventListener('change', (e) => {
+      exchangeState.size = e.target.value;
+      renderExchangeLivePreview();
+    });
+
+    // Title input
+    exchangeHeaderTitle?.addEventListener('input', (e) => {
+      exchangeState.headerTitle = e.target.value;
+      renderExchangeLivePreview();
+    });
+
+    // Courier instruction input
+    exchangeCourierInstruction?.addEventListener('input', (e) => {
+      exchangeState.courierInstruction = e.target.value;
+      renderExchangeLivePreview();
+    });
+
+    // Options toggles
+    exchangeOptBarcode?.addEventListener('change', (e) => {
+      exchangeState.includeBarcode = e.target.checked;
+      renderExchangeLivePreview();
+    });
+    exchangeOptProducts?.addEventListener('change', (e) => {
+      exchangeState.includeProductsDetail = e.target.checked;
+      renderExchangeLivePreview();
+    });
+    exchangeOptComments?.addEventListener('change', (e) => {
+      exchangeState.includeComments = e.target.checked;
+      renderExchangeLivePreview();
+    });
+    exchangeOptSignature?.addEventListener('change', (e) => {
+      exchangeState.includeSignature = e.target.checked;
+      renderExchangeLivePreview();
+    });
+
+    // Preview navigation
+    btnExchangePrev?.addEventListener('click', () => {
+      const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+      if (selectedList.length <= 1) return;
+      exchangeState.previewIndex = (exchangeState.previewIndex - 1 + selectedList.length) % selectedList.length;
+      renderExchangeLivePreview();
+    });
+
+    btnExchangeNext?.addEventListener('click', () => {
+      const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+      if (selectedList.length <= 1) return;
+      exchangeState.previewIndex = (exchangeState.previewIndex + 1) % selectedList.length;
+      renderExchangeLivePreview();
+    });
+
+    // Print button
+    btnEmitExchange?.addEventListener('click', () => {
+      const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+      if (selectedList.length === 0) {
+        Swal.fire({
+          title: 'Sin pedidos seleccionados',
+          text: 'Por favor selecciona al menos un pedido de cambio en la lista para imprimir.',
+          icon: 'warning',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+      window.printExchangeLabels(selectedList, exchangeState);
+    });
+
+    // Download ZPL
+    btnDownloadExchangeZpl?.addEventListener('click', () => {
+      const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+      if (selectedList.length === 0) {
+        Swal.fire({
+          title: 'Sin pedidos seleccionados',
+          text: 'Por favor selecciona al menos un pedido de cambio en la lista para descargar su código ZPL.',
+          icon: 'warning',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+      window.downloadExchangeZPLFile(selectedList, exchangeState);
+    });
+
+    // View ZPL
+    btnViewExchangeZpl?.addEventListener('click', () => {
+      const selectedList = exchangeState.reverseRecords.filter(r => exchangeState.selectedReverseIds.has(r.id));
+      if (selectedList.length === 0) {
+        Swal.fire({
+          title: 'Sin pedidos seleccionados',
+          text: 'Por favor selecciona al menos un pedido de cambio en la lista.',
+          icon: 'warning',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+      window.showExchangeZPLModal(selectedList, exchangeState);
     });
   }
 
@@ -3904,6 +4873,366 @@ import supabase from './supabase.js';
         window.downloadExpiryZPLFile(opts);
       }
     });
+  };
+
+  /**
+   * Main Exchange Label printing engine with multi-order and exact physical boundaries support.
+   */
+  window.printExchangeLabels = function (records, opts) {
+    if (!records || records.length === 0) return;
+
+    const list = Array.isArray(records) ? records : [records];
+    const selectedSize = (opts && opts.size) || '10x15';
+
+    let sizeCSS = '10cm 15cm';
+    let sheetWidth = '10cm';
+    let sheetHeight = '15cm';
+    let baseFontSize = '12px';
+
+    if (selectedSize === '10x10') {
+      sizeCSS = '10cm 10cm';
+      sheetWidth = '10cm';
+      sheetHeight = '10cm';
+      baseFontSize = '11px';
+    }
+
+    let pagesHTML = '';
+    list.forEach(rec => {
+      pagesHTML += `
+        <div class="exchange-print-page size-${selectedSize}">
+          ${renderSingleExchangeLabel(rec, opts || exchangeState, true)}
+        </div>
+      `;
+    });
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Imprimir Etiquetas de Cambio - WMS Stocka</title>
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .exchange-print-page {
+            box-sizing: border-box;
+            width: ${sheetWidth};
+            height: ${sheetHeight};
+            padding: 2.5mm;
+            position: relative;
+            background: #fff;
+            page-break-after: always;
+            overflow: hidden;
+            display: flex;
+            font-size: ${baseFontSize};
+          }
+
+          .exchange-print-page:last-child {
+            page-break-after: avoid;
+          }
+
+          .exchange-label-card {
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            border: 2.5px solid #000 !important;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+          }
+
+          @page {
+            size: ${sizeCSS};
+            margin: 0;
+          }
+
+          @media print {
+            body {
+              background: #fff;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${pagesHTML}
+      </body>
+      </html>
+    `;
+
+    // Deploy hidden print Frame
+    const iframe = document.createElement('iframe');
+    iframe.id = 'wms-print-exchange-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    // Ingress content
+    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    // Trigger printing dialog
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (err) {
+        console.error("Failed to open native print dialog for exchange labels:", err);
+        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
+      } finally {
+        setTimeout(() => {
+          const element = document.getElementById('wms-print-exchange-iframe');
+          if (element) element.remove();
+        }, 1000);
+      }
+    }, 450);
+  };
+
+  /**
+   * Compiles Zebra ZPL II code for Exchange Shipping Labels.
+   */
+  window.compileExchangeZPL = function (recordOrRecords, opts) {
+    const list = Array.isArray(recordOrRecords) ? recordOrRecords : [recordOrRecords];
+    const options = opts || exchangeState;
+    const is10x10 = options.size === '10x10';
+
+    let pw = 800; // 10cm at 203 DPI
+    let ll = is10x10 ? 800 : 1200; // 10cm or 15cm
+
+    let zpl = '';
+
+    list.forEach(record => {
+      if (!record) return;
+
+      const cleanTitle = (options.headerTitle || 'ETIQUETA DE CAMBIO').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanInstruction = (options.courierInstruction || 'ENTREGAR PRODUCTO NUEVO Y RETIRAR PRODUCTO DE CAMBIO').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanCustomer = (record.customer_name || 'CLIENTE PARTICULAR').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanAddress = (record.shipping_address || record.sucursal || 'DIRECCION').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanCity = (record.shipping_city || record.sucursal || 'SANTIAGO').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanPhone = (record.customer_phone || '').replace(/[\^\~]/g, '');
+      const cleanCommerce = (record.comercio || 'STOCKA').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanRef = (record.referencia_pedido || 'N/A').replace(/[\^\~]/g, '');
+      const cleanCourier = (record.transporte || 'DESPACHO').toUpperCase().replace(/[\^\~]/g, '');
+      const cleanTracking = (record.referencia_transporte || 'PENDIENTE').replace(/[\^\~]/g, '');
+      const cleanComments = (record.comentarios || '').replace(/[\^\~]/g, '').slice(0, 80);
+
+      const rawCode = String(record.referencia_pedido || record.referencia_transporte || record.id || '').trim();
+      const cleanBarcode = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
+
+      const { incoming, outgoing } = parseExchangeProducts(record);
+
+      zpl += `^XA\n`;
+      zpl += `^CI28\n`; // UTF-8
+      zpl += `^PW${pw}\n`;
+      zpl += `^LL${ll}\n`;
+      zpl += `^LH0,0\n`;
+
+      // 1. Outer Frame
+      zpl += `^FO16,16^GB768,${ll - 32},4,B,0^FS\n`;
+
+      // 2. Inverted Header Banner
+      zpl += `^FO16,16^GB768,54,54,B,0^FS\n`;
+      zpl += `^FO26,28^A0N,28,26^FR^FB748,1,0,C,0^FD*** ${cleanTitle} ***^FS\n`;
+
+      // 3. High Priority Instruction Box
+      zpl += `^FO24,78^GB752,42,2,B,0^FS\n`;
+      zpl += `^FO30,90^A0N,20,18^FB740,1,0,C,0^FD! ${cleanInstruction} !^FS\n`;
+
+      // 4. Destinatario Section
+      zpl += `^FO30,128^A0N,20,18^FDDESTINATARIO / ENTREGA:^FS\n`;
+      zpl += `^FO30,152^A0N,28,26^FD${cleanCustomer}^FS\n`;
+      zpl += `^FO30,184^A0N,22,20^FD${cleanAddress}^FS\n`;
+
+      // Big Bold Commune Inverted Strip
+      zpl += `^FO28,212^GB744,38,38,B,0^FS\n`;
+      zpl += `^FO38,220^A0N,24,22^FR^FDCOMUNA: ${cleanCity}^FS\n`;
+
+      if (cleanPhone) {
+        zpl += `^FO30,256^A0N,20,18^FDTEL: ${cleanPhone}^FS\n`;
+      }
+
+      // Divider Line
+      zpl += `^FO16,282^GB768,2,2,B,0^FS\n`;
+
+      // 5. Origin Store & Courier Info
+      zpl += `^FO30,292^A0N,22,20^FDPEDIDO: #${cleanRef}   TIENDA: ${cleanCommerce}^FS\n`;
+      zpl += `^FO30,318^A0N,20,18^FDCOURIER: ${cleanCourier}   OT: ${cleanTracking}^FS\n`;
+
+      // 6. Barcode
+      if (options.includeBarcode) {
+        zpl += `^FO180,350^BY3,2.5,65^BCN,65,Y,N,N^FD${cleanBarcode}^FS\n`;
+      }
+
+      // 7. Products Section
+      let curY = options.includeBarcode ? 450 : 355;
+      zpl += `^FO16,${curY}^GB768,2,2,B,0^FS\n`;
+      curY += 8;
+
+      if (options.includeProductsDetail) {
+        // Outgoing (Sale / Reemplazo)
+        zpl += `^FO30,${curY}^A0N,22,20^FD>> ENTREGAR AL CLIENTE (SALE / REEMPLAZO):^FS\n`;
+        curY += 26;
+        outgoing.slice(0, 3).forEach(item => {
+          const cleanItem = `${item.qty}x ${item.sku} - ${item.name}`.slice(0, 48).replace(/[\^\~]/g, '');
+          zpl += `^FO45,${curY}^A0N,19,17^FD* ${cleanItem}^FS\n`;
+          curY += 22;
+        });
+
+        curY += 4;
+        zpl += `^FO24,${curY}^GB752,1,1,B,0^FS\n`;
+        curY += 8;
+
+        // Incoming (Entra / Devolución)
+        zpl += `^FO30,${curY}^A0N,22,20^FD<< RETIRAR DEL CLIENTE (ENTRA / DEVOLUCION):^FS\n`;
+        curY += 26;
+        incoming.slice(0, 3).forEach(item => {
+          const cleanItem = `${item.qty}x ${item.sku} - ${item.name}`.slice(0, 48).replace(/[\^\~]/g, '');
+          zpl += `^FO45,${curY}^A0N,19,17^FD* ${cleanItem}^FS\n`;
+          curY += 22;
+        });
+      }
+
+      // 8. Comments
+      if (options.includeComments && cleanComments) {
+        curY += 6;
+        zpl += `^FO30,${curY}^A0N,18,16^FDOBS: ${cleanComments}^FS\n`;
+        curY += 24;
+      }
+
+      // 9. Signature Box at bottom
+      if (options.includeSignature) {
+        const sigY = Math.max(curY + 10, ll - 110);
+        zpl += `^FO28,${sigY}^GB744,60,1,B,0^FS\n`;
+        zpl += `^FO38,${sigY + 10}^A0N,18,16^FDFIRMA CLIENTE (RETIRO Y ENTREGA): ____________________^FS\n`;
+        zpl += `^FO38,${sigY + 36}^A0N,15,13^FDWMS STOCKA - LOGISTICA INVERSA Y DESPACHOS^FS\n`;
+      }
+
+      zpl += `^XZ\n`;
+    });
+
+    return zpl;
+  };
+
+  /**
+   * Compiles and downloads a ZPL file for Exchange labels.
+   */
+  window.downloadExchangeZPLFile = function (records, opts) {
+    const zplCode = window.compileExchangeZPL(records, opts);
+    const blob = new Blob([zplCode], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `etiquetas_cambio_${Date.now()}.zpl`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  /**
+   * Shows a copyable & downloadable modal for Exchange ZPL code.
+   */
+  window.showExchangeZPLModal = function (records, opts) {
+    const zplCode = window.compileExchangeZPL(records, opts);
+
+    Swal.fire({
+      title: 'Código ZPL II - Etiquetas de Cambio',
+      html: `
+        <div style="text-align: left; margin-bottom: 0.75rem;">
+          <span style="font-size: 0.85rem; color: var(--color-text-muted);">Código listo para impresoras térmicas Zebra compatibles con ZPL II:</span>
+        </div>
+        <textarea id="swal-exchange-zpl-code-area" readonly style="
+          width: 100%; 
+          height: 180px; 
+          font-family: monospace; 
+          font-size: 0.8rem; 
+          padding: 0.5rem; 
+          background: var(--color-bg); 
+          color: var(--color-text-main); 
+          border: 1px solid var(--color-border); 
+          border-radius: var(--radius-md); 
+          resize: none;
+          box-sizing: border-box;
+        ">${escapeHtml(zplCode)}</textarea>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-clipboard-line" style="margin-right:0.25rem;"></i> Copiar Código',
+      cancelButtonText: 'Cerrar',
+      denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar ZPL',
+      showDenyButton: true,
+      confirmButtonColor: 'var(--color-success)',
+      denyButtonColor: 'var(--color-primary)',
+      width: '650px'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const area = document.getElementById('swal-exchange-zpl-code-area');
+        if (area) {
+          area.select();
+          navigator.clipboard.writeText(area.value);
+        }
+        Swal.fire({
+          title: '¡Copiado!',
+          text: 'Código ZPL copiado al portapapeles.',
+          icon: 'success',
+          timer: 1500,
+          showConfirmButton: false
+        });
+      } else if (result.isDenied) {
+        window.downloadExchangeZPLFile(records, opts);
+      }
+    });
+  };
+
+  /**
+   * Helper to print a single exchange label from outside the module (e.g. from reverse logistics table)
+   */
+  window.printSingleExchangeLabel = async function (dataOrId, opts) {
+    try {
+      let record = null;
+      if (typeof dataOrId === 'object' && dataOrId !== null) {
+        record = dataOrId;
+      } else if (typeof dataOrId === 'string') {
+        try {
+          record = JSON.parse(decodeURIComponent(dataOrId));
+        } catch (e) {
+          // Query Supabase by ID
+          const { data, error } = await supabase
+            .from('reverse_logistics')
+            .select('*')
+            .eq('id', dataOrId)
+            .single();
+          if (error) throw error;
+          record = data;
+        }
+      }
+
+      if (!record) {
+        throw new Error('No se encontró la información del pedido de cambio.');
+      }
+
+      window.printExchangeLabels([record], opts || exchangeState);
+    } catch (err) {
+      console.error('Error in window.printSingleExchangeLabel:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se pudo generar la etiqueta de cambio: ' + err.message, 'error');
+      } else {
+        alert('Error: ' + err.message);
+      }
+    }
   };
 
   /**

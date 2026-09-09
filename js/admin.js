@@ -1595,6 +1595,54 @@ window.buildPickerObservation = function(order, prodDescription) {
   }
 };
 
+// Helper para construir la nota estandarizada de pedidos creados desde Logística Inversa
+window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProducts, outgoingProducts, comments }) {
+  const lines = [];
+  lines.push(`[LOGÍSTICA INVERSA - ${type || 'MOVIMIENTO'}]`);
+  if (refPedido) {
+    lines.push(`• Ref. Pedido Original: ${refPedido}`);
+  }
+  
+  if (type === 'CAMBIO') {
+    if (incomingProducts && incomingProducts.length > 0) {
+      lines.push('• Producto(s) que regresa(n) a bodega:');
+      incomingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_devuelto || 'Producto';
+        const motivo = p.comentario ? ` (Motivo: ${p.comentario})` : '';
+        lines.push(`  - ${qty}x ${sku}${name}${motivo}`);
+      });
+    }
+    if (outgoingProducts && outgoingProducts.length > 0) {
+      lines.push('• Producto(s) de reemplazo (a enviar):');
+      outgoingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_reemplazo || 'Producto';
+        lines.push(`  - ${qty}x ${sku}${name}`);
+      });
+    }
+  } else if (type === 'DEVOLUCION' || type === 'DEVOLUCIÓN') {
+    if (incomingProducts && incomingProducts.length > 0) {
+      lines.push('• Producto(s) a recibir en bodega:');
+      incomingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_devuelto || 'Producto';
+        const motivo = p.comentario ? ` (Motivo: ${p.comentario})` : '';
+        lines.push(`  - ${qty}x ${sku}${name}${motivo}`);
+      });
+    }
+  }
+
+  if (comments && comments.trim()) {
+    lines.push(`• Motivo / Observaciones: ${comments.trim()}`);
+  }
+
+  return lines.join('\n');
+};
+
 // Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
 window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (!order) return '-';
@@ -3998,6 +4046,9 @@ async function renderAdminOrders() {
             <button id="wms-bulk-print-labels-btn" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
             </button>
+            <button onclick="window.wmsOpenCreateManifestModal()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.05);" title="Generar o consultar manifiestos de retiro">
+              <i class="ri-file-paper-2-line"></i> Manifiesto
+            </button>
             <button onclick="window.bulkSyncLightDataTracking(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05);" title="Buscar y vincular tracking de LightData para pedidos seleccionados">
               <i class="ri-radar-line"></i> Sincronizar LightData
             </button>
@@ -5546,6 +5597,9 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: var(--color-primary); color: var(--color-primary); transition: all 0.2s;">
                       <i class="ri-printer-line"></i> Etiqueta Stocka
                     </button>
+                    <button onclick="window.wmsCreateManifestFromSingleOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.04); transition: all 0.2s;" title="Generar manifiesto de retiro para este pedido">
+                      <i class="ri-file-paper-2-line"></i> Crear Manifiesto
+                    </button>
                   </div>
                 </div>
 
@@ -5848,6 +5902,9 @@ function renderWmsBulkActionsBar() {
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem;">
+          <button onclick="window.wmsCreateManifestFromSelected()" class="btn" style="background: #2563eb; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" title="Crear manifiesto de retiro con los pedidos seleccionados">
+            <i class="ri-file-paper-2-line"></i> Crear Manifiesto
+          </button>
           <button onclick="window.bulkSetWmsOrderAgenda()" class="btn" style="background: #ff9800; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar agenda a los pedidos seleccionados">
             <i class="ri-calendar-check-line"></i> Agenda
           </button>
@@ -6552,6 +6609,162 @@ window.applyBulkWmsStatus = async function() {
       console.error(err);
       alert('Error en la actualización masiva: ' + err.message);
     }
+  }
+};
+
+// ==========================================
+// INTEGRACIÓN GESTOR DE PEDIDOS <-> CENTRO DE MANIFIESTOS
+// ==========================================
+
+window.wmsCreateManifestFromSelected = function () {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) {
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Selección vacía',
+        text: 'Por favor selecciona al menos un pedido con las casillas de verificación para generar un manifiesto.',
+        confirmButtonColor: '#2563eb'
+      });
+    } else {
+      alert('Por favor selecciona al menos un pedido para generar un manifiesto.');
+    }
+    return;
+  }
+
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  if (typeof window.openCreateManifestModal === 'function') {
+    window.openCreateManifestModal(selectedOrders.length > 0 ? selectedOrders : ids);
+  } else {
+    if (window.Swal) {
+      Swal.fire('Error', 'El módulo de manifiestos no está cargado en el sistema.', 'error');
+    } else {
+      alert('Error: El módulo de manifiestos no está cargado.');
+    }
+  }
+};
+
+window.wmsOpenCreateManifestModal = function () {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length > 0) {
+    const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+    if (typeof window.openCreateManifestModal === 'function') {
+      window.openCreateManifestModal(selectedOrders.length > 0 ? selectedOrders : ids);
+    }
+  } else {
+    if (typeof window.openCreateManifestModal === 'function') {
+      window.openCreateManifestModal();
+    } else {
+      if (window.Swal) {
+        Swal.fire('Error', 'El módulo de manifiestos no está cargado en el sistema.', 'error');
+      } else {
+        alert('Error: El módulo de manifiestos no está cargado.');
+      }
+    }
+  }
+};
+
+window.wmsCreateManifestFromSingleOrder = function (orderId) {
+  const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (typeof window.openCreateManifestModal === 'function') {
+    window.openCreateManifestModal(order ? [order] : [orderId]);
+  } else {
+    if (window.Swal) {
+      Swal.fire('Error', 'El módulo de manifiestos no está cargado en el sistema.', 'error');
+    } else {
+      alert('Error: El módulo de manifiestos no está cargado.');
+    }
+  }
+};
+
+// Callback ejecutado tras generar exitosamente un manifiesto
+window.onManifestCreated = async function (newManifest, shipmentIds) {
+  if (!shipmentIds || !Array.isArray(shipmentIds) || shipmentIds.length === 0) return;
+
+  // Identificar pedidos coincidentes en el Gestor de Pedidos (WMS)
+  const matchingOrders = (window.loadedOrders || []).filter(o =>
+    shipmentIds.includes(o.id) ||
+    (o.external_order_number && shipmentIds.includes(o.external_order_number)) ||
+    (o.tracking && shipmentIds.includes(o.tracking)) ||
+    (o.tracking_number && shipmentIds.includes(o.tracking_number))
+  );
+
+  const matchingIds = matchingOrders.map(o => o.id);
+
+  if (matchingIds.length > 0 && window.Swal) {
+    const result = await Swal.fire({
+      title: '¿Marcar pedidos como Despachados?',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p>El manifiesto <strong>${window.escapeHtml ? window.escapeHtml(newManifest.code) : newManifest.code}</strong> fue generado exitosamente con <strong>${newManifest.total_orders}</strong> envíos y <strong>${newManifest.total_packages}</strong> bultos.</p>
+          <p>Se detectaron <strong>${matchingIds.length}</strong> de estos pedidos en el Gestor de Pedidos. ¿Deseas actualizar su estado WMS a <strong>"Despachado"</strong> de forma automática?</p>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: '<i class="ri-truck-line"></i> Sí, marcar como Despachado',
+      cancelButtonText: 'Mantener estado actual'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const updateData = {
+          estado_wms: 'Despachado',
+          status: 'despachado'
+        };
+        if (newManifest.courier && newManifest.courier !== 'Por Asignar') {
+          updateData.operador = newManifest.courier;
+        }
+
+        const { error } = await supabase
+          .from('orders')
+          .update(updateData)
+          .in('id', matchingIds);
+
+        if (error) throw error;
+
+        // Actualizar en memoria local
+        matchingIds.forEach(id => {
+          const ord = (window.loadedOrders || []).find(o => o.id === id);
+          if (ord) {
+            ord.estado_wms = 'Despachado';
+            ord.status = 'despachado';
+            if (newManifest.courier && newManifest.courier !== 'Por Asignar') {
+              ord.operador = newManifest.courier;
+            }
+          }
+          window.wmsSelectedOrderIds?.delete(id);
+        });
+
+        const cbAll = document.getElementById('wms-select-all');
+        if (cbAll && window.wmsSelectedOrderIds?.size === 0) cbAll.checked = false;
+
+        if (typeof applyWmsFiltersAndRender === 'function') {
+          applyWmsFiltersAndRender();
+        } else if (typeof renderAdminOrders === 'function') {
+          renderAdminOrders();
+        }
+
+        Swal.fire({
+          icon: 'success',
+          title: '¡Pedidos Despachados!',
+          text: `Se actualizaron ${matchingIds.length} pedidos a "Despachado" vinculados al manifiesto ${newManifest.code}.`,
+          timer: 2500,
+          showConfirmButton: false
+        });
+      } catch (err) {
+        console.error('[Manifiestos -> Gestor] Error al actualizar estado a Despachado:', err);
+        Swal.fire('Error', 'No se pudieron actualizar los pedidos a Despachado: ' + err.message, 'error');
+      }
+    }
+  }
+
+  // Limpiar selección de los pedidos manifestados
+  shipmentIds.forEach(id => window.wmsSelectedOrderIds?.delete(id));
+  if (typeof renderWmsBulkActionsBar === 'function') {
+    renderWmsBulkActionsBar();
   }
 };
 
@@ -44952,11 +45165,62 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
       throw new Error(result.error || `Error del servidor: ${response.status}`);
     }
     
-    // Guardar fecha de última notificación en base de datos local
+    // Guardar fecha de última notificación y sincronizar estados de cobranza automáticamente
     const now = new Date().toISOString();
+    const emailUpdates = { 
+      last_notified_at: now,
+      updated_at: now
+    };
+
+    try {
+      const { data: currRec } = await supabase
+        .from('billing_records')
+        .select('*')
+        .eq('id', recordId)
+        .maybeSingle();
+
+      if (currRec) {
+        if (serviceType === 'fulfillment' || serviceType === 'both') {
+          if (currRec.desglose_fulfillment !== 'Enviado' && currRec.desglose_fulfillment !== 'Aprobado') {
+            emailUpdates.desglose_fulfillment = 'Enviado';
+          }
+          if (!currRec.pago_fulfillment || currRec.pago_fulfillment === 'Por solicitar') {
+            emailUpdates.pago_fulfillment = 'En espera';
+          }
+          if (!currRec.factura_fulfillment || currRec.factura_fulfillment === 'Esperando') {
+            emailUpdates.factura_fulfillment = 'Facturar';
+          }
+          if (!currRec.fecha_limite) {
+            const detailDue = currRec.fulfillment_details?.invoiceDates?.dueDate;
+            if (detailDue) {
+              emailUpdates.fecha_limite = detailDue;
+            } else {
+              const d = new Date();
+              d.setDate(d.getDate() + 5);
+              emailUpdates.fecha_limite = d.toISOString().split('T')[0];
+            }
+          }
+        }
+
+        if (serviceType === 'enviame' || serviceType === 'both') {
+          if (!currRec.pago_enviame || currRec.pago_enviame === 'Por solicitar') {
+            emailUpdates.pago_enviame = 'En espera';
+          }
+          if (!currRec.factura_enviame || currRec.factura_enviame === 'Esperando') {
+            emailUpdates.factura_enviame = 'Facturar';
+          }
+          if (!currRec.fecha_limite_enviame && emailUpdates.fecha_limite) {
+            emailUpdates.fecha_limite_enviame = emailUpdates.fecha_limite;
+          }
+        }
+      }
+    } catch (eCheck) {
+      console.warn('Error verificando registro antes de actualizar tras email:', eCheck);
+    }
+
     await supabase
       .from('billing_records')
-      .update({ last_notified_at: now })
+      .update(emailUpdates)
       .eq('id', recordId);
 
     document.getElementById('modal-send-billing-email').remove();
@@ -56482,6 +56746,9 @@ async function fetchAndRenderAdminReturnsData() {
             <td>
               <div style="display: flex; gap: 0.35rem; align-items: center;">
                 <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+                ${r.tipo_movimiento === 'CAMBIO' ? `
+                  <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); background: var(--color-surface);" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
+                ` : ''}
                 ${confirmAction}
                 <button class="btn btn-outline" onclick="window.deleteAdminReturnRecord('${r.id}', '${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); background: var(--color-surface);" title="Eliminar registro">
                   <i class="ri-delete-bin-line"></i>
@@ -59133,12 +59400,27 @@ async function handleRloFormSubmit(e) {
 
   const costText = document.getElementById('rlo-cost-value').textContent || '$0 c/IVA';
 
+  const rlOrderNote = window.buildReverseLogisticsOrderNote({
+    type,
+    refPedido,
+    incomingProducts,
+    outgoingProducts,
+    comments
+  });
+
   summaryHtml += `
       <div style="background: rgba(59, 130, 246, 0.05); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.15); margin-bottom: 0.8rem;">
         <strong>Modo de Entrega:</strong> ${modoEntrega === 'sucursal' ? 'Retiro en Punto Ñuñoa' : modoEntrega === 'domicilio_rm' ? 'Domicilio RM' : 'A Regiones'}<br>
         <strong>Responsable de Pago:</strong> ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por Usuario Final'}<br>
         ${courier ? `<strong>Courier Asignado:</strong> ${courier}<br>` : ''}
         <strong>Costo de Envío:</strong> ${costText}
+      </div>
+      
+      <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-left: 3px solid #f59e0b; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm); margin-bottom: 0.8rem; text-align: left; font-size: 0.78rem;">
+        <strong style="color: #d97706; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem;">
+          <i class="ri-chat-3-line"></i> Nota que se asignará al Pedido WMS:
+        </strong>
+        <div style="white-space: pre-wrap; color: var(--color-text-main); font-size: 0.78rem; line-height: 1.35;">${window.escapeHtml ? window.escapeHtml(rlOrderNote) : rlOrderNote}</div>
       </div>
       
       <div style="margin-top: 0.8rem; font-size: 0.75rem; color: #d97706; border-top: 1px solid var(--color-border); padding-top: 0.6rem; display: flex; gap: 0.35rem; align-items: flex-start;">
@@ -59282,6 +59564,9 @@ async function handleRloFormSubmit(e) {
       .maybeSingle();
     if (profile) merchantId = profile.merchant_id;
     
+    const cleanRef = refPedido ? (refPedido.startsWith('LI-') ? refPedido.substring(3) : refPedido) : 'REC';
+    const finalExternalOrderNumber = `LI-${cleanRef}-${insertedRl.id.substring(0, 4).toUpperCase()}`;
+
     const wmsOrderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
@@ -59298,11 +59583,18 @@ async function handleRloFormSubmit(e) {
       courier: courier || 'STOCKA',
       origen: 'Logística Inversa',
       external_platform: 'Logística Inversa',
-      external_order_number: `LI-${refPedido}-${insertedRl.id.substring(0, 4).toUpperCase()}`,
+      external_order_number: finalExternalOrderNumber,
       cantidad: totalWmsQty,
       sku: wmsSkus,
       item: wmsNames,
-      total_value: 0
+      total_value: 0,
+      raw_shopify_data: {
+        note: rlOrderNote,
+        is_reverse_logistics: true,
+        rl_id: insertedRl.id,
+        rl_type: type,
+        rl_reference: refPedido
+      }
     };
 
     const { data: insertedOrder, error: errOrder } = await supabase
@@ -59725,9 +60017,16 @@ window.openReturnsDetail = function(dataStr) {
         footer.style.gap = '0.75rem';
         footer.style.justifyContent = 'space-between';
         footer.innerHTML = `
-          <button class="btn btn-outline" id="btn-modal-delete-return" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
-            <i class="ri-delete-bin-line"></i> Eliminar Registro
-          </button>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button class="btn btn-outline" id="btn-modal-delete-return" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+              <i class="ri-delete-bin-line"></i> Eliminar Registro
+            </button>
+            ${data.tipo_movimiento === 'CAMBIO' ? `
+              <button class="btn btn-outline" id="btn-modal-print-exchange" style="border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+                <i class="ri-printer-line"></i> Imprimir Etiqueta de Cambio
+              </button>
+            ` : ''}
+          </div>
           <button class="btn btn-primary" id="btn-ok-generic-info" style="min-width: 120px;">Cerrar</button>
         `;
         modal.querySelector('#btn-close-generic-info')?.addEventListener('click', () => modal.remove());
@@ -59735,6 +60034,13 @@ window.openReturnsDetail = function(dataStr) {
         modal.querySelector('#btn-modal-delete-return')?.addEventListener('click', () => {
           modal.remove();
           window.deleteAdminReturnRecord(data.id, dataStr);
+        });
+        modal.querySelector('#btn-modal-print-exchange')?.addEventListener('click', () => {
+          if (typeof window.printSingleExchangeLabel === 'function') {
+            window.printSingleExchangeLabel(data);
+          } else {
+            alert('Módulo de etiquetas no cargado.');
+          }
         });
       }
     }

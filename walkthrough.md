@@ -1,3 +1,26 @@
+# Walkthrough - Mejoras y Correcciones WMS Stocka
+
+## Automatización y Enriquecimiento de Notas en Pedidos de Logística Inversa
+
+Se implementó la generación automática y persistencia de notas completas y estructuradas para todos los pedidos creados desde el módulo de **Logística Inversa** (tanto en el panel de Administrador como en el Portal de Clientes):
+
+1. **Información Automática Incluida en la Nota**:
+   - **Tipo de Movimiento**: Identifica claramente si es `CAMBIO` o `DEVOLUCIÓN`.
+   - **Referencia de Pedido Original**: Muestra la referencia del pedido origen (ej: `GLS27650`).
+   - **Productos que regresan a bodega**: Lista detallada de los artículos entrantes con cantidad, SKU, nombre y motivo del cambio/devolución (`1x [ANIJOACUOR-18] Anillo Compromiso Joaquina Baño de Oro 18k - 18 (Motivo: ...)`)
+   - **Productos de reemplazo**: En caso de cambios, detalla qué artículos salen como reemplazo para el cliente.
+   - **Motivo / Observaciones Generales**: Incluye cualquier nota adicional ingresada en la solicitud.
+2. **Previsualización en Modal de Confirmación**:
+   - Al registrar la logística inversa, el modal de confirmación SweetAlert2 muestra un bloque informativo ámbar con la vista previa exacta de la nota que se asignará al pedido WMS.
+3. **Persistencia Multiplataforma**:
+   - La nota se almacena en el objeto `raw_shopify_data.note` del pedido, permitiendo su visualización en la tabla de pedidos, en el detalle expandido ("Notas del Pedido" con botón de copiado rápido), y su sincronización hacia el Picker (`active_orders.observation`).
+4. **Prevención de Prefijos Duplicados**:
+   - Si la referencia del pedido ya poseía el prefijo `LI-`, se limpia automáticamente para evitar identificadores redundantes como `LI-LI-...`.
+5. **Actualización de Pedidos Existentes**:
+   - Se actualizaron retroactivamente los pedidos de logística inversa existentes en la base de datos (incluyendo `LI-LI-GLS27650-D8AC-3107`), los cuales ahora cuentan con toda su nota detallada.
+
+---
+
 # Walkthrough - Leads de la Demo, Consola Brevo y Coherencia de Datos Ficticios
 
 Hemos completado e integrado con éxito el panel de control comercial de Leads de la Demo, la integración con la API de Brevo para envío de correos con plantillas personalizadas, y la coherencia completa de los pedidos, despachos y catálogo de productos del entorno simulado.

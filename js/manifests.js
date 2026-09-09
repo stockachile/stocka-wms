@@ -336,8 +336,18 @@
   // Generar un código correlativo único para nuevos manifiestos
   function generateManifestCode() {
     const year = new Date().getFullYear();
-    const count = state.manifests.length + 1;
-    const seq = String(count).padStart(5, '0');
+    let maxNum = 0;
+    (state.manifests || []).forEach(m => {
+      if (m.code) {
+        const match = m.code.match(/MNF-\d+-(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      }
+    });
+    const nextNum = Math.max((state.manifests ? state.manifests.length : 0) + 1, maxNum + 1);
+    const seq = String(nextNum).padStart(5, '0');
     return `MNF-${year}-${seq}`;
   }
 
@@ -695,9 +705,31 @@
               </tbody>
             </table>
           </div>
-        </div>
       </div>
+    `;
 
+    appContent.innerHTML = html;
+    ensureManifestModalsInDOM();
+    setupEventListeners();
+  }
+
+  // Asegurar que los modales de manifiestos existan en el DOM (en body) para poder abrirlos desde el Gestor de Pedidos
+  function ensureManifestModalsInDOM() {
+    let host = document.getElementById('manifest-modals-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'manifest-modals-host';
+      document.body.appendChild(host);
+    }
+    if (!document.getElementById('modal-create-manifest')) {
+      const filterOptions = getUniqueFilterOptions();
+      host.innerHTML = getManifestModalsHTML(filterOptions);
+    }
+    setupEventListeners();
+  }
+
+  function getManifestModalsHTML(filterOptions) {
+    return `
       <!-- Modal de Creación de Manifiesto -->
       <div class="modal-overlay" id="modal-create-manifest" style="display: none; opacity: 0; pointer-events: none; z-index: 2500;">
         <div class="modal-content" style="max-width: 950px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 12px; background: var(--color-surface);">
@@ -859,12 +891,15 @@
             <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.4rem;">
               <i class="ri-printer-line" style="color: var(--color-primary);"></i> Vista Previa del Manifiesto
             </h3>
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
               <button id="btn-trigger-print" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.45rem 0.9rem; display: flex; align-items: center; gap: 0.35rem; cursor: pointer; font-weight: 600;">
                 <i class="ri-printer-fill"></i> Imprimir Documento
               </button>
               <button id="btn-print-newtab" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.45rem 0.8rem; display: flex; align-items: center; gap: 0.35rem; cursor: pointer;" title="Abrir en pestaña nueva e imprimir">
                 <i class="ri-external-link-line"></i> Abrir en Pestaña
+              </button>
+              <button onclick="window.navigateToManifestsAdmin()" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.45rem 0.8rem; display: flex; align-items: center; gap: 0.35rem; cursor: pointer; border-color: var(--color-primary); color: var(--color-primary); background: rgba(37, 99, 235, 0.05);" title="Ir al Centro de Manifiestos">
+                <i class="ri-file-paper-2-line"></i> Centro de Manifiestos
               </button>
               <button class="modal-close" id="btn-close-view-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; margin-left: 0.5rem;">&times;</button>
             </div>
@@ -877,9 +912,6 @@
         </div>
       </div>
     `;
-
-    appContent.innerHTML = html;
-    setupEventListeners();
   }
 
   // Renderizar filas del historial de manifiestos
@@ -1155,7 +1187,45 @@
   // MODAL CREAR MANIFIESTO & CANVAS DE FIRMA
   // ==========================================
 
-  async function openCreateModal() {
+  // Helper para normalizar pedidos para el manifiesto
+  function normalizeOrderForManifest(raw) {
+    if (!raw) return null;
+    const ref = (raw.pedido_referencia || raw.external_order_number || raw.order_number || raw.id || '').trim();
+    const trk = (raw.tracking || raw.tracking_number || raw.tracking_code || '').trim();
+    const id = (raw.id || ref || trk).trim();
+    const cleanComm = resolveCanonicalCommerce(raw.empresa_comercio_proveedor || raw.comercio) || 'Sin Comercio';
+    const courierName = raw.courier || raw.operador || raw.shipping_method || raw.categoria_entrega || 'Por Asignar';
+    const destName = raw.nombre_destinatario || raw.customer_name || raw.destinatario || 'Cliente';
+    const destCity = raw.comuna_destino || raw.shipping_city || raw.comuna || '';
+    const destAddr = raw.direccion_destino || raw.shipping_address || raw.direccion || '';
+    const st = raw.estado_wms || raw.status || 'Preparado';
+    const globSt = raw.global_status || (st.toLowerCase().includes('despachad') ? 'DESPACHADO' : 'SIN MOVIMIENTO');
+    const plat = raw.platform || raw.external_platform || raw.origen || 'Shopify';
+    const itemsStr = raw.items_str || (raw.sku ? `${raw.cantidad || 1}x ${raw.sku} (${raw.item || ''})` : (raw.item || 'Productos Varios'));
+    const createdAt = raw.created_at || new Date().toISOString();
+
+    return {
+      id: id,
+      unified_shipment_id: id,
+      pedido_referencia: ref || id,
+      tracking: trk,
+      courier: courierName,
+      empresa_comercio_proveedor: cleanComm,
+      nombre_destinatario: destName,
+      comuna_destino: destCity,
+      direccion_destino: destAddr,
+      status: st,
+      global_status: globSt,
+      platform: plat,
+      items_str: itemsStr,
+      created_at: createdAt
+    };
+  }
+
+  async function openCreateModal(preSelectedOrders = null) {
+    // Asegurar que los modales existan en el DOM (incluso si se invoca desde el Gestor de Pedidos)
+    ensureManifestModalsInDOM();
+
     const modal = document.getElementById('modal-create-manifest');
     if (!modal) return;
 
@@ -1175,6 +1245,62 @@
     const modCour = document.getElementById('modal-filter-courier');
     const modSearch = document.getElementById('modal-filter-search');
 
+    // Procesar pedidos preseleccionados si vienen desde el Gestor de Pedidos
+    const normalizedPreselected = [];
+    if (preSelectedOrders) {
+      const list = Array.isArray(preSelectedOrders) ? preSelectedOrders : [preSelectedOrders];
+      state.selectedOrders.clear();
+      
+      list.forEach(item => {
+        let orderObj = item;
+        if (typeof item === 'string') {
+          orderObj = (window.loadedOrders || []).find(o => o.id === item || o.external_order_number === item) || { id: item };
+        }
+        const norm = normalizeOrderForManifest(orderObj);
+        if (norm) {
+          normalizedPreselected.push(norm);
+          state.selectedOrders.set(norm.id, { order: norm, packages_count: 1 });
+        }
+      });
+
+      // Inferencia inteligente de Courier/Operador si todos comparten el mismo
+      const validCouriers = normalizedPreselected
+        .map(o => o.courier)
+        .filter(c => c && c !== 'Por Asignar' && c !== 'N/A' && c !== 'Stocka');
+      const uniqueCouriers = [...new Set(validCouriers)];
+      if (uniqueCouriers.length === 1) {
+        const commonCourier = uniqueCouriers[0];
+        const inpCourier = document.getElementById('inp-driver-courier');
+        if (inpCourier) inpCourier.value = commonCourier;
+        if (modCour) {
+          for (let i = 0; i < modCour.options.length; i++) {
+            if (modCour.options[i].value.toLowerCase() === commonCourier.toLowerCase()) {
+              modCour.value = modCour.options[i].value;
+              break;
+            }
+          }
+        }
+      }
+
+      // Inferencia inteligente de Comercio si todos comparten el mismo
+      const validCommerces = normalizedPreselected
+        .map(o => o.empresa_comercio_proveedor)
+        .filter(c => c && c !== 'Sin Comercio');
+      const uniqueCommerces = [...new Set(validCommerces)];
+      if (uniqueCommerces.length === 1 && modComm) {
+        const commonComm = uniqueCommerces[0];
+        for (let i = 0; i < modComm.options.length; i++) {
+          const optVal = modComm.options[i].value;
+          if (optVal && (optVal.toLowerCase() === commonComm.toLowerCase() || resolveCanonicalCommerce(optVal) === resolveCanonicalCommerce(commonComm))) {
+            modComm.value = optVal;
+            break;
+          }
+        }
+      }
+    } else {
+      state.selectedOrders.clear();
+    }
+
     const handleFilterChange = async () => {
       state.filterOrders = {
         commerce: modComm ? modComm.value : '',
@@ -1188,10 +1314,20 @@
         inpCourier.value = modCour.value;
       }
 
-      state.availableOrders = await fetchEligibleOrders(state.filterOrders);
+      const fetched = await fetchEligibleOrders(state.filterOrders);
+
+      // Combinar pedidos preseleccionados con los obtenidos por filtro (preseleccionados al inicio)
+      const mergedMap = new Map();
+      normalizedPreselected.forEach(o => mergedMap.set(o.id, o));
+      fetched.forEach(o => {
+        if (!mergedMap.has(o.id)) mergedMap.set(o.id, o);
+      });
+      state.availableOrders = Array.from(mergedMap.values());
+
       const mBody = document.getElementById('modal-orders-table-body');
       if (mBody) mBody.innerHTML = renderModalOrderRows();
       setupModalOrderRowEvents();
+      updateSelectionSummary();
     };
 
     if (modComm) modComm.onchange = handleFilterChange;
@@ -1459,6 +1595,12 @@
 
     // Abrir vista previa e imprimir inmediatamente
     openViewModal(newManifest.id);
+
+    // Notificar al Gestor de Pedidos (WMS Admin) si está registrado el listener
+    if (typeof window.onManifestCreated === 'function') {
+      const manifestedShipmentIds = items.map(it => it.unified_shipment_id).filter(Boolean);
+      window.onManifestCreated(newManifest, manifestedShipmentIds);
+    }
   }
 
   // ==========================================
@@ -1846,4 +1988,23 @@
     setTimeout(doPrint, 500);
   }
 
+  // ==========================================
+  // EXPORTACIÓN DE API GLOBAL
+  // ==========================================
+  window.openCreateManifestModal = openCreateModal;
+  window.ensureManifestModalsInDOM = ensureManifestModalsInDOM;
+  window.navigateToManifestsAdmin = function () {
+    hideModalElement(document.getElementById('modal-view-manifest'));
+    hideModalElement(document.getElementById('modal-create-manifest'));
+    const link = document.querySelector('[data-view="manifests_admin"]');
+    if (link) {
+      link.click();
+    } else if (typeof window.renderManifestsAdmin === 'function') {
+      const viewTitle = document.getElementById('view-title');
+      if (viewTitle) viewTitle.textContent = 'Centro de Manifiestos';
+      window.renderManifestsAdmin();
+    }
+  };
+
 })();
+

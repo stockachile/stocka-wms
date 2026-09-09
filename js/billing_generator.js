@@ -20,6 +20,10 @@ export const STOCKA_BRAND = {
   sitioWeb: 'www.stocka.cl',
   contactoEmail: 'contacto@stocka.cl',
   facturacionEmail: 'facturacion@stocka.cl',
+  banco: 'SCOTIABANK (SUD AMERICANO)',
+  tipoCuenta: 'CTA CORRIENTE',
+  numeroCuenta: '992369965',
+  emailEnvio: 'finanzas@stocka.cl',
   logoUrl: './img/newlogotransp.png'
 };
 
@@ -2224,16 +2228,55 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         </table>
       </div>
 
-      <!-- Cuadro de Pago e Información Bancaria Sincero y Corporativo -->
-      <div style="margin-top: 1.75rem; padding: 1rem 1.25rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <strong style="color: #0f172a; font-size: 0.85rem; display: block; margin-bottom: 0.25rem;">Datos para Transferencia Electrónica (Banco Santander):</strong>
-          <span style="font-size: 0.8rem; color: #475569;">Cuenta Corriente N° <strong>88-7524557-3</strong> | STOCKA SPA | RUT: <strong>77.524.557-3</strong> | Correo: <strong>pagos@stocka.cl</strong></span>
+      <!-- Cuadro de Pago e Información Bancaria Oficial STOCKA -->
+      <div style="margin-top: 1.75rem; background: #f8fafc; border-radius: 10px; border: 1px solid #cbd5e1; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <!-- Cabecera del Cuadro de Pago -->
+        <div style="background: #ffffff; padding: 0.75rem 1.25rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <div style="width: 28px; height: 28px; border-radius: 6px; background: rgba(95, 6, 250, 0.08); display: flex; align-items: center; justify-content: center; color: #5f06fa; font-size: 1rem;">
+              <i class="ri-bank-card-line"></i>
+            </div>
+            <strong style="color: #0f172a; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.4px;">
+              Datos para Transferencia Bancaria
+            </strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button type="button" class="no-print" onclick="window.copyDesgloseBankDetails(this)" title="Copiar datos para transferencia" style="background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="ri-file-copy-line" style="color: #5f06fa;"></i> <span>Copiar Datos</span>
+            </button>
+            <span style="background: rgba(95, 6, 250, 0.06); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.2); padding: 0.3rem 0.65rem; border-radius: 6px; font-size: 0.725rem; font-weight: 700;">
+              Documento Oficial • STOCKA WMS
+            </span>
+          </div>
         </div>
-        <div style="text-align: right;">
-          <span style="background: #ffffff; color: #5f06fa; border: 1px solid #cbd5e1; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;">
-            Documento Oficial • STOCKA WMS
-          </span>
+
+        <!-- Grilla de Datos de Transferencia -->
+        <div style="padding: 1rem 1.25rem; display: flex; flex-direction: row; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+          <div style="flex: 1 1 0; min-width: 180px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-bottom: 2px;">Razón Social:</div>
+            <div style="font-size: 0.875rem; font-weight: 800; color: #0f172a;">${STOCKA_BRAND.razonSocial}</div>
+            
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-top: 0.65rem; margin-bottom: 2px;">RUT:</div>
+            <div style="font-size: 0.875rem; font-weight: 800; color: #0f172a;">${STOCKA_BRAND.rut}</div>
+          </div>
+
+          <div style="flex: 1 1 0; min-width: 180px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-bottom: 2px;">Banco:</div>
+            <div style="font-size: 0.875rem; font-weight: 800; color: #0f172a;">${STOCKA_BRAND.banco}</div>
+
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-top: 0.65rem; margin-bottom: 2px;">Tipo de Cuenta:</div>
+            <div style="font-size: 0.875rem; font-weight: 800; color: #0f172a;">${STOCKA_BRAND.tipoCuenta}</div>
+          </div>
+
+          <div style="flex: 1 1 0; min-width: 180px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-bottom: 2px;">N° de Cuenta:</div>
+            <div style="font-size: 1rem; font-weight: 900; color: #5f06fa; font-family: monospace, monospace; letter-spacing: 0.5px;">${STOCKA_BRAND.numeroCuenta}</div>
+
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.4px; margin-top: 0.65rem; margin-bottom: 2px;">Email de Envío:</div>
+            <div style="font-size: 0.875rem; font-weight: 800; color: #0f172a;">
+              <a href="mailto:${STOCKA_BRAND.emailEnvio}" style="color: #5f06fa; text-decoration: underline; font-weight: 800;">${STOCKA_BRAND.emailEnvio}</a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2519,6 +2562,9 @@ export async function saveBillingRecordToSupabase() {
       desglose_fulfillment: 'Creado',
       updated_at: new Date().toISOString()
     };
+    if (b.invoiceDates?.dueDate) {
+      payload.fecha_limite = b.invoiceDates.dueDate;
+    }
 
     const fullSnapshot = {
       periodId: b.currentPeriodId,
@@ -2727,16 +2773,30 @@ export async function confirmAndPublishBillingToCommerce() {
       updated_at: new Date().toISOString()
     };
 
+    if (b.invoiceDates?.dueDate) {
+      updatePayload.fecha_limite = b.invoiceDates.dueDate;
+    }
+
     if (publicSnapshotUrl) {
       updatePayload.fulfillment_link = publicSnapshotUrl;
     }
 
     const { data: existingRec } = await supabase
       .from('billing_records')
-      .select('id')
+      .select('id, pago_fulfillment, factura_fulfillment, fecha_limite')
       .eq('period_id', b.currentPeriodId)
       .eq('comercio', b.currentCommerce)
       .maybeSingle();
+
+    // Auto-transición de estados operativos: al publicar cobro, pasa a 'En espera' de pago y 'Facturar'
+    if (t.totalToPay > 0) {
+      if (!existingRec || !existingRec.pago_fulfillment || existingRec.pago_fulfillment === 'Por solicitar') {
+        updatePayload.pago_fulfillment = 'En espera';
+      }
+      if (!existingRec || !existingRec.factura_fulfillment || existingRec.factura_fulfillment === 'Esperando') {
+        updatePayload.factura_fulfillment = 'Facturar';
+      }
+    }
 
     if (existingRec && existingRec.id) {
       const { error: updateErr } = await supabase
@@ -2751,6 +2811,8 @@ export async function confirmAndPublishBillingToCommerce() {
         .insert({
           period_id: b.currentPeriodId,
           comercio: b.currentCommerce,
+          pago_fulfillment: t.totalToPay > 0 ? 'En espera' : 'Sin movimientos',
+          factura_fulfillment: t.totalToPay > 0 ? 'Facturar' : 'Sin movimientos',
           ...updatePayload
         });
 
@@ -5516,6 +5578,19 @@ export function openEditDesgloseHeaderModal() {
             }
           }
         } catch (e) {}
+
+        // Sincronizar fecha_limite en billing_records si se definió dueDate
+        if (dueDate) {
+          try {
+            await supabase
+              .from('billing_records')
+              .update({ fecha_limite: dueDate, updated_at: new Date().toISOString() })
+              .eq('period_id', b.currentPeriodId)
+              .eq('comercio', b.currentCommerce);
+          } catch (eDate) {
+            console.warn('Aviso actualizando fecha_limite en billing_records:', eDate);
+          }
+        }
       }
 
       // Marcar estado como pendiente de guardado formal si no estaba publicado
@@ -5912,6 +5987,68 @@ window.openBillingGeneratorForRecord = function(periodId, commerceName) {
 
 // Modal interactivo para fechas y datos legales del desglose oficial
 window.openEditDesgloseHeaderModal = openEditDesgloseHeaderModal;
+
+// Función para copiar los datos bancarios del desglose oficial al portapapeles
+window.copyDesgloseBankDetails = function(btn) {
+  const textToCopy = `Datos para Transferencia Bancaria
+Razón Social: ${STOCKA_BRAND.razonSocial}
+RUT: ${STOCKA_BRAND.rut}
+Banco: ${STOCKA_BRAND.banco}
+Tipo de Cuenta: ${STOCKA_BRAND.tipoCuenta}
+N° de Cuenta: ${STOCKA_BRAND.numeroCuenta}
+Email de Envío: ${STOCKA_BRAND.emailEnvio}`;
+
+  const showSuccessFeedback = () => {
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> <span>¡Copiado!</span>`;
+      btn.style.borderColor = '#10b981';
+      btn.style.color = '#10b981';
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+        btn.style.borderColor = '#cbd5e1';
+        btn.style.color = '#334155';
+      }, 2500);
+    }
+    if (window.Swal) {
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2500,
+        timerProgressBar: true
+      });
+      Toast.fire({
+        icon: 'success',
+        title: 'Datos para transferencia copiados'
+      });
+    }
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textToCopy).then(showSuccessFeedback).catch(() => {
+      fallbackCopy(textToCopy);
+    });
+  } else {
+    fallbackCopy(textToCopy);
+  }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      showSuccessFeedback();
+    } catch (e) {
+      if (window.Swal) Swal.fire('Datos para Transferencia Bancaria', text.replace(/\n/g, '<br>'), 'info');
+    }
+    ta.remove();
+  }
+};
 
 // ============================================================================
 // --- SUBSISTEMA DE CHECKLIST GLOBAL DE FACTURACIÓN Y VERIFICACIÓN ---
@@ -6520,7 +6657,11 @@ window.updateChecklistNavBadge = updateChecklistNavBadge;
 export function injectClientInteractiveModalStyles() {
   injectBillingGeneratorStyles();
 
-  if (document.getElementById('client-interactive-modal-styles')) return;
+  // Asegurar reemplazo limpio sin estilos cacheados desactualizados
+  const existing = document.getElementById('client-interactive-modal-styles');
+  if (existing) {
+    existing.remove();
+  }
 
   const style = document.createElement('style');
   style.id = 'client-interactive-modal-styles';
@@ -6544,12 +6685,13 @@ export function injectClientInteractiveModalStyles() {
     }
 
     .client-billing-modal-container {
-      background: #ffffff;
+      background: var(--color-surface, #ffffff);
+      color: var(--color-text-main, #0f172a);
       width: 100%;
       max-width: 1250px;
       max-height: 94vh;
       border-radius: 16px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--color-border, #e2e8f0);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -6558,8 +6700,8 @@ export function injectClientInteractiveModalStyles() {
 
     .client-billing-modal-header {
       padding: 1.1rem 1.5rem;
-      background: #ffffff;
-      border-bottom: 1px solid #e2e8f0;
+      background: var(--color-surface, #ffffff);
+      border-bottom: 1px solid var(--color-border, #e2e8f0);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -6567,12 +6709,19 @@ export function injectClientInteractiveModalStyles() {
       gap: 1rem;
     }
 
+    .modal-stocka-logo-light {
+      display: inline-block;
+    }
+    .modal-stocka-logo-dark {
+      display: none;
+    }
+
     .client-billing-modal-subnav {
       display: flex;
       gap: 0.5rem;
-      background: #ffffff;
+      background: var(--color-surface, #ffffff);
       padding: 0.6rem 1.5rem 0.75rem 1.5rem;
-      border-bottom: 1.5px solid #e2e8f0;
+      border-bottom: 1.5px solid var(--color-border, #e2e8f0);
       overflow-x: auto;
     }
 
@@ -6584,7 +6733,7 @@ export function injectClientInteractiveModalStyles() {
       border-radius: 8px;
       font-size: 0.82rem;
       font-weight: 700;
-      color: #64748b;
+      color: var(--color-text-muted, #64748b);
       background: transparent;
       border: 1.5px solid transparent;
       cursor: pointer;
@@ -6607,11 +6756,7 @@ export function injectClientInteractiveModalStyles() {
       flex: 1;
       overflow-y: auto;
       padding: 1.5rem;
-      background: #f1f5f9; /* Lienzo suave para realzar la hoja oficial de cobro */
-    }
-
-    [data-theme="dark"] .client-billing-modal-body {
-      background: #0b1120;
+      background: var(--color-bg, #f1f5f9);
     }
 
     /* Ocultar elementos de administración o edición para clientes */
@@ -6641,7 +6786,8 @@ export function injectClientInteractiveModalStyles() {
       font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
-    [data-theme="dark"] .client-billing-modal-view .stocka-desglose-paper {
+    [data-theme="dark"] .client-billing-modal-view .stocka-desglose-paper,
+    html[data-theme="dark"] .client-billing-modal-view .stocka-desglose-paper {
       background: #ffffff !important;
       color: #0f172a !important;
     }
@@ -6772,12 +6918,11 @@ export function injectClientInteractiveModalStyles() {
       margin-top: 0.35rem;
     }
 
-    .client-billing-modal-view .stocka-banner-hero {
-      background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%);
+    .client-billing-modal-view .stocka-official-total-card {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #4338ca 100%);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
       color: #ffffff;
-      border-radius: 10px;
-      padding: 1.25rem 1.75rem;
-      margin-bottom: 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -6818,6 +6963,67 @@ export function injectClientInteractiveModalStyles() {
       background: #f8fafc;
     }
 
+    /* Modal Header y Subnav en Dark Mode */
+    [data-theme="dark"] .client-billing-modal-container,
+    html[data-theme="dark"] .client-billing-modal-container {
+      background: #0f172a !important;
+      border-color: #334155 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-header,
+    html[data-theme="dark"] .client-billing-modal-header {
+      background: #1e293b !important;
+      border-bottom-color: #334155 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-header h3,
+    html[data-theme="dark"] .client-billing-modal-header h3 {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .client-billing-modal-header h3 span:first-child,
+    html[data-theme="dark"] .client-billing-modal-header h3 span:first-child {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .client-billing-modal-header p,
+    html[data-theme="dark"] .client-billing-modal-header p {
+      color: #94a3b8 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-header p strong,
+    html[data-theme="dark"] .client-billing-modal-header p strong {
+      color: #cbd5e1 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-subnav,
+    html[data-theme="dark"] .client-billing-modal-subnav {
+      background: #1e293b !important;
+      border-bottom-color: #334155 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-tab-btn,
+    html[data-theme="dark"] .client-billing-modal-tab-btn {
+      color: #94a3b8 !important;
+    }
+    [data-theme="dark"] .client-billing-modal-tab-btn:hover,
+    html[data-theme="dark"] .client-billing-modal-tab-btn:hover {
+      color: #c084fc !important;
+      background: rgba(168, 85, 247, 0.12) !important;
+    }
+    [data-theme="dark"] .client-billing-modal-tab-btn.active,
+    html[data-theme="dark"] .client-billing-modal-tab-btn.active {
+      color: #c084fc !important;
+      background: rgba(168, 85, 247, 0.2) !important;
+      border-color: rgba(168, 85, 247, 0.45) !important;
+    }
+    [data-theme="dark"] .client-billing-modal-body,
+    html[data-theme="dark"] .client-billing-modal-body {
+      background: #0b1120 !important;
+    }
+
+    [data-theme="dark"] .modal-stocka-logo-light,
+    html[data-theme="dark"] .modal-stocka-logo-light {
+      display: none !important;
+    }
+    [data-theme="dark"] .modal-stocka-logo-dark,
+    html[data-theme="dark"] .modal-stocka-logo-dark {
+      display: inline-block !important;
+    }
+
     /* Tabla interactiva de pedidos para clientes */
     .client-modal-table {
       width: 100%;
@@ -6826,25 +7032,206 @@ export function injectClientInteractiveModalStyles() {
     }
 
     .client-modal-table th {
-      background: #f8fafc;
-      color: #475569;
+      background: var(--color-surface-hover, #f8fafc);
+      color: var(--color-text-muted, #475569);
       font-weight: 700;
       padding: 0.65rem 0.75rem;
-      border: 1px solid #e2e8f0;
+      border: 1px solid var(--color-border, #e2e8f0);
       white-space: nowrap;
       font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
 
+    .client-modal-table th.th-total-order {
+      background: #ede9fe;
+      color: #5b21b6;
+      border-color: #ddd6fe;
+    }
+
     .client-modal-table td {
       padding: 0.6rem 0.75rem;
-      border: 1px solid #e2e8f0;
-      color: #1e293b;
+      border: 1px solid var(--color-border, #e2e8f0);
+      color: var(--color-text-main, #1e293b);
+      vertical-align: middle;
+      background: var(--color-surface, #ffffff);
+    }
+
+    .client-modal-table tr:nth-child(even) td {
+      background: var(--color-bg, #f8fafc);
     }
 
     .client-modal-table tr:hover td {
-      background: rgba(95, 6, 250, 0.03);
+      background: rgba(95, 6, 250, 0.04);
+    }
+
+    /* Celdas semánticas de pedidos */
+    .cm-cell-num {
+      text-align: center;
+      font-weight: 700;
+      color: var(--color-text-muted, #64748b);
+    }
+    .cm-cell-id {
+      font-weight: 700;
+      font-family: monospace;
+      color: #5f06fa;
+    }
+    .cm-cell-date {
+      white-space: nowrap;
+      font-size: 0.75rem;
+      color: var(--color-text-muted, #475569);
+    }
+    .cm-cell-agenda {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--color-text-main, #0f172a);
+    }
+    .cm-cell-agenda.empty {
+      color: var(--color-text-muted, #94a3b8);
+      font-weight: 500;
+    }
+    .cm-cell-dest {
+      font-weight: 600;
+      color: var(--color-text-main, #0f172a);
+    }
+    .cm-cell-op {
+      font-size: 0.75rem;
+      color: var(--color-text-muted, #475569);
+    }
+    .cm-delivery-badge {
+      background: rgba(95, 6, 250, 0.08);
+      color: #5f06fa;
+      border: 1px solid rgba(95, 6, 250, 0.2);
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      display: inline-block;
+    }
+    .cm-cell-qty {
+      text-align: center;
+      font-weight: 700;
+      color: var(--color-text-main, #0f172a);
+    }
+    .cm-cell-money {
+      text-align: right;
+      font-weight: 700;
+      color: var(--color-text-main, #0f172a);
+    }
+    .cm-cell-total {
+      text-align: right;
+      font-weight: 800;
+      color: #5b21b6;
+      background: rgba(95, 6, 250, 0.07);
+    }
+
+    /* === MODO OSCURO PARA TABLA TIPO EXCEL CLIENTE === */
+    [data-theme="dark"] #client-modal-content-register > div,
+    html[data-theme="dark"] #client-modal-content-register > div {
+      background: #1e293b !important;
+      border-color: #334155 !important;
+    }
+    [data-theme="dark"] #client-modal-content-register h4,
+    html[data-theme="dark"] #client-modal-content-register h4 {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] #client-modal-content-register p,
+    html[data-theme="dark"] #client-modal-content-register p {
+      color: #94a3b8 !important;
+    }
+    [data-theme="dark"] #client-orders-filter-input,
+    html[data-theme="dark"] #client-orders-filter-input {
+      background: #0f172a !important;
+      border-color: #334155 !important;
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] #client-orders-filter-input::placeholder,
+    html[data-theme="dark"] #client-orders-filter-input::placeholder {
+      color: #64748b !important;
+    }
+    [data-theme="dark"] #client-orders-filter-count,
+    html[data-theme="dark"] #client-orders-filter-count {
+      color: #c084fc !important;
+      background: rgba(168, 85, 247, 0.18) !important;
+      border: 1px solid rgba(168, 85, 247, 0.35) !important;
+    }
+    [data-theme="dark"] #client-modal-content-register .client-modal-table-scroll,
+    html[data-theme="dark"] #client-modal-content-register .client-modal-table-scroll {
+      border-color: #334155 !important;
+      background: #0f172a !important;
+    }
+    [data-theme="dark"] .client-modal-table th,
+    html[data-theme="dark"] .client-modal-table th {
+      background: #0f172a !important;
+      color: #cbd5e1 !important;
+      border-color: #334155 !important;
+    }
+    [data-theme="dark"] .client-modal-table th.th-total-order,
+    html[data-theme="dark"] .client-modal-table th.th-total-order {
+      background: rgba(168, 85, 247, 0.22) !important;
+      color: #e9d5ff !important;
+      border-color: rgba(168, 85, 247, 0.45) !important;
+    }
+    [data-theme="dark"] .client-modal-table td,
+    html[data-theme="dark"] .client-modal-table td {
+      border-color: #334155 !important;
+      color: #e2e8f0 !important;
+      background: #1e293b !important;
+    }
+    [data-theme="dark"] .client-modal-table tr:nth-child(even) td,
+    html[data-theme="dark"] .client-modal-table tr:nth-child(even) td {
+      background: #172236 !important;
+    }
+    [data-theme="dark"] .client-modal-table tr:hover td,
+    html[data-theme="dark"] .client-modal-table tr:hover td {
+      background: rgba(168, 85, 247, 0.14) !important;
+    }
+    [data-theme="dark"] .cm-cell-num,
+    html[data-theme="dark"] .cm-cell-num {
+      color: #94a3b8 !important;
+    }
+    [data-theme="dark"] .cm-cell-id,
+    html[data-theme="dark"] .cm-cell-id {
+      color: #c084fc !important;
+    }
+    [data-theme="dark"] .cm-cell-date,
+    html[data-theme="dark"] .cm-cell-date {
+      color: #cbd5e1 !important;
+    }
+    [data-theme="dark"] .cm-cell-agenda,
+    html[data-theme="dark"] .cm-cell-agenda {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .cm-cell-agenda.empty,
+    html[data-theme="dark"] .cm-cell-agenda.empty {
+      color: #64748b !important;
+    }
+    [data-theme="dark"] .cm-cell-dest,
+    html[data-theme="dark"] .cm-cell-dest {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .cm-cell-op,
+    html[data-theme="dark"] .cm-cell-op {
+      color: #cbd5e1 !important;
+    }
+    [data-theme="dark"] .cm-delivery-badge,
+    html[data-theme="dark"] .cm-delivery-badge {
+      background: rgba(168, 85, 247, 0.22) !important;
+      color: #e9d5ff !important;
+      border-color: rgba(168, 85, 247, 0.45) !important;
+    }
+    [data-theme="dark"] .cm-cell-qty,
+    html[data-theme="dark"] .cm-cell-qty {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .cm-cell-money,
+    html[data-theme="dark"] .cm-cell-money {
+      color: #f8fafc !important;
+    }
+    [data-theme="dark"] .cm-cell-total,
+    html[data-theme="dark"] .cm-cell-total {
+      color: #e9d5ff !important;
+      background: rgba(168, 85, 247, 0.25) !important;
     }
   `;
   document.head.appendChild(style);
@@ -6989,7 +7376,8 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
       <!-- Modal Header -->
       <div class="client-billing-modal-header">
         <div style="display: flex; align-items: center; gap: 0.85rem;">
-          <img src="${STOCKA_BRAND.logoUrl}" alt="Stocka" style="height: 34px; width: auto; object-fit: contain;">
+          <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="Stocka" class="modal-stocka-logo-light" style="height: 34px; width: auto; object-fit: contain;">
+          <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="Stocka" class="modal-stocka-logo-dark" style="height: 34px; width: auto; object-fit: contain;">
           <div>
             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main, #0f172a); display: flex; align-items: center; gap: 0.5rem;">
               <span>Facturación Fulfillment 360</span>
@@ -7061,7 +7449,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
               </div>
             </div>
 
-            <div style="overflow-x: auto; max-height: 60vh; border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px;">
+            <div class="client-modal-table-scroll" style="overflow-x: auto; max-height: 60vh; border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px;">
               <table class="client-modal-table" id="client-modal-orders-grid">
                 <thead>
                   <tr>
@@ -7076,28 +7464,28 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     <th style="width: 60px; text-align: center;">Unid.</th>
                     <th style="width: 95px; text-align: right;">Prep. Total</th>
                     <th style="width: 95px; text-align: right;">Flete Envío</th>
-                    <th style="width: 105px; text-align: right; background: #e0e7ff; color: #3730a3;">Total Pedido</th>
+                    <th class="th-total-order" style="width: 105px; text-align: right;">Total Pedido</th>
                   </tr>
                 </thead>
                 <tbody id="client-modal-orders-body">
                   ${orders.map((o, idx) => `
                     <tr class="client-modal-order-row">
-                      <td style="text-align: center; font-weight: 700; color: var(--color-text-muted, #64748b);">${idx + 1}</td>
-                      <td style="font-weight: 700; font-family: monospace; color: #5f06fa;">${escapeHtml(o.id || '—')}</td>
-                      <td style="white-space: nowrap; font-size: 0.75rem;">${escapeHtml(o.date || '—')}</td>
-                      <td style="font-size: 0.75rem; color: ${o.agenda ? 'var(--color-text-main, #0f172a)' : '#94a3b8'};">${escapeHtml(o.agenda || 'Sin agenda')}</td>
-                      <td style="font-weight: 600;">${escapeHtml(o.destination || 'Santiago')}</td>
-                      <td style="font-size: 0.75rem;">${escapeHtml(o.operador || '—')}</td>
+                      <td class="cm-cell-num">${idx + 1}</td>
+                      <td class="cm-cell-id">${escapeHtml(o.id || '—')}</td>
+                      <td class="cm-cell-date">${escapeHtml(o.date || '—')}</td>
+                      <td class="cm-cell-agenda ${o.agenda ? '' : 'empty'}">${escapeHtml(o.agenda || 'Sin agenda')}</td>
+                      <td class="cm-cell-dest">${escapeHtml(o.destination || 'Santiago')}</td>
+                      <td class="cm-cell-op">${escapeHtml(o.operador || '—')}</td>
                       <td>
-                        <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                        <span class="cm-delivery-badge">
                           ${escapeHtml(o.deliveryType || 'Estándar')}
                         </span>
                       </td>
-                      <td style="text-align: center; font-weight: 700;">${o.skuCount || 1}</td>
-                      <td style="text-align: center; font-weight: 700;">${o.unitsCount || 1}</td>
-                      <td style="text-align: right; font-weight: 700;">${formatCLP(o.pickPackTotal || 0)}</td>
-                      <td style="text-align: right; font-weight: 700;">${formatCLP(o.shippingFreight || 0)}</td>
-                      <td style="text-align: right; font-weight: 800; color: #3730a3; background: rgba(224, 231, 255, 0.25);">${formatCLP(o.orderTotal || 0)}</td>
+                      <td class="cm-cell-qty">${o.skuCount || 1}</td>
+                      <td class="cm-cell-qty">${o.unitsCount || 1}</td>
+                      <td class="cm-cell-money">${formatCLP(o.pickPackTotal || 0)}</td>
+                      <td class="cm-cell-money">${formatCLP(o.shippingFreight || 0)}</td>
+                      <td class="cm-cell-total">${formatCLP(o.orderTotal || 0)}</td>
                     </tr>
                   `).join('') || `<tr><td colspan="12" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
                 </tbody>

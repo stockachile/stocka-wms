@@ -243,6 +243,54 @@ window.getOrderNoteText = function(order) {
   return '';
 };
 
+// Helper para construir la nota estandarizada de pedidos creados desde Logística Inversa
+window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProducts, outgoingProducts, comments }) {
+  const lines = [];
+  lines.push(`[LOGÍSTICA INVERSA - ${type || 'MOVIMIENTO'}]`);
+  if (refPedido) {
+    lines.push(`• Ref. Pedido Original: ${refPedido}`);
+  }
+  
+  if (type === 'CAMBIO') {
+    if (incomingProducts && incomingProducts.length > 0) {
+      lines.push('• Producto(s) que regresa(n) a bodega:');
+      incomingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_devuelto || 'Producto';
+        const motivo = p.comentario ? ` (Motivo: ${p.comentario})` : '';
+        lines.push(`  - ${qty}x ${sku}${name}${motivo}`);
+      });
+    }
+    if (outgoingProducts && outgoingProducts.length > 0) {
+      lines.push('• Producto(s) de reemplazo (a enviar):');
+      outgoingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_reemplazo || 'Producto';
+        lines.push(`  - ${qty}x ${sku}${name}`);
+      });
+    }
+  } else if (type === 'DEVOLUCION' || type === 'DEVOLUCIÓN') {
+    if (incomingProducts && incomingProducts.length > 0) {
+      lines.push('• Producto(s) a recibir en bodega:');
+      incomingProducts.forEach(p => {
+        const qty = p.cantidad || p.qty || 1;
+        const sku = p.sku ? `[${p.sku}] ` : '';
+        const name = p.name || p.producto_devuelto || 'Producto';
+        const motivo = p.comentario ? ` (Motivo: ${p.comentario})` : '';
+        lines.push(`  - ${qty}x ${sku}${name}${motivo}`);
+      });
+    }
+  }
+
+  if (comments && comments.trim()) {
+    lines.push(`• Motivo / Observaciones: ${comments.trim()}`);
+  }
+
+  return lines.join('\n');
+};
+
 window.roundUpVolume = function(val) {
   if (val === null || val === undefined || isNaN(val) || val === '') return null;
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
@@ -15364,8 +15412,11 @@ async function fetchAndRenderReturnsData() {
             <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
             <td>${statusBadge}</td>
             <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
-            <td>
-              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+            <td style="white-space: nowrap;">
+              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+              ${r.tipo_movimiento === 'CAMBIO' ? `
+                <button class="btn btn-outline" onclick="window.printSingleExchangeLabel('${safeData}')" style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--color-success); color: var(--color-success); background: var(--color-surface); margin-left: 0.25rem;" title="Imprimir Etiqueta de Cambio"><i class="ri-printer-line"></i> Etiqueta</button>
+              ` : ''}
             </td>
           </tr>
         `;
@@ -15590,6 +15641,14 @@ window.openReturnsDetail = function(dataStr) {
           <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-message-3-line"></i> Observaciones</h4>
           ${data.comentarios}
         </div>` : ''}
+
+        ${data.tipo_movimiento === 'CAMBIO' ? `
+          <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
+            <button type="button" class="btn btn-primary" onclick="window.printSingleExchangeLabel('${dataStr}')" style="background: #059669; border-color: #059669; font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1rem;">
+              <i class="ri-printer-line" style="font-size: 1.05rem;"></i> Imprimir Etiqueta de Cambio
+            </button>
+          </div>
+        ` : ''}
       </div>
     `;
 
@@ -15871,6 +15930,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const costText = document.getElementById('rl-cost-value').textContent || '$0 c/IVA';
 
+      const rlOrderNote = window.buildReverseLogisticsOrderNote({
+        type,
+        refPedido,
+        incomingProducts,
+        outgoingProducts,
+        comments
+      });
+
       summaryHtml += `
           <!-- Datos del Envío y Costos -->
           <div style="background: rgba(59, 130, 246, 0.05); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.15); margin-bottom: 0.8rem;">
@@ -15878,6 +15945,13 @@ document.addEventListener('DOMContentLoaded', () => {
             <strong>Responsable de Pago:</strong> ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por Usuario Final'}<br>
             ${courier ? `<strong>Courier Asignado:</strong> ${courier}<br>` : ''}
             <strong>Costo de Envío:</strong> ${costText}
+          </div>
+          
+          <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-left: 3px solid #f59e0b; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm); margin-bottom: 0.8rem; text-align: left; font-size: 0.78rem;">
+            <strong style="color: #d97706; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem;">
+              <i class="ri-chat-3-line"></i> Nota que se asignará al Pedido WMS:
+            </strong>
+            <div style="white-space: pre-wrap; color: var(--color-text-main); font-size: 0.78rem; line-height: 1.35;">${window.escapeHtml ? window.escapeHtml(rlOrderNote) : rlOrderNote}</div>
           </div>
           
           <div style="margin-top: 0.8rem; font-size: 0.75rem; color: #d97706; border-top: 1px solid var(--color-border); padding-top: 0.6rem; display: flex; gap: 0.35rem; align-items: flex-start;">
@@ -16027,6 +16101,9 @@ document.addEventListener('DOMContentLoaded', () => {
           if (profile) merchantId = profile.merchant_id;
         }
         
+        const cleanRef = refPedido ? (refPedido.startsWith('LI-') ? refPedido.substring(3) : refPedido) : 'REC';
+        const finalExternalOrderNumber = `LI-${cleanRef}-${insertedRl.id.substring(0, 4).toUpperCase()}`;
+
         const wmsOrderPayload = {
           merchant_id: merchantId,
           comercio: commerce,
@@ -16043,11 +16120,18 @@ document.addEventListener('DOMContentLoaded', () => {
           courier: courier || 'STOCKA',
           origen: 'Logística Inversa',
           external_platform: 'Logística Inversa',
-          external_order_number: `LI-${refPedido}-${insertedRl.id.substring(0, 4).toUpperCase()}`,
+          external_order_number: finalExternalOrderNumber,
           cantidad: totalWmsQty,
           sku: wmsSkus,
           item: wmsNames,
-          total_value: 0
+          total_value: 0,
+          raw_shopify_data: {
+            note: rlOrderNote,
+            is_reverse_logistics: true,
+            rl_id: insertedRl.id,
+            rl_type: type,
+            rl_reference: refPedido
+          }
         };
         
         const { data: insertedOrder, error: errOrder } = await supabase
@@ -24011,12 +24095,13 @@ function updateAnnualSummaryCards(facturado, pagado, pendiente, atrasado) {
 }
 
 window.copyClientBankDetails = function(btn) {
-  const textToCopy = `STOCKA SPA
+  const textToCopy = `Datos para Transferencia Bancaria
+Razón Social: STOCKA SPA
 RUT: 77.524.557-3
-Banco: Scotiabank (Sud Americano)
-Tipo de Cuenta: Cuenta Corriente
+Banco: SCOTIABANK (SUD AMERICANO)
+Tipo de Cuenta: CTA CORRIENTE
 N° de Cuenta: 992369965
-Correo: finanzas@stocka.cl`;
+Email de Envío: finanzas@stocka.cl`;
 
   const showSuccessFeedback = () => {
     if (btn) {

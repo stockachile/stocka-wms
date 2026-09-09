@@ -504,8 +504,13 @@ serve(async (req) => {
     let servicesHtml = '';
 
     if (showFulfillment && record) {
-      let docLink = record.fulfillment_pdf_url || record.fulfillment_link;
-      const isInteractive = Boolean(docLink && (docLink.includes('.json') || docLink.includes('billing_snapshots')));
+      const isInteractive = Boolean(
+        (record.fulfillment_link && (record.fulfillment_link.includes('.json') || record.fulfillment_link.includes('billing_snapshots'))) ||
+        (record.fulfillment_pdf_url && (record.fulfillment_pdf_url.includes('.json') || record.fulfillment_pdf_url.includes('billing_snapshots')))
+      );
+      let docLink = isInteractive 
+        ? (record.fulfillment_link || record.fulfillment_pdf_url)
+        : (record.fulfillment_pdf_url || record.fulfillment_link);
       if (docLink && !isInteractive) {
         docLink = await getSignedUrlIfPrivate(docLink, supabaseClient);
       }
@@ -2126,8 +2131,18 @@ serve(async (req) => {
       } else {
         emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment y Envíame ${periodName} - ${commerceName}`;
       }
-      headerGradient = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
-      emailTitle = 'Resumen de Facturación';
+      const isInteractiveBilling = Boolean(
+        record && (
+          (record.fulfillment_link && (record.fulfillment_link.includes('.json') || record.fulfillment_link.includes('billing_snapshots'))) ||
+          (record.fulfillment_pdf_url && (record.fulfillment_pdf_url.includes('.json') || record.fulfillment_pdf_url.includes('billing_snapshots')))
+        )
+      );
+      headerGradient = isInteractiveBilling 
+        ? 'linear-gradient(135deg, #5f06fa, #7c3aed)' 
+        : 'linear-gradient(135deg, #2563eb, #1d4ed8)';
+      emailTitle = isInteractiveBilling
+        ? 'Desglose Interactivo de Facturación'
+        : 'Resumen de Facturación';
 
       let correctionNoticeHtml = '';
       if (isCorrection) {
