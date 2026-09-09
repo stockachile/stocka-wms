@@ -323,7 +323,121 @@ window.getPeriodColor = function(period) {
 };
 
 window.pickerOperatorsMap = window.pickerOperatorsMap || {};
+window.pickerStatusMap = window.pickerStatusMap || {};
 
+// Helper para normalizar identificadores de pedidos al buscar en mapas de Picker
+window.normalizeOrderKeys = function(rawKey) {
+  if (!rawKey) return [];
+  const str = String(rawKey).trim();
+  if (!str) return [];
+  const clean = str.replace(/^#/, '');
+  const withHash = '#' + clean;
+  const keys = new Set([str, clean, withHash, str.toUpperCase(), clean.toUpperCase(), withHash.toUpperCase()]);
+  return Array.from(keys);
+};
+
+// Helper para obtener el estado del Picker asignado a un pedido
+window.getPickerStatusForOrder = function(order) {
+  if (!order) return null;
+  const candidates = [
+    ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number) : []),
+    ...(order.id ? window.normalizeOrderKeys(order.id) : [])
+  ];
+
+  for (const k of candidates) {
+    if (window.pickerStatusMap[k]) {
+      return window.pickerStatusMap[k];
+    }
+  }
+  return null;
+};
+
+// Helper para renderizar el badge de estado del Picker en la fila de pedidos
+window.renderPickerStatusBadge = function(order) {
+  const pStatus = window.getPickerStatusForOrder(order);
+  const orderId = order.id;
+
+  if (!pStatus) {
+    // Si está en preparación pero no hay registro aún en Picker
+    if (order.estado_wms === 'En preparación') {
+      return `
+        <span class="badge" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer;" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="Sin registro activo en Picker. Clic para ver auditoría.">
+          <i class="ri-inbox-archive-line"></i> Picker: Sin registro
+        </span>
+      `;
+    }
+    return '';
+  }
+
+  const rawStatus = (pStatus.status || '').trim();
+  const rawStatusUpper = rawStatus.toUpperCase();
+  const operatorName = pStatus.operator || 'Sin asignar';
+  const tooltipText = `Estado Picker: ${rawStatus} | Operario: ${operatorName}${pStatus.sucursal ? ' | ' + pStatus.sucursal : ''}. Clic para ver historial completo.`;
+
+  let bg = 'rgba(100, 116, 139, 0.12)';
+  let color = '#475569';
+  let border = 'rgba(100, 116, 139, 0.25)';
+  let icon = '<i class="ri-barcode-box-line"></i>';
+  let labelText = `Picker: ${rawStatus}`;
+
+  if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
+    bg = 'rgba(16, 185, 129, 0.14)';
+    color = '#059669';
+    border = 'rgba(16, 185, 129, 0.3)';
+    icon = '<i class="ri-checkbox-circle-fill"></i>';
+    labelText = `Picker: Completado`;
+  } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
+    bg = 'rgba(16, 185, 129, 0.14)';
+    color = '#059669';
+    border = 'rgba(16, 185, 129, 0.3)';
+    icon = '<i class="ri-store-2-fill"></i>';
+    labelText = `Picker: Listo para Retiro`;
+  } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
+    bg = 'rgba(245, 158, 11, 0.14)';
+    color = '#d97706';
+    border = 'rgba(245, 158, 11, 0.3)';
+    icon = '<span style="width: 6px; height: 6px; border-radius: 50%; background: #d97706; display: inline-block; animation: pulse-warning-dot 1.5s infinite;"></span>';
+    labelText = `Picker: En preparación`;
+  } else if (rawStatusUpper === 'PARCIAL') {
+    bg = 'rgba(14, 165, 233, 0.14)';
+    color = '#0284c7';
+    border = 'rgba(14, 165, 233, 0.3)';
+    icon = '<i class="ri-qr-scan-2-line"></i>';
+    labelText = `Picker: Parcial (Escaneando)`;
+  } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
+    bg = 'rgba(239, 68, 68, 0.14)';
+    color = '#dc2626';
+    border = 'rgba(239, 68, 68, 0.3)';
+    icon = '<i class="ri-alert-fill"></i>';
+    labelText = `Picker: Con Obs`;
+  } else if (rawStatusUpper.includes('DERIVADO')) {
+    bg = 'rgba(139, 92, 246, 0.14)';
+    color = '#7c3aed';
+    border = 'rgba(139, 92, 246, 0.3)';
+    icon = '<i class="ri-share-forward-line"></i>';
+    labelText = `Picker: ${rawStatus}`;
+  } else if (rawStatusUpper === 'RETIRADO') {
+    bg = 'rgba(16, 185, 129, 0.14)';
+    color = '#047857';
+    border = 'rgba(16, 185, 129, 0.3)';
+    icon = '<i class="ri-user-received-line"></i>';
+    labelText = `Picker: Retirado`;
+  } else if (rawStatusUpper === 'ENVIADO A PREPARAR' || rawStatusUpper === 'PENDIENTE') {
+    bg = 'rgba(99, 102, 241, 0.12)';
+    color = '#4f46e5';
+    border = 'rgba(99, 102, 241, 0.25)';
+    icon = '<i class="ri-time-line"></i>';
+    labelText = `Picker: ${rawStatus}`;
+  }
+
+  return `
+    <span class="badge" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; transition: transform 0.15s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="${tooltipText}">
+      ${icon} ${labelText}
+    </span>
+  `;
+};
+
+// Sincronización en masa de operadores y estados del Picker
 window.fetchPickerOperators = async function(ordersList) {
   if (!ordersList || ordersList.length === 0) return;
   const client = window.supabase ? window.supabase.createClient(
@@ -333,39 +447,493 @@ window.fetchPickerOperators = async function(ordersList) {
   if (!client) return;
 
   try {
-    const orderNumbers = ordersList.map(o => String(o.external_order_number || o.id));
+    // Generar conjunto completo de identificadores a consultar
+    const allQueryKeysSet = new Set();
+    ordersList.forEach(o => {
+      if (o.external_order_number) {
+        window.normalizeOrderKeys(o.external_order_number).forEach(k => allQueryKeysSet.add(k));
+      }
+      if (o.id) {
+        window.normalizeOrderKeys(o.id).forEach(k => allQueryKeysSet.add(k));
+      }
+    });
+
+    const allKeys = Array.from(allQueryKeysSet);
     const chunkSize = 200;
-    for (let i = 0; i < orderNumbers.length; i += chunkSize) {
-      const chunk = orderNumbers.slice(i, i + chunkSize);
-      
-      const { data: activeOps, error: activeOpsErr } = await client
+
+    for (let i = 0; i < allKeys.length; i += chunkSize) {
+      const chunk = allKeys.slice(i, i + chunkSize);
+
+      // 1. Consultar active_orders (pedidos en curso)
+      const { data: activeRows, error: activeErr } = await client
         .from('active_orders')
-        .select('order_number, operator')
+        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
         .in('order_number', chunk);
-      
-      if (!activeOpsErr && activeOps) {
-        activeOps.forEach(item => {
-          if (item.operator) {
-            window.pickerOperatorsMap[item.order_number] = item.operator;
-          }
+
+      if (!activeErr && activeRows) {
+        activeRows.forEach(row => {
+          const num = row.order_number;
+          if (!num) return;
+          const statusObj = {
+            status: row.sheet_status || 'EN PREPARACIÓN',
+            operator: row.operator || null,
+            observation: row.observation || null,
+            sucursal: row.sucursal || null,
+            totu: row.totu || null,
+            isActive: true,
+            isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
+            source: 'active_orders',
+            updatedAt: row.created_at || null
+          };
+
+          window.normalizeOrderKeys(num).forEach(k => {
+            window.pickerStatusMap[k] = statusObj;
+            if (row.operator) window.pickerOperatorsMap[k] = row.operator;
+          });
         });
       }
-      
-      const { data: histOps, error: histOpsErr } = await client
+
+      // 2. Consultar history_logs (pedidos finalizados o eventos de escaneo)
+      const { data: historyRows, error: histErr } = await client
         .from('history_logs')
-        .select('pedido, picker')
-        .in('pedido', chunk);
-        
-      if (!histOpsErr && histOps) {
-        histOps.forEach(item => {
-          if (item.picker && item.picker !== '-') {
-            window.pickerOperatorsMap[item.pedido] = item.picker;
+        .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+        .in('pedido', chunk)
+        .order('created_at', { ascending: false });
+
+      if (!histErr && historyRows) {
+        const seenInHistory = new Set();
+        historyRows.forEach(row => {
+          const ped = row.pedido;
+          if (!ped) return;
+          const pedNorm = String(ped).trim().toUpperCase();
+
+          // Registrar el operario
+          if (row.picker && row.picker !== '-') {
+            window.normalizeOrderKeys(ped).forEach(k => {
+              window.pickerOperatorsMap[k] = row.picker;
+            });
+          }
+
+          // Solo guardamos el registro más reciente de cada pedido en el mapa principal
+          if (!seenInHistory.has(pedNorm)) {
+            seenInHistory.add(pedNorm);
+
+            const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
+            const statusObj = {
+              status: row.estado || 'Completado',
+              operator: row.picker || null,
+              observation: row.comentarios || null,
+              sucursal: row.sucursal || null,
+              itemsSummary: row.items_summary || null,
+              isActive: false,
+              isCompleted: isComp,
+              source: 'history_logs',
+              updatedAt: row.created_at || `${row.fecha} ${row.hora}`
+            };
+
+            // Si el pedido no estaba en active_orders, o si en history_logs ya está completado/retirado, toma prioridad
+            window.normalizeOrderKeys(ped).forEach(k => {
+              const existing = window.pickerStatusMap[k];
+              if (!existing || isComp || !existing.isActive) {
+                window.pickerStatusMap[k] = statusObj;
+              }
+            });
           }
         });
       }
     }
   } catch (err) {
-    console.warn('[Picker Operators Sync] Error fetching operators:', err);
+    console.warn('[Picker Status & Operators Sync] Error:', err);
+  }
+};
+window.fetchPickerOperatorsAndStatuses = window.fetchPickerOperators;
+
+// Modal para consultar el historial completo y trazabilidad de un pedido en el Picker
+window.openPickerOrderHistoryModal = async function(orderId) {
+  const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+  const orderNumber = order ? (order.external_order_number || order.id) : orderId;
+  const commerceName = order ? (order.comercio || 'Sin comercio') : '';
+
+  const client = window.supabase ? window.supabase.createClient(
+    'https://hpomymtecmxujbjxqawu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+  ) : null;
+
+  if (!client) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Configuración no disponible',
+      text: 'No se pudo conectar a la base de datos del Picker.',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    return;
+  }
+
+  // Mostrar modal de carga
+  Swal.fire({
+    title: 'Consultando Picker...',
+    html: `
+      <div style="padding: 1.5rem 0; text-align: center;">
+        <i class="ri-loader-4-line spin" style="font-size: 2.5rem; color: var(--color-primary); display: inline-block; animation: spin 1s linear infinite;"></i>
+        <p style="margin-top: 1rem; color: var(--color-text-muted); font-size: 0.9rem;">Obteniendo trazabilidad y escaneos de <strong>${orderNumber}</strong>...</p>
+      </div>
+    `,
+    showConfirmButton: false,
+    allowOutsideClick: false,
+    width: '600px'
+  });
+
+  try {
+    const searchKeys = window.normalizeOrderKeys(orderNumber);
+    if (order && order.id && order.id !== orderNumber) {
+      window.normalizeOrderKeys(order.id).forEach(k => searchKeys.push(k));
+    }
+
+    // 1. Consultar estado activo actual
+    const { data: activeItems, error: activeErr } = await client
+      .from('active_orders')
+      .select('*')
+      .in('order_number', searchKeys);
+
+    // 2. Consultar historial de eventos completo
+    const { data: historyLogs, error: logsErr } = await client
+      .from('history_logs')
+      .select('*')
+      .in('pedido', searchKeys)
+      .order('created_at', { ascending: false });
+
+    if (activeErr) throw activeErr;
+    if (logsErr) throw logsErr;
+
+    const hasActive = activeItems && activeItems.length > 0;
+    const hasLogs = historyLogs && historyLogs.length > 0;
+
+    // Actualizar datos en memoria para este pedido
+    if (hasActive) {
+      const firstActive = activeItems[0];
+      const statusObj = {
+        status: firstActive.sheet_status || 'EN PREPARACIÓN',
+        operator: firstActive.operator || null,
+        observation: firstActive.observation || null,
+        sucursal: firstActive.sucursal || null,
+        totu: firstActive.totu || null,
+        isActive: true,
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro'].includes(firstActive.sheet_status),
+        source: 'active_orders',
+        updatedAt: firstActive.created_at || null
+      };
+      searchKeys.forEach(k => {
+        window.pickerStatusMap[k] = statusObj;
+        if (firstActive.operator) window.pickerOperatorsMap[k] = firstActive.operator;
+      });
+    }
+
+    if (hasLogs) {
+      const firstLog = historyLogs[0];
+      const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(firstLog.estado);
+      const statusObj = {
+        status: firstLog.estado || 'Completado',
+        operator: firstLog.picker || null,
+        observation: firstLog.comentarios || null,
+        sucursal: firstLog.sucursal || null,
+        itemsSummary: firstLog.items_summary || null,
+        isActive: hasActive,
+        isCompleted: isComp,
+        source: 'history_logs',
+        updatedAt: firstLog.created_at || `${firstLog.fecha} ${firstLog.hora}`
+      };
+      searchKeys.forEach(k => {
+        if (!hasActive || isComp) window.pickerStatusMap[k] = statusObj;
+        if (firstLog.picker) window.pickerOperatorsMap[k] = firstLog.picker;
+      });
+    }
+
+    // Si no hay datos en ninguna de las dos tablas
+    if (!hasActive && !hasLogs) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin actividad en Picker',
+        html: `
+          <div style="text-align: left; padding: 0.5rem; font-size: 0.9rem; line-height: 1.5;">
+            <p>El pedido <strong style="color: var(--color-primary);">${orderNumber}</strong> (${commerceName}) aún no registra actividad ni escaneos en el sistema Picker.</p>
+            <div style="margin-top: 1rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.825rem; color: var(--color-text-muted);">
+              <i class="ri-information-line"></i> Si el pedido está en estado <em>"En preparación"</em> en el WMS, se sincronizará automáticamente con el Picker o puedes utilizar la opción de reinyectar.
+            </div>
+          </div>
+        `,
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return;
+    }
+
+    // Helper para formatear resumen de items con tags visuales
+    const renderItemsSummaryHtml = (summaryStr) => {
+      if (!summaryStr || summaryStr === '-' || summaryStr.trim() === '') return '';
+      const parts = summaryStr.split(',').map(p => p.trim()).filter(Boolean);
+      return `
+        <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.35rem;">
+          ${parts.map(p => {
+            const isFullMatch = /\((\d+)\/\1\)/.test(p);
+            const isZero = /\(0\/\d+\)/.test(p);
+            let pillBg = isFullMatch ? 'rgba(16, 185, 129, 0.12)' : (isZero ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)');
+            let pillColor = isFullMatch ? '#059669' : (isZero ? '#dc2626' : '#d97706');
+            let pillBorder = isFullMatch ? 'rgba(16, 185, 129, 0.3)' : (isZero ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)');
+            return `<span style="background: ${pillBg}; color: ${pillColor}; border: 1px solid ${pillBorder}; border-radius: 4px; padding: 2px 6px; font-size: 0.72rem; font-family: monospace; font-weight: 600;">${p}</span>`;
+          }).join('')}
+        </div>
+      `;
+    };
+
+    // Construir bloque de estado activo actual si existe
+    let activeBannerHtml = '';
+    if (hasActive) {
+      const act = activeItems[0];
+      activeBannerHtml = `
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.35rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: #d97706; display: flex; align-items: center; gap: 0.35rem;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #d97706; display: inline-block;"></span>
+              REGISTRADO EN BODEGA ACTIVA
+            </span>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #b45309; font-weight: 700; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+              ${act.sheet_status || 'EN PREPARACIÓN'}
+            </span>
+          </div>
+          <div style="font-size: 0.825rem; color: var(--color-text-main); display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.25rem; margin-top: 0.25rem;">
+            <span><strong>Operario:</strong> ${act.operator || 'Sin asignar'}</span>
+            <span><strong>Sucursal:</strong> ${act.sucursal || 'Central'}</span>
+            <span><strong>Cesta/Tote:</strong> ${act.totu ? '#' + act.totu : '-'}</span>
+            <span><strong>Ítems en cola:</strong> ${activeItems.length} reg.</span>
+          </div>
+          ${act.observation ? `<div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem; background: var(--color-surface); padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border);"><strong>Obs:</strong> ${window.escapeHtml(act.observation)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    // Construir la línea de tiempo (Timeline) con historyLogs
+    let timelineHtml = '';
+    if (hasLogs) {
+      timelineHtml = `
+        <div class="picker-timeline" style="text-align: left; position: relative; padding-left: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--color-border);"></div>
+          ${historyLogs.map((log, idx) => {
+            const isCompleted = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(log.estado);
+            const isPartial = String(log.estado).toUpperCase() === 'PARCIAL';
+            const dotColor = isCompleted ? '#10b981' : (isPartial ? '#0ea5e9' : '#f59e0b');
+            const formattedDate = log.fecha ? `${log.fecha} ${log.hora || ''}`.trim() : new Date(log.created_at).toLocaleString('es-CL');
+
+            return `
+              <div style="position: relative;">
+                <div style="position: absolute; left: -1.5rem; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: ${dotColor}; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px ${dotColor};"></div>
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem 0.85rem; box-shadow: var(--shadow-sm);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-time-line"></i> ${formattedDate}
+                    </span>
+                    <span class="badge" style="background: ${isCompleted ? 'rgba(16, 185, 129, 0.12)' : (isPartial ? 'rgba(14, 165, 233, 0.12)' : 'rgba(245, 158, 11, 0.12)')}; color: ${isCompleted ? '#059669' : (isPartial ? '#0284c7' : '#d97706')}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.3)' : (isPartial ? 'rgba(14, 165, 233, 0.3)' : 'rgba(245, 158, 11, 0.3)')}; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+                      ${log.estado || 'Evento'}
+                    </span>
+                  </div>
+                  <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-user-star-line" style="color: var(--color-primary);"></i>
+                    <span>${log.picker || 'Operario desconocido'}</span>
+                    ${log.sucursal ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">(${log.sucursal})</span>` : ''}
+                  </div>
+                  ${log.comentarios ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(log.comentarios)}</p>` : ''}
+                  ${renderItemsSummaryHtml(log.items_summary)}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      timelineHtml = `
+        <div style="text-align: center; padding: 1rem; color: var(--color-text-muted); font-size: 0.85rem;">
+          <i class="ri-history-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.25rem;"></i>
+          No hay registros históricos finalizados. El pedido se encuentra actualmente en cola activa.
+        </div>
+      `;
+    }
+
+    const modalContent = `
+      <div style="max-height: 70vh; overflow-y: auto; padding-right: 0.35rem;">
+        <!-- Cabecera Resumen -->
+        <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; text-align: left; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; font-size: 0.85rem;">
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Pedido:</span><strong>${orderNumber}</strong></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Comercio:</span><strong>${commerceName}</strong></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Estado WMS:</span><span class="badge status-yellow" style="font-size: 0.72rem; padding: 2px 6px;">${order ? order.estado_wms : '-'}</span></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Total Registros:</span><strong>${(historyLogs || []).length} escaneos/logs</strong></div>
+        </div>
+
+        ${activeBannerHtml}
+
+        <div style="text-align: left; margin-bottom: 0.75rem;">
+          <h5 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            <i class="ri-history-line"></i> Línea de Tiempo de Auditoría
+          </h5>
+        </div>
+
+        ${timelineHtml}
+      </div>
+    `;
+
+    Swal.fire({
+      title: `Auditoría Picker: ${orderNumber}`,
+      html: modalContent,
+      width: '680px',
+      showCloseButton: true,
+      showConfirmButton: true,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: 'var(--color-primary)',
+      customClass: {
+        popup: 'picker-history-modal'
+      }
+    });
+
+  } catch (err) {
+    console.error("Error abriendo historial de Picker:", err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al consultar Picker',
+      text: err.message || 'No fue posible recuperar el historial.',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }
+};
+
+// Refresco individual bajo demanda del estado Picker para un pedido
+window.refreshSingleOrderPickerStatus = async function(orderId) {
+  const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+  const orderNumber = order ? (order.external_order_number || order.id) : orderId;
+
+  const btn = document.getElementById(`btn-refresh-picker-${orderId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ri-loader-4-line spin" style="display:inline-block; animation:spin 1s linear infinite;"></i>`;
+  }
+
+  const client = window.supabase ? window.supabase.createClient(
+    'https://hpomymtecmxujbjxqawu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+  ) : null;
+
+  if (!client) {
+    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="ri-refresh-line"></i> Refrescar`; }
+    return;
+  }
+
+  try {
+    const searchKeys = window.normalizeOrderKeys(orderNumber);
+    if (order && order.id && order.id !== orderNumber) {
+      window.normalizeOrderKeys(order.id).forEach(k => searchKeys.push(k));
+    }
+
+    const { data: activeItems } = await client
+      .from('active_orders')
+      .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
+      .in('order_number', searchKeys);
+
+    const { data: historyLogs } = await client
+      .from('history_logs')
+      .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+      .in('pedido', searchKeys)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    let resolvedStatus = null;
+
+    if (activeItems && activeItems.length > 0) {
+      const act = activeItems[0];
+      resolvedStatus = {
+        status: act.sheet_status || 'EN PREPARACIÓN',
+        operator: act.operator || null,
+        observation: act.observation || null,
+        sucursal: act.sucursal || null,
+        totu: act.totu || null,
+        isActive: true,
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro'].includes(act.sheet_status),
+        source: 'active_orders',
+        updatedAt: act.created_at || null
+      };
+    }
+
+    if (historyLogs && historyLogs.length > 0) {
+      const hist = historyLogs[0];
+      const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(hist.estado);
+      if (!resolvedStatus || isComp || !resolvedStatus.isActive) {
+        resolvedStatus = {
+          status: hist.estado || 'Completado',
+          operator: hist.picker || null,
+          observation: hist.comentarios || null,
+          sucursal: hist.sucursal || null,
+          itemsSummary: hist.items_summary || null,
+          isActive: Boolean(activeItems && activeItems.length > 0),
+          isCompleted: isComp,
+          source: 'history_logs',
+          updatedAt: hist.created_at || `${hist.fecha} ${hist.hora}`
+        };
+      }
+    }
+
+    if (resolvedStatus) {
+      searchKeys.forEach(k => {
+        window.pickerStatusMap[k] = resolvedStatus;
+        if (resolvedStatus.operator) window.pickerOperatorsMap[k] = resolvedStatus.operator;
+      });
+
+      // Si fue completado en el Picker y en WMS estaba "En preparación", sincronizar a Pickeado
+      if (resolvedStatus.isCompleted && order && order.estado_wms === 'En preparación') {
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update({ estado_wms: 'Pickeado' })
+          .eq('id', order.id);
+
+        if (!wmsErr) {
+          order.estado_wms = 'Pickeado';
+        }
+      }
+
+      // Re-renderizar la tabla para reflejar el badge y detalles actualizados
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+
+      const toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true
+      });
+      toast.fire({
+        icon: 'success',
+        title: `Picker: ${resolvedStatus.status}`,
+        text: `Operario: ${resolvedStatus.operator || 'Sin asignar'}`
+      });
+    } else {
+      const toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true
+      });
+      toast.fire({
+        icon: 'info',
+        title: 'Sin actividad en Picker',
+        text: `El pedido ${orderNumber} no tiene registros en Picker.`
+      });
+    }
+
+  } catch (err) {
+    console.error("Error refrescando Picker:", err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ri-refresh-line"></i> Refrescar`;
+    }
   }
 };
 
@@ -4708,6 +5276,8 @@ window.applyWmsFiltersAndRender = function() {
       noteBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')}"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
     }
 
+    const pickerBadgeHtml = window.renderPickerStatusBadge ? window.renderPickerStatusBadge(order) : '';
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -4770,7 +5340,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
           </div>
         </td>
       </tr>
@@ -4821,13 +5391,44 @@ window.applyWmsFiltersAndRender = function() {
                   </div>
                 </div>
                 
-                <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
-                  <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
-                  <span><strong>Agenda Picking:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
-                  <span><strong>Operario Picker:</strong> <span style="font-weight: 600; color: var(--color-success);">${window.pickerOperatorsMap[order.external_order_number || order.id] || 'No asignado / En proceso'}</span></span>
-                  <button onclick="window.editWmsOrderPickingInfo('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; width: fit-content; margin-top: 0.25rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-edit-line"></i> Editar Picking
-                  </button>
+                <!-- Tarjeta de Control y Trazabilidad Picker -->
+                <div style="margin-top: 0.85rem; padding: 0.85rem; border-radius: var(--radius-sm); background: rgba(79, 70, 229, 0.03); border: 1px solid rgba(79, 70, 229, 0.15); display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(79, 70, 229, 0.1); padding-bottom: 0.35rem;">
+                    <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-barcode-box-line" style="font-size: 1rem;"></i> Control y Trazabilidad Picker
+                    </span>
+                    ${pickerBadgeHtml || '<span style="font-size:0.7rem; color:var(--color-text-muted);">Sin registro</span>'}
+                  </div>
+                  <div style="font-size: 0.85rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 0.75rem;">
+                    <span><strong>Sucursal:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
+                    <span><strong>Agenda:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
+                    <span style="grid-column: 1 / -1;"><strong>Operario Picker:</strong> <span style="font-weight: 600; color: ${window.pickerOperatorsMap[order.external_order_number || order.id] ? 'var(--color-success)' : 'var(--color-text-muted)'};">${window.pickerOperatorsMap[order.external_order_number || order.id] || 'No asignado / En proceso'}</span></span>
+                    ${(() => {
+                      const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+                      if (pStatus && pStatus.totu) {
+                        return `<span style="grid-column: 1 / -1;"><strong>Cesta/Tote:</strong> <span style="font-weight:700; color:var(--color-primary);">#${pStatus.totu}</span></span>`;
+                      }
+                      return '';
+                    })()}
+                  </div>
+                  ${(() => {
+                    const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+                    if (pStatus && pStatus.observation) {
+                      return `<div style="font-size: 0.78rem; background: var(--color-surface); padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); color: var(--color-text-muted);"><strong>Obs Picker:</strong> ${window.escapeHtml(pStatus.observation)}</div>`;
+                    }
+                    return '';
+                  })()}
+                  <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem; padding-top: 0.5rem; border-top: 1px dashed rgba(79, 70, 229, 0.15);">
+                    <button type="button" onclick="window.openPickerOrderHistoryModal('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; font-weight: 700; color: var(--color-primary); border-color: var(--color-primary); background: rgba(79, 70, 229, 0.05); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                      <i class="ri-history-line"></i> Ver Historial Picker
+                    </button>
+                    <button type="button" id="btn-refresh-picker-${order.id}" onclick="window.refreshSingleOrderPickerStatus('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Consultar estado más reciente en la base de datos del Picker">
+                      <i class="ri-refresh-line"></i> Refrescar
+                    </button>
+                    <button type="button" onclick="window.editWmsOrderPickingInfo('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-edit-line"></i> Editar Picking
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -43736,14 +44337,19 @@ window.syncPickerStatusToWms = async function() {
   const prepOrders = window.loadedOrders.filter(o => o.estado_wms === 'En preparación');
   if (prepOrders.length === 0) return;
 
-  const orderNumbers = prepOrders.map(o => String(o.external_order_number || o.id));
+  const searchKeysSet = new Set();
+  prepOrders.forEach(o => {
+    if (o.external_order_number) window.normalizeOrderKeys(o.external_order_number).forEach(k => searchKeysSet.add(k));
+    if (o.id) window.normalizeOrderKeys(o.id).forEach(k => searchKeysSet.add(k));
+  });
+  const orderNumbers = Array.from(searchKeysSet);
 
   try {
     const { data: logs, error } = await pickerSupabase
       .from('history_logs')
-      .select('pedido, estado')
+      .select('pedido, estado, picker')
       .in('pedido', orderNumbers)
-      .in('estado', ['Completado', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO']);
+      .in('estado', ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO']);
 
     if (error) {
       console.warn("[Picker Status Sync] Error querying history_logs:", error.message);
@@ -43751,10 +44357,18 @@ window.syncPickerStatusToWms = async function() {
     }
 
     if (logs && logs.length > 0) {
-      const completedOrderNumbers = logs.map(l => String(l.pedido).trim().toUpperCase());
+      const completedKeysSet = new Set();
+      logs.forEach(l => {
+        window.normalizeOrderKeys(l.pedido).forEach(k => completedKeysSet.add(k));
+      });
+
       const ordersToUpdate = prepOrders.filter(o => {
-        const num = String(o.external_order_number || o.id).trim().toUpperCase();
-        return completedOrderNumbers.includes(num);
+        const extNorm = o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '';
+        const idNorm = o.id ? String(o.id).trim().toUpperCase() : '';
+        return completedKeysSet.has(extNorm) || 
+               completedKeysSet.has('#' + extNorm.replace(/^#/, '')) || 
+               completedKeysSet.has(extNorm.replace(/^#/, '')) ||
+               completedKeysSet.has(idNorm);
       });
 
       if (ordersToUpdate.length > 0) {
@@ -43769,6 +44383,28 @@ window.syncPickerStatusToWms = async function() {
 
         ordersToUpdate.forEach(o => {
           o.estado_wms = 'Pickeado';
+
+          const matchLog = logs.find(l => {
+            const lNorm = String(l.pedido).trim().toUpperCase();
+            const extNorm = o.external_order_number ? String(o.external_order_number).trim().toUpperCase() : '';
+            return lNorm === extNorm || 
+                   lNorm === ('#' + extNorm.replace(/^#/, '')) || 
+                   lNorm === extNorm.replace(/^#/, '');
+          });
+
+          if (matchLog) {
+            const stObj = {
+              status: matchLog.estado || 'Completado',
+              operator: matchLog.picker || null,
+              isCompleted: true,
+              isActive: false,
+              source: 'history_logs'
+            };
+            window.normalizeOrderKeys(o.external_order_number).forEach(k => {
+              window.pickerStatusMap[k] = stObj;
+              if (matchLog.picker) window.pickerOperatorsMap[k] = matchLog.picker;
+            });
+          }
         });
 
         const orderNames = ordersToUpdate.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (ordersToUpdate.length > 3 ? ' y otros' : '');

@@ -157,8 +157,17 @@ async function run() {
 
     console.log(`📋 Se encontraron ${wmsOrders.length} pedidos 'En preparación' en WMS.`);
 
-    // 2. Obtener todas las órdenes activas en el Picker para cruzar y comparar
-    const orderNumbers = wmsOrders.map(o => String(o.external_order_number || o.id));
+    // 2. Obtener todas las órdenes activas en el Picker para cruzar y comparar (normalizando # y sin #)
+    const orderNumbersSet = new Set();
+    wmsOrders.forEach(o => {
+      const raw = String(o.external_order_number || o.id).trim();
+      if (!raw) return;
+      orderNumbersSet.add(raw);
+      orderNumbersSet.add('#' + raw.replace(/^#/, ''));
+      orderNumbersSet.add(raw.replace(/^#/, ''));
+    });
+    const orderNumbers = Array.from(orderNumbersSet);
+
     const { data: pickerActiveOrders, error: pickerErr } = await pickerClient
       .from('active_orders')
       .select('*')
@@ -168,15 +177,32 @@ async function run() {
 
     for (const wmsOrder of wmsOrders) {
       const orderNo = String(wmsOrder.external_order_number || wmsOrder.id);
+      const cleanOrderNo = orderNo.replace(/^#/, '').trim().toUpperCase();
       
       // Registrar en Punto de Retiro (WMS y Picker) si la agenda es retiro
       if (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO') {
         await registerPickupIfNeeded(wmsOrder);
       }
 
-      const pickerItemsForOrder = (pickerActiveOrders || []).filter(item => String(item.order_number) === orderNo);
+      const pickerItemsForOrder = (pickerActiveOrders || []).filter(item => {
+        const pNo = String(item.order_number || '').replace(/^#/, '').trim().toUpperCase();
+        return pNo === cleanOrderNo;
+      });
 
       if (pickerItemsForOrder.length > 0) {
+        // Actualizar el estado y operario en WMS si las columnas existen
+        try {
+          const firstAct = pickerItemsForOrder[0];
+          await wmsClient
+            .from('orders')
+            .update({
+              picker_status: firstAct.sheet_status || 'EN PREPARACIÓN',
+              picker_operator: firstAct.operator || null,
+              picker_last_synced_at: new Date().toISOString()
+            })
+            .eq('id', wmsOrder.id);
+        } catch (_) {}
+
         // === CASO A: El pedido ya existe en el Picker, verificar si fue modificado en el WMS ===
         console.log(`🔍 Pedido ${orderNo} activo en Picker. Comparando ítems...`);
 
@@ -304,12 +330,13 @@ async function run() {
 
         if (isPickupHandled) continue;
 
-        // B.2 Consultar en logs de completado del Picker
+        // B.2 Consultar en logs de completado del Picker (normalizando #)
+        const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
         const { data: logs, error: logsErr } = await pickerClient
           .from('history_logs')
-          .select('pedido, estado, comentarios')
-          .eq('pedido', orderNo)
-          .in('estado', ['Completado', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'])
+          .select('pedido, estado, comentarios, picker')
+          .in('pedido', searchLogKeys)
+          .in('estado', ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'])
           .order('created_at', { ascending: false })
           .limit(1);
 
@@ -322,10 +349,25 @@ async function run() {
           // El pedido fue completado en el Picker, actualizamos el WMS a 'Pickeado'
           console.log(`🎉 ¡Pedido ${orderNo} completado en Picker con estado: "${logs[0].estado}"! Sincronizando WMS...`);
           
-          const { error: wmsUpdateErr } = await wmsClient
-            .from('orders')
-            .update({ estado_wms: 'Pickeado' })
-            .eq('id', wmsOrder.id);
+          let wmsUpdateErr = null;
+          try {
+            const res = await wmsClient
+              .from('orders')
+              .update({ 
+                estado_wms: 'Pickeado',
+                picker_status: logs[0].estado,
+                picker_operator: logs[0].picker || null,
+                picker_last_synced_at: new Date().toISOString()
+              })
+              .eq('id', wmsOrder.id);
+            if (res.error) throw res.error;
+          } catch (_) {
+            const fallbackRes = await wmsClient
+              .from('orders')
+              .update({ estado_wms: 'Pickeado' })
+              .eq('id', wmsOrder.id);
+            wmsUpdateErr = fallbackRes.error;
+          }
 
           if (wmsUpdateErr) {
             console.error(`Error actualizando estado en WMS para ${orderNo}:`, wmsUpdateErr.message);
