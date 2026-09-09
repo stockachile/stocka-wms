@@ -3,7 +3,7 @@
  * Compatible con Baileys local o Evolution API remota.
  */
 
-const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || ('http://127.0.0.1:' + (process.env.PORT || '3001'));
+const WHATSAPP_API_URL = process.env.WHATSAPP_API_URL || 'https://stocka-whatsapp-bot.onrender.com';
 const WHATSAPP_API_KEY = process.env.WHATSAPP_API_KEY || 'stocka_wa_internal_secret_2026';
 
 const getHeaders = () => ({
@@ -93,9 +93,35 @@ async function notifyManualOrdersAlert({ force = false, dryRun = false, targetGr
   }
 }
 
+async function sendWhatsAppDocument({ to, fileBuffer, fileBase64, fileName, caption, mimetype = 'application/pdf' }) {
+  try {
+    let base64Content = fileBase64;
+    if (!base64Content && fileBuffer) {
+      base64Content = Buffer.isBuffer(fileBuffer) ? fileBuffer.toString('base64') : Buffer.from(fileBuffer).toString('base64');
+    }
+
+    const response = await fetch(`${WHATSAPP_API_URL}/send-document`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        to,
+        fileBase64: base64Content,
+        fileName,
+        caption,
+        mimetype
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error enviando documento:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   checkWhatsAppStatus,
   sendWhatsAppMessage,
+  sendWhatsAppDocument,
   sendPickupAlert,
   listBotGroups,
   notifyManualOrdersAlert

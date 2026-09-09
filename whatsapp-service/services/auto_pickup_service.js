@@ -16,7 +16,8 @@
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
-const { sendWhatsAppMessage } = require('./whatsapp_client');
+const { sendWhatsAppMessage, sendWhatsAppDocument } = require('./whatsapp_client');
+const { generatePickupLabelPDF } = require('./label_pdf_service');
 
 // Cargar variables de entorno
 const envPath = path.join(__dirname, '../.env');
@@ -44,6 +45,7 @@ const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 
 const NUNOA_WAREHOUSE_ID = '973da888-8a63-4790-a08f-919e1af41a93'; // Matriz Ñuñoa
 const DEFAULT_GROUP_JID = '120363043911687615@g.us'; // Coordinación Stocka
+const IMPRESIONES_GROUP_JID = '120363423098929019@g.us'; // IMPRESIONES - general
 
 // Solo procesar pedidos creados desde hoy en adelante (02 de Septiembre de 2026 en adelante)
 const AUTO_PICKUP_CUTOFF_DATE = process.env.AUTO_PICKUP_CUTOFF_DATE || '2026-09-02T00:00:00.000-04:00';
@@ -552,12 +554,45 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   console.log(`[AutoPickup] Enviando notificación WhatsApp a ${targetGroup}...`);
   const waResult = await sendWhatsAppMessage(targetGroup, notificationText);
 
+  // 7. Enviar Etiqueta PDF 10x15 al grupo IMPRESIONES - general
+  let pdfResult = null;
+  try {
+    console.log(`[AutoPickup] Generando etiqueta PDF 10x15 para orden #${orderNo}...`);
+    const labelPdfBuffer = await generatePickupLabelPDF(order, {
+      courier: 'RETIRO',
+      headComment: 'RETIRO EN SUCURSAL',
+      footComment: ''
+    });
+
+    const captionText = [
+      `🏷️ *ETIQUETA DE DESPACHO - RETIRO EN SUCURSAL*`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `📦 *Comercio:* ${order.comercio || 'No asignado'}`,
+      `🔢 *Orden:* #${orderNo}`,
+      `👤 *Cliente:* ${order.customer_name || 'No informado'}`,
+      `📍 *Destino:* Sucursal Ñuñoa`,
+      `🕒 ${nowFormatted}`
+    ].join('\n');
+
+    console.log(`[AutoPickup] Enviando etiqueta PDF a IMPRESIONES - general (${IMPRESIONES_GROUP_JID})...`);
+    pdfResult = await sendWhatsAppDocument({
+      to: IMPRESIONES_GROUP_JID,
+      fileBuffer: labelPdfBuffer,
+      fileName: `Etiqueta_${orderNo}.pdf`,
+      caption: captionText,
+      mimetype: 'application/pdf'
+    });
+  } catch (pdfErr) {
+    console.error('[AutoPickup] Error generando o enviando etiqueta PDF:', pdfErr.message);
+  }
+
   return {
     success: true,
     orderId: order.id,
     orderNo,
     comercio: order.comercio,
-    whatsappResult: waResult
+    whatsappResult: waResult,
+    pdfResult
   };
 }
 

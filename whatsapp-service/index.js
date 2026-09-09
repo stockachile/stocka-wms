@@ -266,6 +266,42 @@ app.post('/send-message', requireAuth, async (req, res) => {
   }
 });
 
+// 4.1 Enviar Archivo / Documento (PDF, etc.)
+app.post('/send-document', requireAuth, async (req, res) => {
+  const { to, fileBase64, fileName, caption, mimetype = 'application/pdf' } = req.body;
+
+  if (!to || !fileBase64 || !fileName) {
+    return res.status(400).json({ error: 'Se requieren los campos "to", "fileBase64" y "fileName"' });
+  }
+
+  if (connectionStatus !== 'CONNECTED' || !sock) {
+    return res.status(503).json({ error: 'WhatsApp no está conectado' });
+  }
+
+  try {
+    const jid = formatJid(to);
+    const fileBuffer = Buffer.from(fileBase64, 'base64');
+    const finalCaption = caption ? (caption.startsWith('🤖') ? caption : `🤖 *Stox:*\n${caption}`) : undefined;
+
+    const result = await sock.sendMessage(jid, {
+      document: fileBuffer,
+      mimetype,
+      fileName,
+      caption: finalCaption
+    });
+
+    res.json({
+      success: true,
+      jid,
+      messageId: result?.key?.id,
+      fileName
+    });
+  } catch (err) {
+    console.error('[Error enviando documento]:', err);
+    res.status(500).json({ error: 'Fallo al enviar documento: ' + err.message });
+  }
+});
+
 // 5. Enviar Alerta Estructurada de Pedido con Retiro en Bodega
 app.post('/send-pickup-alert', requireAuth, async (req, res) => {
   const {

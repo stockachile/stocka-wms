@@ -93,9 +93,35 @@ async function notifyManualOrdersAlert({ force = false, dryRun = false, targetGr
   }
 }
 
+async function sendWhatsAppDocument({ to, fileBuffer, fileBase64, fileName, caption, mimetype = 'application/pdf' }) {
+  try {
+    let base64Content = fileBase64;
+    if (!base64Content && fileBuffer) {
+      base64Content = Buffer.isBuffer(fileBuffer) ? fileBuffer.toString('base64') : Buffer.from(fileBuffer).toString('base64');
+    }
+
+    const response = await fetch(`${WHATSAPP_API_URL}/send-document`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        to,
+        fileBase64: base64Content,
+        fileName,
+        caption,
+        mimetype
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error enviando documento:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   checkWhatsAppStatus,
   sendWhatsAppMessage,
+  sendWhatsAppDocument,
   sendPickupAlert,
   listBotGroups,
   notifyManualOrdersAlert
