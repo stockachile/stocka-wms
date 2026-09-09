@@ -27,6 +27,115 @@ window.escapeHtml = function(str) {
     .replace(/'/g, '&#39;');
 };
 
+window.escapeHtmlAttr = function(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\r/g, '&#13;')
+    .replace(/\n/g, '&#10;');
+};
+
+function fallbackCopyText(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '2em';
+    ta.style.height = '2em';
+    ta.style.padding = '0';
+    ta.style.border = 'none';
+    ta.style.outline = 'none';
+    ta.style.boxShadow = 'none';
+    ta.style.background = 'transparent';
+    ta.setAttribute('readonly', '');
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, 99999);
+    const successful = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (successful && cb) cb();
+  } catch (err) {
+    console.error('Fallback copy failed:', err);
+  }
+}
+
+window.copyFieldFromData = function(btn, fieldName) {
+  if (!btn) return;
+  const text = btn.getAttribute('data-copy-val');
+  if (!text) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'info',
+        title: 'No hay datos para copiar',
+        showConfirmButton: false,
+        timer: 1500
+      });
+    }
+    return;
+  }
+
+  const doSuccessFeedback = () => {
+    const icon = btn.querySelector('i');
+    const originalClass = icon ? icon.className : '';
+    if (icon) {
+      icon.className = 'ri-check-line';
+      icon.style.color = '#10b981';
+    }
+    let msgTitle = `${fieldName || 'Dato'} copiado`;
+    if (fieldName === 'Dirección' || fieldName === 'Comuna') {
+      msgTitle = `${fieldName} copiada`;
+    } else if (fieldName === 'Notas') {
+      msgTitle = 'Notas copiadas';
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: msgTitle,
+        showConfirmButton: false,
+        timer: 1200,
+        timerProgressBar: false
+      });
+    }
+    setTimeout(() => {
+      if (icon) {
+        icon.className = originalClass;
+        icon.style.color = '';
+      }
+    }, 1200);
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(doSuccessFeedback).catch(err => {
+      console.warn('Clipboard writeText failed, falling back:', err);
+      fallbackCopyText(text, doSuccessFeedback);
+    });
+  } else {
+    fallbackCopyText(text, doSuccessFeedback);
+  }
+};
+
+window.renderCopyFieldBtn = function(value, label, tooltip) {
+  if (!value) return '';
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed === 'No registrado' || trimmed === 'No registrada' || trimmed === 'Sin notas' || trimmed === '-') {
+    return '';
+  }
+  const cleanVal = window.escapeHtmlAttr(trimmed);
+  const tip = tooltip || `Copiar ${label ? label.toLowerCase() : 'texto'}`;
+  return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s;" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
+};
+
 window.normalizeComunaKey = function(str) {
   if (!str) return '';
   return String(str).toLowerCase()
@@ -4069,7 +4178,8 @@ window.applyWmsFiltersAndRender = function() {
 
     let hasStockAlert = false;
     let stockAlertDetails = [];
-    if (shouldProcessStock) {
+    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+    if (shouldProcessStock && !isOrderTerminalOrShipped) {
       const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
       if (itemsToCheck.length > 0) {
         const invMap = window.loadedOrdersInventoryMap || {};
@@ -4435,6 +4545,8 @@ window.applyWmsFiltersAndRender = function() {
 
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
+        } else if (isOrderTerminalOrShipped) {
+          stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
         } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
           const invMap = window.loadedOrdersInventoryMap || {};
           const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
@@ -4596,6 +4708,8 @@ window.applyWmsFiltersAndRender = function() {
       noteBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')}"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
     }
 
+    const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
@@ -4675,16 +4789,16 @@ window.applyWmsFiltersAndRender = function() {
                     <i class="ri-edit-line"></i> Editar
                   </button>
                 </h4>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${displayName}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${displayEmail}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${displayPhone}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}</p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
-                  <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
-                  ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
+                  <strong>Dirección:</strong> <span>${order.shipping_address || 'No registrada'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}</span>${window.renderCopyFieldBtn(shippingFullAddress, 'Dirección')}
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
                   <strong>Ciudad/Comuna:</strong> 
                   <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
+                  ${window.renderCopyFieldBtn(order.shipping_city || comuna_destino, 'Comuna')}
                   ${window.getComunaCoverageBadge(order.shipping_city || comuna_destino)}
                   <button onclick="window.editWmsOrderComuna('${order.id}')" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem; height: 22px;">
                     <i class="ri-edit-line"></i> Editar
@@ -4696,9 +4810,12 @@ window.applyWmsFiltersAndRender = function() {
 
                 <!-- Notas del Pedido -->
                 <div style="margin-top: 0.65rem; margin-bottom: 0.5rem; background: ${orderNote ? 'rgba(245, 158, 11, 0.08)' : 'var(--color-bg)'}; border: 1px solid ${orderNote ? 'rgba(245, 158, 11, 0.3)' : 'var(--color-border)'}; border-left: 3px solid ${orderNote ? '#f59e0b' : 'var(--color-text-muted)'}; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm);">
-                  <strong style="color: ${orderNote ? '#d97706' : 'var(--color-text-muted)'}; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.2rem;">
-                    <i class="ri-chat-3-line"></i> Notas del Pedido:
-                  </strong>
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.2rem;">
+                    <strong style="color: ${orderNote ? '#d97706' : 'var(--color-text-muted)'}; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-chat-3-line"></i> Notas del Pedido:
+                    </strong>
+                    ${window.renderCopyFieldBtn(orderNote, 'Notas')}
+                  </div>
                   <div style="font-size: 0.825rem; color: var(--color-text-main); font-weight: ${orderNote ? '600' : 'normal'}; word-break: break-word; white-space: pre-wrap; line-height: 1.35;">
                     ${orderNote ? window.escapeHtml(orderNote) : '<span style="color: var(--color-text-muted); font-style: italic; font-weight: normal;">Sin notas</span>'}
                   </div>
@@ -5618,26 +5735,35 @@ window.applyBulkWmsStatus = async function() {
 
       const { value: dispatchFormValues } = await Swal.fire({
         title: 'Marcar como Despachado (Masivo)',
+        width: '780px',
         html: `
-          <div style="text-align: left; font-size: 0.9rem;">
-            <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Se marcarán como <strong>Despachado</strong> los ${ids.length} pedidos seleccionados.</p>
-            
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-            <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-            <datalist id="swal-bulk-disp-operador-list">
-              ${operadorDatalistHtml}
-            </datalist>
-            <div id="swal-bulk-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+          <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+            <!-- Columna Izquierda: Formulario -->
+            <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
+              <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Se marcarán como <strong>Despachado</strong> los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+              
+              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
+              <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <datalist id="swal-bulk-disp-operador-list">
+                ${operadorDatalistHtml}
+              </datalist>
+              <div id="swal-bulk-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-            <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-            <datalist id="swal-bulk-disp-agenda-list">
-              ${agendaDatalistHtml}
-            </datalist>
-            <div id="swal-bulk-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda</label>
+              <input id="swal-bulk-disp-agenda" list="swal-bulk-disp-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <datalist id="swal-bulk-disp-agenda-list">
+                ${agendaDatalistHtml}
+              </datalist>
+              <div id="swal-bulk-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
 
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
-            <input id="swal-bulk-disp-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Fecha de Procesamiento (DD-MM)</label>
+              <input id="swal-bulk-disp-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;" maxlength="5">
+            </div>
+
+            <!-- Columna Derecha: Listado Resumen de Pedidos -->
+            <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+              ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+            </div>
           </div>
         `,
         didOpen: () => {
@@ -6073,6 +6199,10 @@ async function validateOrderStockForDispatch(ordersList) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
+
+    // Si el pedido ya tiene status terminal (despachado/entregado/retirado) o estado_wms Despachado, su stock ya fue descontado en BD
+    const isAlreadyShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || order.estado_wms === 'Despachado';
+    if (isAlreadyShipped) continue;
 
     const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
     const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
