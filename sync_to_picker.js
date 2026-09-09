@@ -46,12 +46,14 @@ function getOrderNoteText(order) {
   if (!order) return '';
   if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
   if (typeof order.observation === 'string' && order.observation.trim()) return order.observation.trim();
+  if (typeof order.note === 'string' && order.note.trim()) return order.note.trim();
 
   // Shopify
   const rawShopify = order.raw_shopify_data;
   if (rawShopify) {
     if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
     if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
+    if (typeof rawShopify.customer_note === 'string' && rawShopify.customer_note.trim()) return rawShopify.customer_note.trim();
     if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
       const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
       if (noteAttr) return noteAttr;
@@ -68,13 +70,16 @@ function getOrderNoteText(order) {
   // MercadoLibre
   const rawMeli = order.raw_meli_data;
   if (rawMeli) {
+    if (typeof rawMeli.note === 'string' && rawMeli.note.trim()) return rawMeli.note.trim();
     if (typeof rawMeli.comments === 'string' && rawMeli.comments.trim()) return rawMeli.comments.trim();
+    if (typeof rawMeli.comment === 'string' && rawMeli.comment.trim()) return rawMeli.comment.trim();
     if (typeof rawMeli.notes === 'string' && rawMeli.notes.trim()) return rawMeli.notes.trim();
   }
 
   // Jumpseller
   const rawJump = order.raw_jumpseller_data;
   if (rawJump) {
+    if (typeof rawJump.note === 'string' && rawJump.note.trim()) return rawJump.note.trim();
     if (typeof rawJump.customer_notes === 'string' && rawJump.customer_notes.trim()) return rawJump.customer_notes.trim();
     if (typeof rawJump.notes === 'string' && rawJump.notes.trim()) return rawJump.notes.trim();
   }
@@ -83,10 +88,14 @@ function getOrderNoteText(order) {
   const rawTn = order.raw_tiendanube_data;
   if (rawTn && typeof rawTn.note === 'string' && rawTn.note.trim()) return rawTn.note.trim();
 
-  // Falabella / Paris / Ripley
+  // Falabella / Paris / Ripley / Walmart
+  if (order.raw_falabella_data?.note) return String(order.raw_falabella_data.note).trim();
   if (order.raw_falabella_data?.comments) return String(order.raw_falabella_data.comments).trim();
+  if (order.raw_paris_data?.note) return String(order.raw_paris_data.note).trim();
   if (order.raw_paris_data?.comments) return String(order.raw_paris_data.comments).trim();
+  if (order.raw_ripley_data?.note) return String(order.raw_ripley_data.note).trim();
   if (order.raw_ripley_data?.comments) return String(order.raw_ripley_data.comments).trim();
+  if (order.raw_walmart_data?.note) return String(order.raw_walmart_data.note).trim();
 
   return '';
 }

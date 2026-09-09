@@ -31,6 +31,11 @@ export const billingState = {
   currentPeriodMonth: null,
   currentCommerce: null,
   commerceInfo: {},
+  invoiceDates: {
+    emisionDate: '',
+    dueDate: '',
+    termLabel: '5 días corridos'
+  },
   pricingConfig: null,
   ufValue: 40884,
   ufDate: null,
@@ -85,7 +90,7 @@ export const billingState = {
 };
 
 // Inyectar estilos visuales avanzados del Gestor de Facturación
-function injectBillingGeneratorStyles() {
+export function injectBillingGeneratorStyles() {
   if (document.getElementById('billing-generator-styles')) return;
   const style = document.createElement('style');
   style.id = 'billing-generator-styles';
@@ -93,6 +98,9 @@ function injectBillingGeneratorStyles() {
     .bg-stocka-purple { background-color: #5f06fa !important; }
     .text-stocka-purple { color: #5f06fa !important; }
     .border-stocka-purple { border-color: #5f06fa !important; }
+
+    [data-theme="dark"] .text-stocka-purple { color: #c084fc !important; }
+    [data-theme="dark"] .border-stocka-purple { border-color: #a855f7 !important; }
 
     .bg-card-container {
       background: var(--color-surface);
@@ -103,6 +111,11 @@ function injectBillingGeneratorStyles() {
       box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
 
+    [data-theme="dark"] .bg-card-container {
+      background: var(--color-surface, #131b2e) !important;
+      border-color: #2a3754 !important;
+    }
+
     .bg-kpi-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -111,8 +124,8 @@ function injectBillingGeneratorStyles() {
     }
 
     .bg-kpi-card {
-      background: var(--color-surface);
-      border: 1px solid var(--color-border);
+      background: var(--color-surface, #ffffff);
+      border: 1px solid var(--color-border, #e2e8f0);
       border-radius: 12px;
       padding: 1.1rem 1.25rem;
       position: relative;
@@ -121,6 +134,12 @@ function injectBillingGeneratorStyles() {
       flex-direction: column;
       justify-content: space-between;
       transition: all 0.2s;
+    }
+
+    [data-theme="dark"] .bg-kpi-card {
+      background: var(--color-surface, #131b2e) !important;
+      border-color: #2a3754 !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
     }
 
     .bg-kpi-card:hover {
@@ -138,10 +157,14 @@ function injectBillingGeneratorStyles() {
       background: #5f06fa;
     }
 
+    [data-theme="dark"] .bg-kpi-card::before {
+      background: #a855f7;
+    }
+
     .bg-kpi-title {
       font-size: 0.725rem;
       font-weight: 700;
-      color: var(--color-text-muted);
+      color: var(--color-text-muted, #64748b);
       text-transform: uppercase;
       letter-spacing: 0.6px;
       margin-bottom: 0.35rem;
@@ -150,17 +173,101 @@ function injectBillingGeneratorStyles() {
       gap: 0.35rem;
     }
 
+    [data-theme="dark"] .bg-kpi-title {
+      color: #94a3b8 !important;
+    }
+
     .bg-kpi-value {
       font-size: 1.45rem;
       font-weight: 800;
-      color: var(--color-text-main);
+      color: var(--color-text-main, #0f172a);
       font-family: 'Outfit', sans-serif;
+    }
+
+    [data-theme="dark"] .bg-kpi-value {
+      color: #f8fafc !important;
     }
 
     .bg-kpi-subtitle {
       font-size: 0.75rem;
-      color: var(--color-text-muted);
+      color: var(--color-text-muted, #64748b);
       margin-top: 0.25rem;
+    }
+
+    [data-theme="dark"] .bg-kpi-subtitle {
+      color: #94a3b8 !important;
+    }
+
+    .bg-kpi-unit {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-text-muted, #64748b);
+    }
+    [data-theme="dark"] .bg-kpi-unit {
+      color: #94a3b8 !important;
+    }
+
+    .bg-hero-badge {
+      padding: 0.4rem 0.8rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-main);
+    }
+    .bg-hero-badge.purple {
+      background: rgba(95, 6, 250, 0.08);
+      border-color: rgba(95, 6, 250, 0.2);
+      color: #5f06fa;
+    }
+    .bg-hero-badge.teal {
+      background: rgba(16, 185, 129, 0.08);
+      border-color: rgba(16, 185, 129, 0.2);
+      color: #0f766e;
+    }
+    [data-theme="dark"] .bg-hero-badge.purple {
+      background: rgba(168, 85, 247, 0.15) !important;
+      border-color: rgba(168, 85, 247, 0.35) !important;
+      color: #c084fc !important;
+    }
+    [data-theme="dark"] .bg-hero-badge.teal {
+      background: rgba(20, 184, 166, 0.15) !important;
+      border-color: rgba(20, 184, 166, 0.35) !important;
+      color: #2dd4bf !important;
+    }
+
+    .bg-tariff-badge {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #5f06fa;
+      background: rgba(95, 6, 250, 0.08);
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    [data-theme="dark"] .bg-tariff-badge {
+      color: #c084fc !important;
+      background: rgba(168, 85, 247, 0.15) !important;
+    }
+
+    .bg-share-badge {
+      background: rgba(95, 6, 250, 0.08);
+      color: #5f06fa;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      display: inline-block;
+    }
+    [data-theme="dark"] .bg-share-badge {
+      background: rgba(168, 85, 247, 0.15) !important;
+      color: #c084fc !important;
     }
 
     /* Sub-tabs del Gestor */
@@ -522,12 +629,35 @@ function injectBillingGeneratorStyles() {
       gap: 1.25rem;
     }
 
+    .stocka-entities-grid {
+      display: flex;
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 680px) {
+      .stocka-entities-grid {
+        flex-direction: column;
+      }
+    }
+
     .stocka-entity-card {
+      flex: 1 1 0;
+      width: 50%;
+      min-width: 0;
       background: #ffffff;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
       overflow: hidden;
       box-sizing: border-box;
+    }
+
+    @media (max-width: 680px) {
+      .stocka-entity-card {
+        width: 100%;
+      }
     }
 
     .stocka-entity-card-header {
@@ -606,9 +736,9 @@ function injectBillingGeneratorStyles() {
     }
 
     .stocka-banner-hero {
-      background: #5f06fa;
-      color: white;
-      border-radius: 8px;
+      background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%);
+      color: #ffffff;
+      border-radius: 10px;
       padding: 1.25rem 1.75rem;
       margin-bottom: 1.5rem;
       display: flex;
@@ -616,6 +746,7 @@ function injectBillingGeneratorStyles() {
       align-items: center;
       flex-wrap: wrap;
       gap: 1.25rem;
+      box-shadow: 0 4px 14px rgba(95, 6, 250, 0.25);
     }
 
     .stocka-table-official {
@@ -650,10 +781,10 @@ function injectBillingGeneratorStyles() {
 
     /* Estilos de la Pestaña de Analítica */
     .bg-analytics-hero {
-      background: #f8fafc;
-      border: 1px solid var(--color-border);
+      background: var(--color-surface, #ffffff);
+      border: 1px solid var(--color-border, #e2e8f0);
       border-left: 4px solid #5f06fa;
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 1.25rem 1.5rem;
       margin-bottom: 1.5rem;
       display: flex;
@@ -663,13 +794,26 @@ function injectBillingGeneratorStyles() {
       gap: 1rem;
     }
 
+    [data-theme="dark"] .bg-analytics-hero {
+      background: var(--color-surface, #131b2e) !important;
+      border-color: #2a3754 !important;
+      border-left: 4px solid #a855f7 !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
     .bg-chart-card {
-      background: var(--color-surface);
-      border: 1px solid var(--color-border);
+      background: var(--color-surface, #ffffff);
+      border: 1px solid var(--color-border, #e2e8f0);
       border-radius: 12px;
       padding: 1.25rem;
       box-shadow: 0 2px 6px rgba(0,0,0,0.03);
       position: relative;
+    }
+
+    [data-theme="dark"] .bg-chart-card {
+      background: var(--color-surface, #131b2e) !important;
+      border-color: #2a3754 !important;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
     }
 
     .bg-chart-header {
@@ -687,6 +831,125 @@ function injectBillingGeneratorStyles() {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+    }
+
+    /* Elementos interactivos que no deben verse en impresión/PDF */
+    .no-print {
+      transition: opacity 0.15s ease;
+    }
+
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    /* Estilos de la Pestaña Checklist Global */
+    .bg-checklist-hero {
+      background: linear-gradient(135deg, rgba(95, 6, 250, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%);
+      border: 1px solid var(--color-border);
+      border-left: 4px solid #5f06fa;
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .bg-checklist-progress-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    }
+
+    .bg-checklist-progress-bar-bg {
+      background: #e2e8f0;
+      border-radius: 999px;
+      height: 10px;
+      overflow: hidden;
+      margin-top: 0.5rem;
+      width: 100%;
+    }
+
+    .bg-checklist-progress-bar-fill {
+      background: linear-gradient(90deg, #5f06fa 0%, #10b981 100%);
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bg-checklist-item-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      padding: 0.85rem 1.15rem;
+      margin-bottom: 0.65rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .bg-checklist-item-card:hover {
+      border-color: #cbd5e1;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.04);
+    }
+
+    .bg-checklist-item-card.completed {
+      background: #f8fafc;
+      border-color: #d1fae5;
+    }
+
+    [data-theme="dark"] .bg-checklist-item-card.completed {
+      background: rgba(16, 185, 129, 0.04);
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+
+    .bg-checklist-item-card.completed .checklist-title {
+      color: #64748b;
+      text-decoration: line-through;
+    }
+
+    .bg-checklist-check-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      color: #94a3b8;
+      transition: transform 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .bg-checklist-check-btn:hover {
+      transform: scale(1.15);
+      color: #5f06fa;
+    }
+
+    .bg-checklist-check-btn.checked {
+      color: #10b981;
+    }
+
+    .bg-checklist-badge-cat {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
   `;
   document.head.appendChild(style);
@@ -796,9 +1059,10 @@ export async function resolveCommerceGroup(commerceName) {
 
 // Obtener datos legales del comercio (Razón Social, RUT, Sigla, Contacto)
 export async function getCommerceBillingInfo(commerceName) {
+  const cleanName = (commerceName || '').trim();
   const result = {
-    comercio: commerceName,
-    razonSocial: commerceName,
+    comercio: cleanName,
+    razonSocial: cleanName,
     rut: '—',
     sigla: '—',
     direccion: '—',
@@ -806,33 +1070,61 @@ export async function getCommerceBillingInfo(commerceName) {
   };
 
   try {
-    // 1. Datos adicionales (Razón Social, RUT, dirección)
-    const { data: extra } = await supabase
-      .from('comercios_adicional_config')
-      .select('razon_social, rut, direccion_facturacion, email_facturacion')
-      .ilike('comercio', commerceName)
-      .maybeSingle();
-
-    if (extra) {
-      if (extra.razon_social) result.razonSocial = extra.razon_social.trim();
-      if (extra.rut) result.rut = extra.rut.trim();
-      if (extra.direccion_facturacion) result.direccion = extra.direccion_facturacion.trim();
-      if (extra.email_facturacion) result.emailFacturacion = extra.email_facturacion.trim();
-    }
-
-    // 2. Sigla de v_comercios_config
+    // 1. Sigla y ID desde v_comercios_config
     const { data: vConfig } = await supabase
       .from('v_comercios_config')
-      .select('sigla, nombre')
-      .ilike('nombre', commerceName)
+      .select('id, sigla, nombre')
+      .ilike('nombre', cleanName)
       .maybeSingle();
 
     if (vConfig && vConfig.sigla) {
       result.sigla = vConfig.sigla.toUpperCase().trim();
     }
+
+    // 2. Datos legales adicionales (Razón Social, RUT, email) desde comercios_adicional_config
+    let extra = null;
+    const { data: extraByName } = await supabase
+      .from('comercios_adicional_config')
+      .select('razon_social, rut, email_colaborador')
+      .ilike('comercio', cleanName)
+      .maybeSingle();
+
+    if (extraByName) {
+      extra = extraByName;
+    } else if (vConfig && vConfig.id) {
+      const { data: extraById } = await supabase
+        .from('comercios_adicional_config')
+        .select('razon_social, rut, email_colaborador')
+        .eq('comercio_id', vConfig.id)
+        .maybeSingle();
+      if (extraById) extra = extraById;
+    }
+
+    if (extra) {
+      if (extra.razon_social && extra.razon_social.trim()) {
+        result.razonSocial = extra.razon_social.trim();
+      }
+      if (extra.rut && extra.rut.trim()) {
+        result.rut = extra.rut.trim();
+      }
+      if (extra.email_colaborador && extra.email_colaborador.trim()) {
+        result.emailFacturacion = extra.email_colaborador.trim();
+      }
+    }
   } catch (e) {
     console.warn('Error cargando información legal del comercio:', e);
   }
+
+  // Fallback a localStorage si el usuario guardó datos legales previamente en el navegador
+  try {
+    const localLegalStr = localStorage.getItem(`stocka_commerce_legal_${cleanName}`);
+    if (localLegalStr) {
+      const lLegal = JSON.parse(localLegalStr);
+      if (lLegal.razonSocial && result.razonSocial === cleanName) result.razonSocial = lLegal.razonSocial;
+      if (lLegal.rut && lLegal.rut !== '—' && (result.rut === '—' || !result.rut)) result.rut = lLegal.rut;
+      if (lLegal.sigla && lLegal.sigla !== '—' && (result.sigla === '—' || !result.sigla)) result.sigla = lLegal.sigla;
+    }
+  } catch (e) {}
 
   return result;
 }
@@ -918,15 +1210,23 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     try {
       const { data: bRec } = await supabase
         .from('billing_records')
-        .select('desglose_fulfillment, total_fulfillment, fulfillment_details')
+        .select('desglose_fulfillment, total_fulfillment, fulfillment_link')
         .eq('period_id', billingState.currentPeriodId)
         .eq('comercio', commerceName)
         .maybeSingle();
 
       if (bRec) {
         savedRecordStatus = bRec.desglose_fulfillment;
-        if (bRec.fulfillment_details && typeof bRec.fulfillment_details === 'object') {
-          savedSnapshot = bRec.fulfillment_details;
+        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot.json'))) {
+          billingState.isPublished = true;
+          savedRecordStatus = 'Publicado';
+
+          if (!savedSnapshot && (bRec.fulfillment_link.startsWith('http://') || bRec.fulfillment_link.startsWith('https://'))) {
+            try {
+              const resp = await fetch(bRec.fulfillment_link);
+              if (resp.ok) savedSnapshot = await resp.json();
+            } catch (eSnap) {}
+          }
         }
       }
     } catch (errRec) {
@@ -941,7 +1241,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     }
   }
 
-  billingState.isSaved = !!(savedRecordStatus === 'Creado' || (savedSnapshot && savedSnapshot.generatedAt));
+  billingState.isSaved = !!(savedRecordStatus === 'Creado' || savedRecordStatus === 'Publicado' || (savedSnapshot && savedSnapshot.generatedAt));
   billingState.savedRecordStatus = savedRecordStatus || (billingState.isSaved ? 'Creado' : 'Pendiente');
 
   // 2. Extraer año y mes del periodo (ej: "AGOSTO 2026")
@@ -969,7 +1269,52 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
   // 4. Resolver holdings y obtener datos legales del cliente (Punto A)
   const commerceGroup = await resolveCommerceGroup(commerceName);
-  billingState.commerceInfo = await getCommerceBillingInfo(commerceName);
+  const fetchedCommerceInfo = await getCommerceBillingInfo(commerceName);
+
+  let mergedCommerceInfo = { ...fetchedCommerceInfo };
+  if (savedSnapshot && savedSnapshot.commerceInfo) {
+    mergedCommerceInfo = { ...mergedCommerceInfo, ...savedSnapshot.commerceInfo };
+    if (fetchedCommerceInfo.razonSocial && fetchedCommerceInfo.razonSocial !== commerceName) {
+      mergedCommerceInfo.razonSocial = fetchedCommerceInfo.razonSocial;
+    }
+    if (fetchedCommerceInfo.rut && fetchedCommerceInfo.rut !== '—') {
+      mergedCommerceInfo.rut = fetchedCommerceInfo.rut;
+    }
+    if (fetchedCommerceInfo.sigla && fetchedCommerceInfo.sigla !== '—') {
+      mergedCommerceInfo.sigla = fetchedCommerceInfo.sigla;
+    }
+  }
+
+  // Verificar si hay datos legales guardados localmente para este comercio
+  try {
+    const localLegalStr = localStorage.getItem(`stocka_commerce_legal_${commerceName}`);
+    if (localLegalStr) {
+      const localLegal = JSON.parse(localLegalStr);
+      if (localLegal.razonSocial) mergedCommerceInfo.razonSocial = localLegal.razonSocial;
+      if (localLegal.rut && localLegal.rut !== '—') mergedCommerceInfo.rut = localLegal.rut;
+      if (localLegal.sigla && localLegal.sigla !== '—') mergedCommerceInfo.sigla = localLegal.sigla;
+    }
+  } catch (e) {}
+
+  if (customOverrides.commerceInfo) {
+    mergedCommerceInfo = { ...mergedCommerceInfo, ...customOverrides.commerceInfo };
+  }
+  billingState.commerceInfo = mergedCommerceInfo;
+
+  // Fechas de facturación (Emisión y Fecha Límite de Pago)
+  const todayNow = new Date();
+  const defaultDueObj = new Date(todayNow);
+  defaultDueObj.setDate(defaultDueObj.getDate() + 5);
+  const toISODate = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+
+  const defaultInvoiceDates = {
+    emisionDate: toISODate(todayNow),
+    dueDate: toISODate(defaultDueObj),
+    termLabel: '5 días corridos'
+  };
+
+  billingState.invoiceDates = customOverrides.invoiceDates || 
+    (savedSnapshot && savedSnapshot.invoiceDates ? { ...defaultInvoiceDates, ...savedSnapshot.invoiceDates } : defaultInvoiceDates);
 
   // 5. Calcular volumen de almacenamiento promedio del mes calendario (Punto B)
   const volData = await getMonthlyStorageVolume(commerceGroup, periodYear, periodMonth);
@@ -1447,13 +1792,42 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
 
   // 12. Insumos y Ajustes Adicionales (Punto F)
-  billingState.supplies = customOverrides.supplies || (savedSnapshot && savedSnapshot.supplies) || [
-    { id: 'box_s', name: 'Insumos: cajas de despacho a Regiones', unit: 'gl.', qty: enviameOrders.length > 0 ? 1 : 0, unitPrice: 450, total: enviameOrders.length > 0 ? 450 : 0 }
-  ];
+  const currentSuppliesKey = `${billingState.currentPeriodId}_${commerceName}`;
+  if (customOverrides.supplies !== undefined) {
+    billingState.supplies = customOverrides.supplies;
+  } else if (savedSnapshot && Array.isArray(savedSnapshot.supplies)) {
+    billingState.supplies = savedSnapshot.supplies;
+  } else if (billingState.suppliesSessionKey === currentSuppliesKey && Array.isArray(billingState.supplies)) {
+    // Preservar modificaciones o eliminaciones del usuario durante la sesión activa
+  } else {
+    billingState.supplies = enviameOrders.length > 0 ? [
+      { id: 'box_s', name: 'Insumos: cajas de despacho a Regiones', unit: 'gl.', qty: 1, unitPrice: 450, total: 450 }
+    ] : [];
+    billingState.suppliesSessionKey = currentSuppliesKey;
+  }
   const totalSuppliesNet = billingState.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
 
-  billingState.adjustments = customOverrides.adjustments || (savedSnapshot && savedSnapshot.adjustments) || [];
+  if (customOverrides.adjustments !== undefined) {
+    billingState.adjustments = customOverrides.adjustments;
+  } else if (savedSnapshot && Array.isArray(savedSnapshot.adjustments)) {
+    billingState.adjustments = savedSnapshot.adjustments;
+  } else if (billingState.adjustmentsSessionKey === currentSuppliesKey && Array.isArray(billingState.adjustments)) {
+    // Preservar ajustes en memoria durante la sesión activa
+  } else {
+    billingState.adjustments = [];
+    billingState.adjustmentsSessionKey = currentSuppliesKey;
+  }
   const totalAdjustmentsNet = billingState.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+
+  // 12.1 Restaurar checks de checklist si vienen en el snapshot guardado
+  if (savedSnapshot && savedSnapshot.checklist && savedSnapshot.checklist.checks) {
+    if (typeof saveChecklistChecks === 'function') {
+      const existingChecks = getChecklistChecks(billingState.currentPeriodId, commerceName);
+      if (!existingChecks || Object.keys(existingChecks).length === 0) {
+        saveChecklistChecks(billingState.currentPeriodId, commerceName, savedSnapshot.checklist.checks);
+      }
+    }
+  }
 
   // 13. Totales Finales Consolidados
   const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
@@ -1491,18 +1865,54 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 }
 
 // --- GENERADOR DEL DESGLOSE ESTÉTICO OFICIAL STOCKA (#5f06fa) ---
-export function renderStockaDesgloseHTML() {
-  const b = billingState;
-  const t = b.totals;
-  const c = b.commerceInfo;
+export function renderStockaDesgloseHTML(snapshotState = null) {
+  const b = snapshotState || billingState;
+  const t = b.totals || {};
+  const c = b.commerceInfo ? { ...b.commerceInfo } : {};
+  const invDates = b.invoiceDates || {};
+  const isClient = Boolean(b.isClientView);
+  const commName = b.currentCommerce || b.comercio || '';
 
-  const today = new Date();
-  const emisionStr = today.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  
-  // Vencimiento: 5 días corridos desde la emisión
-  const dueDate = new Date(today);
-  dueDate.setDate(dueDate.getDate() + 5);
-  const vencimientoStr = dueDate.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  // Auto-enriquecimiento de respaldo desde localStorage si RUT o Razón Social vienen vacíos o con guión
+  if (commName) {
+    try {
+      const rawLocal = localStorage.getItem(`stocka_commerce_legal_${commName}`);
+      if (rawLocal) {
+        const localLegal = JSON.parse(rawLocal);
+        if ((!c.rut || c.rut === '—') && localLegal.rut && localLegal.rut !== '—') {
+          c.rut = localLegal.rut;
+        }
+        if ((!c.razonSocial || c.razonSocial === commName) && localLegal.razonSocial) {
+          c.razonSocial = localLegal.razonSocial;
+        }
+        if ((!c.sigla || c.sigla === '—') && localLegal.sigla && localLegal.sigla !== '—') {
+          c.sigla = localLegal.sigla;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Formateo seguro de fechas de emisión y vencimiento
+  let emisionStr = '';
+  let vencimientoStr = '';
+  let termLabel = invDates.termLabel || '5 días corridos';
+
+  if (invDates.emisionDate) {
+    const p = invDates.emisionDate.split('-');
+    if (p.length === 3) emisionStr = `${p[2]}/${p[1]}/${p[0]}`;
+  }
+  if (invDates.dueDate) {
+    const p = invDates.dueDate.split('-');
+    if (p.length === 3) vencimientoStr = `${p[2]}/${p[1]}/${p[0]}`;
+  }
+
+  if (!emisionStr || !vencimientoStr) {
+    const today = new Date();
+    emisionStr = today.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const dueDate = new Date(today);
+    dueDate.setDate(dueDate.getDate() + 5);
+    vencimientoStr = dueDate.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
 
   return `
     <div class="stocka-desglose-paper" id="stocka-printable-invoice">
@@ -1514,18 +1924,19 @@ export function renderStockaDesgloseHTML() {
         
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
           <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;">
-            ${b.currentPeriodName}
+            ${b.currentPeriodName || b.periodName || 'PERIODO'}
           </span>
-          <span style="background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;">
-            Plazo de Pago: 5 días corridos (${vencimientoStr})
+          <span style="background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem; ${!isClient ? 'cursor: pointer;' : ''} display: inline-flex; align-items: center; gap: 6px;" ${!isClient ? 'onclick="window.openEditDesgloseHeaderModal()" title="Haga clic para editar fechas y plazo de pago"' : ''}>
+            <span>Plazo de Pago: ${termLabel} (${vencimientoStr})</span>
+            ${!isClient ? '<i class="ri-edit-line no-print" style="color: #5f06fa; font-size: 0.9rem;"></i>' : ''}
           </span>
         </div>
       </div>
 
-      <!-- Tarjetas de Información: Emisor y Cliente -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+      <!-- Tarjetas de Información: Emisor y Cliente (2 Columnas en Paralelo) -->
+      <div class="stocka-entities-grid" style="display: flex !important; flex-direction: row !important; gap: 1.25rem !important; margin-bottom: 1.5rem !important; width: 100% !important; box-sizing: border-box !important;">
         <!-- Tarjeta Emisor (STOCKA SPA) -->
-        <div class="stocka-entity-card">
+        <div class="stocka-entity-card" style="flex: 1 1 0 !important; width: 50% !important; min-width: 0 !important; box-sizing: border-box !important;">
           <div class="stocka-entity-card-header">
             STOCKA SPA
           </div>
@@ -1550,26 +1961,34 @@ export function renderStockaDesgloseHTML() {
         </div>
 
         <!-- Tarjeta Cliente (Comercio) -->
-        <div class="stocka-entity-card">
-          <div class="stocka-entity-card-header">
-            Razón Social: ${c.razonSocial || c.nombre}
+        <div class="stocka-entity-card" style="flex: 1 1 0 !important; width: 50% !important; min-width: 0 !important; box-sizing: border-box !important;">
+          <div class="stocka-entity-card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <span title="Razón Social Oficial">Razón Social: ${escapeHtml(c.razonSocial || c.nombre || c.comercio || b.currentCommerce || b.comercio || '')}</span>
+            ${!isClient ? `
+            <button type="button" class="no-print" onclick="window.openEditDesgloseHeaderModal()" style="background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.4); color: #ffffff; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Editar fechas y datos fiscales">
+              <i class="ri-edit-line"></i> Editar
+            </button>` : ''}
           </div>
           <div class="stocka-entity-body">
             <div class="stocka-entity-row">
               <span style="color: #64748b; font-weight: 600;">Rut:</span>
-              <span style="font-weight: 700; color: #0f172a;">${c.rut || '—'}</span>
+              <span style="font-weight: 700; color: #0f172a;">${escapeHtml(c.rut || '—')}</span>
             </div>
             <div class="stocka-entity-row">
               <span style="color: #64748b; font-weight: 600;">Cód. Comercio:</span>
-              <span style="font-weight: 800; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 1px 6px; border-radius: 4px;">${c.sigla || '—'}</span>
+              <span style="font-weight: 800; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 1px 6px; border-radius: 4px;">${escapeHtml(c.sigla || '—')}</span>
             </div>
-            <div class="stocka-entity-row">
+            <div class="stocka-entity-row" ${!isClient ? 'style="cursor: pointer;" onclick="window.openEditDesgloseHeaderModal()" title="Haga clic para editar fecha de emisión"' : ''}>
               <span style="color: #64748b; font-weight: 600;">Fecha Emisión:</span>
-              <span style="font-weight: 700; color: #0f172a;">${emisionStr}</span>
+              <span style="font-weight: 700; color: #0f172a; display: inline-flex; align-items: center; gap: 4px;">
+                ${emisionStr} ${!isClient ? '<i class="ri-pencil-line no-print" style="color: #5f06fa; font-size: 0.8rem;"></i>' : ''}
+              </span>
             </div>
-            <div class="stocka-entity-row">
+            <div class="stocka-entity-row" ${!isClient ? 'style="cursor: pointer;" onclick="window.openEditDesgloseHeaderModal()" title="Haga clic para editar plazo y fecha límite de pago"' : ''}>
               <span style="color: #64748b; font-weight: 600;">Plazo de Pago:</span>
-              <span style="font-weight: 700; color: #0f172a;">${vencimientoStr}</span>
+              <span style="font-weight: 700; color: #0f172a; display: inline-flex; align-items: center; gap: 4px;">
+                ${vencimientoStr} (${termLabel}) ${!isClient ? '<i class="ri-pencil-line no-print" style="color: #5f06fa; font-size: 0.8rem;"></i>' : ''}
+              </span>
             </div>
           </div>
         </div>
@@ -1717,13 +2136,26 @@ export function renderStockaDesgloseHTML() {
             ` : ''}
 
             <!-- 5. Insumos -->
-            ${b.supplies.filter(s => (s.qty || 0) > 0).map(s => `
+            ${b.supplies.filter(s => (s.qty || 0) > 0).map((s, idx) => `
               <tr>
                 <td>
-                  <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${s.name}</div>
-                  <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">Insumos y material de empaque</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                    <div>
+                      <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(s.name)}</div>
+                      <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">Insumos y material de empaque</div>
+                    </div>
+                    ${!isClient ? `
+                    <div class="no-print" style="display: flex; gap: 4px; align-items: center;">
+                      <button type="button" onclick="window.editManualSupplyItem('${s.id || idx}')" title="Editar cantidad o precio de este insumo" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-pencil-line"></i> Editar
+                      </button>
+                      <button type="button" onclick="window.deleteManualSupplyItem('${s.id || idx}')" title="Eliminar este ítem de cobro" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #dc2626; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-delete-bin-line"></i> Eliminar
+                      </button>
+                    </div>` : ''}
+                  </div>
                 </td>
-                <td style="text-align: center; font-weight: 600; color: #64748b;">${s.unit || 'ud.'}</td>
+                <td style="text-align: center; font-weight: 600; color: #64748b;">${escapeHtml(s.unit || 'gl.')}</td>
                 <td style="text-align: center; font-weight: 700; color: #0f172a;">${s.qty}</td>
                 <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(s.total)}</td>
                 <td style="text-align: right; color: #64748b;">${formatCLP((s.total || 0) * 0.19)}</td>
@@ -1734,8 +2166,18 @@ export function renderStockaDesgloseHTML() {
             <!-- 6. Costo Fijo Mensual -->
             <tr>
               <td>
-                <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Costo Fijo Mensual Fulfillment ${t.fixedFeeUF > 0 ? (t.fixedFeeUF === 1.5 ? '- Rango 1' : '- Rango 2') : '(Exento)'}</div>
-                <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${t.fixedFeeReason}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                  <div>
+                    <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Costo Fijo Mensual Fulfillment ${t.fixedFeeUF > 0 ? (t.fixedFeeUF === 1.5 ? '- Rango 1' : '- Rango 2') : '(Exento)'}</div>
+                    <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(t.fixedFeeReason || '')}</div>
+                  </div>
+                  ${!isClient ? `
+                  <div class="no-print">
+                    <button type="button" onclick="window.openEditFixedFeeModal()" title="Editar o eximir costo fijo mensual" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                      <i class="ri-pencil-line"></i> Editar
+                    </button>
+                  </div>` : ''}
+                </div>
               </td>
               <td style="text-align: center; font-weight: 600; color: #64748b;">UF</td>
               <td style="text-align: center; font-weight: 700; color: #0f172a;">${t.fixedFeeUF > 0 ? formatDec(t.fixedFeeUF, 1) : '0'}</td>
@@ -1745,11 +2187,21 @@ export function renderStockaDesgloseHTML() {
             </tr>
 
             <!-- 7. Ajustes Comerciales si existen -->
-            ${b.adjustments.map(a => `
+            ${b.adjustments.map((a, idx) => `
               <tr>
                 <td>
-                  <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${a.concept || 'Ajuste comercial'}</div>
-                  <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${a.notes || ''}</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                    <div>
+                      <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">${escapeHtml(a.concept || 'Ajuste comercial')}</div>
+                      <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(a.notes || '')}</div>
+                    </div>
+                    ${!isClient ? `
+                    <div class="no-print" style="display: flex; gap: 4px; align-items: center;">
+                      <button type="button" onclick="window.deleteManualAdjustmentItem('${a.id || idx}')" title="Eliminar este ajuste" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #dc2626; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-delete-bin-line"></i> Eliminar
+                      </button>
+                    </div>` : ''}
+                  </div>
                 </td>
                 <td style="text-align: center; font-weight: 600; color: #64748b;">gl.</td>
                 <td style="text-align: center; font-weight: 700; color: #0f172a;">1</td>
@@ -1789,25 +2241,32 @@ export function renderStockaDesgloseHTML() {
 }
 
 // --- EXPORTACIÓN EXCEL (.xlsx) CON SHEETJS ---
-export function exportBillingToExcel() {
+export function exportBillingToExcel(customState = null) {
   if (typeof XLSX === 'undefined') {
     Swal.fire('Error', 'Librería XLSX no disponible para la exportación.', 'error');
     return;
   }
 
-  const b = billingState;
-  const t = b.totals;
-  const c = b.commerceInfo;
+  const b = customState || billingState;
+  const t = b.totals || {};
+  const c = b.commerceInfo || {};
 
   const wb = XLSX.utils.book_new();
 
+  const emisionParts = (b.invoiceDates?.emisionDate || '').split('-');
+  const emisionStr = emisionParts.length === 3 ? `${emisionParts[2]}/${emisionParts[1]}/${emisionParts[0]}` : '';
+  const dueParts = (b.invoiceDates?.dueDate || '').split('-');
+  const vencimientoStr = dueParts.length === 3 ? `${dueParts[2]}/${dueParts[1]}/${dueParts[0]}` : '';
+
   // Pestaña 1: Resumen Desglose de Facturación
   const summaryData = [
-    ["STOCKA SPA", "", "Razón Social:", c.razonSocial],
-    ["RUT: 77.524.557-3", "", "RUT Cliente:", c.rut],
-    ["ALMACENAMIENTO Y FULFILLMENT", "", "Cód. Comercio:", c.sigla],
-    ["Campo de Deportes 405, Ñuñoa", "", "Periodo:", b.currentPeriodName],
-    ["www.stocka.cl", "", "UF Referencia:", b.ufValue],
+    ["STOCKA SPA", "", "Razón Social:", c.razonSocial || c.comercio || b.currentCommerce || b.comercio || 'COMERCIO'],
+    ["RUT: 77.524.557-3", "", "RUT Cliente:", c.rut || '—'],
+    ["ALMACENAMIENTO Y FULFILLMENT", "", "Cód. Comercio:", c.sigla || '—'],
+    ["Campo de Deportes 405, Ñuñoa", "", "Periodo:", b.currentPeriodName || b.periodName || 'PERIODO'],
+    ["www.stocka.cl", "", "Fecha Emisión:", emisionStr],
+    ["", "", "Fecha Límite Pago:", `${vencimientoStr} (${b.invoiceDates?.termLabel || ''})`],
+    ["", "", "UF Referencia:", b.ufValue],
     [],
     ["DESGLOSE MENSUAL DE SERVICIOS DE FULFILLMENT"],
     ["ITEM", "UNIDAD", "CANTIDAD", "NETO ($)", "IVA ($)", "TOTAL ($)"],
@@ -1858,7 +2317,7 @@ export function exportBillingToExcel() {
   }
 
   // Agregar insumos
-  b.supplies.forEach(s => {
+  (b.supplies || []).forEach(s => {
     if ((s.qty || 0) > 0) {
       summaryData.push([
         s.name,
@@ -1882,48 +2341,46 @@ export function exportBillingToExcel() {
   ]);
 
   // Ajustes
-  b.adjustments.forEach(a => {
+  (b.adjustments || []).forEach(a => {
     summaryData.push([
-      a.concept || 'Ajuste comercial',
+      `Ajuste: ${a.concept || 'Ajuste comercial'} (${a.notes || ''})`,
       "gl.",
       1,
       a.amount,
-      Math.round(a.amount * 0.19),
-      Math.round(a.amount * 1.19)
+      Math.round((a.amount || 0) * 0.19),
+      Math.round((a.amount || 0) * 1.19)
     ]);
   });
 
-  // Totales
   summaryData.push([]);
-  summaryData.push(["SUBTOTAL NETO:", "", "", t.totalNet]);
-  summaryData.push(["IVA (19%):", "", "", t.iva]);
-  summaryData.push(["TOTAL A FACTURAR / PAGAR:", "", "", t.totalGross]);
+  summaryData.push(["TOTALES DEL PERIODO", "", "", t.totalNet, t.iva, t.totalGross]);
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(wb, wsSummary, "Desglose Mensual");
+  XLSX.utils.book_append_sheet(wb, wsSummary, "Desglose Oficial");
 
-  // Pestaña 2: Auditoría Detalle Pedido por Pedido
+  // Pestaña 2: Detalle de Todos los Pedidos (Formato tipo Excel Auditoría)
+  const deliveryTypesMap = getDeliveryTypes(b.pricingConfig).reduce((acc, dt) => {
+    acc[dt.key] = dt.name;
+    return acc;
+  }, {});
+
   const ordersHeaders = [
-    "N°", "ID Pedido", "N° Pedido Ext", "Fecha", "Agenda", "Destino / Comuna", "Operador", "Método Envío",
-    "Ticket Venta ($)", "Tipo Entrega", "SKU", "Unidades", "Marketplace?", "Tarifa Base Prep ($)", "Recargo SKU ($)",
-    "Recargo Unidades ($)", "Recargo Market ($)", "Total Pick & Pack ($)",
-    "Costo Despacho ($)", "Total Pedido ($)", "Estado WMS", "Incluido en Factura"
+    "N°", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
+    "TICKET VENTA ($)", "TIPO ENTREGA", "SKUS", "UNIDADES", "MKT?",
+    "TARIFA BASE ($)", "REC. SKU ($)", "REC. UNID ($)", "REC. MKT ($)",
+    "PREPARACIÓN TOTAL ($)", "FLETE ENVÍO ($)", "TOTAL COBRADO ($)", "ESTADO WMS", "INCLUIDO?"
   ];
 
-  const deliveryTypesList = getDeliveryTypes(b.pricingConfig);
-  const deliveryTypesMap = Object.fromEntries(deliveryTypesList.map(dt => [dt.key, `${dt.name} (${formatCLP(dt.price)})`]));
-
-  const ordersRows = b.orders.map(o => [
-    o.rowNumber,
+  const ordersRows = (b.orders || []).map((o, idx) => [
+    idx + 1,
     o.id,
-    o.orderNumber,
     o.date,
     o.agenda || 'Sin agenda',
     o.destination,
     o.operador || 'S/Op',
     o.shippingMethod || '—',
     o.ticketVenta || 0,
-    deliveryTypesMap[o.deliveryType] || o.deliveryType,
+    deliveryTypesMap[o.deliveryType] || o.deliveryType || '—',
     o.skuCount,
     o.unitsCount,
     o.isMarketplace ? 'SI' : 'NO',
@@ -1944,7 +2401,7 @@ export function exportBillingToExcel() {
   // Pestaña 3: Top Productos Más Vendidos
   if (b.productsStats?.allProducts && b.productsStats.allProducts.length > 0) {
     const productsData = [
-      ["TOP PRODUCTOS MÁS VENDIDOS - PERIODO", b.currentPeriodName, "COMERCIO:", b.currentCommerce],
+      ["TOP PRODUCTOS MÁS VENDIDOS - PERIODO", b.currentPeriodName || b.periodName, "COMERCIO:", b.currentCommerce || b.comercio],
       ["Total Artículos Vendidos:", b.productsStats.totalUnits, "Promedio por Pedido:", b.productsStats.avgUnitsPerOrder],
       [],
       ["RANKING", "SKU", "NOMBRE DEL PRODUCTO", "UNIDADES VENDIDAS", "% PARTICIPACIÓN"]
@@ -1959,7 +2416,7 @@ export function exportBillingToExcel() {
   // Pestaña 4: Declaraciones de Ingreso de Stock (si aplican)
   if (b.inboundDeclarations && b.inboundDeclarations.length > 0) {
     const inboundsData = [
-      ["DECLARACIONES DE INGRESO DE STOCK", b.currentPeriodName, "COMERCIO:", b.currentCommerce],
+      ["DECLARACIONES DE INGRESO DE STOCK", b.currentPeriodName || b.periodName, "COMERCIO:", b.currentCommerce || b.comercio],
       ["UF Referencia:", b.ufValue, "Total Costo Neto ($):", t.inboundNet],
       [],
       ["CÓDIGO ING", "TÍTULO", "UNIDADES RECIBIDAS", "VOLUMEN (m³)", "COSTO REAL/EST (UF)", "COSTO NETO (CLP)", "ESTADO"]
@@ -1979,26 +2436,44 @@ export function exportBillingToExcel() {
     XLSX.utils.book_append_sheet(wb, wsInbounds, "Ingresos Stock");
   }
 
-  const fileName = `Facturacion_Stocka_${c.sigla || 'COMERCIO'}_${b.currentPeriodName.replace(/\s+/g, '_')}.xlsx`;
+  const fileName = `Facturacion_Stocka_${c.sigla || b.currentCommerce || b.comercio || 'COMERCIO'}_${(b.currentPeriodName || b.periodName || 'PERIODO').replace(/\s+/g, '_')}.xlsx`;
   XLSX.writeFile(wb, fileName);
 }
 
 // --- DESCARGA A PDF (HTML2PDF) ---
-export function downloadBillingPdf() {
-  const element = document.getElementById('stocka-printable-invoice');
+export function downloadBillingPdf(customElement = null, customFilename = null) {
+  const element = customElement || document.getElementById('stocka-printable-invoice');
   if (!element) {
     Swal.fire('Error', 'No se encontró el desglose para exportar.', 'error');
     return;
   }
 
+  // Ocultar temporalmente los elementos interactivos que no deben figurar en el PDF oficial
+  const noPrintEls = element.querySelectorAll('.no-print');
+  noPrintEls.forEach(el => {
+    el.setAttribute('data-prev-display', el.style.display || '');
+    el.style.setProperty('display', 'none', 'important');
+  });
+
+  const restoreNoPrint = () => {
+    noPrintEls.forEach(el => {
+      const prev = el.getAttribute('data-prev-display');
+      if (prev) el.style.display = prev;
+      else el.style.removeProperty('display');
+    });
+  };
+
   if (typeof html2pdf === 'undefined') {
     window.print();
+    restoreNoPrint();
     return;
   }
 
+  const filename = customFilename || `Desglose_Stocka_${billingState.commerceInfo?.sigla || billingState.currentCommerce || 'COMERCIO'}_${(billingState.currentPeriodName || 'PERIODO').replace(/\s+/g, '_')}.pdf`;
+
   const opt = {
     margin: [8, 8, 8, 8],
-    filename: `Desglose_Stocka_${billingState.commerceInfo.sigla || 'COMERCIO'}_${billingState.currentPeriodName.replace(/\s+/g, '_')}.pdf`,
+    filename: filename,
     image: { type: 'jpeg', quality: 0.98 },
     html2canvas: { scale: 2, useCORS: true, letterRendering: true },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
@@ -2012,8 +2487,10 @@ export function downloadBillingPdf() {
   });
 
   html2pdf().set(opt).from(element).save().then(() => {
+    restoreNoPrint();
     Swal.close();
   }).catch(err => {
+    restoreNoPrint();
     console.error('Error generando PDF:', err);
     Swal.fire('Error', 'No se pudo generar el PDF: ' + err.message, 'error');
   });
@@ -2048,6 +2525,7 @@ export async function saveBillingRecordToSupabase() {
       periodName: b.currentPeriodName,
       comercio: b.currentCommerce,
       commerceInfo: b.commerceInfo,
+      invoiceDates: b.invoiceDates,
       volumeM3: b.volumeM3,
       volumeDailyAverage: b.volumeDailyAverage,
       volumeDaysLogged: b.volumeDaysLogged,
@@ -2062,6 +2540,7 @@ export async function saveBillingRecordToSupabase() {
       orders: b.orders,
       supplies: b.supplies,
       adjustments: b.adjustments,
+      checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       generatedAt: new Date().toISOString()
     };
 
@@ -2121,10 +2600,222 @@ export async function saveBillingRecordToSupabase() {
   }
 }
 
+// --- SUBIR SNAPSHOT DE FACTURACIÓN A SUPABASE STORAGE ---
+export async function uploadBillingSnapshotToStorage(fullSnapshot) {
+  const cleanCommerce = (fullSnapshot.comercio || 'comercio').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+  const periodId = fullSnapshot.periodId;
+  const filePath = `billing_snapshots/${periodId}/${cleanCommerce}_snapshot.json`;
+  const jsonString = JSON.stringify(fullSnapshot);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+
+  const { data, error } = await supabase.storage
+    .from('service_docs')
+    .upload(filePath, blob, {
+      contentType: 'application/json',
+      upsert: true
+    });
+
+  if (error) throw error;
+
+  const { data: publicData } = supabase.storage
+    .from('service_docs')
+    .getPublicUrl(filePath);
+
+  return publicData.publicUrl;
+}
+
+// --- CONFIRMAR Y PUBLICAR COBRO AL COMERCIO (INTERACTIVO) ---
+export async function confirmAndPublishBillingToCommerce() {
+  const b = billingState;
+  const t = b.totals || {};
+
+  if (!b.currentPeriodId || !b.currentCommerce) {
+    Swal.fire('Atención', 'No hay un periodo o comercio activo seleccionado para publicar.', 'warning');
+    return false;
+  }
+
+  // Cuadro de confirmación explícita
+  const result = await Swal.fire({
+    title: '<div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;"><i class="ri-send-plane-fill" style="color: #5f06fa;"></i><span>¿Confirmar y Publicar Cobro?</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; line-height: 1.5; color: #334155;">
+        <p style="margin-bottom: 0.75rem;">Estás a punto de confirmar y publicar oficialmente la liquidación del periodo para el comercio:</p>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <span style="color: #64748b; font-weight: 600;">Comercio:</span>
+            <strong style="color: #0f172a;">${escapeHtml(b.currentCommerce)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <span style="color: #64748b; font-weight: 600;">Periodo:</span>
+            <strong style="color: #0f172a;">${escapeHtml(b.currentPeriodName)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+            <span style="color: #64748b; font-weight: 600;">Pedidos Facturables:</span>
+            <strong style="color: #0284c7;">${t.billableOrdersCount || 0} pedidos</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 0.35rem; margin-top: 0.35rem;">
+            <span style="color: #0f172a; font-weight: 700;">Monto Total Facturado:</span>
+            <strong style="color: #5f06fa; font-size: 1.05rem;">${formatCLP(t.totalToPay || 0)}</strong>
+          </div>
+        </div>
+        <div style="background: rgba(95, 6, 250, 0.06); border: 1px solid rgba(95, 6, 250, 0.2); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.78rem; color: #5f06fa; line-height: 1.4;">
+          <i class="ri-information-line"></i> <strong>Efecto en el Portal del Cliente:</strong><br>
+          El comercio podrá ver interactivamente el <strong>Desglose Oficial</strong>, el <strong>Registro de Pedidos</strong> y el <strong>Panel de Métricas</strong> en la sección donde antes veía adjuntos. No afectará otros periodos ni registros cargados manualmente.
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-send-plane-fill"></i> Sí, Confirmar y Publicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b'
+  });
+
+  if (!result.isConfirmed) return false;
+
+  try {
+    Swal.fire({
+      title: 'Publicando Facturación...',
+      text: 'Subiendo snapshot interactivo a la nube y actualizando portal del cliente...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const fullSnapshot = {
+      periodId: b.currentPeriodId,
+      periodName: b.currentPeriodName,
+      comercio: b.currentCommerce,
+      commerceInfo: b.commerceInfo,
+      invoiceDates: b.invoiceDates,
+      volumeM3: b.volumeM3,
+      volumeDailyAverage: b.volumeDailyAverage,
+      volumeDaysLogged: b.volumeDaysLogged,
+      dailyStorageLogs: b.dailyStorageLogs,
+      volumeStats: b.volumeStats,
+      productsStats: b.productsStats,
+      inboundDeclarations: b.inboundDeclarations,
+      ufValue: b.ufValue,
+      ufDate: b.ufDate,
+      activeRange: b.activeRange,
+      totals: b.totals,
+      orders: b.orders,
+      supplies: b.supplies,
+      adjustments: b.adjustments,
+      pricingConfig: b.pricingConfig,
+      checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
+      publishedAt: new Date().toISOString()
+    };
+
+    // 1. Guardar en localStorage para acceso local instantáneo
+    const storageKey = `stocka_fulfillment_details_${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(fullSnapshot));
+    } catch (e) {}
+
+    // 2. Subir Snapshot JSON a Supabase Storage
+    let publicSnapshotUrl = null;
+    try {
+      publicSnapshotUrl = await uploadBillingSnapshotToStorage(fullSnapshot);
+    } catch (storageErr) {
+      console.warn('Error subiendo snapshot a Supabase Storage:', storageErr);
+    }
+
+    // 3. Actualizar o insertar registro en base de datos
+    const updatePayload = {
+      total_fulfillment: t.totalToPay,
+      desglose_fulfillment: 'Enviado',
+      updated_at: new Date().toISOString()
+    };
+
+    if (publicSnapshotUrl) {
+      updatePayload.fulfillment_link = publicSnapshotUrl;
+    }
+
+    const { data: existingRec } = await supabase
+      .from('billing_records')
+      .select('id')
+      .eq('period_id', b.currentPeriodId)
+      .eq('comercio', b.currentCommerce)
+      .maybeSingle();
+
+    if (existingRec && existingRec.id) {
+      const { error: updateErr } = await supabase
+        .from('billing_records')
+        .update(updatePayload)
+        .eq('id', existingRec.id);
+
+      if (updateErr) throw updateErr;
+    } else {
+      const { error: insertErr } = await supabase
+        .from('billing_records')
+        .insert({
+          period_id: b.currentPeriodId,
+          comercio: b.currentCommerce,
+          ...updatePayload
+        });
+
+      if (insertErr) throw insertErr;
+    }
+
+    let finalRecordId = existingRec?.id;
+    if (!finalRecordId) {
+      const { data: newlyCreated } = await supabase
+        .from('billing_records')
+        .select('id')
+        .eq('period_id', b.currentPeriodId)
+        .eq('comercio', b.currentCommerce)
+        .maybeSingle();
+      finalRecordId = newlyCreated?.id;
+    }
+
+    billingState.isSaved = true;
+    billingState.isPublished = true;
+    billingState.savedRecordStatus = 'Publicado';
+    renderKPIsUI();
+
+    if (typeof window.loadBillingPeriods === 'function') {
+      window.loadBillingPeriods();
+    }
+
+    const postAction = await Swal.fire({
+      icon: 'success',
+      title: '¡Cobro Publicado con Éxito!',
+      html: `
+        <div style="text-align: left; font-size: 0.85rem; line-height: 1.4;">
+          <p>La facturación de <strong>${escapeHtml(b.currentCommerce)}</strong> para <strong>${escapeHtml(b.currentPeriodName)}</strong> ha sido confirmada y publicada.</p>
+          <p style="color: #10b981; font-weight: 700;"><i class="ri-checkbox-circle-line"></i> Monto cobrado: ${formatCLP(t.totalToPay)} (con IVA)</p>
+          <p style="color: #64748b; font-size: 0.78rem;">El cliente ya tiene acceso interactivo al Desglose Oficial, Registro tipo Excel y Panel de Métricas en su portal.</p>
+          <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 0.5rem 0.75rem; margin-top: 0.75rem; font-size: 0.78rem; color: #334155;">
+            ¿Deseas enviar el correo oficial de notificación con el enlace interactivo a los contactos del comercio ahora?
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-mail-send-line"></i> Enviar Correo al Cliente',
+      cancelButtonText: 'Cerrar sin Enviar',
+      confirmButtonColor: '#5f06fa',
+      cancelButtonColor: '#64748b'
+    });
+
+    if (postAction.isConfirmed && finalRecordId && typeof window.openSendBillingEmailModal === 'function') {
+      window.openSendBillingEmailModal(finalRecordId, b.currentCommerce, b.currentPeriodId);
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error publicando facturación:', err);
+    Swal.fire('Error', 'No se pudo publicar la facturación: ' + err.message, 'error');
+    return false;
+  }
+}
+
 // --- RENDERIZADOR DE ANALÍTICA Y GRÁFICOS (CHART.JS) TOTALMENTE MEJORADO ---
-export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analytics-container') {
+export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analytics-container', snapshotState = null) {
   const container = document.getElementById(targetContainerId);
   if (!container) return;
+
+  // Asegurar inyección de estilos actualizados
+  injectBillingGeneratorStyles();
 
   // Cargar Chart.js dinámicamente si no existe
   if (typeof Chart === 'undefined') {
@@ -2140,17 +2831,17 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     }
   }
 
-  const b = billingState;
-  const t = b.totals;
+  const b = snapshotState || billingState;
+  const t = b.totals || {};
   const orders = b.orders || [];
 
   // Cálculos analíticos clave
   const totalOrders = orders.length || 1;
-  const avgCostPerOrder = Math.round(t.totalNet / totalOrders);
+  const avgCostPerOrder = Math.round((t.totalNet || 0) / totalOrders);
   const totalSalesAmount = orders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
   const avgTicket = totalOrders > 0 ? Math.round(totalSalesAmount / totalOrders) : 0;
-  const rmPct = ((t.shippingRmFlexCount / totalOrders) * 100).toFixed(1);
-  const envPct = ((t.shippingEnviameCount / totalOrders) * 100).toFixed(1);
+  const rmPct = (((t.shippingRmFlexCount || 0) / totalOrders) * 100).toFixed(1);
+  const envPct = (((t.shippingEnviameCount || 0) / totalOrders) * 100).toFixed(1);
   const mktCount = orders.filter(o => o.isMarketplace).length;
   const mktPct = ((mktCount / totalOrders) * 100).toFixed(1);
 
@@ -2164,17 +2855,17 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         <div>
           <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main);">Dashboard Analítico del Periodo</h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
-            Métricas de rendimiento operativo, costos logísticos unitarios y comportamiento de envíos para <strong>${b.currentCommerce}</strong> (${b.currentPeriodName}).
+            Métricas de rendimiento operativo, costos logísticos unitarios y comportamiento de envíos para <strong>${escapeHtml(b.currentCommerce || b.comercio || '')}</strong> (${escapeHtml(b.currentPeriodName || b.periodName || '')}).
           </p>
         </div>
       </div>
 
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-        <span style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem;">
-          <i class="ri-wallet-3-line" style="color: #5f06fa;"></i> Costo Promedio Logística: ${formatCLP(avgCostPerOrder)} / pedido
+        <span class="bg-hero-badge purple">
+          <i class="ri-wallet-3-line"></i> Costo Promedio Logística: ${formatCLP(avgCostPerOrder)} / pedido
         </span>
-        <span style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.4rem 0.8rem; border-radius: 8px; font-size: 0.8rem; font-weight: 700; color: #0f766e; display: inline-flex; align-items: center; gap: 0.35rem;" title="Ticket promedio de venta de los pedidos del periodo">
-          <i class="ri-shopping-cart-2-line" style="color: #0f766e;"></i> Ticket Promedio Venta: ${formatCLP(avgTicket)}
+        <span class="bg-hero-badge teal" title="Ticket promedio de venta de los pedidos del periodo">
+          <i class="ri-shopping-cart-2-line"></i> Ticket Promedio Venta: ${formatCLP(avgTicket)}
         </span>
       </div>
     </div>
@@ -2183,25 +2874,25 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">COSTO LOGÍSTICO UNITARIO</div>
-        <div class="bg-kpi-value" style="color: #0f172a;">${formatCLP(avgCostPerOrder)}</div>
+        <div class="bg-kpi-value">${formatCLP(avgCostPerOrder)}</div>
         <div class="bg-kpi-subtitle">Costo neto por pedido</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">DESPACHOS RM / FLEX</div>
-        <div class="bg-kpi-value" style="color: #0f172a;">${rmPct}%</div>
+        <div class="bg-kpi-value">${rmPct}%</div>
         <div class="bg-kpi-subtitle">${t.shippingRmFlexCount} de ${totalOrders} pedidos locales</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">ENVÍOS A REGIONES</div>
-        <div class="bg-kpi-value" style="color: #0f172a;">${envPct}%</div>
+        <div class="bg-kpi-value">${envPct}%</div>
         <div class="bg-kpi-subtitle">${t.shippingEnviameCount} pedidos vía Envíame</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">PEDIDOS MARKETPLACE</div>
-        <div class="bg-kpi-value" style="color: #0f172a;">${mktPct}%</div>
+        <div class="bg-kpi-value">${mktPct}%</div>
         <div class="bg-kpi-subtitle">${mktCount} pedidos marketplace</div>
       </div>
     </div>
@@ -2209,30 +2900,30 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <!-- 4 Tarjetas de Almacenamiento Diario en 1 Sola Fila (Sobrio y Uniforme) -->
     <div style="margin-bottom: 0.5rem;">
       <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.4rem;">
-        <i class="ri-archive-line" style="color: #5f06fa;"></i> Métricas de Almacenamiento Diario
+        <i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario
       </h4>
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">VOLUMEN PROMEDIO DIARIO</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">m³</span></div>
+          <div class="bg-kpi-value">${formatDec(b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Promedio mes calendario</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">DÍAS CON REGISTRO</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${b.volumeDaysLogged} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">días</span></div>
+          <div class="bg-kpi-value">${b.volumeDaysLogged} <span class="bg-kpi-unit">días</span></div>
           <div class="bg-kpi-subtitle">Mediciones registradas</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">PICO MÁXIMO REGISTRADO</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${formatDec(b.volumeStats?.maxDailyVolume || b.volumeM3, 2)} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">m³</span></div>
+          <div class="bg-kpi-value">${formatDec(b.volumeStats?.maxDailyVolume || b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Mayor ocupación en el mes</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">VOLUMEN MÍNIMO REGISTRADO</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${formatDec(b.volumeStats?.minDailyVolume || b.volumeM3, 2)} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">m³</span></div>
+          <div class="bg-kpi-value">${formatDec(b.volumeStats?.minDailyVolume || b.volumeM3, 2)} <span class="bg-kpi-unit">m³</span></div>
           <div class="bg-kpi-subtitle">Menor ocupación en el mes</div>
         </div>
       </div>
@@ -2242,12 +2933,12 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <div class="bg-chart-card" style="margin-bottom: 2rem;">
       <div class="bg-chart-header">
         <div>
-          <h4 class="bg-chart-title" style="display: flex; align-items: center; gap: 0.4rem;">
-            <i class="ri-line-chart-line" style="color: #5f06fa;"></i> Evolución del Volumen de Almacenamiento Diario (m³)
+          <h4 class="bg-chart-title">
+            <i class="ri-line-chart-line text-stocka-purple"></i> Evolución del Volumen de Almacenamiento Diario (m³)
           </h4>
           <span style="font-size: 0.75rem; color: var(--color-text-muted);">Comportamiento del cubicaje medido durante el mes facturado</span>
         </div>
-        <div style="font-size: 0.8rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 0.3rem 0.6rem; border-radius: 6px;">
+        <div class="bg-tariff-badge">
           Tarifa: ${formatCLP(b.activeRange?.storage_m3 || 48900)} / m³
         </div>
       </div>
@@ -2259,24 +2950,24 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <!-- Métricas de Artículos Vendidos y Despachados -->
     <div style="margin-bottom: 0.5rem;">
       <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.4rem;">
-        <i class="ri-shopping-bag-3-line" style="color: #5f06fa;"></i> Artículos Vendidos y Despachados
+        <i class="ri-shopping-bag-3-line text-stocka-purple"></i> Artículos Vendidos y Despachados
       </h4>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">TOTAL ARTÍCULOS VENDIDOS</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${(b.productsStats?.totalUnits || 0).toLocaleString('es-CL')} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">unidades</span></div>
+          <div class="bg-kpi-value">${(b.productsStats?.totalUnits || 0).toLocaleString('es-CL')} <span class="bg-kpi-unit">unidades</span></div>
           <div class="bg-kpi-subtitle">Unidades físicas procesadas</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">PROMEDIO POR PEDIDO</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${b.productsStats?.avgUnitsPerOrder || 0} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">uds/pedido</span></div>
+          <div class="bg-kpi-value">${b.productsStats?.avgUnitsPerOrder || 0} <span class="bg-kpi-unit">uds/pedido</span></div>
           <div class="bg-kpi-subtitle">Artículos por orden despachada</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">SKUS DISTINTOS DESPACHADOS</div>
-          <div class="bg-kpi-value" style="color: #0f172a;">${(b.productsStats?.allProducts || []).length} <span style="font-size: 0.85rem; font-weight: 600; color: #64748b;">SKUs</span></div>
+          <div class="bg-kpi-value">${(b.productsStats?.allProducts || []).length} <span class="bg-kpi-unit">SKUs</span></div>
           <div class="bg-kpi-subtitle">Variedad de catálogo con rotación</div>
         </div>
       </div>
@@ -2293,7 +2984,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
             </h4>
             <span style="font-size: 0.75rem; color: var(--color-text-muted);">Ranking por unidades físicas despachadas en el periodo</span>
           </div>
-          <span style="font-size: 0.75rem; color: #5f06fa; font-weight: 700;">Top ${(b.productsStats?.topProducts || []).length}</span>
+          <span class="bg-share-badge">Top ${(b.productsStats?.topProducts || []).length}</span>
         </div>
         <div style="overflow-x: auto; max-height: 310px;">
           <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
@@ -2309,12 +3000,12 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
             <tbody>
               ${(b.productsStats?.topProducts || []).map(p => `
                 <tr style="border-bottom: 1px solid var(--color-border);">
-                  <td style="padding: 7px 8px; font-weight: 700; color: #5f06fa;">${p.rank}</td>
+                  <td class="text-stocka-purple" style="padding: 7px 8px; font-weight: 700;">${p.rank}</td>
                   <td style="padding: 7px 8px; font-weight: 600; font-family: monospace; font-size: 0.75rem;">${p.sku}</td>
                   <td style="padding: 7px 8px; color: var(--color-text-main); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 220px;" title="${p.name}">${p.name}</td>
                   <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: var(--color-text-main);">${p.quantity}</td>
                   <td style="padding: 7px 8px; text-align: right;">
-                    <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem;">${p.sharePct}%</span>
+                    <span class="bg-share-badge">${p.sharePct}%</span>
                   </td>
                 </tr>
               `).join('') || `<tr><td colspan="5" style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">Sin pedidos con productos registrados</td></tr>`}
@@ -2346,7 +3037,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
             <span style="font-size: 0.75rem; color: var(--color-text-muted);">Declaraciones de recepción asignadas a este periodo de facturación</span>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <span style="background: rgba(16, 185, 129, 0.1); color: #059669; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.8rem;">
+            <span style="background: rgba(16, 185, 129, 0.12); color: var(--badge-success-text, #10b981); font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.8rem;">
               Total: ${formatDec(t.inboundTotalUF || 0, 4)} UF (${formatCLP(t.inboundNet)})
             </span>
           </div>
@@ -2372,9 +3063,9 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
                   <td style="padding: 8px 10px; text-align: center;">${dec.quantity_received || dec.quantity_declared || 0} uds</td>
                   <td style="padding: 8px 10px; text-align: center;">${dec.volume_confirmed || dec.volume_declared || 0} m³</td>
                   <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: var(--color-text-main);">${formatDec(dec.costUF, 4)} UF</td>
-                  <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: #059669;">${formatCLP(dec.costCLP)}</td>
+                  <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: var(--badge-success-text, #10b981);">${formatCLP(dec.costCLP)}</td>
                   <td style="padding: 8px 10px; text-align: center;">
-                    <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+                    <span class="badge" style="background: var(--badge-success-bg, rgba(16, 185, 129, 0.12)); color: var(--badge-success-text, #10b981); font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
                       ${dec.billing_status || 'Facturado'}
                     </span>
                   </td>
@@ -2442,37 +3133,57 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     </div>
   `;
 
-  const corporatePalette = ['#5f06fa', '#7c3aed', '#6366f1', '#4f46e5', '#3b82f6', '#0ea5e9', '#10b981', '#64748b', '#94a3b8'];
+  // Detección dinámica de modo oscuro para Chart.js
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || document.body.getAttribute('data-theme') === 'dark';
+  const chartTextColor = isDark ? '#cbd5e1' : '#64748b';
+  const chartGridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+  const chartBorderColor = isDark ? '#131b2e' : '#ffffff';
+  const chartPurple = isDark ? '#a855f7' : '#5f06fa';
+
+  const corporatePalette = isDark
+    ? ['#a855f7', '#c084fc', '#818cf8', '#60a5fa', '#38bdf8', '#2dd4bf', '#34d399', '#94a3b8', '#cbd5e1']
+    : ['#5f06fa', '#7c3aed', '#6366f1', '#4f46e5', '#3b82f6', '#0ea5e9', '#10b981', '#64748b', '#94a3b8'];
+
+  // Función segura para crear o recrear un gráfico Chart.js dentro del contenedor
+  const getCanvasAndInit = (id, config) => {
+    const canvas = container.querySelector('#' + id) || document.getElementById(id);
+    if (!canvas) return null;
+    if (typeof Chart !== 'undefined' && typeof Chart.getChart === 'function') {
+      const existing = Chart.getChart(canvas);
+      if (existing) existing.destroy();
+    }
+    return new Chart(canvas, config);
+  };
 
   // A. Gráfico de Evolución de Almacenamiento Diario
   const dailyLogs = b.dailyStorageLogs && b.dailyStorageLogs.length > 0
     ? b.dailyStorageLogs
-    : [{ date: `${b.currentPeriodYear}-${String(b.currentPeriodMonth).padStart(2, '0')}-01`, volume: b.volumeM3 }];
+    : [{ date: `${b.currentPeriodYear || new Date().getFullYear()}-${String(b.currentPeriodMonth || 1).padStart(2, '0')}-01`, volume: b.volumeM3 || 0 }];
 
-  const storageCanvas = document.getElementById('chart-storage-evolution');
+  const storageCanvas = container.querySelector('#chart-storage-evolution') || document.getElementById('chart-storage-evolution');
   if (storageCanvas) {
     const ctx = storageCanvas.getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 240);
-    gradient.addColorStop(0, 'rgba(95, 6, 250, 0.25)');
-    gradient.addColorStop(1, 'rgba(95, 6, 250, 0.01)');
+    gradient.addColorStop(0, isDark ? 'rgba(168, 85, 247, 0.35)' : 'rgba(95, 6, 250, 0.25)');
+    gradient.addColorStop(1, isDark ? 'rgba(168, 85, 247, 0.01)' : 'rgba(95, 6, 250, 0.01)');
 
-    new Chart(storageCanvas, {
+    getCanvasAndInit('chart-storage-evolution', {
       type: 'line',
       data: {
         labels: dailyLogs.map(l => {
-          const parts = l.date.split('-');
+          const parts = (l.date || '').split('-');
           return parts.length === 3 ? `${parts[2]}/${parts[1]}` : l.date;
         }),
         datasets: [{
           label: 'Volumen Diario (m³)',
           data: dailyLogs.map(l => l.volume),
-          borderColor: '#5f06fa',
+          borderColor: chartPurple,
           backgroundColor: gradient,
           fill: true,
           tension: 0.25,
           borderWidth: 2.5,
           pointRadius: dailyLogs.length > 20 ? 2 : 4,
-          pointBackgroundColor: '#5f06fa',
+          pointBackgroundColor: chartPurple,
           pointHoverRadius: 6
         }]
       },
@@ -2482,12 +3193,14 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         scales: {
           x: {
             grid: { display: false },
-            ticks: { font: { family: 'Outfit', size: 10 } }
+            ticks: { font: { family: 'Outfit', size: 10 }, color: chartTextColor }
           },
           y: {
             beginAtZero: true,
+            grid: { color: chartGridColor },
             ticks: {
               font: { family: 'Outfit', size: 10 },
+              color: chartTextColor,
               callback: val => `${val} m³`
             }
           }
@@ -2506,9 +3219,8 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
 
   // B. Gráfico de Barras de Top Productos Más Vendidos
   const topProds = (b.productsStats?.topProducts || []).slice(0, 6);
-  const topProductsCanvas = document.getElementById('chart-top-products');
-  if (topProductsCanvas && topProds.length > 0) {
-    new Chart(topProductsCanvas, {
+  if (topProds.length > 0) {
+    getCanvasAndInit('chart-top-products', {
       type: 'bar',
       data: {
         labels: topProds.map(p => p.sku),
@@ -2518,7 +3230,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           backgroundColor: corporatePalette.slice(0, topProds.length),
           borderRadius: 6,
           borderWidth: 1,
-          borderColor: '#ffffff'
+          borderColor: chartBorderColor
         }]
       },
       options: {
@@ -2526,8 +3238,15 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          x: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Outfit', size: 10 } } },
-          y: { ticks: { font: { family: 'Outfit', weight: '700', size: 11 } } }
+          x: {
+            beginAtZero: true,
+            grid: { color: chartGridColor },
+            ticks: { stepSize: 1, font: { family: 'Outfit', size: 10 }, color: chartTextColor }
+          },
+          y: {
+            grid: { display: false },
+            ticks: { font: { family: 'Outfit', weight: '700', size: 11 }, color: chartTextColor }
+          }
         },
         plugins: {
           legend: { display: false },
@@ -2553,7 +3272,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   const courierLabels = Object.keys(courierMap);
   const courierCounts = courierLabels.map(l => courierMap[l]);
 
-  new Chart(document.getElementById('chart-courier-distribution'), {
+  getCanvasAndInit('chart-courier-distribution', {
     type: 'doughnut',
     data: {
       labels: courierLabels,
@@ -2561,7 +3280,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         data: courierCounts,
         backgroundColor: corporatePalette.slice(0, courierLabels.length),
         borderWidth: 2,
-        borderColor: '#ffffff',
+        borderColor: chartBorderColor,
         hoverOffset: 4
       }]
     },
@@ -2569,7 +3288,14 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { boxWidth: 12, font: { family: 'Outfit', size: 11, weight: '600' } } }
+        legend: {
+          position: 'right',
+          labels: {
+            boxWidth: 12,
+            color: chartTextColor,
+            font: { family: 'Outfit', size: 11, weight: '600' }
+          }
+        }
       },
       cutout: '62%'
     }
@@ -2598,7 +3324,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   const typeLabels = activeEntries.map(item => item.label);
   const typeCounts = activeEntries.map(item => item.count);
 
-  new Chart(document.getElementById('chart-delivery-types'), {
+  getCanvasAndInit('chart-delivery-types', {
     type: 'pie',
     data: {
       labels: typeLabels.length > 0 ? typeLabels : ['Sin despachos'],
@@ -2606,7 +3332,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         data: typeCounts.length > 0 ? typeCounts : [1],
         backgroundColor: corporatePalette.slice(0, Math.max(typeLabels.length, 1)),
         borderWidth: 2,
-        borderColor: '#ffffff',
+        borderColor: chartBorderColor,
         hoverOffset: 4
       }]
     },
@@ -2614,30 +3340,37 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { boxWidth: 12, font: { family: 'Outfit', size: 11, weight: '600' } } }
+        legend: {
+          position: 'right',
+          labels: {
+            boxWidth: 12,
+            color: chartTextColor,
+            font: { family: 'Outfit', size: 11, weight: '600' }
+          }
+        }
       }
     }
   });
 
   // 3. Chart Expense Breakdown
   const expenseData = [
-    { label: 'Almacenamiento', val: t.storageNet, color: '#5f06fa' },
-    { label: 'Preparación (Pick&Pack)', val: t.pickPackNet, color: '#7c3aed' },
-    { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet, color: '#6366f1' },
-    { label: 'Costo Fijo Mensual', val: t.fixedFeeNet, color: '#3b82f6' },
-    { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981' },
-    { label: 'Insumos de Embalaje', val: t.suppliesNet, color: '#64748b' }
+    { label: 'Almacenamiento', val: t.storageNet || 0, color: '#5f06fa', darkColor: '#a855f7' },
+    { label: 'Preparación (Pick&Pack)', val: t.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
+    { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet || 0, color: '#6366f1', darkColor: '#818cf8' },
+    { label: 'Costo Fijo Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
+    { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981', darkColor: '#34d399' },
+    { label: 'Insumos de Embalaje', val: t.suppliesNet || 0, color: '#64748b', darkColor: '#94a3b8' }
   ].filter(e => e.val > 0);
 
-  new Chart(document.getElementById('chart-expense-breakdown'), {
+  getCanvasAndInit('chart-expense-breakdown', {
     type: 'doughnut',
     data: {
       labels: expenseData.map(e => e.label),
       datasets: [{
         data: expenseData.map(e => e.val),
-        backgroundColor: expenseData.map(e => e.color),
+        backgroundColor: expenseData.map(e => isDark ? (e.darkColor || e.color) : e.color),
         borderWidth: 2,
-        borderColor: '#ffffff',
+        borderColor: chartBorderColor,
         hoverOffset: 4
       }]
     },
@@ -2645,12 +3378,19 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'right', labels: { boxWidth: 12, font: { family: 'Outfit', size: 11, weight: '600' } } },
+        legend: {
+          position: 'right',
+          labels: {
+            boxWidth: 12,
+            color: chartTextColor,
+            font: { family: 'Outfit', size: 11, weight: '600' }
+          }
+        },
         tooltip: {
           callbacks: {
             label: function(context) {
               const val = context.raw || 0;
-              const pct = t.totalNet > 0 ? ((val / t.totalNet) * 100).toFixed(1) : 0;
+              const pct = (t.totalNet || 0) > 0 ? ((val / t.totalNet) * 100).toFixed(1) : 0;
               return ` ${context.label}: ${formatCLP(val)} (${pct}%)`;
             }
           }
@@ -2668,16 +3408,16 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   });
   const sortedDests = Object.entries(destMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
-  new Chart(document.getElementById('chart-frequent-destinations'), {
+  getCanvasAndInit('chart-frequent-destinations', {
     type: 'bar',
     data: {
       labels: sortedDests.map(d => d[0]),
       datasets: [{
         label: 'Cantidad de Pedidos',
         data: sortedDests.map(d => d[1]),
-        backgroundColor: 'rgba(95, 6, 250, 0.85)',
-        hoverBackgroundColor: '#5f06fa',
-        borderColor: '#5f06fa',
+        backgroundColor: isDark ? 'rgba(168, 85, 247, 0.85)' : 'rgba(95, 6, 250, 0.85)',
+        hoverBackgroundColor: isDark ? '#a855f7' : '#5f06fa',
+        borderColor: isDark ? '#c084fc' : '#5f06fa',
         borderWidth: 1,
         borderRadius: 4
       }]
@@ -2687,14 +3427,36 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: { beginAtZero: true, ticks: { stepSize: 1 } },
-        y: { ticks: { font: { family: 'Outfit', weight: '600', size: 11 } } }
+        x: {
+          beginAtZero: true,
+          grid: { color: chartGridColor },
+          ticks: { stepSize: 1, font: { family: 'Outfit', size: 10 }, color: chartTextColor }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { family: 'Outfit', weight: '600', size: 11 }, color: chartTextColor }
+        }
       },
       plugins: {
         legend: { display: false }
       }
     }
   });
+
+  // Observer para re-renderizar los gráficos automáticamente al cambiar de tema (claro/oscuro)
+  if (!container.__themeObserverAttached) {
+    container.__themeObserverAttached = true;
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.attributeName === 'data-theme') {
+          if (document.body.contains(container)) {
+            renderBillingAnalyticsCharts(targetContainerId, snapshotState);
+          }
+        }
+      }
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
 }
 
 // --- VISTA PRINCIPAL DEL MÓDULO DEL GESTOR DE FACTURACIÓN ---
@@ -2771,6 +3533,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <button id="bg-btn-save-record" class="btn btn-primary" style="background: #10b981; border-color: #10b981; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);" title="Guardar en base de datos">
             <i class="ri-save-3-fill"></i> Guardar Facturación
           </button>
+          <button id="bg-btn-publish-record" class="btn btn-primary" style="background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); border-color: #5f06fa; height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.3);" title="Confirmar cobro y publicar desglose oficial, registro de pedidos y métricas directamente en el portal del cliente">
+            <i class="ri-send-plane-fill"></i> Confirmar y Publicar
+          </button>
         </div>
       </div>
 
@@ -2789,6 +3554,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
         </button>
         <button class="bg-subnav-btn" id="bg-tab-btn-analytics" onclick="window.switchBgSubTab('analytics')">
           <i class="ri-bar-chart-2-fill"></i> Analítica y Gráficas
+        </button>
+        <button class="bg-subnav-btn" id="bg-tab-btn-checklist" onclick="window.switchBgSubTab('checklist')">
+          <i class="ri-checkbox-circle-line"></i> Checklist Global
+          <span id="bg-checklist-nav-badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; font-size: 0.72rem; padding: 1px 7px; border-radius: 10px; font-weight: 800; margin-left: 4px;">0/0</span>
         </button>
       </div>
 
@@ -2957,6 +3726,25 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
 
       <!-- Contenedor 2: Desglose Oficial Stocka -->
       <div id="bg-content-desglose" style="display: none;">
+        <!-- Barra de herramientas para personalizar insumos, fechas y datos legales -->
+        <div class="no-print" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
+            <i class="ri-file-list-3-line" style="color: #5f06fa; font-size: 1.2rem;"></i>
+            <span>Desglose Oficial Stocka</span>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; font-weight: 500;">(Puedes agregar/eliminar insumos, editar fechas y datos fiscales)</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: 6px;">
+              <i class="ri-box-3-line" style="color: #5f06fa;"></i> + Insumo / Caja
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: 6px;">
+              <i class="ri-price-tag-3-line" style="color: #0284c7;"></i> + Ajuste Comercial
+            </button>
+            <button type="button" id="bg-btn-edit-desglose-header" class="btn btn-outline btn-sm" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; border-color: rgba(95, 6, 250, 0.4); color: #5f06fa; border-radius: 6px;">
+              <i class="ri-calendar-check-line"></i> Editar Fechas y Datos Legales
+            </button>
+          </div>
+        </div>
         <div style="margin-bottom: 2rem;" id="bg-desglose-view-container">
           <!-- Renderizado dinámico del Desglose Mejorado -->
         </div>
@@ -2968,12 +3756,23 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <!-- Renderizado dinámico de Chart.js -->
         </div>
       </div>
+
+      <!-- Contenedor 4: Checklist Global -->
+      <div id="bg-content-checklist" style="display: none;">
+        <div id="bg-checklist-container">
+          <!-- Renderizado dinámico del Checklist Global -->
+        </div>
+      </div>
     </div>
   `;
 
   // Asignar listeners de eventos
   document.getElementById('bg-btn-config-delivery')?.addEventListener('click', () => {
     window.openDeliveryTypesManagerModal();
+  });
+
+  document.getElementById('bg-btn-edit-desglose-header')?.addEventListener('click', () => {
+    openEditDesgloseHeaderModal();
   });
 
   document.getElementById('bg-btn-recalculate')?.addEventListener('click', () => {
@@ -3000,13 +3799,17 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     saveBillingRecordToSupabase();
   });
 
+  document.getElementById('bg-btn-publish-record')?.addEventListener('click', () => {
+    confirmAndPublishBillingToCommerce();
+  });
+
   // Ejecutar cálculo inicial
   await executeCalculationFromUI();
 };
 
 // Función para alternar sub-pestañas
 window.switchBgSubTab = function(tabKey) {
-  const tabs = ['register', 'desglose', 'analytics'];
+  const tabs = ['register', 'desglose', 'analytics', 'checklist'];
   tabs.forEach(t => {
     const btn = document.getElementById(`bg-tab-btn-${t}`);
     const content = document.getElementById(`bg-content-${t}`);
@@ -3026,6 +3829,10 @@ window.switchBgSubTab = function(tabKey) {
     if (container) container.innerHTML = renderStockaDesgloseHTML();
   } else if (tabKey === 'analytics') {
     renderBillingAnalyticsCharts();
+  } else if (tabKey === 'checklist') {
+    if (typeof renderBillingChecklistUI === 'function') {
+      renderBillingChecklistUI();
+    }
   }
 };
 
@@ -3055,6 +3862,17 @@ async function executeCalculationFromUI(overrides = {}) {
   // Actualizar Desglose Oficial
   const desgloseCont = document.getElementById('bg-desglose-view-container');
   if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+  // Actualizar Badge y Vista de Checklist
+  if (typeof updateChecklistNavBadge === 'function') {
+    updateChecklistNavBadge();
+  }
+  const checklistContent = document.getElementById('bg-content-checklist');
+  if (checklistContent && checklistContent.style.display !== 'none') {
+    if (typeof renderBillingChecklistUI === 'function') {
+      renderBillingChecklistUI();
+    }
+  }
 }
 
 // Renderizar Tarjetas de KPI
@@ -3070,8 +3888,10 @@ function renderKPIsUI() {
       <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between;">
         <span><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> TOTAL FACTURA (CON IVA)</span>
         ${b.isSaved 
-          ? '<span style="background: #dcfce7; color: #166534; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-checkbox-circle-line"></i> Guardado</span>' 
-          : '<span style="background: #fef3c7; color: #92400e; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>'}
+          ? ((b.isPublished || b.savedRecordStatus === 'Publicado')
+              ? '<span style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-send-plane-fill"></i> Publicado</span>'
+              : '<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-checkbox-circle-line"></i> Guardado</span>') 
+          : '<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>'}
       </div>
       <div class="bg-kpi-value text-stocka-purple">${formatCLP(t.totalToPay)}</div>
       <div class="bg-kpi-subtitle">Neto: ${formatCLP(t.totalNet)} + IVA: ${formatCLP(t.iva)}</div>
@@ -3079,19 +3899,19 @@ function renderKPIsUI() {
 
     <div class="bg-kpi-card" style="border-left: 4px solid #0284c7;">
       <div class="bg-kpi-title"><i class="ri-box-3-line" style="color: #0284c7;"></i> PEDIDOS PROCESADOS</div>
-      <div class="bg-kpi-value" style="color: #0284c7;">${t.billableOrdersCount} <span style="font-size: 0.9rem; font-weight: 600; color: #64748b;">/ ${t.ordersCount}</span></div>
+      <div class="bg-kpi-value" style="color: #0284c7;">${t.billableOrdersCount} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">/ ${t.ordersCount}</span></div>
       <div class="bg-kpi-subtitle">Pick & Pack Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #10b981;">
       <div class="bg-kpi-title"><i class="ri-archive-2-line" style="color: #10b981;"></i> ALMACENAMIENTO MES</div>
-      <div class="bg-kpi-value" style="color: #10b981;">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600;">m³</span></div>
+      <div class="bg-kpi-value" style="color: #10b981;">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">m³</span></div>
       <div class="bg-kpi-subtitle">Promedio ${b.volumeDaysLogged} días (${formatCLP(t.storageNet)} neto)</div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #f59e0b;">
       <div class="bg-kpi-title"><i class="ri-flashlight-line" style="color: #f59e0b;"></i> DESPACHOS RM / FLEX</div>
-      <div class="bg-kpi-value" style="color: #f59e0b;">${t.shippingRmFlexCount} <span style="font-size: 0.9rem; font-weight: 600; color: #64748b;">envíos</span></div>
+      <div class="bg-kpi-value" style="color: #f59e0b;">${t.shippingRmFlexCount} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">envíos</span></div>
       <div class="bg-kpi-subtitle">Neto Despachos: ${formatCLP(t.shippingRmFlexNet)}</div>
     </div>
 
@@ -3773,33 +4593,42 @@ function recalculateFromCurrentState() {
   if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
 }
 
-// Agregar Fila Manual de Insumos
+// // Agregar Fila Manual de Insumos
 window.addNewManualSupplyRow = async function() {
   const { value: formValues } = await Swal.fire({
-    title: 'Agregar Insumo o Caja',
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-box-3-line" style="color:#5f06fa;"></i><span>Agregar Insumo o Caja</span></div>',
     html: `
-      <div style="text-align: left;">
-        <label style="font-size: 0.8rem; font-weight: 600;">Nombre del Insumo:</label>
-        <input id="swal-supply-name" class="swal2-input" placeholder="Ej: Caja S 20x20x20 o Plástico Burbuja" value="Caja S 20x20x20">
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE DEL INSUMO:</label>
+        <input id="swal-supply-name" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Caja S 20x20x20 o Cinta Embalaje" value="Caja S 20x20x20">
         
-        <label style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; display: block;">Cantidad:</label>
-        <input id="swal-supply-qty" type="number" class="swal2-input" placeholder="1" value="1">
-
-        <label style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; display: block;">Precio Unitario Neto ($):</label>
-        <input id="swal-supply-price" type="number" class="swal2-input" placeholder="450" value="450">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CANTIDAD:</label>
+            <input id="swal-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="1" value="1">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
+            <input id="swal-supply-price" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" placeholder="450" value="450">
+          </div>
+        </div>
       </div>
     `,
     focusConfirm: false,
     showCancelButton: true,
-    confirmButtonText: 'Agregar',
+    confirmButtonText: '<i class="ri-check-line"></i> Agregar',
     cancelButtonText: 'Cancelar',
     confirmButtonColor: '#5f06fa',
     preConfirm: () => {
-      return {
-        name: document.getElementById('swal-supply-name').value,
-        qty: parseInt(document.getElementById('swal-supply-qty').value, 10) || 1,
-        price: parseInt(document.getElementById('swal-supply-price').value, 10) || 0
-      };
+      const name = document.getElementById('swal-supply-name')?.value?.trim();
+      const qty = parseInt(document.getElementById('swal-supply-qty')?.value, 10) || 1;
+      const price = parseInt(document.getElementById('swal-supply-price')?.value, 10) || 0;
+
+      if (!name) {
+        Swal.showValidationMessage('Ingresa un nombre para el insumo.');
+        return false;
+      }
+      return { name, qty, price };
     }
   });
 
@@ -3807,42 +4636,184 @@ window.addNewManualSupplyRow = async function() {
     billingState.supplies.push({
       id: 'custom_' + Date.now(),
       name: formValues.name,
-      unit: 'ud.',
+      unit: 'gl.',
       qty: formValues.qty,
       unitPrice: formValues.price,
       total: formValues.qty * formValues.price
     });
+    billingState.isSaved = false;
+    billingState.suppliesSessionKey = `${billingState.currentPeriodId}_${billingState.currentCommerce}`;
     recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Insumo agregado',
+      text: `Se agregó "${formValues.name}" al desglose.`,
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
+
+// Eliminar un ítem de insumo
+window.deleteManualSupplyItem = function(supplyIdOrIdx) {
+  const b = billingState;
+  const idx = b.supplies.findIndex((s, i) => String(s.id) === String(supplyIdOrIdx) || String(i) === String(supplyIdOrIdx));
+  if (idx === -1) return;
+
+  const item = b.supplies[idx];
+  Swal.fire({
+    title: '¿Eliminar ítem de cobro?',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem; color: #334155;">
+        ¿Estás seguro de eliminar <strong>${escapeHtml(item.name)}</strong> del desglose?
+        <div style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.8rem; color: #991b1b;">
+          Se descontarán <strong>${formatCLP(Math.round((item.total || 0) * 1.19))}</strong> (IVA incl.) del total a facturar.
+        </div>
+      </div>
+    `,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      b.supplies.splice(idx, 1);
+      b.isSaved = false;
+      b.suppliesSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+
+      recalculateFromCurrentState();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Ítem eliminado',
+        text: `"${item.name}" fue eliminado del desglose.`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  });
+};
+
+// Editar un ítem de insumo (nombre, cantidad, precio)
+window.editManualSupplyItem = async function(supplyIdOrIdx) {
+  const b = billingState;
+  const idx = b.supplies.findIndex((s, i) => String(s.id) === String(supplyIdOrIdx) || String(i) === String(supplyIdOrIdx));
+  if (idx === -1) return;
+
+  const item = b.supplies[idx];
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-pencil-line" style="color:#5f06fa;"></i><span>Editar Ítem de Insumo</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOMBRE DEL INSUMO:</label>
+        <input id="swal-edit-supply-name" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(item.name)}">
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CANTIDAD:</label>
+            <input id="swal-edit-supply-qty" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" value="${item.qty || 1}">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">PRECIO UNITARIO ($ NETO):</label>
+            <input id="swal-edit-supply-price" type="number" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" min="0" value="${item.unitPrice || 0}">
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Guardar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const name = document.getElementById('swal-edit-supply-name')?.value?.trim();
+      const qty = parseInt(document.getElementById('swal-edit-supply-qty')?.value, 10);
+      const price = parseInt(document.getElementById('swal-edit-supply-price')?.value, 10);
+
+      if (!name) {
+        Swal.showValidationMessage('El nombre del insumo no puede estar vacío.');
+        return false;
+      }
+      if (isNaN(qty) || qty < 0) {
+        Swal.showValidationMessage('Ingresa una cantidad válida.');
+        return false;
+      }
+      if (isNaN(price) || price < 0) {
+        Swal.showValidationMessage('Ingresa un precio unitario válido.');
+        return false;
+      }
+      return { name, qty, price };
+    }
+  });
+
+  if (formValues) {
+    if (formValues.qty === 0) {
+      b.supplies.splice(idx, 1);
+    } else {
+      item.name = formValues.name;
+      item.qty = formValues.qty;
+      item.unitPrice = formValues.price;
+      item.total = formValues.qty * formValues.price;
+    }
+
+    b.isSaved = false;
+    b.suppliesSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+    recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Insumo actualizado',
+      showConfirmButton: false,
+      timer: 2500
+    });
   }
 };
 
 // Agregar Fila Manual de Ajuste / Descuento Comercial
 window.addNewManualAdjustmentRow = async function() {
   const { value: formValues } = await Swal.fire({
-    title: 'Agregar Ajuste Comercial / Descuento',
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-price-tag-3-line" style="color:#5f06fa;"></i><span>Agregar Ajuste Comercial / Descuento</span></div>',
     html: `
-      <div style="text-align: left;">
-        <label style="font-size: 0.8rem; font-weight: 600;">Concepto / Razón:</label>
-        <input id="swal-adj-concept" class="swal2-input" placeholder="Ej: Descuento Comercial Acordado o Cobro Especial" value="Descuento Comercial Acordado">
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONCEPTO / RAZÓN:</label>
+        <input id="swal-adj-concept" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Descuento Comercial Acordado o Cobro Especial" value="Descuento Comercial Acordado">
         
-        <label style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; display: block;">Monto Neto ($ - Usar negativo para descuentos):</label>
-        <input id="swal-adj-amount" type="number" class="swal2-input" placeholder="-15000" value="-10000">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO NETO ($ - Usar negativo para descuentos):</label>
+        <input id="swal-adj-amount" type="number" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="-15000" value="-10000">
 
-        <label style="font-size: 0.8rem; font-weight: 600; margin-top: 0.5rem; display: block;">Notas internas:</label>
-        <input id="swal-adj-notes" class="swal2-input" placeholder="Autorizado por Gerencia">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOTAS INTERNAS:</label>
+        <input id="swal-adj-notes" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Autorizado por Gerencia">
       </div>
     `,
     focusConfirm: false,
     showCancelButton: true,
-    confirmButtonText: 'Aplicar',
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar',
     cancelButtonText: 'Cancelar',
     confirmButtonColor: '#5f06fa',
     preConfirm: () => {
-      return {
-        concept: document.getElementById('swal-adj-concept').value,
-        amount: parseInt(document.getElementById('swal-adj-amount').value, 10) || 0,
-        notes: document.getElementById('swal-adj-notes').value
-      };
+      const concept = document.getElementById('swal-adj-concept')?.value?.trim();
+      const amount = parseInt(document.getElementById('swal-adj-amount')?.value, 10);
+      const notes = document.getElementById('swal-adj-notes')?.value?.trim() || '';
+
+      if (!concept) {
+        Swal.showValidationMessage('Ingresa un concepto para el ajuste.');
+        return false;
+      }
+      if (isNaN(amount) || amount === 0) {
+        Swal.showValidationMessage('Ingresa un monto válido distinto de cero.');
+        return false;
+      }
+
+      return { concept, amount, notes };
     }
   });
 
@@ -3853,9 +4824,171 @@ window.addNewManualAdjustmentRow = async function() {
       amount: formValues.amount,
       notes: formValues.notes
     });
+    billingState.isSaved = false;
+    billingState.adjustmentsSessionKey = `${billingState.currentPeriodId}_${billingState.currentCommerce}`;
     recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Ajuste aplicado',
+      text: `${formValues.concept} por ${formatCLP(formValues.amount)} aplicado.`,
+      showConfirmButton: false,
+      timer: 2500
+    });
   }
 };
+
+// Eliminar un ajuste comercial
+window.deleteManualAdjustmentItem = function(adjIdOrIdx) {
+  const b = billingState;
+  const idx = b.adjustments.findIndex((a, i) => String(a.id) === String(adjIdOrIdx) || String(i) === String(adjIdOrIdx));
+  if (idx === -1) return;
+
+  const item = b.adjustments[idx];
+  Swal.fire({
+    title: '¿Eliminar ajuste comercial?',
+    html: `¿Estás seguro de eliminar el ajuste <strong>${escapeHtml(item.concept || 'Ajuste comercial')}</strong> (${formatCLP(item.amount)})?`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      b.adjustments.splice(idx, 1);
+      b.isSaved = false;
+      b.adjustmentsSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+
+      recalculateFromCurrentState();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Ajuste eliminado',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  });
+};
+
+// Modal interactivo para editar o eximir Costo Fijo Mensual
+window.openEditFixedFeeModal = async function() {
+  const b = billingState;
+  const t = b.totals;
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-money-dollar-box-line" style="color: #5f06fa;"></i><span>Costo Fijo Mensual</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 1rem;">
+          Modifica el costo fijo mensual para este periodo. Puedes seleccionar un rango estándar, ingresar un monto personalizado o dejarlo como <strong>Exento ($0)</strong>.
+        </p>
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONDICIÓN / RANGO:</label>
+        <select id="swal-fixedfee-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.75rem 0; font-size: 0.85rem;">
+          <option value="exento" ${t.fixedFeeUF === 0 ? 'selected' : ''}>Exento ($0)</option>
+          <option value="0.9" ${t.fixedFeeUF === 0.9 ? 'selected' : ''}>0.9 UF (${formatCLP(0.9 * b.ufValue)}) - Rango 2</option>
+          <option value="1.5" ${t.fixedFeeUF === 1.5 ? 'selected' : ''}>1.5 UF (${formatCLP(1.5 * b.ufValue)}) - Rango 1</option>
+          <option value="custom" ${t.fixedFeeUF > 0 && t.fixedFeeUF !== 0.9 && t.fixedFeeUF !== 1.5 ? 'selected' : ''}>Monto Personalizado ($ CLP)</option>
+        </select>
+
+        <div id="swal-fixedfee-custom-container" style="display: ${t.fixedFeeUF > 0 && t.fixedFeeUF !== 0.9 && t.fixedFeeUF !== 1.5 ? 'block' : 'none'}; margin-bottom: 0.75rem;">
+          <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO NETO ($ CLP):</label>
+          <input type="number" id="swal-fixedfee-custom-amount" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${t.fixedFeeNet || 0}">
+        </div>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MOTIVO O NOTA EN LA FACTURA:</label>
+        <input type="text" id="swal-fixedfee-reason" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${escapeHtml(t.fixedFeeReason || '')}">
+      </div>
+    `,
+    didOpen: () => {
+      const modeSelect = document.getElementById('swal-fixedfee-mode');
+      const customContainer = document.getElementById('swal-fixedfee-custom-container');
+      const reasonInput = document.getElementById('swal-fixedfee-reason');
+
+      modeSelect?.addEventListener('change', () => {
+        if (modeSelect.value === 'custom') {
+          customContainer.style.display = 'block';
+        } else {
+          customContainer.style.display = 'none';
+        }
+
+        if (modeSelect.value === 'exento') {
+          reasonInput.value = 'Exento ($0) por acuerdo comercial';
+        } else if (modeSelect.value === '0.9') {
+          reasonInput.value = `Costo fijo 0.9 UF (${formatCLP(0.9 * b.ufValue)})`;
+        } else if (modeSelect.value === '1.5') {
+          reasonInput.value = `Costo fijo 1.5 UF (${formatCLP(1.5 * b.ufValue)})`;
+        }
+      });
+    },
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const mode = document.getElementById('swal-fixedfee-mode')?.value;
+      const customAmount = parseInt(document.getElementById('swal-fixedfee-custom-amount')?.value, 10) || 0;
+      const reason = document.getElementById('swal-fixedfee-reason')?.value?.trim() || '';
+
+      let clp = 0;
+      let uf = 0;
+      if (mode === 'exento') {
+        clp = 0;
+        uf = 0;
+      } else if (mode === '0.9') {
+        uf = 0.9;
+        clp = Math.round(0.9 * b.ufValue);
+      } else if (mode === '1.5') {
+        uf = 1.5;
+        clp = Math.round(1.5 * b.ufValue);
+      } else {
+        clp = customAmount;
+        uf = b.ufValue > 0 ? parseFloat((customAmount / b.ufValue).toFixed(2)) : 0;
+      }
+
+      return { clp, uf, reason };
+    }
+  });
+
+  if (formValues) {
+    b.totals.fixedFeeNet = formValues.clp;
+    b.totals.fixedFeeUF = formValues.uf;
+    b.totals.fixedFeeReason = formValues.reason;
+
+    const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
+    const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+    const inboundNet = b.totals.inboundNet || 0;
+    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet);
+    const totalIVA = Math.round(totalNet * 0.19);
+    const totalGross = totalNet + totalIVA;
+
+    b.totals.totalNet = totalNet;
+    b.totals.iva = totalIVA;
+    b.totals.totalGross = totalGross;
+    b.totals.totalToPay = totalGross;
+
+    b.isSaved = false;
+    renderKPIsUI();
+
+    const desgloseCont = document.getElementById('bg-desglose-view-container');
+    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Costo fijo actualizado',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
+
 
 // Modal de Configuración y Edición de Tipos de Entrega y Tarifas
 window.openDeliveryTypesManagerModal = async function() {
@@ -4173,6 +5306,255 @@ window.openDeliveryTypesManagerModal = async function() {
     Swal.fire('Error', 'No se pudo guardar la configuración en la base de datos: ' + err.message, 'error');
   }
 };
+
+// Modal de Edición de Fechas de Emisión, Plazo de Pago y Datos Legales del Comercio
+export function openEditDesgloseHeaderModal() {
+  const b = billingState;
+  const c = b.commerceInfo || {};
+  const d = b.invoiceDates || {};
+
+  const now = new Date();
+  const toISODate = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  
+  const currentEmision = d.emisionDate || toISODate(now);
+  let currentDue = d.dueDate;
+  if (!currentDue) {
+    const dueObj = new Date(now);
+    dueObj.setDate(dueObj.getDate() + 5);
+    currentDue = toISODate(dueObj);
+  }
+  const currentTerm = d.termLabel || '5 días corridos';
+  const currentRazon = c.razonSocial || c.comercio || '';
+  const currentRut = (c.rut && c.rut !== '—') ? c.rut : '';
+  const currentSigla = (c.sigla && c.sigla !== '—') ? c.sigla : '';
+
+  Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;"><i class="ri-calendar-event-line" style="color: #5f06fa;"></i><span>Editar Fechas y Datos Legales</span></div>',
+    width: 600,
+    html: `
+      <div style="text-align: left; font-size: 0.9rem; color: #334155;">
+        <p style="font-size: 0.825rem; color: #64748b; margin-top: 0; margin-bottom: 1.25rem;">
+          Personaliza la <strong>Fecha de Emisión</strong>, <strong>Fecha Límite de Pago</strong> y la información legal para el desglose oficial de <strong>${escapeHtml(b.currentCommerce || 'Comercio')}</strong>.
+        </p>
+
+        <!-- Sección 1: Fechas -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+          <div style="font-weight: 700; font-size: 0.825rem; color: #5f06fa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-calendar-check-line"></i> Fechas de Facturación
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">FECHA DE EMISIÓN</label>
+              <input type="date" id="swal-inp-emision" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${currentEmision}">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">FECHA LÍMITE DE PAGO</label>
+              <input type="date" id="swal-inp-due" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${currentDue}">
+            </div>
+          </div>
+
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <label style="font-size: 0.75rem; font-weight: 700; color: #475569;">TEXTO DEL PLAZO (RÓTULO)</label>
+              <div style="display: flex; gap: 4px;">
+                <button type="button" id="btn-quick-5d" style="background: #e2e8f0; border: none; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #334155; cursor: pointer;">+5 d</button>
+                <button type="button" id="btn-quick-10d" style="background: #e2e8f0; border: none; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #334155; cursor: pointer;">+10 d</button>
+                <button type="button" id="btn-quick-15d" style="background: #e2e8f0; border: none; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #334155; cursor: pointer;">+15 d</button>
+                <button type="button" id="btn-quick-30d" style="background: #e2e8f0; border: none; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #334155; cursor: pointer;">+30 d</button>
+                <button type="button" id="btn-quick-eom" style="background: #e2e8f0; border: none; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #334155; cursor: pointer;">Fin de Mes</button>
+              </div>
+            </div>
+            <input type="text" id="swal-inp-term" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${escapeHtml(currentTerm)}" placeholder="ej: 5 días corridos">
+          </div>
+        </div>
+
+        <!-- Sección 2: Información Legal del Comercio -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem;">
+          <div style="font-weight: 700; font-size: 0.825rem; color: #0284c7; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-building-line"></i> Datos Legales del Cliente
+          </div>
+          <div style="margin-bottom: 0.75rem;">
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">RAZÓN SOCIAL</label>
+            <input type="text" id="swal-inp-razon" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${escapeHtml(currentRazon)}" placeholder="Razón Social Oficial">
+          </div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.85rem; margin-bottom: 0.75rem;">
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">RUT CLIENTE</label>
+              <input type="text" id="swal-inp-rut" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${escapeHtml(currentRut)}" placeholder="ej: 77.948.909-4">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">CÓD. SIGLA</label>
+              <input type="text" id="swal-inp-sigla" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; border-radius: 6px;" value="${escapeHtml(currentSigla)}" placeholder="ej: TSS">
+            </div>
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.785rem; color: #475569; cursor: pointer; margin-top: 0.5rem; user-select: none;">
+            <input type="checkbox" id="swal-chk-save-db" checked style="accent-color: #5f06fa; width: 16px; height: 16px; cursor: pointer;">
+            <span>Guardar Razón Social y RUT permanentemente en la configuración del comercio</span>
+          </label>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    didOpen: () => {
+      const emisionEl = document.getElementById('swal-inp-emision');
+      const dueEl = document.getElementById('swal-inp-due');
+      const termEl = document.getElementById('swal-inp-term');
+
+      const recalcTerm = () => {
+        if (!emisionEl.value || !dueEl.value) return;
+        const eDate = new Date(emisionEl.value + 'T00:00:00');
+        const dDate = new Date(dueEl.value + 'T00:00:00');
+        const diffTime = dDate.getTime() - eDate.getTime();
+        const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+        if (diffDays > 0) {
+          termEl.value = `${diffDays} días corridos`;
+        } else if (diffDays === 0) {
+          termEl.value = 'Mismo día (Contado)';
+        }
+      };
+
+      const setPresetDays = (days) => {
+        if (!emisionEl.value) emisionEl.value = toISODate(new Date());
+        const baseDate = new Date(emisionEl.value + 'T00:00:00');
+        baseDate.setDate(baseDate.getDate() + days);
+        dueEl.value = toISODate(baseDate);
+        termEl.value = `${days} días corridos`;
+      };
+
+      const setEndOfMonth = () => {
+        if (!emisionEl.value) emisionEl.value = toISODate(new Date());
+        const [y, m] = emisionEl.value.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        dueEl.value = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        recalcTerm();
+      };
+
+      emisionEl?.addEventListener('change', recalcTerm);
+      dueEl?.addEventListener('change', recalcTerm);
+
+      document.getElementById('btn-quick-5d')?.addEventListener('click', () => setPresetDays(5));
+      document.getElementById('btn-quick-10d')?.addEventListener('click', () => setPresetDays(10));
+      document.getElementById('btn-quick-15d')?.addEventListener('click', () => setPresetDays(15));
+      document.getElementById('btn-quick-30d')?.addEventListener('click', () => setPresetDays(30));
+      document.getElementById('btn-quick-eom')?.addEventListener('click', setEndOfMonth);
+    },
+    preConfirm: () => {
+      const emisionDate = document.getElementById('swal-inp-emision')?.value;
+      const dueDate = document.getElementById('swal-inp-due')?.value;
+      const termLabel = document.getElementById('swal-inp-term')?.value?.trim() || '5 días corridos';
+      const razonSocial = document.getElementById('swal-inp-razon')?.value?.trim() || b.currentCommerce;
+      const rut = document.getElementById('swal-inp-rut')?.value?.trim() || '—';
+      const sigla = document.getElementById('swal-inp-sigla')?.value?.trim()?.toUpperCase() || '—';
+      const saveToDb = document.getElementById('swal-chk-save-db')?.checked || false;
+
+      if (!emisionDate || !dueDate) {
+        Swal.showValidationMessage('Debes ingresar la fecha de emisión y la fecha límite de pago.');
+        return false;
+      }
+
+      return { emisionDate, dueDate, termLabel, razonSocial, rut, sigla, saveToDb };
+    }
+  }).then(async (result) => {
+    if (result.isConfirmed && result.value) {
+      const { emisionDate, dueDate, termLabel, razonSocial, rut, sigla, saveToDb } = result.value;
+
+      b.invoiceDates = { emisionDate, dueDate, termLabel };
+      b.commerceInfo = {
+        ...b.commerceInfo,
+        razonSocial,
+        rut,
+        sigla
+      };
+
+      // Guardar permanentemente en localStorage de datos legales del comercio
+      if (b.currentCommerce) {
+        try {
+          localStorage.setItem(`stocka_commerce_legal_${b.currentCommerce}`, JSON.stringify({
+            razonSocial,
+            rut,
+            sigla
+          }));
+        } catch (e) {}
+      }
+
+      // Si el usuario marcó guardar en base de datos
+      if (saveToDb && b.currentCommerce) {
+        try {
+          const { error: updErr } = await supabase
+            .from('comercios_adicional_config')
+            .upsert({
+              comercio: b.currentCommerce,
+              razon_social: razonSocial,
+              rut: rut !== '—' ? rut : null
+            }, { onConflict: 'comercio' });
+
+          if (updErr) {
+            console.warn('Aviso actualizando comercios_adicional_config:', updErr);
+          }
+        } catch (eDb) {
+          console.warn('Excepción guardando datos legales en DB:', eDb);
+        }
+      }
+
+      // Actualizar inmediatamente en el snapshot guardado en localStorage y re-subir a Storage si ya estaba publicado
+      if (b.currentPeriodId && b.currentCommerce) {
+        const storageKey = `stocka_fulfillment_details_${b.currentPeriodId}_${b.currentCommerce}`;
+        try {
+          const cachedStr = localStorage.getItem(storageKey);
+          if (cachedStr) {
+            const cachedObj = JSON.parse(cachedStr);
+            cachedObj.commerceInfo = { ...cachedObj.commerceInfo, razonSocial, rut, sigla };
+            cachedObj.invoiceDates = { emisionDate, dueDate, termLabel };
+            localStorage.setItem(storageKey, JSON.stringify(cachedObj));
+
+            if (b.isPublished) {
+              uploadBillingSnapshotToStorage(cachedObj).catch(errUp => console.warn('Aviso sincronizando snapshot en Storage:', errUp));
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Marcar estado como pendiente de guardado formal si no estaba publicado
+      if (!b.isPublished) {
+        b.isSaved = false;
+      }
+
+      // Actualizar contenedor del desglose oficial
+      const desgloseCont = document.getElementById('bg-desglose-view-container');
+      if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+      // Si el modal interactivo de cliente está abierto, actualizar su vista y snapshot activo
+      if (window.__currentClientBillingSnapshot) {
+        window.__currentClientBillingSnapshot.commerceInfo = {
+          ...window.__currentClientBillingSnapshot.commerceInfo,
+          razonSocial,
+          rut,
+          sigla
+        };
+        window.__currentClientBillingSnapshot.invoiceDates = { emisionDate, dueDate, termLabel };
+        const clientDesgloseCont = document.querySelector('#client-modal-content-desglose .client-billing-modal-view');
+        if (clientDesgloseCont) {
+          clientDesgloseCont.innerHTML = renderStockaDesgloseHTML(window.__currentClientBillingSnapshot);
+        }
+      }
+
+      // Notificación toast
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Desglose oficial actualizado',
+        text: 'Las fechas y datos legales se actualizaron correctamente.',
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  });
+}
 
 // --- MOTOR DE FILTRADO POR COLUMNAS Y FILTROS RÁPIDOS EN REGISTRO EDITABLE ---
 window.bgFilterState = {
@@ -4527,3 +5909,1416 @@ window.openBillingGeneratorForRecord = function(periodId, commerceName) {
   }
   window.renderBillingGeneratorAdmin('tab-generator-content', commerceName, periodId);
 };
+
+// Modal interactivo para fechas y datos legales del desglose oficial
+window.openEditDesgloseHeaderModal = openEditDesgloseHeaderModal;
+
+// ============================================================================
+// --- SUBSISTEMA DE CHECKLIST GLOBAL DE FACTURACIÓN Y VERIFICACIÓN ---
+// ============================================================================
+
+export const DEFAULT_GLOBAL_CHECKLIST_ITEMS = [
+  {
+    id: 'chk_orders_agenda',
+    title: 'Revisar y clasificar pedidos sin agenda o asignación',
+    description: 'Filtrar pedidos en "Sin Agenda" y verificar el courier o destino en WMS antes de facturar.',
+    category: 'Pedidos',
+    isDefault: true
+  },
+  {
+    id: 'chk_pickpack_rates',
+    title: 'Verificar tarifas Pick & Pack y recargos por SKUs / Unidades',
+    description: 'Comprobar que la tarifa base ($850) y los tramos por exceso de SKUs (+3) y Unidades (+10) sean correctos.',
+    category: 'Tarifas',
+    isDefault: true
+  },
+  {
+    id: 'chk_enviame_regions',
+    title: 'Auditar pedidos a Regiones y sincronización de fletes Envíame',
+    description: 'Verificar cantidad de pedidos Envíame / Región y corroborar que sus fletes concuerden.',
+    category: 'Despachos',
+    isDefault: true
+  },
+  {
+    id: 'chk_rm_flex',
+    title: 'Confirmar pedidos Flex y RM con sus tarifas asignadas',
+    description: 'Revisar despachos Flex / RM ($3.200) y Colina / zonas periféricas ($3.490).',
+    category: 'Despachos',
+    isDefault: true
+  },
+  {
+    id: 'chk_storage_volume',
+    title: 'Validar m³ de almacenamiento mensual y descuento por tramo',
+    description: 'Confirmar el promedio mensual de m³ y el porcentaje de descuento comercial aplicado.',
+    category: 'Almacenamiento',
+    isDefault: true
+  },
+  {
+    id: 'chk_inbound_stock',
+    title: 'Revisar cobros de ingresos de stock (inbound) del mes',
+    description: 'Validar si el comercio tuvo recepciones de stock y si el cobro por unidades/m³ corresponde.',
+    category: 'Almacenamiento',
+    isDefault: true
+  },
+  {
+    id: 'chk_supplies_boxes',
+    title: 'Revisar y verificar insumos y cajas de despacho agregadas o eliminadas',
+    description: 'Chequear cajas de envío a regiones ($450 c/u) y cualquier material adicional consumido.',
+    category: 'Insumos',
+    isDefault: true
+  },
+  {
+    id: 'chk_fixed_fee',
+    title: 'Confirmar aplicación o exención del Costo Fijo Mensual',
+    description: 'Verificar si aplica exención (>= 75 pedidos o >= 1.5 m³) o cobro (0.9 UF / 1.5 UF).',
+    category: 'Tarifas',
+    isDefault: true
+  },
+  {
+    id: 'chk_legal_data',
+    title: 'Validar Razón Social, RUT del cliente y fechas de emisión/pago',
+    description: 'Confirmar que los datos tributarios del cliente coincidan con el SII y que el plazo de pago sea el acordado.',
+    category: 'Fiscal & Legal',
+    isDefault: true
+  },
+  {
+    id: 'chk_save_record',
+    title: 'Congelar registro haciendo clic en "Guardar Facturación"',
+    description: 'Presionar el botón verde "Guardar Facturación" para respaldar el total y snapshot en Supabase.',
+    category: 'Cierre',
+    isDefault: true
+  },
+  {
+    id: 'chk_export_pdf',
+    title: 'Exportar y auditar PDF oficial del desglose',
+    description: 'Descargar el PDF oficial para verificar presentación visual antes de enviar al cliente.',
+    category: 'Cierre',
+    isDefault: true
+  },
+  {
+    id: 'chk_send_invoice',
+    title: 'Enviar desglose formal y factura por correo al comercio',
+    description: 'Notificar al contacto de facturación con el PDF y detalles del pago.',
+    category: 'Cierre',
+    isDefault: true
+  }
+];
+
+const CHECKLIST_STORAGE_KEY_ITEMS = 'stocka_billing_global_checklist_items';
+
+const CATEGORY_COLORS = {
+  'Pedidos': { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd' },
+  'Tarifas': { bg: '#f3e8ff', color: '#7e22ce', border: '#e9d5ff' },
+  'Despachos': { bg: '#fef3c7', color: '#b45309', border: '#fde68a' },
+  'Almacenamiento': { bg: '#ecfdf5', color: '#047857', border: '#a7f3d0' },
+  'Insumos': { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' },
+  'Fiscal & Legal': { bg: '#ede9fe', color: '#5f06fa', border: '#ddd6fe' },
+  'Cierre': { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' },
+  'General': { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' }
+};
+
+export function getGlobalChecklistItems() {
+  try {
+    const raw = localStorage.getItem(CHECKLIST_STORAGE_KEY_ITEMS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Error al leer checklist global de localStorage:', e);
+  }
+  saveGlobalChecklistItems(DEFAULT_GLOBAL_CHECKLIST_ITEMS);
+  return DEFAULT_GLOBAL_CHECKLIST_ITEMS;
+}
+
+export function saveGlobalChecklistItems(items) {
+  try {
+    localStorage.setItem(CHECKLIST_STORAGE_KEY_ITEMS, JSON.stringify(items));
+  } catch (e) {
+    console.error('Error al guardar checklist global en localStorage:', e);
+  }
+}
+
+function getChecklistChecksKey(periodId, commerce) {
+  const p = periodId || billingState.currentPeriodId || 'default';
+  const c = commerce || billingState.currentCommerce || 'default';
+  return `stocka_billing_checks_${p}_${c}`;
+}
+
+export function getChecklistChecks(periodId, commerce) {
+  try {
+    const raw = localStorage.getItem(getChecklistChecksKey(periodId, commerce));
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return {};
+}
+
+export function saveChecklistChecks(periodId, commerce, checks) {
+  try {
+    localStorage.setItem(getChecklistChecksKey(periodId, commerce), JSON.stringify(checks));
+  } catch (e) {}
+}
+
+export function getChecklistDataForSnapshot() {
+  const items = getGlobalChecklistItems();
+  const checks = getChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce);
+  const completedCount = items.filter(it => checks[it.id]?.checked).length;
+  return {
+    items,
+    checks,
+    completedCount,
+    totalCount: items.length,
+    savedAt: new Date().toISOString()
+  };
+}
+
+export function updateChecklistNavBadge() {
+  const badge = document.getElementById('bg-checklist-nav-badge');
+  if (!badge) return;
+
+  const items = getGlobalChecklistItems();
+  const checks = getChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce);
+  const total = items.length;
+  const completed = items.filter(it => checks[it.id]?.checked).length;
+
+  badge.textContent = `${completed}/${total}`;
+  if (completed === total && total > 0) {
+    badge.style.background = '#dcfce7';
+    badge.style.color = '#15803d';
+  } else {
+    badge.style.background = 'rgba(95, 6, 250, 0.12)';
+    badge.style.color = '#5f06fa';
+  }
+}
+
+// Filtros y búsqueda para la UI del checklist
+window.bgChecklistFilter = 'all'; // 'all' | 'pending' | 'completed'
+window.bgChecklistSearch = '';
+
+export function renderBillingChecklistUI(targetContainerId = 'bg-checklist-container') {
+  const container = document.getElementById(targetContainerId);
+  if (!container) return;
+
+  const items = getGlobalChecklistItems();
+  const checks = getChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce);
+  const totalCount = items.length;
+  const completedCount = items.filter(it => checks[it.id]?.checked).length;
+  const pendingCount = totalCount - completedCount;
+  const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const isAllCompleted = totalCount > 0 && completedCount === totalCount;
+
+  // Filtrado
+  const filter = window.bgChecklistFilter || 'all';
+  const query = (window.bgChecklistSearch || '').toLowerCase().trim();
+
+  const filteredItems = items.filter(it => {
+    const isChecked = !!checks[it.id]?.checked;
+    if (filter === 'pending' && isChecked) return false;
+    if (filter === 'completed' && !isChecked) return false;
+    if (query) {
+      const matchTitle = (it.title || '').toLowerCase().includes(query);
+      const matchDesc = (it.description || '').toLowerCase().includes(query);
+      const matchCat = (it.category || '').toLowerCase().includes(query);
+      if (!matchTitle && !matchDesc && !matchCat) return false;
+    }
+    return true;
+  });
+
+  updateChecklistNavBadge();
+
+  container.innerHTML = `
+    <!-- Hero del Checklist Global -->
+    <div class="bg-checklist-hero">
+      <div style="display: flex; align-items: center; gap: 0.85rem;">
+        <div style="width: 44px; height: 44px; border-radius: 10px; background: #5f06fa; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; box-shadow: 0 4px 10px rgba(95, 6, 250, 0.25);">
+          <i class="ri-checkbox-circle-line"></i>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            Checklist Global de Facturación
+            <span style="font-size: 0.725rem; font-weight: 700; background: rgba(95, 6, 250, 0.1); color: #5f06fa; padding: 2px 8px; border-radius: 6px;">Control de Calidad</span>
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Lista de verificación para validar y auditar la facturación de <strong>${escapeHtml(billingState.currentCommerce || 'Comercio')}</strong> (${escapeHtml(billingState.currentPeriodName || 'Periodo')}).
+          </p>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.markAllChecklistItems(true)" style="border-radius: 6px; font-weight: 700; color: #10b981; border-color: #10b981;" title="Marcar todos los puntos como listos">
+          <i class="ri-check-double-line"></i> Marcar Todos
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.markAllChecklistItems(false)" style="border-radius: 6px; font-weight: 700; color: #64748b; border-color: #cbd5e1;" title="Desmarcar todos los puntos">
+          <i class="ri-refresh-line"></i> Desmarcar Todos
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="window.openAddChecklistItemModal()" style="background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-add-line"></i> + Nuevo Punto
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.resetDefaultChecklistItems()" style="border-radius: 6px; font-weight: 600; color: #94a3b8; font-size: 0.75rem;" title="Restablecer a los 12 puntos por defecto de Stocka">
+          Restablecer
+        </button>
+      </div>
+    </div>
+
+    <!-- Tarjeta de Progreso Visual -->
+    <div class="bg-checklist-progress-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <div style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">
+            Progreso de Verificación:
+          </div>
+          <span style="font-size: 0.85rem; font-weight: 800; color: ${isAllCompleted ? '#10b981' : '#5f06fa'};">
+            ${completedCount} de ${totalCount} completados (${pct}%)
+          </span>
+        </div>
+        <div style="font-size: 0.775rem; color: var(--color-text-muted);">
+          ${isAllCompleted 
+            ? '<span style="color: #10b981; font-weight: 700;"><i class="ri-checkbox-circle-fill"></i> ¡Todo revisado! Listo para facturar.</span>' 
+            : `<span>Quedan <strong>${pendingCount}</strong> punto(s) pendiente(s).</span>`}
+        </div>
+      </div>
+      <div class="bg-checklist-progress-bar-bg">
+        <div class="bg-checklist-progress-bar-fill" style="width: ${pct}%; background: ${isAllCompleted ? '#10b981' : 'linear-gradient(90deg, #5f06fa 0%, #10b981 100%)'};"></div>
+      </div>
+    </div>
+
+    <!-- Barra de Búsqueda y Filtros Rápidos -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; background: var(--color-bg); padding: 0.55rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+      <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
+        <span style="font-size: 0.725rem; font-weight: 800; color: var(--color-text-muted); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.4px;">
+          <i class="ri-filter-3-line" style="color: #5f06fa;"></i> Mostrar:
+        </span>
+        <button type="button" class="bg-quick-filter-btn ${filter === 'all' ? 'active' : ''}" onclick="window.setBgChecklistFilter('all')">
+          Todos (${totalCount})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${filter === 'pending' ? 'active' : ''}" onclick="window.setBgChecklistFilter('pending')" style="${pendingCount > 0 ? 'border-color: #fde68a; background: #fffbeb; color: #b45309;' : ''}">
+          Pendientes (${pendingCount})
+        </button>
+        <button type="button" class="bg-quick-filter-btn ${filter === 'completed' ? 'active' : ''}" onclick="window.setBgChecklistFilter('completed')" style="${completedCount > 0 ? 'border-color: #bbf7d0; background: #f0fdf4; color: #15803d;' : ''}">
+          Completados (${completedCount})
+        </button>
+      </div>
+
+      <div style="position: relative; width: 220px;">
+        <input type="text" id="bg-checklist-search-input" class="form-input" placeholder="Buscar punto..." value="${escapeHtml(query)}" style="height: 34px; font-size: 0.8rem; margin: 0; width: 100%; padding-left: 2rem; border-radius: 6px;" oninput="window.setBgChecklistSearch(this.value)">
+        <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+      </div>
+    </div>
+
+    <!-- Listado de Puntos del Checklist -->
+    <div id="bg-checklist-items-list">
+      ${filteredItems.length === 0 ? `
+        <div style="text-align: center; padding: 2.5rem 1rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 10px;">
+          <i class="ri-check-line" style="font-size: 2.5rem; color: #94a3b8; display: block; margin-bottom: 0.5rem;"></i>
+          <h5 style="margin: 0 0 0.25rem 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">No hay puntos en este filtro</h5>
+          <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            ${query ? `No se encontraron coincidencias para "${escapeHtml(query)}".` : (filter === 'pending' ? '¡Felicitaciones! Has completado todos los puntos.' : 'No hay tareas registradas.')}
+          </p>
+          ${filter !== 'all' || query ? `
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.setBgChecklistFilter('all'); document.getElementById('bg-checklist-search-input').value=''; window.setBgChecklistSearch('');" style="margin-top: 0.85rem; font-size: 0.75rem;">
+              Ver todos los puntos
+            </button>
+          ` : ''}
+        </div>
+      ` : filteredItems.map((it) => {
+        const chkData = checks[it.id] || {};
+        const isChecked = !!chkData.checked;
+        const catStyle = CATEGORY_COLORS[it.category] || CATEGORY_COLORS['General'];
+        const checkedAtFormatted = chkData.checkedAt 
+          ? new Date(chkData.checkedAt).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : null;
+
+        return `
+          <div class="bg-checklist-item-card ${isChecked ? 'completed' : ''}" onclick="window.toggleChecklistItem('${it.id}', event)">
+            <div style="display: flex; align-items: flex-start; gap: 0.85rem; flex: 1;">
+              <button type="button" class="bg-checklist-check-btn ${isChecked ? 'checked' : ''}" title="${isChecked ? 'Marcar como pendiente' : 'Marcar como completado'}" onclick="event.stopPropagation(); window.toggleChecklistItem('${it.id}');">
+                <i class="${isChecked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}"></i>
+              </button>
+
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                  <span class="bg-checklist-badge-cat" style="background: ${catStyle.bg}; color: ${catStyle.color}; border: 1px solid ${catStyle.border};">
+                    ${escapeHtml(it.category || 'General')}
+                  </span>
+                  <span class="checklist-title" style="font-weight: 700; font-size: 0.875rem; color: var(--color-text-main);">
+                    ${escapeHtml(it.title)}
+                  </span>
+                  ${isChecked ? `
+                    <span style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.7rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;">
+                      <i class="ri-check-line"></i> Completado ${checkedAtFormatted ? `(${checkedAtFormatted})` : ''}
+                    </span>
+                  ` : ''}
+                </div>
+
+                ${it.description ? `
+                  <div style="font-size: 0.775rem; color: var(--color-text-muted); line-height: 1.35;">
+                    ${escapeHtml(it.description)}
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="no-print" style="display: flex; align-items: center; gap: 4px;" onclick="event.stopPropagation();">
+              <button type="button" onclick="window.openEditChecklistItemModal('${it.id}')" title="Editar este punto" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                <i class="ri-pencil-line"></i> Editar
+              </button>
+              <button type="button" onclick="window.deleteChecklistItem('${it.id}')" title="Eliminar este punto del checklist" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 4px 8px; cursor: pointer; color: #dc2626; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                <i class="ri-delete-bin-line"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+window.setBgChecklistFilter = function(filter) {
+  window.bgChecklistFilter = filter;
+  renderBillingChecklistUI();
+};
+
+window.setBgChecklistSearch = function(query) {
+  window.bgChecklistSearch = query;
+  renderBillingChecklistUI();
+};
+
+window.toggleChecklistItem = function(itemId, event) {
+  if (event && (event.target.closest('button') || event.target.tagName === 'BUTTON')) {
+    return;
+  }
+  const checks = getChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce);
+  const isCurrentlyChecked = !!checks[itemId]?.checked;
+
+  checks[itemId] = {
+    checked: !isCurrentlyChecked,
+    checkedAt: !isCurrentlyChecked ? new Date().toISOString() : null
+  };
+
+  saveChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce, checks);
+  renderBillingChecklistUI();
+};
+
+window.markAllChecklistItems = function(checkAll = true) {
+  const items = getGlobalChecklistItems();
+  const checks = getChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce);
+
+  items.forEach(it => {
+    checks[it.id] = {
+      checked: checkAll,
+      checkedAt: checkAll ? new Date().toISOString() : null
+    };
+  });
+
+  saveChecklistChecks(billingState.currentPeriodId, billingState.currentCommerce, checks);
+  renderBillingChecklistUI();
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: checkAll ? 'Todos los puntos marcados' : 'Checklist desmarcado',
+    showConfirmButton: false,
+    timer: 2000
+  });
+};
+
+window.openAddChecklistItemModal = async function() {
+  const categories = Object.keys(CATEGORY_COLORS);
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-add-circle-line" style="color:#5f06fa;"></i><span>Agregar Punto al Checklist</span></div>',
+    width: 540,
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">TÍTULO / TAREA A VALIDAR:</label>
+        <input id="swal-chk-title" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Verificar retención de IVA o factura exenta">
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">DESCRIPCIÓN / INSTRUCCIONES (OPCIONAL):</label>
+        <textarea id="swal-chk-desc" class="swal2-textarea" style="margin: 0 0 0.75rem 0; width: 100%; height: 65px; font-size: 0.8rem; resize: vertical;" placeholder="Detalles de cómo realizar la verificación..."></textarea>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CATEGORÍA:</label>
+        <select id="swal-chk-cat" class="swal2-select" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;">
+          ${categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('')}
+        </select>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Guardar Punto',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const title = document.getElementById('swal-chk-title')?.value?.trim();
+      const description = document.getElementById('swal-chk-desc')?.value?.trim() || '';
+      const category = document.getElementById('swal-chk-cat')?.value || 'General';
+
+      if (!title) {
+        Swal.showValidationMessage('Ingresa un título para el punto.');
+        return false;
+      }
+      return { title, description, category };
+    }
+  });
+
+  if (formValues && formValues.title) {
+    const items = getGlobalChecklistItems();
+    const newItem = {
+      id: 'chk_' + Date.now(),
+      title: formValues.title,
+      description: formValues.description,
+      category: formValues.category,
+      isDefault: false
+    };
+    items.push(newItem);
+    saveGlobalChecklistItems(items);
+    renderBillingChecklistUI();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Punto agregado',
+      text: `Se añadió "${newItem.title}" al checklist global.`,
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
+
+window.openEditChecklistItemModal = async function(itemId) {
+  const items = getGlobalChecklistItems();
+  const item = items.find(it => it.id === itemId);
+  if (!item) return;
+
+  const categories = Object.keys(CATEGORY_COLORS);
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-pencil-line" style="color:#5f06fa;"></i><span>Editar Punto del Checklist</span></div>',
+    width: 540,
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">TÍTULO / TAREA A VALIDAR:</label>
+        <input id="swal-edit-chk-title" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(item.title)}">
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">DESCRIPCIÓN / INSTRUCCIONES:</label>
+        <textarea id="swal-edit-chk-desc" class="swal2-textarea" style="margin: 0 0 0.75rem 0; width: 100%; height: 65px; font-size: 0.8rem; resize: vertical;">${escapeHtml(item.description || '')}</textarea>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CATEGORÍA:</label>
+        <select id="swal-edit-chk-cat" class="swal2-select" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;">
+          ${categories.map(cat => `<option value="${escapeHtml(cat)}" ${cat === item.category ? 'selected' : ''}>${escapeHtml(cat)}</option>`).join('')}
+        </select>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Guardar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    preConfirm: () => {
+      const title = document.getElementById('swal-edit-chk-title')?.value?.trim();
+      const description = document.getElementById('swal-edit-chk-desc')?.value?.trim() || '';
+      const category = document.getElementById('swal-edit-chk-cat')?.value || 'General';
+
+      if (!title) {
+        Swal.showValidationMessage('El título no puede estar vacío.');
+        return false;
+      }
+      return { title, description, category };
+    }
+  });
+
+  if (formValues && formValues.title) {
+    item.title = formValues.title;
+    item.description = formValues.description;
+    item.category = formValues.category;
+
+    saveGlobalChecklistItems(items);
+    renderBillingChecklistUI();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Punto actualizado',
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+};
+
+window.deleteChecklistItem = function(itemId) {
+  const items = getGlobalChecklistItems();
+  const idx = items.findIndex(it => it.id === itemId);
+  if (idx === -1) return;
+
+  const item = items[idx];
+
+  Swal.fire({
+    title: '¿Eliminar punto del checklist?',
+    html: `¿Estás seguro de eliminar <strong>"${escapeHtml(item.title)}"</strong> de la lista global de control?`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      items.splice(idx, 1);
+      saveGlobalChecklistItems(items);
+      renderBillingChecklistUI();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Punto eliminado',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+  });
+};
+
+window.resetDefaultChecklistItems = function() {
+  Swal.fire({
+    title: '¿Restablecer plantilla por defecto?',
+    text: 'Se restaurarán los 12 puntos recomendados de control de calidad para Stocka WMS.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: 'Restablecer',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      saveGlobalChecklistItems(DEFAULT_GLOBAL_CHECKLIST_ITEMS);
+      renderBillingChecklistUI();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Plantilla restablecida',
+        showConfirmButton: false,
+        timer: 2000
+      });
+    }
+  });
+};
+
+// Exportar funciones globales
+window.renderBillingChecklistUI = renderBillingChecklistUI;
+window.updateChecklistNavBadge = updateChecklistNavBadge;
+
+// ============================================================================
+// --- SUBSISTEMA DE VISUALIZACIÓN INTERACTIVA PARA CLIENTES (PORTAL COMERCIO) ---
+// ============================================================================
+
+// Inyectar estilos específicos para el modal interactivo de clientes
+export function injectClientInteractiveModalStyles() {
+  injectBillingGeneratorStyles();
+
+  if (document.getElementById('client-interactive-modal-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'client-interactive-modal-styles';
+  style.innerHTML = `
+    .client-billing-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(6px);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      animation: cbFadeIn 0.2s ease-out;
+    }
+
+    @keyframes cbFadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .client-billing-modal-container {
+      background: #ffffff;
+      width: 100%;
+      max-width: 1250px;
+      max-height: 94vh;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+    }
+
+    .client-billing-modal-header {
+      padding: 1.1rem 1.5rem;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .client-billing-modal-subnav {
+      display: flex;
+      gap: 0.5rem;
+      background: #ffffff;
+      padding: 0.6rem 1.5rem 0.75rem 1.5rem;
+      border-bottom: 1.5px solid #e2e8f0;
+      overflow-x: auto;
+    }
+
+    .client-billing-modal-tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #64748b;
+      background: transparent;
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .client-billing-modal-tab-btn:hover {
+      color: #5f06fa;
+      background: rgba(95, 6, 250, 0.05);
+    }
+
+    .client-billing-modal-tab-btn.active {
+      color: #5f06fa;
+      background: rgba(95, 6, 250, 0.1);
+      border-color: rgba(95, 6, 250, 0.3);
+    }
+
+    .client-billing-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem;
+      background: #f1f5f9; /* Lienzo suave para realzar la hoja oficial de cobro */
+    }
+
+    [data-theme="dark"] .client-billing-modal-body {
+      background: #0b1120;
+    }
+
+    /* Ocultar elementos de administración o edición para clientes */
+    .client-billing-modal-view .no-print,
+    .client-billing-modal-view button.no-print {
+      display: none !important;
+    }
+
+    .client-billing-modal-view {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+    }
+
+    /* === HOJA Y ELEMENTOS DEL DESGLOSE OFICIAL STOCKA === */
+    .client-billing-modal-view .stocka-desglose-paper {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+      margin: 0 auto;
+      width: 100%;
+      max-width: 980px;
+      background: #ffffff !important;
+      color: #0f172a !important;
+      border-radius: 14px;
+      border: 1px solid #cbd5e1;
+      padding: 2.5rem 3rem;
+      box-sizing: border-box;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    [data-theme="dark"] .client-billing-modal-view .stocka-desglose-paper {
+      background: #ffffff !important;
+      color: #0f172a !important;
+    }
+
+    .client-billing-modal-view .stocka-main-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid #e2e8f0;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+    }
+
+    .client-billing-modal-view .stocka-entities-grid {
+      display: flex;
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 680px) {
+      .client-billing-modal-view .stocka-entities-grid {
+        flex-direction: column;
+      }
+    }
+
+    .client-billing-modal-view .stocka-entity-card {
+      flex: 1 1 0;
+      width: 50%;
+      min-width: 0;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 680px) {
+      .client-billing-modal-view .stocka-entity-card {
+        width: 100%;
+      }
+    }
+
+    .client-billing-modal-view .stocka-entity-card-header {
+      background: #5f06fa;
+      color: #ffffff;
+      padding: 0.5rem 0.85rem;
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .client-billing-modal-view .stocka-entity-body {
+      padding: 0.75rem 0.85rem;
+    }
+
+    .client-billing-modal-view .stocka-entity-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .client-billing-modal-view .stocka-entity-row:last-child {
+      border-bottom: none;
+    }
+
+    .client-billing-modal-view .stocka-metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 860px) {
+      .client-billing-modal-view .stocka-metric-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .client-billing-modal-view .stocka-desglose-paper {
+        padding: 1.5rem 1.25rem;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .client-billing-modal-view .stocka-metric-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .client-billing-modal-view .stocka-metric-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-top: 3px solid #5f06fa;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .client-billing-modal-view .stocka-metric-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.35rem;
+    }
+
+    .client-billing-modal-view .stocka-metric-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #0f172a;
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.2;
+    }
+
+    .client-billing-modal-view .stocka-metric-sub {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 0.35rem;
+    }
+
+    .client-billing-modal-view .stocka-banner-hero {
+      background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%);
+      color: #ffffff;
+      border-radius: 10px;
+      padding: 1.25rem 1.75rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      box-shadow: 0 4px 14px rgba(95, 6, 250, 0.25);
+    }
+
+    .client-billing-modal-view .stocka-table-official {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      border: 1px solid #cbd5e1;
+      font-size: 0.85rem;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .client-billing-modal-view .stocka-table-official th {
+      background: #5f06fa;
+      color: #ffffff;
+      padding: 0.75rem 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.5px;
+      border: 1px solid #4e04cc;
+    }
+
+    .client-billing-modal-view .stocka-table-official td {
+      padding: 0.7rem 0.85rem;
+      border: 1px solid #e2e8f0;
+      color: #1e293b;
+      vertical-align: middle;
+    }
+
+    .client-billing-modal-view .stocka-table-official tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    /* Tabla interactiva de pedidos para clientes */
+    .client-modal-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .client-modal-table th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 700;
+      padding: 0.65rem 0.75rem;
+      border: 1px solid #e2e8f0;
+      white-space: nowrap;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .client-modal-table td {
+      padding: 0.6rem 0.75rem;
+      border: 1px solid #e2e8f0;
+      color: #1e293b;
+    }
+
+    .client-modal-table tr:hover td {
+      background: rgba(95, 6, 250, 0.03);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Abrir el Modal Interactivo para el Cliente (Desglose, Registro, Métricas)
+export async function openClientInteractiveBillingModal(recordId, initialTab = 'desglose') {
+  injectBillingGeneratorStyles();
+  injectClientInteractiveModalStyles();
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: 'Cargando Facturación...',
+      text: 'Obteniendo datos interactivos y métricas del periodo...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+  }
+
+  let rec = null;
+  try {
+    const { data, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('id', recordId)
+      .single();
+
+    if (error) throw error;
+    rec = data;
+  } catch (err) {
+    console.error('Error obteniendo billing_record:', err);
+    if (typeof Swal !== 'undefined') Swal.fire('Error', 'No se pudo cargar el registro de facturación.', 'error');
+    return;
+  }
+
+  if (!rec) {
+    if (typeof Swal !== 'undefined') Swal.fire('Atención', 'Registro de facturación no encontrado.', 'warning');
+    return;
+  }
+
+  // 1. Intentar obtener snapshot desde localStorage o desde Supabase Storage (fulfillment_link)
+  const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
+  let snapshot = null;
+
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) snapshot = JSON.parse(cached);
+  } catch (e) {}
+
+  if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
+    try {
+      const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
+      const resp = await fetch(fetchUrl);
+      if (resp.ok) {
+        snapshot = await resp.json();
+        try { localStorage.setItem(cacheKey, JSON.stringify(snapshot)); } catch (e) {}
+      }
+    } catch (fetchErr) {
+      console.warn('Error al descargar snapshot JSON de Storage:', fetchErr);
+    }
+  }
+
+  // Fallback si no hay snapshot (registro tradicional no interactivo)
+  if (!snapshot) {
+    if (typeof Swal !== 'undefined') Swal.close();
+    if (rec.fulfillment_link) {
+      window.open(rec.fulfillment_link, '_blank');
+      return;
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Atención', 'No hay detalle interactivo cargado para este registro.', 'info');
+    }
+    return;
+  }
+
+  // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
+  const commName = snapshot.comercio || rec.comercio;
+  if (!snapshot.commerceInfo) snapshot.commerceInfo = {};
+
+  try {
+    const fetchedLegal = await getCommerceBillingInfo(commName);
+    if (fetchedLegal) {
+      if ((!snapshot.commerceInfo.rut || snapshot.commerceInfo.rut === '—') && fetchedLegal.rut && fetchedLegal.rut !== '—') {
+        snapshot.commerceInfo.rut = fetchedLegal.rut;
+      }
+      if ((!snapshot.commerceInfo.razonSocial || snapshot.commerceInfo.razonSocial === commName) && fetchedLegal.razonSocial) {
+        snapshot.commerceInfo.razonSocial = fetchedLegal.razonSocial;
+      }
+      if ((!snapshot.commerceInfo.sigla || snapshot.commerceInfo.sigla === '—') && fetchedLegal.sigla && fetchedLegal.sigla !== '—') {
+        snapshot.commerceInfo.sigla = fetchedLegal.sigla;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const localLegalStr = localStorage.getItem(`stocka_commerce_legal_${commName}`);
+    if (localLegalStr) {
+      const localLegal = JSON.parse(localLegalStr);
+      if (localLegal.razonSocial) snapshot.commerceInfo.razonSocial = localLegal.razonSocial;
+      if (localLegal.rut && localLegal.rut !== '—') snapshot.commerceInfo.rut = localLegal.rut;
+      if (localLegal.sigla && localLegal.sigla !== '—') snapshot.commerceInfo.sigla = localLegal.sigla;
+    }
+  } catch (e) {}
+
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(snapshot));
+  } catch (e) {}
+
+  if (typeof Swal !== 'undefined') Swal.close();
+
+  // Marcar modo cliente
+  snapshot.isClientView = true;
+  window.__currentClientBillingSnapshot = snapshot;
+  window.__currentClientBillingRecord = rec;
+
+  // Renderizar o reutilizar el contenedor del modal
+  let modalOverlay = document.getElementById('client-billing-interactive-modal');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'client-billing-interactive-modal';
+    modalOverlay.className = 'client-billing-modal-overlay';
+    document.body.appendChild(modalOverlay);
+
+    // Cerrar al hacer clic en el backdrop
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) window.closeClientInteractiveBillingModal();
+    });
+
+    // Cerrar con Escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalOverlay.style.display !== 'none') {
+        window.closeClientInteractiveBillingModal();
+      }
+    });
+  }
+
+  const totals = snapshot.totals || {};
+  const orders = snapshot.orders || [];
+
+  modalOverlay.innerHTML = `
+    <div class="client-billing-modal-container">
+      <!-- Modal Header -->
+      <div class="client-billing-modal-header">
+        <div style="display: flex; align-items: center; gap: 0.85rem;">
+          <img src="${STOCKA_BRAND.logoUrl}" alt="Stocka" style="height: 34px; width: auto; object-fit: contain;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main, #0f172a); display: flex; align-items: center; gap: 0.5rem;">
+              <span>Facturación Fulfillment 360</span>
+              <span style="font-size: 0.75rem; background: rgba(95, 6, 250, 0.1); color: #5f06fa; padding: 2px 8px; border-radius: 50px; font-weight: 800;">${escapeHtml(snapshot.comercio)}</span>
+            </h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.775rem; color: var(--color-text-muted, #64748b);">
+              Periodo: <strong>${escapeHtml(snapshot.periodName || '')}</strong> • Total a Pagar: <strong style="color: #5f06fa; font-size: 0.85rem;">${formatCLP(totals.totalToPay || rec.total_fulfillment || 0)}</strong> (IVA incl.)
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.downloadClientBillingPdf('${rec.id}')" style="border-color: #ef4444; color: #ef4444; font-weight: 700; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;" title="Descargar Desglose Oficial en formato PDF">
+            <i class="ri-file-pdf-fill"></i> Descargar PDF
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.downloadClientBillingExcel('${rec.id}')" style="border-color: #10b981; color: #10b981; font-weight: 700; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;" title="Descargar Planilla Excel Completa con Auditoría">
+            <i class="ri-file-excel-2-fill"></i> Descargar Excel (.xlsx)
+          </button>
+          <button type="button" onclick="window.closeClientInteractiveBillingModal()" style="background: transparent; border: none; cursor: pointer; color: var(--color-text-muted, #64748b); font-size: 1.6rem; line-height: 1; padding: 2px 6px; border-radius: 6px;" title="Cerrar ventana">
+            <i class="ri-close-line"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Subnav de Pestañas -->
+      <div class="client-billing-modal-subnav">
+        <button type="button" id="client-modal-tab-btn-desglose" class="client-billing-modal-tab-btn active" onclick="window.switchClientBillingTab('desglose')">
+          <i class="ri-file-list-3-fill" style="color: #5f06fa;"></i> Desglose Oficial Stocka
+        </button>
+        <button type="button" id="client-modal-tab-btn-register" class="client-billing-modal-tab-btn" onclick="window.switchClientBillingTab('register')">
+          <i class="ri-table-fill" style="color: #10b981;"></i> Registro de Pedidos (Excel)
+          <span style="background: rgba(16, 185, 129, 0.12); color: #10b981; font-size: 0.7rem; padding: 1px 6px; border-radius: 10px; font-weight: 800;">${orders.length}</span>
+        </button>
+        <button type="button" id="client-modal-tab-btn-analytics" class="client-billing-modal-tab-btn" onclick="window.switchClientBillingTab('analytics')">
+          <i class="ri-bar-chart-2-fill" style="color: #0284c7;"></i> Métricas y Gráficas
+        </button>
+      </div>
+
+      <!-- Body con Contenedores de las 3 Pestañas -->
+      <div class="client-billing-modal-body">
+        <!-- 1. Pestaña Desglose Oficial -->
+        <div id="client-modal-content-desglose" style="display: block;">
+          <div class="client-billing-modal-view">
+            ${renderStockaDesgloseHTML(snapshot)}
+          </div>
+        </div>
+
+        <!-- 2. Pestaña Registro de Pedidos tipo Excel -->
+        <div id="client-modal-content-register" style="display: none;">
+          <div style="background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; padding: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--color-text-main, #0f172a); display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-file-excel-line" style="color: #10b981;"></i> Registro Oficial de Pedidos Despachados
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.775rem; color: var(--color-text-muted, #64748b);">
+                  Auditoría completa de todas las órdenes procesadas en el periodo con sus recargos y fletes itemizados.
+                </p>
+              </div>
+
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <div style="position: relative;">
+                  <input type="text" id="client-orders-filter-input" class="form-input" placeholder="Buscar por ID, Comuna u Operador..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 260px; padding-left: 2rem; border-radius: 8px;" oninput="window.filterClientOrdersTable()">
+                  <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted, #94a3b8);"></i>
+                </div>
+                <span id="client-orders-filter-count" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 5px 10px; border-radius: 6px;">
+                  Mostrando ${orders.length} pedidos
+                </span>
+              </div>
+            </div>
+
+            <div style="overflow-x: auto; max-height: 60vh; border: 1px solid var(--color-border, #e2e8f0); border-radius: 8px;">
+              <table class="client-modal-table" id="client-modal-orders-grid">
+                <thead>
+                  <tr>
+                    <th style="width: 40px; text-align: center;">N°</th>
+                    <th style="min-width: 140px;">ID Pedido</th>
+                    <th style="min-width: 100px;">Fecha</th>
+                    <th style="min-width: 130px;">Agenda</th>
+                    <th style="min-width: 180px;">Destino / Comuna</th>
+                    <th style="min-width: 120px;">Operador</th>
+                    <th style="min-width: 140px;">Tipo Entrega</th>
+                    <th style="width: 60px; text-align: center;">SKUs</th>
+                    <th style="width: 60px; text-align: center;">Unid.</th>
+                    <th style="width: 95px; text-align: right;">Prep. Total</th>
+                    <th style="width: 95px; text-align: right;">Flete Envío</th>
+                    <th style="width: 105px; text-align: right; background: #e0e7ff; color: #3730a3;">Total Pedido</th>
+                  </tr>
+                </thead>
+                <tbody id="client-modal-orders-body">
+                  ${orders.map((o, idx) => `
+                    <tr class="client-modal-order-row">
+                      <td style="text-align: center; font-weight: 700; color: var(--color-text-muted, #64748b);">${idx + 1}</td>
+                      <td style="font-weight: 700; font-family: monospace; color: #5f06fa;">${escapeHtml(o.id || '—')}</td>
+                      <td style="white-space: nowrap; font-size: 0.75rem;">${escapeHtml(o.date || '—')}</td>
+                      <td style="font-size: 0.75rem; color: ${o.agenda ? 'var(--color-text-main, #0f172a)' : '#94a3b8'};">${escapeHtml(o.agenda || 'Sin agenda')}</td>
+                      <td style="font-weight: 600;">${escapeHtml(o.destination || 'Santiago')}</td>
+                      <td style="font-size: 0.75rem;">${escapeHtml(o.operador || '—')}</td>
+                      <td>
+                        <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; font-weight: 700;">
+                          ${escapeHtml(o.deliveryType || 'Estándar')}
+                        </span>
+                      </td>
+                      <td style="text-align: center; font-weight: 700;">${o.skuCount || 1}</td>
+                      <td style="text-align: center; font-weight: 700;">${o.unitsCount || 1}</td>
+                      <td style="text-align: right; font-weight: 700;">${formatCLP(o.pickPackTotal || 0)}</td>
+                      <td style="text-align: right; font-weight: 700;">${formatCLP(o.shippingFreight || 0)}</td>
+                      <td style="text-align: right; font-weight: 800; color: #3730a3; background: rgba(224, 231, 255, 0.25);">${formatCLP(o.orderTotal || 0)}</td>
+                    </tr>
+                  `).join('') || `<tr><td colspan="12" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Pestaña Métricas y Gráficas -->
+        <div id="client-modal-content-analytics" style="display: none;">
+          <div id="client-modal-analytics-mount">
+            <!-- Cargado dinámicamente con Chart.js -->
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  modalOverlay.style.display = 'flex';
+
+  // Activar la pestaña solicitada
+  window.switchClientBillingTab(initialTab);
+}
+
+// Alternar entre las pestañas del modal interactivo
+export function switchClientBillingTab(tabKey) {
+  const tabs = ['desglose', 'register', 'analytics'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`client-modal-tab-btn-${t}`);
+    const content = document.getElementById(`client-modal-content-${t}`);
+    if (btn && content) {
+      if (t === tabKey) {
+        btn.classList.add('active');
+        content.style.display = 'block';
+      } else {
+        btn.classList.remove('active');
+        content.style.display = 'none';
+      }
+    }
+  });
+
+  if (tabKey === 'analytics') {
+    if (window.__currentClientBillingSnapshot) {
+      renderBillingAnalyticsCharts('client-modal-analytics-mount', window.__currentClientBillingSnapshot);
+    }
+  }
+}
+
+// Cerrar el modal interactivo
+export function closeClientInteractiveBillingModal() {
+  const modalOverlay = document.getElementById('client-billing-interactive-modal');
+  if (modalOverlay) {
+    modalOverlay.style.display = 'none';
+  }
+}
+
+// Filtrar la tabla de pedidos dentro del modal del cliente
+export function filterClientOrdersTable() {
+  const query = (document.getElementById('client-orders-filter-input')?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('.client-modal-order-row');
+  let visible = 0;
+
+  rows.forEach(r => {
+    const text = r.innerText.toLowerCase();
+    if (!query || text.includes(query)) {
+      r.style.display = '';
+      visible++;
+    } else {
+      r.style.display = 'none';
+    }
+  });
+
+  const countBadge = document.getElementById('client-orders-filter-count');
+  if (countBadge) {
+    countBadge.textContent = `Mostrando ${visible} de ${rows.length} pedidos`;
+  }
+}
+
+// Descarga directa de PDF para el cliente
+export async function downloadClientBillingPdf(recordId) {
+  let snapshot = window.__currentClientBillingSnapshot;
+
+  if (!snapshot || (window.__currentClientBillingRecord && window.__currentClientBillingRecord.id !== recordId)) {
+    try {
+      const { data: rec } = await supabase
+        .from('billing_records')
+        .select('*')
+        .eq('id', recordId)
+        .single();
+
+      if (rec) {
+        const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
+        try { snapshot = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+
+        if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
+          const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
+          const resp = await fetch(fetchUrl);
+          if (resp.ok) snapshot = await resp.json();
+        }
+      }
+    } catch (e) {
+      console.warn('Error recuperando snapshot para PDF:', e);
+    }
+  }
+
+  if (!snapshot) {
+    if (typeof Swal !== 'undefined') Swal.fire('Error', 'No se encontró la información del cobro para generar el PDF.', 'error');
+    return;
+  }
+
+  // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
+  const commName = snapshot.comercio || '';
+  if (!snapshot.commerceInfo) snapshot.commerceInfo = {};
+
+  try {
+    const fetchedLegal = await getCommerceBillingInfo(commName);
+    if (fetchedLegal) {
+      if ((!snapshot.commerceInfo.rut || snapshot.commerceInfo.rut === '—') && fetchedLegal.rut && fetchedLegal.rut !== '—') {
+        snapshot.commerceInfo.rut = fetchedLegal.rut;
+      }
+      if ((!snapshot.commerceInfo.razonSocial || snapshot.commerceInfo.razonSocial === commName) && fetchedLegal.razonSocial) {
+        snapshot.commerceInfo.razonSocial = fetchedLegal.razonSocial;
+      }
+      if ((!snapshot.commerceInfo.sigla || snapshot.commerceInfo.sigla === '—') && fetchedLegal.sigla && fetchedLegal.sigla !== '—') {
+        snapshot.commerceInfo.sigla = fetchedLegal.sigla;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const localLegalStr = localStorage.getItem(`stocka_commerce_legal_${commName}`);
+    if (localLegalStr) {
+      const localLegal = JSON.parse(localLegalStr);
+      if (localLegal.razonSocial) snapshot.commerceInfo.razonSocial = localLegal.razonSocial;
+      if (localLegal.rut && localLegal.rut !== '—') snapshot.commerceInfo.rut = localLegal.rut;
+      if (localLegal.sigla && localLegal.sigla !== '—') snapshot.commerceInfo.sigla = localLegal.sigla;
+    }
+  } catch (e) {}
+
+  snapshot.isClientView = true;
+
+  // Renderizar siempre en un contenedor limpio y aislado con estilos oficiales
+  const tempDiv = document.createElement('div');
+  tempDiv.className = 'client-billing-modal-view';
+  tempDiv.style.position = 'fixed';
+  tempDiv.style.left = '-9999px';
+  tempDiv.style.top = '0';
+  tempDiv.style.width = '850px';
+  tempDiv.style.background = '#ffffff';
+  tempDiv.innerHTML = renderStockaDesgloseHTML(snapshot);
+  document.body.appendChild(tempDiv);
+  const printable = tempDiv.querySelector('#stocka-printable-invoice') || tempDiv;
+
+  const cleanCommerce = (snapshot.commerceInfo?.sigla || snapshot.comercio || 'COMERCIO').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanPeriod = (snapshot.periodName || 'PERIODO').replace(/\s+/g, '_');
+  const filename = `Desglose_Oficial_Stocka_${cleanCommerce}_${cleanPeriod}.pdf`;
+
+  downloadBillingPdf(printable, filename);
+
+  setTimeout(() => {
+    try { tempDiv.remove(); } catch (e) {}
+  }, 8000);
+}
+
+// Descarga directa de Excel para el cliente
+export async function downloadClientBillingExcel(recordId) {
+  let snapshot = window.__currentClientBillingSnapshot;
+
+  if (!snapshot || (window.__currentClientBillingRecord && window.__currentClientBillingRecord.id !== recordId)) {
+    try {
+      const { data: rec } = await supabase
+        .from('billing_records')
+        .select('*')
+        .eq('id', recordId)
+        .single();
+
+      if (rec) {
+        const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
+        try { snapshot = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+
+        if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
+          const resp = await fetch(rec.fulfillment_link);
+          if (resp.ok) snapshot = await resp.json();
+        }
+      }
+    } catch (e) {
+      console.warn('Error recuperando snapshot para Excel:', e);
+    }
+  }
+
+  if (!snapshot) {
+    if (typeof Swal !== 'undefined') Swal.fire('Error', 'No se encontró la información del cobro para exportar a Excel.', 'error');
+    return;
+  }
+
+  exportBillingToExcel(snapshot);
+}
+
+// Exportar todas las funciones al scope global window
+window.openClientInteractiveBillingModal = openClientInteractiveBillingModal;
+window.switchClientBillingTab = switchClientBillingTab;
+window.closeClientInteractiveBillingModal = closeClientInteractiveBillingModal;
+window.filterClientOrdersTable = filterClientOrdersTable;
+window.downloadClientBillingPdf = downloadClientBillingPdf;
+window.downloadClientBillingExcel = downloadClientBillingExcel;
+window.confirmAndPublishBillingToCommerce = confirmAndPublishBillingToCommerce;
+window.uploadBillingSnapshotToStorage = uploadBillingSnapshotToStorage;
+window.injectBillingGeneratorStyles = injectBillingGeneratorStyles;
+window.injectClientInteractiveModalStyles = injectClientInteractiveModalStyles;
+
+// Inyección proactiva de estilos tanto en admin como en dashboard cliente
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      injectBillingGeneratorStyles();
+      injectClientInteractiveModalStyles();
+    });
+  } else {
+    injectBillingGeneratorStyles();
+    injectClientInteractiveModalStyles();
+  }
+}
+
+

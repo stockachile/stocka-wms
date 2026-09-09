@@ -190,7 +190,9 @@ window.getOrderNoteText = function(order) {
   if (!order) return '';
   if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
   if (typeof order.observation === 'string' && order.observation.trim()) return order.observation.trim();
+  if (typeof order.note === 'string' && order.note.trim()) return order.note.trim();
 
+  // Shopify
   const rawShopify = order.raw_shopify_data;
   if (rawShopify) {
     if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
@@ -201,14 +203,42 @@ window.getOrderNoteText = function(order) {
     }
   }
 
+  // WooCommerce
   const rawWoo = order.raw_woocommerce_data;
   if (rawWoo) {
     if (typeof rawWoo.customer_note === 'string' && rawWoo.customer_note.trim()) return rawWoo.customer_note.trim();
     if (typeof rawWoo.note === 'string' && rawWoo.note.trim()) return rawWoo.note.trim();
   }
 
+  // MercadoLibre
   const rawMeli = order.raw_meli_data;
-  if (rawMeli && typeof rawMeli.comment === 'string' && rawMeli.comment.trim()) return rawMeli.comment.trim();
+  if (rawMeli) {
+    if (typeof rawMeli.note === 'string' && rawMeli.note.trim()) return rawMeli.note.trim();
+    if (typeof rawMeli.comments === 'string' && rawMeli.comments.trim()) return rawMeli.comments.trim();
+    if (typeof rawMeli.comment === 'string' && rawMeli.comment.trim()) return rawMeli.comment.trim();
+    if (typeof rawMeli.notes === 'string' && rawMeli.notes.trim()) return rawMeli.notes.trim();
+  }
+
+  // Jumpseller
+  const rawJump = order.raw_jumpseller_data;
+  if (rawJump) {
+    if (typeof rawJump.note === 'string' && rawJump.note.trim()) return rawJump.note.trim();
+    if (typeof rawJump.customer_notes === 'string' && rawJump.customer_notes.trim()) return rawJump.customer_notes.trim();
+    if (typeof rawJump.notes === 'string' && rawJump.notes.trim()) return rawJump.notes.trim();
+  }
+
+  // TiendaNube
+  const rawTn = order.raw_tiendanube_data;
+  if (rawTn && typeof rawTn.note === 'string' && rawTn.note.trim()) return rawTn.note.trim();
+
+  // Falabella / Paris / Ripley / Walmart
+  if (order.raw_falabella_data?.note) return String(order.raw_falabella_data.note).trim();
+  if (order.raw_falabella_data?.comments) return String(order.raw_falabella_data.comments).trim();
+  if (order.raw_paris_data?.note) return String(order.raw_paris_data.note).trim();
+  if (order.raw_paris_data?.comments) return String(order.raw_paris_data.comments).trim();
+  if (order.raw_ripley_data?.note) return String(order.raw_ripley_data.note).trim();
+  if (order.raw_ripley_data?.comments) return String(order.raw_ripley_data.comments).trim();
+  if (order.raw_walmart_data?.note) return String(order.raw_walmart_data.note).trim();
 
   return '';
 };
@@ -22400,32 +22430,99 @@ window.getPremiumPaymentStatusBadgeHtml = function(statusText) {
 };
 
 window.getFulfillmentSplitDocsHtml = function(r) {
-  const col1Html = r.fulfillment_link
-    ? window.getClientDocCardHtml(`Excel Desglose - ${r.comercio}`, r.fulfillment_link)
-    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem; color: #107c41;"></i> Sin Excel adjunto</div>`;
+  const isInteractive = (r.desglose_fulfillment && r.desglose_fulfillment.toLowerCase() === 'publicado') ||
+    (r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
 
-  const col2Html = r.fulfillment_pdf_url
-    ? window.getClientDocCardHtml(`PDF Fulfillment - ${r.comercio}`, r.fulfillment_pdf_url)
-    : `<div class="doc-empty-card"><i class="ri-file-pdf-line" style="font-size: 1rem; color: #ef4444;"></i> Sin PDF adjunto</div>`;
+  if (!isInteractive) {
+    const col1Html = r.fulfillment_link
+      ? window.getClientDocCardHtml(`Excel Desglose - ${r.comercio}`, r.fulfillment_link)
+      : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem; color: #107c41;"></i> Sin Excel adjunto</div>`;
 
+    const col2Html = r.fulfillment_pdf_url
+      ? window.getClientDocCardHtml(`PDF Fulfillment - ${r.comercio}`, r.fulfillment_pdf_url)
+      : `<div class="doc-empty-card"><i class="ri-file-pdf-line" style="font-size: 1rem; color: #ef4444;"></i> Sin PDF adjunto</div>`;
+
+    return `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div>
+          <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+            <i class="ri-file-excel-line" style="color: #107c41;"></i> Excel Desglose
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            ${col1Html}
+          </div>
+        </div>
+        <div>
+          <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+            <i class="ri-file-pdf-line" style="color: #ef4444;"></i> Documento PDF
+          </span>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            ${col2Html}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Vista Interactiva Confirmada y Publicada
   return `
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-      <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-file-excel-line" style="color: #107c41;"></i> Excel Desglose
+    <div class="interactive-fulfillment-client-container" style="display: flex; flex-direction: column; gap: 0.65rem;">
+      <!-- Banner informativo interactivo -->
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: linear-gradient(135deg, rgba(95, 6, 250, 0.08) 0%, rgba(124, 58, 237, 0.04) 100%); padding: 0.45rem 0.75rem; border-radius: 8px; border: 1px solid rgba(95, 6, 250, 0.2);">
+        <span style="font-size: 0.75rem; font-weight: 800; color: #5f06fa; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-checkbox-circle-fill"></i> Facturación Confirmada & Interactiva
         </span>
-        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-          ${col1Html}
+        <span style="font-size: 0.68rem; color: var(--color-text-muted, #64748b); font-weight: 600;">Stocka WMS 360</span>
+      </div>
+
+      <!-- 3 Tarjetas de Visualización Interactiva -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+        <!-- 1. Desglose Oficial -->
+        <div class="client-interactive-access-card" onclick="window.openClientInteractiveBillingModal('${r.id}', 'desglose')" style="background: var(--color-surface, #ffffff); border: 1.5px solid rgba(95, 6, 250, 0.35); border-radius: 8px; padding: 0.6rem 0.4rem; cursor: pointer; text-align: center; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; box-shadow: 0 2px 6px rgba(95, 6, 250, 0.08);" onmouseover="this.style.transform='translateY(-2px)'; this.style.borderColor='#5f06fa'; this.style.boxShadow='0 4px 12px rgba(95, 6, 250, 0.2)';" onmouseout="this.style.transform='none'; this.style.borderColor='rgba(95, 6, 250, 0.35)'; this.style.boxShadow='0 2px 6px rgba(95, 6, 250, 0.08)';" title="Ver desglose oficial itemizado y cálculo fiscal">
+          <div style="width: 32px; height: 32px; border-radius: 6px; background: rgba(95, 6, 250, 0.1); color: #5f06fa; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="ri-file-list-3-fill"></i>
+          </div>
+          <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-main, #0f172a); line-height: 1.2;">Desglose Oficial</span>
+          <span style="font-size: 0.62rem; color: #5f06fa; font-weight: 700;">Ver Detalle</span>
+        </div>
+
+        <!-- 2. Registro de Pedidos -->
+        <div class="client-interactive-access-card" onclick="window.openClientInteractiveBillingModal('${r.id}', 'register')" style="background: var(--color-surface, #ffffff); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 0.6rem 0.4rem; cursor: pointer; text-align: center; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.08);" onmouseover="this.style.transform='translateY(-2px)'; this.style.borderColor='#10b981'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.2)';" onmouseout="this.style.transform='none'; this.style.borderColor='rgba(16, 185, 129, 0.35)'; this.style.boxShadow='0 2px 6px rgba(16, 185, 129, 0.08)';" title="Ver planilla de pedidos, recargos y fletes tipo Excel">
+          <div style="width: 32px; height: 32px; border-radius: 6px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="ri-table-fill"></i>
+          </div>
+          <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-main, #0f172a); line-height: 1.2;">Registro Pedidos</span>
+          <span style="font-size: 0.62rem; color: #10b981; font-weight: 700;">Tipo Excel</span>
+        </div>
+
+        <!-- 3. Métricas y Gráficas -->
+        <div class="client-interactive-access-card" onclick="window.openClientInteractiveBillingModal('${r.id}', 'analytics')" style="background: var(--color-surface, #ffffff); border: 1.5px solid rgba(2, 132, 199, 0.35); border-radius: 8px; padding: 0.6rem 0.4rem; cursor: pointer; text-align: center; transition: all 0.2s ease; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.08);" onmouseover="this.style.transform='translateY(-2px)'; this.style.borderColor='#0284c7'; this.style.boxShadow='0 4px 12px rgba(2, 132, 199, 0.2)';" onmouseout="this.style.transform='none'; this.style.borderColor='rgba(2, 132, 199, 0.35)'; this.style.boxShadow='0 2px 6px rgba(2, 132, 199, 0.08)';" title="Ver gráficas analíticas de costos y logística">
+          <div style="width: 32px; height: 32px; border-radius: 6px; background: rgba(2, 132, 199, 0.1); color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="ri-bar-chart-2-fill"></i>
+          </div>
+          <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-main, #0f172a); line-height: 1.2;">Panel Métricas</span>
+          <span style="font-size: 0.62rem; color: #0284c7; font-weight: 700;">Gráficas</span>
         </div>
       </div>
-      <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-file-pdf-line" style="color: #ef4444;"></i> Documento PDF
-        </span>
-        <div style="display: flex; flex-direction: column; gap: 0.35rem;">
-          ${col2Html}
-        </div>
+
+      <!-- Botones de Descarga Rápida -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.downloadClientBillingPdf('${r.id}')" style="border-color: #ef4444; color: #ef4444; font-size: 0.72rem; font-weight: 700; height: 32px; padding: 0 0.5rem; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="Descargar Desglose Oficial en PDF">
+          <i class="ri-file-pdf-fill"></i> Descargar PDF
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.downloadClientBillingExcel('${r.id}')" style="border-color: #10b981; color: #10b981; font-size: 0.72rem; font-weight: 700; height: 32px; padding: 0 0.5rem; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="Descargar Planilla Excel con Auditoría">
+          <i class="ri-file-excel-2-fill"></i> Descargar Excel
+        </button>
       </div>
+
+      ${r.fulfillment_pdf_url ? `
+        <div style="border-top: 1px dashed var(--color-border, #e2e8f0); padding-top: 0.4rem; margin-top: 0.2rem;">
+          <span style="font-size: 0.62rem; font-weight: 700; color: var(--color-text-muted, #64748b); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem;">
+            <i class="ri-attachment-line" style="color: #ef4444;"></i> Documento Adicional Adjunto
+          </span>
+          ${window.getClientDocCardHtml(`PDF Adjunto - ${r.comercio}`, r.fulfillment_pdf_url)}
+        </div>
+      ` : ''}
     </div>
   `;
 };
@@ -23371,7 +23468,9 @@ window.loadClientBillingData = async function(periodId) {
                 <span class="inner-card-label" style="margin: 0; display: flex; align-items: center; gap: 0.35rem;">
                   <i class="ri-pie-chart-2-line" style="color: var(--color-primary);"></i> Estado de Desglose
                 </span>
-                <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.desglose_fulfillment || '-'}</span>
+                <span class="client-badge ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) ? 'client-badge-purple' : getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">
+                  ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) ? 'Publicado' : (r.desglose_fulfillment || '-')}
+                </span>
               </div>
 
               <!-- Inner Card: Documentos (2 Columnas por tipo) -->
@@ -23986,7 +24085,7 @@ function getClientStatusClass(val) {
   if (['creado'].includes(v)) return 'client-badge-cyan';
   if (['por generar', 'por solicitar', 'esperando', 'no se factura'].includes(v)) return 'client-badge-gray';
   if (['recibido'].includes(v)) return 'client-badge-blue';
-  if (['en espera'].includes(v)) return 'client-badge-purple';
+  if (['en espera', 'publicado'].includes(v)) return 'client-badge-purple';
   if (['facturar'].includes(v)) return 'client-badge-yellow';
   if (['atrasado', 'incobrable'].includes(v)) return 'client-badge-red';
   if (['abono'].includes(v)) return 'client-badge-teal';

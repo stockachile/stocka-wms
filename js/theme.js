@@ -188,6 +188,110 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }
+
+  // ==========================================
+  // Botón Flotante para Subir (Scroll to Top)
+  // ==========================================
+  const initScrollToTop = () => {
+    let btn = document.getElementById('scroll-to-top-btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'scroll-to-top-btn';
+      btn.className = 'scroll-to-top-btn';
+      btn.setAttribute('aria-label', 'Volver arriba');
+      btn.setAttribute('title', 'Volver arriba');
+      btn.innerHTML = '<i class="ri-arrow-up-line"></i>';
+      document.body.appendChild(btn);
+    }
+
+    const updateSupportOffset = () => {
+      const hasSupportBtn = !!document.querySelector('.floating-support-btn');
+      if (hasSupportBtn) {
+        btn.classList.add('has-support-btn');
+      } else {
+        btn.classList.remove('has-support-btn');
+      }
+    };
+    updateSupportOffset();
+
+    let lastScrolledContainer = null;
+    let isTicking = false;
+
+    const checkScrollPosition = () => {
+      const contentArea = document.getElementById('app-content') || document.querySelector('.content-area');
+      const contentScroll = contentArea ? contentArea.scrollTop : 0;
+      const winScroll = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const lastContainerScroll = (lastScrolledContainer && lastScrolledContainer !== contentArea && typeof lastScrolledContainer.scrollTop === 'number')
+        ? lastScrolledContainer.scrollTop
+        : 0;
+
+      const maxScroll = Math.max(contentScroll, winScroll, lastContainerScroll);
+
+      if (maxScroll > 200) {
+        btn.classList.add('visible');
+      } else {
+        btn.classList.remove('visible');
+      }
+      updateSupportOffset();
+    };
+
+    const handleScrollEvent = (e) => {
+      if (e && e.target && e.target !== document && e.target !== window && typeof e.target.scrollTop === 'number') {
+        lastScrolledContainer = e.target;
+      }
+      if (!isTicking) {
+        window.requestAnimationFrame(() => {
+          checkScrollPosition();
+          isTicking = false;
+        });
+        isTicking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScrollEvent, { capture: true, passive: true });
+    window.addEventListener('resize', checkScrollPosition, { passive: true });
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+
+      const contentArea = document.getElementById('app-content') || document.querySelector('.content-area');
+      if (contentArea && contentArea.scrollTop > 0) {
+        try {
+          contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          contentArea.scrollTop = 0;
+        }
+      }
+
+      const winScroll = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      if (winScroll > 0) {
+        try {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          window.scrollTo(0, 0);
+        }
+      }
+
+      if (lastScrolledContainer && lastScrolledContainer !== contentArea && typeof lastScrolledContainer.scrollTop === 'number' && lastScrolledContainer.scrollTop > 0) {
+        try {
+          lastScrolledContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch (err) {
+          lastScrolledContainer.scrollTop = 0;
+        }
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-item')) {
+        setTimeout(checkScrollPosition, 150);
+      }
+    });
+
+    checkScrollPosition();
+  };
+
+  initScrollToTop();
 });
 
 window.getUfValueForDate = async function(dateStr) {

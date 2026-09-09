@@ -1525,6 +1525,7 @@ window.getOrderNoteText = function(order) {
   if (!order) return '';
   if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
   if (typeof order.observation === 'string' && order.observation.trim()) return order.observation.trim();
+  if (typeof order.note === 'string' && order.note.trim()) return order.note.trim();
 
   // Shopify
   const rawShopify = order.raw_shopify_data;
@@ -1547,13 +1548,16 @@ window.getOrderNoteText = function(order) {
   // MercadoLibre
   const rawMeli = order.raw_meli_data;
   if (rawMeli) {
+    if (typeof rawMeli.note === 'string' && rawMeli.note.trim()) return rawMeli.note.trim();
     if (typeof rawMeli.comments === 'string' && rawMeli.comments.trim()) return rawMeli.comments.trim();
+    if (typeof rawMeli.comment === 'string' && rawMeli.comment.trim()) return rawMeli.comment.trim();
     if (typeof rawMeli.notes === 'string' && rawMeli.notes.trim()) return rawMeli.notes.trim();
   }
 
   // Jumpseller
   const rawJump = order.raw_jumpseller_data;
   if (rawJump) {
+    if (typeof rawJump.note === 'string' && rawJump.note.trim()) return rawJump.note.trim();
     if (typeof rawJump.customer_notes === 'string' && rawJump.customer_notes.trim()) return rawJump.customer_notes.trim();
     if (typeof rawJump.notes === 'string' && rawJump.notes.trim()) return rawJump.notes.trim();
   }
@@ -1562,10 +1566,14 @@ window.getOrderNoteText = function(order) {
   const rawTn = order.raw_tiendanube_data;
   if (rawTn && typeof rawTn.note === 'string' && rawTn.note.trim()) return rawTn.note.trim();
 
-  // Falabella / Paris / Ripley
+  // Falabella / Paris / Ripley / Walmart
+  if (order.raw_falabella_data?.note) return String(order.raw_falabella_data.note).trim();
   if (order.raw_falabella_data?.comments) return String(order.raw_falabella_data.comments).trim();
+  if (order.raw_paris_data?.note) return String(order.raw_paris_data.note).trim();
   if (order.raw_paris_data?.comments) return String(order.raw_paris_data.comments).trim();
+  if (order.raw_ripley_data?.note) return String(order.raw_ripley_data.note).trim();
   if (order.raw_ripley_data?.comments) return String(order.raw_ripley_data.comments).trim();
+  if (order.raw_walmart_data?.note) return String(order.raw_walmart_data.note).trim();
 
   return '';
 };
@@ -29143,7 +29151,7 @@ function getStatusClass(val) {
   if (['creado'].includes(v)) return 'status-cyan';
   if (['por generar', 'por solicitar', 'esperando', 'no se factura'].includes(v)) return 'status-gray';
   if (['recibido'].includes(v)) return 'status-blue';
-  if (['en espera'].includes(v)) return 'status-purple';
+  if (['en espera', 'publicado'].includes(v)) return 'status-purple';
   if (['facturar'].includes(v)) return 'status-yellow';
   if (['atrasado', 'incobrable'].includes(v)) return 'status-red';
   if (['abono'].includes(v)) return 'status-teal';
@@ -30424,11 +30432,11 @@ async function loadBillingRecords(periodId, bodyElement) {
             ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
           </td>
           <td style="vertical-align: middle;">
-            <select class="billing-select ${getStatusClass(r.desglose_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
+            <select class="billing-select ${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment) }" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
               <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
-              <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Enviado</option>
-              <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
               <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
+              <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado' }</option>
+              <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
               <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
@@ -42327,18 +42335,27 @@ window.editWmsOrderShippingDetails = async function(orderId) {
         customer_phone: formValues.phone || null,
         shipping_address: formValues.address || null,
         shipping_complement: formValues.complement || null,
-        shipping_city: formValues.city || null,
-        wms_shipping_edited: true,
-        wms_custom_edited: true
+        shipping_city: formValues.city || null
       };
 
       if (rawKey) {
-        updatePayload[rawKey] = {
+        const updatedRaw = {
           ...(order[rawKey] || {}),
           note: formValues.note,
           wms_shipping_edited: true,
           wms_custom_edited: true
         };
+        if (rawKey === 'raw_meli_data') {
+          updatedRaw.comment = formValues.note;
+          updatedRaw.comments = formValues.note;
+        } else if (rawKey === 'raw_woocommerce_data') {
+          updatedRaw.customer_note = formValues.note;
+        } else if (rawKey === 'raw_shopify_data') {
+          updatedRaw.customer_note = formValues.note;
+        } else if (rawKey === 'raw_jumpseller_data') {
+          updatedRaw.customer_notes = formValues.note;
+        }
+        updatePayload[rawKey] = updatedRaw;
       }
 
       const { error: updateErr } = await supabase
@@ -42365,6 +42382,8 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       order.shipping_address = formValues.address;
       order.shipping_complement = formValues.complement;
       order.shipping_city = formValues.city;
+      if (order.notas !== undefined) order.notas = formValues.note;
+      if (order.observation !== undefined) order.observation = formValues.note;
       if (rawKey && updatePayload[rawKey]) {
         order[rawKey] = updatePayload[rawKey];
       }

@@ -894,6 +894,112 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
 }
 
 /* ============================================= */
+/* Floating Scroll To Top Button                 */
+/* ============================================= */
+.scroll-to-top-btn {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full, 50%);
+  background-color: var(--color-surface, #ffffff);
+  color: var(--color-primary, #2563eb);
+  border: 1px solid var(--color-border, #cbd5e1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  z-index: 998;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(16px) scale(0.85);
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.2s ease,
+              color 0.2s ease,
+              border-color 0.2s ease,
+              box-shadow 0.2s ease;
+  outline: none;
+  text-decoration: none;
+  user-select: none;
+}
+
+/* Offset to sit beside the support button if present */
+body:has(.floating-support-btn) .scroll-to-top-btn,
+.scroll-to-top-btn.has-support-btn {
+  right: calc(2rem + 60px + 14px);
+}
+
+.scroll-to-top-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.scroll-to-top-btn:hover {
+  background-color: var(--color-primary, #2563eb);
+  color: #ffffff;
+  border-color: var(--color-primary, #2563eb);
+  transform: translateY(-3px) scale(1.06);
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.38);
+}
+
+.scroll-to-top-btn:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* Tooltip on hover */
+.scroll-to-top-btn::after {
+  content: 'Volver arriba';
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background-color: var(--color-surface, #ffffff);
+  color: var(--color-text-main, #0f172a);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  border: 1px solid var(--color-border, #cbd5e1);
+}
+
+.scroll-to-top-btn:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 768px) {
+  .scroll-to-top-btn {
+    bottom: 1.25rem;
+    right: 1.25rem;
+    width: 44px;
+    height: 44px;
+    font-size: 1.25rem;
+  }
+
+  body:has(.floating-support-btn) .scroll-to-top-btn,
+  .scroll-to-top-btn.has-support-btn {
+    right: calc(1.25rem + 54px + 10px);
+  }
+
+  .scroll-to-top-btn::after {
+    display: none;
+  }
+}
+
+/* ============================================= */
 /* SweetAlert2 Dark Mode Overrides               */
 /* ============================================= */
 

@@ -505,12 +505,27 @@ serve(async (req) => {
 
     if (showFulfillment && record) {
       let docLink = record.fulfillment_pdf_url || record.fulfillment_link;
-      if (docLink) {
+      const isInteractive = Boolean(docLink && (docLink.includes('.json') || docLink.includes('billing_snapshots')));
+      if (docLink && !isInteractive) {
         docLink = await getSignedUrlIfPrivate(docLink, supabaseClient);
       }
-      const docBtn = docLink 
-        ? `<a href="${docLink}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Descargar Desglose Fulfillment</a>` 
-        : '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
+
+      let docBtn = '';
+      if (isInteractive) {
+        const portalUrl = "https://wms.stocka.cl";
+        docBtn = `
+          <div style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 12px; text-align: center;">
+            Este periodo cuenta con <strong>Desglose Interactivo 360°</strong>: puedes revisar el cobro por cada pedido, despachos y recargos, explorar gráficos de costos y descargar el PDF resumen directamente en tu portal WMS Stocka.
+          </div>
+          <a href="${portalUrl}" target="_blank" style="display: inline-block; background-color: #5f06fa !important; color: #ffffff !important; padding: 10px 22px; font-size: 13px; font-weight: 700; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 5px rgba(95, 6, 250, 0.25);">
+            Ver Desglose Interactivo en WMS
+          </a>
+        `;
+      } else if (docLink) {
+        docBtn = `<a href="${docLink}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Descargar Desglose Fulfillment</a>`;
+      } else {
+        docBtn = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
+      }
 
       servicesHtml += `
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 15px;">
