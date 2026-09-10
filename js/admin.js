@@ -1469,41 +1469,46 @@ window.isOrderItemEliminated = function(order, item) {
     const pName = String(item.products?.name || item.name || '').trim().toLowerCase();
     const pId = item.shopify_line_item_id ? String(item.shopify_line_item_id) : null;
 
-    // 3.1 Verificar en line_items de Shopify (current_quantity o fulfillable_quantity en 0)
+    // 3.1 Verificar en line_items de Shopify
     if (Array.isArray(rawShopify.line_items)) {
-      const matched = rawShopify.line_items.find(li => {
+      const matchingLineItems = rawShopify.line_items.filter(li => {
         if (pId && String(li.id) === pId) return true;
         const liSku = String(li.sku || '').trim().toLowerCase();
         const liTitle = String(li.title || li.name || '').trim().toLowerCase();
         return (pSku && liSku && pSku === liSku) || (pName && liTitle && pName === liTitle);
       });
 
-      if (matched) {
-        if (matched.current_quantity !== undefined && Number(matched.current_quantity) === 0) {
+      if (matchingLineItems.length > 0) {
+        // Sumar la cantidad activa real de todas las líneas que corresponden a este SKU
+        const totalActiveQty = matchingLineItems.reduce((sum, li) => {
+          if (li.current_quantity !== undefined) {
+            return sum + Math.max(0, Number(li.current_quantity));
+          }
+          let refunded = 0;
+          if (Array.isArray(rawShopify.refunds)) {
+            rawShopify.refunds.forEach(ref => {
+              (ref.refund_line_items || []).forEach(rli => {
+                if (String(rli.line_item_id) === String(li.id)) {
+                  refunded += Number(rli.quantity || 0);
+                }
+              });
+            });
+          }
+          return sum + Math.max(0, Number(li.quantity || 0) - refunded);
+        }, 0);
+
+        // Si la suma de unidades activas en Shopify para este SKU es 0, está eliminado
+        if (totalActiveQty <= 0) {
           return true;
         }
-        if (matched.fulfillable_quantity !== undefined && Number(matched.fulfillable_quantity) === 0 && Number(matched.quantity || 0) > 0 && matched.current_quantity === 0) {
-          return true;
-        }
+        // Si tiene unidades activas (> 0), NO está eliminado
+        return false;
       }
     }
 
-    // 3.2 Verificar en refunds de Shopify si el ítem fue devuelto/cancelado
-    if (Array.isArray(rawShopify.refunds)) {
-      let totalRefundedQty = 0;
-      rawShopify.refunds.forEach(ref => {
-        (ref.refund_line_items || []).forEach(rli => {
-          const rSku = String(rli.line_item?.sku || '').trim().toLowerCase();
-          const rName = String(rli.line_item?.name || rli.line_item?.title || '').trim().toLowerCase();
-          const rId = rli.line_item_id ? String(rli.line_item_id) : (rli.line_item?.id ? String(rli.line_item.id) : null);
-          if ((pId && rId && pId === rId) || (pSku && rSku && pSku === rSku) || (pName && rName && pName === rName)) {
-            totalRefundedQty += Number(rli.quantity || 0);
-          }
-        });
-      });
-      if (totalRefundedQty > 0 && totalRefundedQty >= (qty || 1)) {
-        return true;
-      }
+    // 3.2 Si la orden completa está cancelada en Shopify
+    if (rawShopify.cancelled_at) {
+      return true;
     }
   }
 
@@ -1650,21 +1655,42 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (rawShopify && Array.isArray(rawShopify.line_items)) {
     const cleanSku = String(itemSku || '').trim().toLowerCase();
     const cleanName = String(itemName || '').trim().toLowerCase();
-    const matched = rawShopify.line_items.find(li => {
+    const matchingLines = rawShopify.line_items.filter(li => {
       const liSku = String(li.sku || '').trim().toLowerCase();
       const liTitle = String(li.title || li.name || '').trim().toLowerCase();
       return (cleanSku && liSku && cleanSku === liSku) || (cleanName && liTitle && cleanName === liTitle);
     });
 
-    if (matched) {
-      if (matched.current_quantity !== undefined && matched.current_quantity === 0) {
+    if (matchingLines.length > 0) {
+      const totalActive = matchingLines.reduce((sum, li) => {
+        if (li.current_quantity !== undefined) {
+          return sum + Math.max(0, Number(li.current_quantity));
+        }
+        let refunded = 0;
+        if (Array.isArray(rawShopify.refunds)) {
+          rawShopify.refunds.forEach(ref => {
+            (ref.refund_line_items || []).forEach(rli => {
+              if (String(rli.line_item_id) === String(li.id)) {
+                refunded += Number(rli.quantity || 0);
+              }
+            });
+          });
+        }
+        return sum + Math.max(0, Number(li.quantity || 0) - refunded);
+      }, 0);
+
+      if (totalActive <= 0) {
         return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
       }
-      if (matched.fulfillment_status === 'fulfilled') {
-        return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
-      }
-      if (matched.fulfillment_status === 'partial') {
-        return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+
+      const activeLines = matchingLines.filter(li => (li.current_quantity !== undefined ? Number(li.current_quantity) > 0 : Number(li.quantity || 0) > 0));
+      if (activeLines.length > 0) {
+        if (activeLines.every(li => li.fulfillment_status === 'fulfilled')) {
+          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+        }
+        if (activeLines.some(li => li.fulfillment_status === 'fulfilled' || li.fulfillment_status === 'partial')) {
+          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+        }
       }
     }
   }
@@ -10773,9 +10799,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
     btnDownloadDimensionsTemplate.addEventListener('click', () => {
       const headers = [['SKU', 'Largo', 'Ancho', 'Alto']];
       const sampleData = [
-        ['PROD-001', '30', '20', '15'],
-        ['PROD-002', '12', '10', '8'],
-        ['PROD-003', '50', '40', '30']
+        ['EJEMPLO-SKU-001', '30', '20', '15'],
+        ['EJEMPLO-SKU-002', '12', '10', '8'],
+        ['EJEMPLO-SKU-003', '50', '40', '30']
       ];
       const wsData = headers.concat(sampleData);
       const wb = XLSX.utils.book_new();
@@ -10940,9 +10966,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
     btnDownloadVolumesTemplate.addEventListener('click', () => {
       const headers = [['SKU', 'Volumen']];
       const sampleData = [
-        ['PROD-001', '0.009'],
-        ['PROD-002', '0.00096'],
-        ['PROD-003', '0.06']
+        ['EJEMPLO-SKU-001', '0.009'],
+        ['EJEMPLO-SKU-002', '0.00096'],
+        ['EJEMPLO-SKU-003', '0.06']
       ];
       const wsData = headers.concat(sampleData);
       const wb = XLSX.utils.book_new();
@@ -51840,9 +51866,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
   document.getElementById('btn-download-bulk-stock-template').addEventListener('click', () => {
     const headers = [['SKU', 'Stock']];
     const sampleData = [
-      ['PROD-001', '10'],
-      ['PROD-002', '5'],
-      ['PROD-003', '0']
+      ['EJEMPLO-SKU-001', '10'],
+      ['EJEMPLO-SKU-002', '5'],
+      ['EJEMPLO-SKU-003', '0']
     ];
     const wsData = headers.concat(sampleData);
     const wb = XLSX.utils.book_new();

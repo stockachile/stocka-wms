@@ -715,7 +715,7 @@ serve(async (req) => {
         <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
           <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo reportar tu pago una vez realizado?</strong>
           <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
-            <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Ingresa al portal <a href="https://stocka-wms.netlify.app" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">WMS Stocka</a>, navega a la sección <strong>Facturación</strong> y haz clic en el icono de adjunto (clip 📎) en el periodo correspondiente para subir tu comprobante de transferencia.</li>
+            <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Ingresa al portal <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">WMS Stocka</a>, navega a la sección <strong>Facturación</strong> y haz clic en el icono de adjunto (clip 📎) en el periodo correspondiente para subir tu comprobante de transferencia.</li>
             <li style="margin-bottom: 6px;"><strong>Opción 2:</strong> Responde directamente a este correo adjuntando el comprobante emitido por tu banco.</li>
           </ul>
         </div>
@@ -762,7 +762,7 @@ serve(async (req) => {
         <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
           <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo registrar tu pago en el WMS?</strong>
           <ol style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
-            <li style="margin-bottom: 6px;">Ingresa a la plataforma del WMS Stocka: <a href="https://stocka-wms.netlify.app/dashboard.html" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">stocka-wms.netlify.app</a></li>
+            <li style="margin-bottom: 6px;">Ingresa a la plataforma del WMS Stocka: <a href="https://wms.stocka.cl/dashboard.html" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: none;">wms.stocka.cl</a></li>
             <li style="margin-bottom: 6px;">Navega al menú lateral y entra al módulo de <strong>Facturación</strong>.</li>
             <li style="margin-bottom: 6px;">Ubica el periodo pendiente en la tabla y haz clic en el botón <strong>Adjuntar Comprobante</strong> (icono de clip/adjunto 📎).</li>
             <li style="margin-bottom: 6px;">Sube el comprobante de pago en formato PDF o imagen y presiona <strong>Enviar Reporte</strong>.</li>
@@ -1124,7 +1124,7 @@ serve(async (req) => {
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
-          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+          <a href="https://wms.stocka.cl" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
             Ingresar al Portal WMS
           </a>
         </div>
@@ -1257,7 +1257,7 @@ serve(async (req) => {
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
-          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+          <a href="https://wms.stocka.cl" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
             Ingresar al Portal WMS
           </a>
         </div>
@@ -1285,7 +1285,7 @@ serve(async (req) => {
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
-          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+          <a href="https://wms.stocka.cl" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
             Ingresar al Portal WMS
           </a>
         </div>
@@ -2250,7 +2250,7 @@ serve(async (req) => {
         
         <!-- BUTTON ACCEDER A WMS STOCKA (Explicit inline color with !important to prevent email client override) -->
         <div style="text-align: center; margin: 25px 0;">
-          <a href="https://stocka-wms.netlify.app/dashboard.html" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">Acceder a WMS Stocka</a>
+          <a href="https://wms.stocka.cl/dashboard.html" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">Acceder a WMS Stocka</a>
         </div>
         
         ${mainNoticeHtml}
@@ -2295,7 +2295,7 @@ serve(async (req) => {
         
         <!-- BUTTON ACCEDER A WMS STOCKA (Explicit inline color with !important to prevent email client override) -->
         <div style="text-align: center; margin: 25px 0;">
-          <a href="https://stocka-wms.netlify.app/dashboard.html" target="_blank" style="display: block; background-color: #2563eb; color: #ffffff !important; padding: 12px 24px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); text-shadow: 0 1px 1px rgba(0,0,0,0.2);">Acceder a WMS Stocka</a>
+          <a href="https://wms.stocka.cl/dashboard.html" target="_blank" style="display: block; background-color: #2563eb; color: #ffffff !important; padding: 12px 24px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); text-shadow: 0 1px 1px rgba(0,0,0,0.2);">Acceder a WMS Stocka</a>
         </div>
         
         ${mainNoticeHtml}

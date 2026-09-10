@@ -267,7 +267,7 @@ serve(async (req) => {
       const responseHeaders = new Headers();
       const finalRedirect = redirectBackUrl 
         ? `${redirectBackUrl}?integration=success&shop=${encodeURIComponent(shop)}` 
-        : `https://stocka-wms.netlify.app/dashboard.html?integration=success&shop=${encodeURIComponent(shop)}`;
+        : `https://wms.stocka.cl/dashboard.html?integration=success&shop=${encodeURIComponent(shop)}`;
         
       responseHeaders.set("Location", finalRedirect);
       return new Response(null, {

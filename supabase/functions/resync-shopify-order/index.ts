@@ -288,6 +288,13 @@ serve(async (req) => {
       }
     }
 
+    // Asegurar que deletedSkusSet no incluya SKUs que aún tienen unidades activas
+    activeItems.forEach((item: any) => {
+      const sku = (item.sku || "").trim();
+      if (sku) deletedSkusSet.delete(sku);
+      if (item.title || item.name) deletedSkusSet.delete((item.title || item.name).trim());
+    });
+
     const deletedSkusList = Array.from(deletedSkusSet);
     const deletedSkusText = deletedSkusList.length > 0 
       ? `(SKU eliminados: ${deletedSkusList.join(", ")})` 

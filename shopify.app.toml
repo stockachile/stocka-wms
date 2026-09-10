@@ -1,7 +1,7 @@
 # Configuration for STOCKA WMS
 client_id = "4d04c58f432c53fb870d1fbcad92431c"
 name = "STOCKA WMS"
-application_url = "https://stocka-wms.netlify.app/dashboard.html"
+application_url = "https://wms.stocka.cl/dashboard.html"
 embedded = false
 
 [auth]

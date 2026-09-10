@@ -158,7 +158,7 @@
     let badgeColor = '';
     let bodyContentHtml = '';
 
-    const appUrl = 'https://stocka-wms.netlify.app/dashboard.html';
+    const appUrl = 'https://wms.stocka.cl/dashboard.html';
 
     // 1. EVENTO: CREACIÓN DE INGRESO
     if (event === 'created') {

@@ -500,6 +500,79 @@ window.getOrderPaymentBadgeHtml = function(order) {
   return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
 };
 
+// Helper para verificar si un ítem de un pedido está eliminado/anulado/cancelado (ej. devuelto o reembolsado en Shopify)
+window.isOrderItemEliminated = function(order, item) {
+  if (!order || !item) return false;
+  // 1. Si la cantidad en el ítem es 0 o menor
+  const qty = parseInt(item.quantity, 10);
+  if (!isNaN(qty) && qty <= 0) return true;
+
+  // 2. Si el ítem tiene flag explícito de eliminado
+  if (item.is_eliminated === true || item.eliminated === true) return true;
+
+  // 3. Verificar contra los datos originales de la plataforma (Shopify)
+  const rawShopify = order.raw_shopify_data;
+  if (rawShopify) {
+    const pSku = String(item.products?.sku || item.sku || '').trim().toLowerCase();
+    const pName = String(item.products?.name || item.name || '').trim().toLowerCase();
+    const pId = item.shopify_line_item_id ? String(item.shopify_line_item_id) : null;
+
+    // 3.1 Verificar en line_items de Shopify
+    if (Array.isArray(rawShopify.line_items)) {
+      const matchingLineItems = rawShopify.line_items.filter(li => {
+        if (pId && String(li.id) === pId) return true;
+        const liSku = String(li.sku || '').trim().toLowerCase();
+        const liTitle = String(li.title || li.name || '').trim().toLowerCase();
+        return (pSku && liSku && pSku === liSku) || (pName && liTitle && pName === liTitle);
+      });
+
+      if (matchingLineItems.length > 0) {
+        // Sumar la cantidad activa real de todas las líneas que corresponden a este SKU
+        const totalActiveQty = matchingLineItems.reduce((sum, li) => {
+          if (li.current_quantity !== undefined) {
+            return sum + Math.max(0, Number(li.current_quantity));
+          }
+          let refunded = 0;
+          if (Array.isArray(rawShopify.refunds)) {
+            rawShopify.refunds.forEach(ref => {
+              (ref.refund_line_items || []).forEach(rli => {
+                if (String(rli.line_item_id) === String(li.id)) {
+                  refunded += Number(rli.quantity || 0);
+                }
+              });
+            });
+          }
+          return sum + Math.max(0, Number(li.quantity || 0) - refunded);
+        }, 0);
+
+        // Si la suma de unidades activas en Shopify para este SKU es 0, está eliminado
+        if (totalActiveQty <= 0) {
+          return true;
+        }
+        // Si tiene unidades activas (> 0), NO está eliminado
+        return false;
+      }
+    }
+
+    // 3.2 Si la orden completa está cancelada en Shopify
+    if (rawShopify.cancelled_at) {
+      return true;
+    }
+  }
+
+  // 4. Verificar si en notas u observaciones de la orden se indica cancelación del ítem
+  const notesText = `${order.notas || ''} ${order.observation || ''} ${order.raw_shopify_data?.note || ''}`.toLowerCase();
+  if (notesText && (notesText.includes('cancelado') || notesText.includes('eliminado') || notesText.includes('anulado'))) {
+    const pSku = String(item.products?.sku || item.sku || '').trim().toLowerCase();
+    const pName = String(item.products?.name || item.name || '').trim().toLowerCase();
+    if ((pSku && notesText.includes(pSku)) || (pName && notesText.includes(pName))) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 // Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
 window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (!order) return '-';
@@ -507,21 +580,42 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (rawShopify && Array.isArray(rawShopify.line_items)) {
     const cleanSku = String(itemSku || '').trim().toLowerCase();
     const cleanName = String(itemName || '').trim().toLowerCase();
-    const matched = rawShopify.line_items.find(li => {
+    const matchingLines = rawShopify.line_items.filter(li => {
       const liSku = String(li.sku || '').trim().toLowerCase();
       const liTitle = String(li.title || li.name || '').trim().toLowerCase();
       return (cleanSku && liSku && cleanSku === liSku) || (cleanName && liTitle && cleanName === liTitle);
     });
 
-    if (matched) {
-      if (matched.current_quantity !== undefined && matched.current_quantity === 0) {
+    if (matchingLines.length > 0) {
+      const totalActive = matchingLines.reduce((sum, li) => {
+        if (li.current_quantity !== undefined) {
+          return sum + Math.max(0, Number(li.current_quantity));
+        }
+        let refunded = 0;
+        if (Array.isArray(rawShopify.refunds)) {
+          rawShopify.refunds.forEach(ref => {
+            (ref.refund_line_items || []).forEach(rli => {
+              if (String(rli.line_item_id) === String(li.id)) {
+                refunded += Number(rli.quantity || 0);
+              }
+            });
+          });
+        }
+        return sum + Math.max(0, Number(li.quantity || 0) - refunded);
+      }, 0);
+
+      if (totalActive <= 0) {
         return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
       }
-      if (matched.fulfillment_status === 'fulfilled') {
-        return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
-      }
-      if (matched.fulfillment_status === 'partial') {
-        return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+
+      const activeLines = matchingLines.filter(li => (li.current_quantity !== undefined ? Number(li.current_quantity) > 0 : Number(li.quantity || 0) > 0));
+      if (activeLines.length > 0) {
+        if (activeLines.every(li => li.fulfillment_status === 'fulfilled')) {
+          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+        }
+        if (activeLines.some(li => li.fulfillment_status === 'fulfilled' || li.fulfillment_status === 'partial')) {
+          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+        }
       }
     }
   }
@@ -7511,7 +7605,9 @@ window.applyClientWmsFiltersAndRender = function() {
           ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
           : '';
         const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
-        if (isOrderTerminalOrShipped) {
+        if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
+        } else if (isOrderTerminalOrShipped) {
           stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
         } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
           const invMap = window.clientOrdersInventoryMap || {};
@@ -18725,8 +18821,8 @@ window.downloadDeclarationsTemplate = function() {
     ];
     const sampleData = [
       headers,
-      ['Zapatos Niño N3', 'SKU-ZAP-003', '7801234567890', '100', '15000', '10', '2027-12-31', '30', '20', '15', '0.5'],
-      ['Camiseta Deportiva M', 'SKU-CAM-002', '7801234567891', '250', '8990', '20', '', '25', '15', '2', '0.2']
+      ['[EJEMPLO] Nombre de tu Producto A (Editar)', 'EJEMPLO-SKU-001', '780000000001', '100', '15000', '10', '2027-12-31', '30', '20', '15', '0.5'],
+      ['[EJEMPLO] Nombre de tu Producto B (Editar)', 'EJEMPLO-SKU-002', '780000000002', '250', '8990', '20', '', '25', '15', '2', '0.2']
     ];
     const ws = XLSX.utils.aoa_to_sheet(sampleData);
     XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Ingreso');
@@ -28167,9 +28263,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
     btnDownloadStockTemplate.addEventListener('click', () => {
       const headers = [['SKU', 'Stock Inicial']];
       const sampleData = [
-        ['PROD-001', '100'],
-        ['PROD-002', '50'],
-        ['PROD-003', '0']
+        ['EJEMPLO-SKU-001', '100'],
+        ['EJEMPLO-SKU-002', '50'],
+        ['EJEMPLO-SKU-003', '0']
       ];
       const wsData = headers.concat(sampleData);
       const wb = XLSX.utils.book_new();
@@ -28400,9 +28496,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
     btnDownloadDimensionsTemplate.addEventListener('click', () => {
       const headers = [['SKU', 'Largo', 'Ancho', 'Alto']];
       const sampleData = [
-        ['PROD-001', '30', '20', '15'],
-        ['PROD-002', '12', '10', '8'],
-        ['PROD-003', '50', '40', '30']
+        ['EJEMPLO-SKU-001', '30', '20', '15'],
+        ['EJEMPLO-SKU-002', '12', '10', '8'],
+        ['EJEMPLO-SKU-003', '50', '40', '30']
       ];
       const wsData = headers.concat(sampleData);
       const wb = XLSX.utils.book_new();
@@ -28568,9 +28664,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
     btnDownloadVolumesTemplate.addEventListener('click', () => {
       const headers = [['SKU', 'Volumen']];
       const sampleData = [
-        ['PROD-001', '0.009'],
-        ['PROD-002', '0.00096'],
-        ['PROD-003', '0.06']
+        ['EJEMPLO-SKU-001', '0.009'],
+        ['EJEMPLO-SKU-002', '0.00096'],
+        ['EJEMPLO-SKU-003', '0.06']
       ];
       const wsData = headers.concat(sampleData);
       const wb = XLSX.utils.book_new();
@@ -34202,9 +34298,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
   document.getElementById('btn-download-bulk-stock-template').addEventListener('click', () => {
     const headers = [['SKU', 'Stock']];
     const sampleData = [
-      ['PROD-001', '10'],
-      ['PROD-002', '5'],
-      ['PROD-003', '0']
+      ['EJEMPLO-SKU-001', '10'],
+      ['EJEMPLO-SKU-002', '5'],
+      ['EJEMPLO-SKU-003', '0']
     ];
     const wsData = headers.concat(sampleData);
     const wb = XLSX.utils.book_new();

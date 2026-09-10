@@ -1,3 +1,6 @@
+# Redirección permanente forzosa del subdominio gratuito de Netlify al dominio oficial
+https://stocka-wms.netlify.app/* https://wms.stocka.cl/:splat 301!
+
 /vcard /vcard.html 200
 /vcard.html /vcard.html 200
 /cotizar /cotizaciones.html 200

@@ -31,3 +31,5 @@ auth_info_baileys/
 whatsapp-service/auth_info_baileys/
 downloads/*.png
 
+# Production build output
+dist/

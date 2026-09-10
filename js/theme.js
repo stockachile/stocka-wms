@@ -3,6 +3,11 @@
  * Handles the Dark/Light mode theme logic for the WMS STOCKA portal.
  */
 
+// 0. Redirección forzosa al dominio corporativo oficial si el usuario entra por el subdominio de Netlify
+if (window.location.hostname === 'stocka-wms.netlify.app') {
+  window.location.replace('https://wms.stocka.cl' + window.location.pathname + window.location.search + window.location.hash);
+}
+
 // 1. Get preferred theme
 const getPreferredTheme = () => {
   const savedTheme = localStorage.getItem('stocka-theme');
