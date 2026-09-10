@@ -7597,6 +7597,8 @@ window.applyClientWmsFiltersAndRender = function() {
       Object.values(grouped).forEach(item => {
         const pPrice = item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0;
         const subtotal = item.quantity * pPrice;
+        let stockCellHtml = '';
+        let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
         // Determinar stock de bodega para el cliente
         const origItem = order.order_items.find(oi => (oi.products?.sku || oi.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);

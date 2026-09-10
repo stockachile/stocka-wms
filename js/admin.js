@@ -360,9 +360,12 @@ window.renderPickerStatusBadge = function(order) {
   if (!pStatus) {
     // Si está en preparación pero no hay registro aún en Picker
     if (order.estado_wms === 'En preparación') {
+      const currentTag = document.getElementById('filter-order-tag')?.value || '';
+      const isSinRegActive = currentTag === 'Picker: Sin registro';
       return `
-        <span class="badge" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer;" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="Sin registro activo en Picker. Clic para ver auditoría.">
+        <span class="badge wms-order-tag-badge ${isSinRegActive ? 'wms-tag-active' : ''}" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isSinRegActive ? 'outline: 2px solid #64748b; box-shadow: 0 0 6px rgba(100,116,139,0.4);' : ''}" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="Sin registro activo en Picker. Clic para ver auditoría.">
           <i class="ri-inbox-archive-line"></i> Picker: Sin registro
+          <span onclick="event.stopPropagation(); window.filterByOrderTag('Picker: Sin registro', event);" title="Filtrar por Picker: Sin registro" style="margin-left: 0.2rem; cursor: pointer; opacity: 0.7; font-size: 0.75rem; display: inline-flex; align-items: center; padding: 1px 2px; border-radius: 2px;" onmouseover="this.style.opacity='1'; this.style.backgroundColor='rgba(0,0,0,0.1)';" onmouseout="this.style.opacity='0.7'; this.style.backgroundColor='transparent';"><i class="ri-filter-3-line"></i></span>
         </span>
       `;
     }
@@ -379,6 +382,7 @@ window.renderPickerStatusBadge = function(order) {
   let border = 'rgba(100, 116, 139, 0.25)';
   let icon = '<i class="ri-barcode-box-line"></i>';
   let labelText = `Picker: ${rawStatus}`;
+  let filterTag = `Picker: ${rawStatus}`;
 
   if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
     bg = 'rgba(16, 185, 129, 0.14)';
@@ -386,42 +390,49 @@ window.renderPickerStatusBadge = function(order) {
     border = 'rgba(16, 185, 129, 0.3)';
     icon = '<i class="ri-checkbox-circle-fill"></i>';
     labelText = `Picker: Completado`;
+    filterTag = 'Picker: Completado';
   } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
     bg = 'rgba(16, 185, 129, 0.14)';
     color = '#059669';
     border = 'rgba(16, 185, 129, 0.3)';
     icon = '<i class="ri-store-2-fill"></i>';
     labelText = `Picker: Listo para Retiro`;
+    filterTag = 'Picker: Listo para Retiro';
   } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
     bg = 'rgba(245, 158, 11, 0.14)';
     color = '#d97706';
     border = 'rgba(245, 158, 11, 0.3)';
     icon = '<span style="width: 6px; height: 6px; border-radius: 50%; background: #d97706; display: inline-block; animation: pulse-warning-dot 1.5s infinite;"></span>';
     labelText = `Picker: En preparación`;
+    filterTag = 'Picker: En preparación';
   } else if (rawStatusUpper === 'PARCIAL') {
     bg = 'rgba(14, 165, 233, 0.14)';
     color = '#0284c7';
     border = 'rgba(14, 165, 233, 0.3)';
     icon = '<i class="ri-qr-scan-2-line"></i>';
     labelText = `Picker: Parcial (Escaneando)`;
+    filterTag = 'Picker: Parcial';
   } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
     bg = 'rgba(239, 68, 68, 0.14)';
     color = '#dc2626';
     border = 'rgba(239, 68, 68, 0.3)';
     icon = '<i class="ri-alert-fill"></i>';
     labelText = `Picker: Con Obs`;
+    filterTag = 'Picker: Con Obs';
   } else if (rawStatusUpper.includes('DERIVADO')) {
     bg = 'rgba(139, 92, 246, 0.14)';
     color = '#7c3aed';
     border = 'rgba(139, 92, 246, 0.3)';
     icon = '<i class="ri-share-forward-line"></i>';
     labelText = `Picker: ${rawStatus}`;
+    filterTag = 'Picker: Derivado';
   } else if (rawStatusUpper === 'RETIRADO') {
     bg = 'rgba(16, 185, 129, 0.14)';
     color = '#047857';
     border = 'rgba(16, 185, 129, 0.3)';
     icon = '<i class="ri-user-received-line"></i>';
     labelText = `Picker: Retirado`;
+    filterTag = 'Picker: Retirado';
   } else if (rawStatusUpper === 'ENVIADO A PREPARAR' || rawStatusUpper === 'PENDIENTE') {
     bg = 'rgba(99, 102, 241, 0.12)';
     color = '#4f46e5';
@@ -430,9 +441,13 @@ window.renderPickerStatusBadge = function(order) {
     labelText = `Picker: ${rawStatus}`;
   }
 
+  const currentTag = document.getElementById('filter-order-tag')?.value || '';
+  const isPickerActive = currentTag === filterTag;
+
   return `
-    <span class="badge" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; transition: transform 0.15s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="${tooltipText}">
+    <span class="badge wms-order-tag-badge ${isPickerActive ? 'wms-tag-active' : ''}" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; transition: transform 0.15s ease; ${isPickerActive ? `outline: 2px solid ${color}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" onclick="window.openPickerOrderHistoryModal('${orderId}'); event.stopPropagation();" title="${tooltipText}">
       ${icon} ${labelText}
+      <span onclick="event.stopPropagation(); window.filterByOrderTag('${filterTag}', event);" title="Filtrar por ${filterTag}" style="margin-left: 0.2rem; cursor: pointer; opacity: 0.7; font-size: 0.75rem; display: inline-flex; align-items: center; padding: 1px 2px; border-radius: 2px;" onmouseover="this.style.opacity='1'; this.style.backgroundColor='rgba(0,0,0,0.1)';" onmouseout="this.style.opacity='0.7'; this.style.backgroundColor='transparent';"><i class="ri-filter-3-line"></i></span>
     </span>
   `;
 };
@@ -3791,6 +3806,9 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
       const orders = allOrders;
       window.loadedOrders = orders || [];
       window.loadedOrdersInventoryMap = {};
+      if (window.clearWmsTagsCache) {
+        window.clearWmsTagsCache();
+      }
 
       if (orders && orders.length > 0) {
         const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
@@ -3919,6 +3937,471 @@ async function renderAdminOrders() {
       select.value = currentVal;
     };
 
+    window.clearWmsTagsCache = function() {
+      (window.loadedOrders || []).forEach(o => {
+        delete o._wmsTags;
+      });
+    };
+
+    window.getOrderPacksMap = function(order) {
+      if (!order) return new Map();
+      const masterProducts = window.currentMasterProducts || [];
+      let packSkus = new Set(window.currentPackSkusList || []);
+      if (packSkus.size === 0 && masterProducts.length > 0) {
+        packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => (p.sku || '').toLowerCase()));
+      }
+      const foundPacksMap = new Map();
+
+      // 1. Verificar en order.sku
+      const mainSku = (order.sku || '').trim().toLowerCase();
+      if (mainSku && packSkus.has(mainSku)) {
+        foundPacksMap.set(mainSku, order.cantidad || 1);
+      }
+
+      // 2. Verificar en order_items
+      if (Array.isArray(order.order_items)) {
+        order.order_items.forEach(oi => {
+          const itemSku = (oi.products?.sku || '').trim().toLowerCase();
+          if (itemSku && packSkus.has(itemSku)) {
+            foundPacksMap.set(itemSku, oi.quantity || 1);
+          }
+        });
+      }
+
+      // 3. Fallback: verificar en datos crudos de integración
+      const checkRawItems = (items, platform = '') => {
+        if (!Array.isArray(items)) return;
+        items.forEach(item => {
+          let sku = '';
+          let qty = 1;
+
+          if (platform === 'meli') {
+            sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
+            if (!sku && item.item?.variation_attributes) {
+              const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
+              if (vSkuAttr) sku = vSkuAttr.value_name || '';
+            }
+            qty = item.quantity || 1;
+          } else {
+            sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
+            qty = item.quantity || item.qty || 1;
+          }
+
+          sku = (sku || '').trim().toLowerCase();
+          if (sku && packSkus.has(sku)) {
+            foundPacksMap.set(sku, qty);
+          }
+        });
+      };
+
+      if (order.raw_shopify_data?.line_items) {
+        checkRawItems(order.raw_shopify_data.line_items, 'shopify');
+      } else if (order.raw_woocommerce_data?.line_items) {
+        checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
+      } else if (order.raw_meli_data) {
+        const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
+        meliOrders.forEach(mo => {
+          if (mo && mo.order_items) checkRawItems(mo.order_items, 'meli');
+        });
+      } else if (order.raw_jumpseller_data?.products) {
+        checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
+      } else if (order.raw_paris_data?.items) {
+        checkRawItems(order.raw_paris_data.items, 'paris');
+      } else if (order.raw_ripley_data?.order_lines) {
+        checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
+      } else if (order.raw_falabella_data?.items) {
+        checkRawItems(order.raw_falabella_data.items, 'falabella');
+      }
+
+      return foundPacksMap;
+    };
+
+    window.getOrderShipmentGlobalStatus = function(order) {
+      if (!order) return null;
+      const shipments = window.loadedShipments || [];
+      const rawShopify = order.raw_shopify_data;
+      const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
+                         ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+
+      let orderShipments = shipments.filter(s => {
+        const sCourierUpper = (s.courier || '').toUpperCase().trim();
+        if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+            sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+          return false;
+        }
+
+        const refMatches = s.pedido_referencia === order.id || 
+                           (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
+                           (order.tracking_number && s.pedido_referencia === order.tracking_number);
+        if (!refMatches) return false;
+
+        let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
+        const orderCommerce = (order.comercio || '').trim().toUpperCase();
+        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+
+        let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
+        if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
+          const mapped = window.enviameIdToCommerceMap[envId];
+          if (mapped) shipCommerce = mapped.trim().toUpperCase();
+        }
+
+        return shipCommerce === orderCommerce;
+      });
+
+      if (orderShipments.length === 0) {
+        return isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
+      }
+
+      if (orderShipments.length > 1) {
+        orderShipments.sort((a, b) => {
+          const getMovedScore = (s) => {
+            let gStatus = s.global_status;
+            let statusText = s.status || '';
+            if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+              if (s.raw_data && s.raw_data[23]) statusText = s.raw_data[23];
+              else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
+            }
+            if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+              const rawStatus = statusText.toLowerCase().trim();
+              if (s.source_table === 'lightdata_envios') {
+                if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+                  gStatus = 'DESPACHADO';
+                } else if (rawStatus === 'cancelado') {
+                  gStatus = 'ALERTA';
+                }
+              }
+            }
+            return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 2 : 1;
+          };
+
+          const scoreA = getMovedScore(a);
+          const scoreB = getMovedScore(b);
+          if (scoreA !== scoreB) return scoreB - scoreA;
+
+          const orderTrack = (order.tracking_number || '').trim().toUpperCase();
+          const matchA = orderTrack && ((a.tracking || '').trim().toUpperCase() === orderTrack);
+          const matchB = orderTrack && ((b.tracking || '').trim().toUpperCase() === orderTrack);
+          if (matchA && !matchB) return -1;
+          if (!matchA && matchB) return 1;
+
+          return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0);
+        });
+      }
+
+      const shipment = orderShipments[0];
+      let globStatus = shipment.global_status;
+      let statusText = shipment.status || '';
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+        if (shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        } else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          statusText = order.raw_lightdata_data.raw_data[23];
+        }
+      }
+      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+        const rawStatus = statusText.toLowerCase().trim();
+        if (shipment.source_table === 'lightdata_envios') {
+          if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus === 'cancelado') {
+            globStatus = 'ALERTA';
+          } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        }
+      }
+      if (!globStatus) globStatus = 'SIN MOVIMIENTO';
+      if (isReturned) globStatus = 'DEVOLUCIÓN';
+
+      return { shipment, globStatus, isReturned, orderShipments };
+    };
+
+    window.checkOrderStockAlert = function(order) {
+      if (!order) return { hasStockAlert: false, stockAlertDetails: [] };
+      const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+      const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+      const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
+
+      let hasStockAlert = false;
+      let stockAlertDetails = [];
+      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+      if (shouldProcessStock && !isOrderTerminalOrShipped) {
+        const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item)));
+        if (itemsToCheck.length > 0) {
+          const invMap = window.loadedOrdersInventoryMap || {};
+          itemsToCheck.forEach(item => {
+            let totalAvailableQty = 0;
+            Object.keys(invMap).forEach(key => {
+              if (key.startsWith(item.product_id + '_')) {
+                totalAvailableQty += invMap[key] || 0;
+              }
+            });
+            if (totalAvailableQty < item.quantity) {
+              hasStockAlert = true;
+              stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - totalAvailableQty} un.)`);
+            }
+          });
+        }
+      }
+      return { hasStockAlert, stockAlertDetails };
+    };
+
+    window.getOrderTags = function(order) {
+      if (!order) return [];
+      if (order._wmsTags) return order._wmsTags;
+
+      const tags = new Set();
+
+      // 1. Categoría de Entrega
+      const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+      if (catDelivery === 'RETIRO') {
+        tags.add('RETIRO');
+      } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
+        tags.add('DISTRIBUCIÓN');
+      } else if (order.categoria_entrega) {
+        tags.add(catDelivery);
+      }
+
+      // 2. Exportación (Shopify)
+      if (order.shopify_exported) {
+        tags.add('Exportado');
+      }
+
+      // 3. Con Packs
+      const packsMap = window.getOrderPacksMap(order);
+      if (packsMap && packsMap.size > 0) {
+        tags.add('Con Packs');
+      }
+
+      // 4. Estado Despacho Courier
+      const shipInfo = window.getOrderShipmentGlobalStatus(order);
+      if (shipInfo && shipInfo.globStatus) {
+        tags.add(shipInfo.globStatus);
+      }
+
+      // 5. Estado Picker
+      const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+      if (pStatus) {
+        const rawStatusUpper = (pStatus.status || '').toUpperCase().trim();
+        if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
+          tags.add('Picker: Completado');
+        } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
+          tags.add('Picker: Listo para Retiro');
+        } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
+          tags.add('Picker: En preparación');
+        } else if (rawStatusUpper === 'PARCIAL') {
+          tags.add('Picker: Parcial');
+        } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
+          tags.add('Picker: Con Obs');
+        } else if (rawStatusUpper.includes('DERIVADO')) {
+          tags.add('Picker: Derivado');
+        } else if (rawStatusUpper === 'RETIRADO') {
+          tags.add('Picker: Retirado');
+        } else if (pStatus.status) {
+          tags.add(`Picker: ${pStatus.status}`);
+        }
+      } else if (order.estado_wms === 'En preparación') {
+        tags.add('Picker: Sin registro');
+      }
+
+      // 6. Estado de Pago
+      const payStatus = String(order.payment_status || '').toLowerCase().trim();
+      if (payStatus === 'paid' || payStatus === 'authorized') {
+        tags.add('PAGADO');
+      } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
+        tags.add('PAGO PENDIENTE');
+      } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
+        tags.add('PARCIALMENTE REEMBOLSADO');
+      } else if (payStatus === 'refunded' || payStatus === 'voided') {
+        tags.add('REEMBOLSADO');
+      }
+
+      // 7. Etiqueta Generada
+      if (order.label_url || order.tracking_number) {
+        tags.add('Etiqueta');
+      }
+
+      // 8. Con Nota
+      const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+      if (orderNote && orderNote.trim()) {
+        tags.add('CON NOTA');
+      }
+
+      // 9. Sin Stock
+      const stockAlert = window.checkOrderStockAlert(order);
+      if (stockAlert && stockAlert.hasStockAlert) {
+        tags.add('SIN STOCK');
+      }
+
+      // 10. Fulfillment (Shopify)
+      if (order.raw_shopify_data?.fulfillment_status) {
+        const fs = order.raw_shopify_data.fulfillment_status;
+        if (fs === 'fulfilled') tags.add('FULFILLED');
+        else if (fs === 'partial') tags.add('FULFILL. PARCIAL');
+        else if (fs === 'restocked') tags.add('RESTOCKED');
+      }
+
+      // 11. Cancelado / Devolución
+      const isReturned = (order.status || '').toLowerCase() === 'devolución' || (order.status || '').toLowerCase() === 'devolucion';
+      if (isReturned) {
+        tags.add('DEVOLUCIÓN');
+      } else if (order.status === 'cancelado' || order.raw_shopify_data?.cancelled_at) {
+        tags.add('CANCELADO');
+      }
+
+      // 12. Tags personalizadas de plataformas
+      if (order.raw_shopify_data?.tags) {
+        const rawTags = String(order.raw_shopify_data.tags).split(',');
+        rawTags.forEach(t => {
+          const trimmed = t.trim();
+          if (trimmed) tags.add(trimmed);
+        });
+      }
+      if (order.tags) {
+        const rawTags = Array.isArray(order.tags) ? order.tags : String(order.tags).split(',');
+        rawTags.forEach(t => {
+          const trimmed = String(t).trim();
+          if (trimmed) tags.add(trimmed);
+        });
+      }
+
+      order._wmsTags = Array.from(tags);
+      return order._wmsTags;
+    };
+
+    window.updateOrderTagFilterOptions = function() {
+      const select = document.getElementById('filter-order-tag');
+      if (!select) return;
+      const currentVal = select.value || '';
+      const orders = window.loadedOrders || [];
+
+      // Contar frecuencias de cada tag
+      const tagCounts = new Map();
+      orders.forEach(order => {
+        const tags = window.getOrderTags(order);
+        tags.forEach(t => {
+          tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+        });
+      });
+
+      const orderPillTags = [
+        { key: 'Con Packs', label: 'Con Packs', icon: '📦' },
+        { key: 'CON NOTA', label: 'CON NOTA', icon: '💬' },
+        { key: 'Etiqueta', label: 'Etiqueta Generada', icon: '🏷️' },
+        { key: 'Exportado', label: 'Exportado a Shopify', icon: '✔️' },
+        { key: 'SIN STOCK', label: 'SIN STOCK', icon: '🚨' }
+      ];
+
+      const deliveryTags = [
+        { key: 'DISTRIBUCIÓN', label: 'DISTRIBUCIÓN', icon: '🚚' },
+        { key: 'RETIRO', label: 'RETIRO', icon: '🏪' }
+      ];
+
+      const courierTags = [
+        { key: 'DESPACHADO', label: 'DESPACHADO', icon: '🚚' },
+        { key: 'ALERTA', label: 'ALERTA (Courier)', icon: '⚠️' },
+        { key: 'SIN MOVIMIENTO', label: 'SIN MOVIMIENTO', icon: '📦' },
+        { key: 'DEVOLUCIÓN', label: 'DEVOLUCIÓN', icon: '↩️' }
+      ];
+
+      const pickerTags = [
+        { key: 'Picker: Completado', label: 'Picker: Completado', icon: '✅' },
+        { key: 'Picker: Listo para Retiro', label: 'Picker: Listo para Retiro', icon: '🏪' },
+        { key: 'Picker: En preparación', label: 'Picker: En preparación', icon: '⏳' },
+        { key: 'Picker: Parcial', label: 'Picker: Parcial', icon: '🔍' },
+        { key: 'Picker: Con Obs', label: 'Picker: Con Obs', icon: '⚠️' },
+        { key: 'Picker: Retirado', label: 'Picker: Retirado', icon: '🏬' },
+        { key: 'Picker: Sin registro', label: 'Picker: Sin registro', icon: '📥' }
+      ];
+
+      const paymentTags = [
+        { key: 'PAGADO', label: 'PAGADO', icon: '💳' },
+        { key: 'PAGO PENDIENTE', label: 'PAGO PENDIENTE', icon: '⏳' },
+        { key: 'PARCIALMENTE REEMBOLSADO', label: 'PARCIALMENTE REEMBOLSADO', icon: '💸' },
+        { key: 'REEMBOLSADO', label: 'REEMBOLSADO', icon: '💸' }
+      ];
+
+      const otherKnownTags = [
+        { key: 'FULFILLED', label: 'FULFILLED (Shopify)', icon: '📦' },
+        { key: 'FULFILL. PARCIAL', label: 'FULFILL. PARCIAL (Shopify)', icon: '📦' },
+        { key: 'RESTOCKED', label: 'RESTOCKED (Shopify)', icon: '🔄' },
+        { key: 'CANCELADO', label: 'CANCELADO', icon: '❌' }
+      ];
+
+      const knownKeys = new Set([
+        ...orderPillTags.map(t => t.key),
+        ...deliveryTags.map(t => t.key),
+        ...courierTags.map(t => t.key),
+        ...pickerTags.map(t => t.key),
+        ...paymentTags.map(t => t.key),
+        ...otherKnownTags.map(t => t.key)
+      ]);
+
+      const customPlatformTags = [];
+      tagCounts.forEach((count, tagKey) => {
+        if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
+          customPlatformTags.push({ key: tagKey, label: tagKey, icon: '🏷️' });
+        }
+      });
+
+      const buildOptgroup = (label, list) => {
+        const present = list.filter(item => (tagCounts.get(item.key) || 0) > 0);
+        if (present.length === 0) return '';
+        const options = present.map(item => {
+          const count = tagCounts.get(item.key) || 0;
+          return `<option value="${item.key.replace(/"/g, '&quot;')}">${item.icon} ${item.label} (${count})</option>`;
+        }).join('');
+        return `<optgroup label="${label}">${options}</optgroup>`;
+      };
+
+      let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+      html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
+      html += buildOptgroup('Categoría de Entrega', deliveryTags);
+      html += buildOptgroup('Despacho Courier', courierTags);
+      html += buildOptgroup('Estado Picker', pickerTags);
+      html += buildOptgroup('Estado de Pago', paymentTags);
+      html += buildOptgroup('Otros Estados', otherKnownTags);
+      if (customPlatformTags.length > 0) {
+        html += buildOptgroup('Tags de Tienda / Plataforma', customPlatformTags);
+      }
+
+      select.innerHTML = html;
+      if (currentVal) {
+        select.value = currentVal;
+      }
+    };
+
+    window.filterByOrderTag = function(tagName, event) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+      const select = document.getElementById('filter-order-tag');
+      if (!select) return;
+
+      if (select.value === tagName) {
+        select.value = '';
+      } else {
+        let exists = false;
+        for (let i = 0; i < select.options.length; i++) {
+          if (select.options[i].value === tagName) {
+            exists = true;
+            break;
+          }
+        }
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = tagName;
+          opt.textContent = `🏷️ ${tagName}`;
+          select.appendChild(opt);
+        }
+        select.value = tagName;
+      }
+
+      window.wmsCurrentPage = 1;
+      applyWmsFiltersAndRender();
+    };
+
     // Cargar comercios de v_comercios_config para la reasignación manual
     if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
       try {
@@ -4042,6 +4525,12 @@ async function renderAdminOrders() {
               <option value="">Todos</option>
               <option value="pending">Pendientes de exportar</option>
               <option value="exported">Exportados</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-price-tag-3-line"></i> Filtrar por Tag / Etiqueta</label>
+            <select id="filter-order-tag" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todas las etiquetas</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
@@ -4173,6 +4662,7 @@ async function renderAdminOrders() {
     const statusSelect = document.getElementById('filter-status');
     const categoriaSelect = document.getElementById('filter-categoria-entrega');
     const exportStatusSelect = document.getElementById('filter-export-status');
+    const orderTagSelect = document.getElementById('filter-order-tag');
     const dateFromInput = document.getElementById('filter-date-from');
     const dateToInput = document.getElementById('filter-date-to');
 
@@ -4217,6 +4707,9 @@ async function renderAdminOrders() {
           if (window.updateMerchantFilterOptions) {
             window.updateMerchantFilterOptions();
           }
+          if (window.updateOrderTagFilterOptions) {
+            window.updateOrderTagFilterOptions();
+          }
           applyWmsFiltersAndRender();
         } catch (err) {
           console.error('Error fetching orders on date change:', err);
@@ -4241,10 +4734,15 @@ async function renderAdminOrders() {
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (categoriaSelect) categoriaSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
+    if (orderTagSelect) orderTagSelect.addEventListener('change', triggerFilterUpdate);
     const warehouseSelect = document.getElementById('filter-warehouse');
     if (warehouseSelect) warehouseSelect.addEventListener('change', triggerFilterUpdate);
     if (dateFromInput) dateFromInput.addEventListener('change', handleDateChange);
     if (dateToInput) dateToInput.addEventListener('change', handleDateChange);
+
+    if (window.updateOrderTagFilterOptions) {
+      window.updateOrderTagFilterOptions();
+    }
 
     // Primera renderización de datos
     applyWmsFiltersAndRender();
@@ -4265,6 +4763,7 @@ window.applyWmsFiltersAndRender = function() {
   const statusSelect = document.getElementById('filter-status');
   const categoriaSelect = document.getElementById('filter-categoria-entrega');
   const exportStatusSelect = document.getElementById('filter-export-status');
+  const orderTagSelect = document.getElementById('filter-order-tag');
   const warehouseSelect = document.getElementById('filter-warehouse');
   const dateFromInput = document.getElementById('filter-date-from');
   const dateToInput = document.getElementById('filter-date-to');
@@ -4276,6 +4775,7 @@ window.applyWmsFiltersAndRender = function() {
   const selectedStatus = statusSelect?.value || '';
   const selectedCategoriaEntrega = categoriaSelect?.value || '';
   const selectedExportStatus = exportStatusSelect?.value || '';
+  const selectedTag = orderTagSelect?.value || '';
   const selectedWarehouse = warehouseSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
@@ -4326,6 +4826,8 @@ window.applyWmsFiltersAndRender = function() {
     const shippingCityStr = (order.shipping_city || '').toLowerCase();
     const operadorStr = (order.operador || '').toLowerCase();
     const agendaStr = (order.agenda || '').toLowerCase();
+    const orderTags = window.getOrderTags ? window.getOrderTags(order) : [];
+    const tagsStr = orderTags.join(' ').toLowerCase();
 
     const matchesSearch = !searchText || 
       orderIdLower.includes(searchText) || 
@@ -4339,7 +4841,8 @@ window.applyWmsFiltersAndRender = function() {
       shippingMethodStr.includes(searchText) ||
       shippingCityStr.includes(searchText) ||
       operadorStr.includes(searchText) ||
-      agendaStr.includes(searchText);
+      agendaStr.includes(searchText) ||
+      tagsStr.includes(searchText);
 
     const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
@@ -4368,8 +4871,9 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const matchesWarehouse = !selectedWarehouse || (order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse);
+    const matchesTag = !selectedTag || orderTags.includes(selectedTag);
 
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse;
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag;
   };
 
   // 1. Obtener conteo de pestañas
@@ -4660,75 +5164,7 @@ window.applyWmsFiltersAndRender = function() {
     // Detectar packs originales desde el canal de integración o desde los items del pedido
     let originalPacksHtml = '';
     let packBadgeHtml = '';
-    const masterProducts = window.currentMasterProducts || [];
-    let packSkus = new Set(window.currentPackSkusList || []);
-    if (packSkus.size === 0) {
-      packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
-    }
-    const foundPacksMap = new Map(); // Para evitar duplicados
-
-    // 1. Verificar en order.sku
-    const mainSku = (order.sku || '').trim().toLowerCase();
-    if (mainSku && packSkus.has(mainSku)) {
-      foundPacksMap.set(mainSku, order.cantidad || 1);
-    }
-
-    // 2. Verificar en order_items
-    if (Array.isArray(order.order_items)) {
-      order.order_items.forEach(oi => {
-        const itemSku = (oi.products?.sku || '').trim().toLowerCase();
-        if (itemSku && packSkus.has(itemSku)) {
-          foundPacksMap.set(itemSku, oi.quantity || 1);
-        }
-      });
-    }
-
-    // 3. Fallback: verificar en datos crudos de integración
-    const checkRawItems = (items, platform = '') => {
-      if (!Array.isArray(items)) return;
-      items.forEach(item => {
-        let sku = '';
-        let qty = 1;
-
-        if (platform === 'meli') {
-          sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
-          if (!sku && item.item?.variation_attributes) {
-            const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
-            if (vSkuAttr) sku = vSkuAttr.value_name || '';
-          }
-          qty = item.quantity || 1;
-        } else {
-          sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
-          qty = item.quantity || item.qty || 1;
-        }
-
-        sku = (sku || '').trim().toLowerCase();
-        if (sku && packSkus.has(sku)) {
-          foundPacksMap.set(sku, qty);
-        }
-      });
-    };
-
-    if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
-      checkRawItems(order.raw_shopify_data.line_items, 'shopify');
-    } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
-      checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
-    } else if (order.raw_meli_data) {
-      const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
-      meliOrders.forEach(mo => {
-        if (mo && mo.order_items) {
-          checkRawItems(mo.order_items, 'meli');
-        }
-      });
-    } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
-      checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
-    } else if (order.raw_paris_data && order.raw_paris_data.items) {
-      checkRawItems(order.raw_paris_data.items, 'paris');
-    } else if (order.raw_ripley_data && order.raw_ripley_data.order_lines) {
-      checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
-    } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
-      checkRawItems(order.raw_falabella_data.items, 'falabella');
-    }
+    const foundPacksMap = window.getOrderPacksMap ? window.getOrderPacksMap(order) : new Map();
 
     const foundPacks = [];
     foundPacksMap.forEach((qty, sku) => {
@@ -4744,8 +5180,9 @@ window.applyWmsFiltersAndRender = function() {
           </div>
         </div>
       `;
+      const isPackActive = selectedTag === 'Con Packs';
       packBadgeHtml = `
-        <span class="badge" style="background-color: rgba(139, 92, 246, 0.12); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem;">
+        <span class="badge wms-order-tag-badge ${isPackActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('Con Packs', event)" style="background-color: rgba(139, 92, 246, 0.12); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isPackActive ? 'outline: 2px solid #7c3aed; box-shadow: 0 0 6px rgba(124,58,237,0.5);' : ''}" title="Contiene packs (${foundPacks.length}) (Clic para filtrar)">
           <i class="ri-stack-line"></i> Con Packs
         </span>
       `;
@@ -4829,39 +5266,18 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
-    // Solo si el comercio tiene habilitado el seguimiento de inventario y el pedido es posterior al inicio
-    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
-    const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
+    const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [] };
+    const hasStockAlert = stockAlert.hasStockAlert;
+    const stockAlertDetails = stockAlert.stockAlertDetails;
 
-    let hasStockAlert = false;
-    let stockAlertDetails = [];
-    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
-    if (shouldProcessStock && !isOrderTerminalOrShipped) {
-      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
-      if (itemsToCheck.length > 0) {
-        const invMap = window.loadedOrdersInventoryMap || {};
-        itemsToCheck.forEach(item => {
-          let totalAvailableQty = 0;
-          Object.keys(invMap).forEach(key => {
-            if (key.startsWith(item.product_id + '_')) {
-              totalAvailableQty += invMap[key] || 0;
-            }
-          });
-          if (totalAvailableQty < item.quantity) {
-            hasStockAlert = true;
-            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - totalAvailableQty} un.)`);
-          }
-        });
-      }
-    }
-
+    const isStockActive = selectedTag === 'SIN STOCK';
     const stockAlertBadgeHtml = hasStockAlert
-      ? `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: help;" title="Falta stock: ${stockAlertDetails.join(', ')}"><i class="ri-alert-line"></i> SIN STOCK</span>`
+      ? `<span class="badge wms-order-tag-badge ${isStockActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('SIN STOCK', event)" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isStockActive ? 'outline: 2px solid #b91c1c; box-shadow: 0 0 6px rgba(185,28,28,0.5);' : ''}" title="Falta stock: ${stockAlertDetails.join(', ')} (Clic para filtrar)"><i class="ri-alert-line"></i> SIN STOCK</span>`
       : '';
 
+    const isExportActive = selectedTag === 'Exportado';
     const exportBadgeHtml = order.shopify_exported 
-      ? `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem;"><i class="ri-check-line"></i> Exportado</span>`
+      ? `<span class="badge wms-order-tag-badge ${isExportActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('Exportado', event)" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isExportActive ? 'outline: 2px solid #065f46; box-shadow: 0 0 6px rgba(6,95,70,0.5);' : ''}" title="Exportado a Shopify (Clic para filtrar)"><i class="ri-check-line"></i> Exportado</span>`
       : '';
 
     let shipmentBadgeHtml = '';
@@ -4902,42 +5318,67 @@ window.applyWmsFiltersAndRender = function() {
         badgeColor = '#991b1b';
       }
       
-      shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
+      const isShipActive = selectedTag === globStatus;
+      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${globStatus}', event)" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${badgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="${courierName}: ${shipment.tracking || ''} (Clic para filtrar)"><i class="ri-truck-line"></i> ${globStatus}</span>`;
     }
 
     // 0. Tag de Categoría de Entrega (Distribución vs Retiro)
     const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
     let categoryBadgeHtml = '';
+    const catFilterTag = (catDelivery === 'DISTRIBUCION' ? 'DISTRIBUCIÓN' : catDelivery);
+    const isCatActive = selectedTag === catFilterTag;
     if (catDelivery === 'RETIRO') {
-      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Retiro"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
     } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
-      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Categoría de Entrega: Distribución"><i class="ri-truck-line"></i> DISTRIBUCIÓN</span>`;
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #0369a1; box-shadow: 0 0 6px rgba(3,105,161,0.4);' : ''}" title="Categoría de Entrega: Distribución (Clic para filtrar)"><i class="ri-truck-line"></i> DISTRIBUCIÓN</span>`;
     } else if (order.categoria_entrega) {
-      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge" style="background-color: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${catDelivery}</span>`;
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #374151; box-shadow: 0 0 6px rgba(55,65,81,0.4);' : ''}" title="(Clic para filtrar)">${catDelivery}</span>`;
     }
 
     // 1. Estado de Pago
     let paymentBadgeHtml = '';
     const payStatus = String(order.payment_status || '').toLowerCase().trim();
+    let payTag = '';
+    let payBg = '#e5e7eb';
+    let payColor = '#4b5563';
+    let payIcon = 'ri-money-dollar-circle-line';
     if (payStatus === 'paid' || payStatus === 'authorized') {
-      paymentBadgeHtml = `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-circle-line"></i> PAGADO</span>`;
+      payTag = 'PAGADO';
+      payBg = '#d1fae5';
+      payColor = '#065f46';
+      payIcon = 'ri-checkbox-circle-line';
     } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
-      paymentBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-error-warning-line"></i> PAGO PENDIENTE</span>`;
+      payTag = 'PAGO PENDIENTE';
+      payBg = '#fef3c7';
+      payColor = '#92400e';
+      payIcon = 'ri-error-warning-line';
     } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
-      paymentBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-refund-line"></i> PARCIALMENTE REEMBOLSADO</span>`;
+      payTag = 'PARCIALMENTE REEMBOLSADO';
+      payBg = '#fee2e2';
+      payColor = '#991b1b';
+      payIcon = 'ri-refund-line';
     } else if (payStatus === 'refunded' || payStatus === 'voided') {
-      paymentBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-refund-line"></i> REEMBOLSADO</span>`;
+      payTag = 'REEMBOLSADO';
+      payBg = '#fee2e2';
+      payColor = '#991b1b';
+      payIcon = 'ri-refund-line';
     } else if (order.payment_status) {
-      paymentBadgeHtml = `<span class="badge" style="background-color: #e5e7eb; color: #4b5563; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${order.payment_status.toUpperCase()}</span>`;
+      payTag = order.payment_status.toUpperCase();
+    }
+    if (payTag) {
+      const isPayActive = selectedTag === payTag;
+      paymentBadgeHtml = `<span class="badge wms-order-tag-badge ${isPayActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${payTag}', event)" style="background-color: ${payBg}; color: ${payColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isPayActive ? `outline: 2px solid ${payColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Estado de pago: ${payTag} (Clic para filtrar)"><i class="${payIcon}"></i> ${payTag}</span>`;
     }
 
     // 2. Alerta de Cancelado (Shopify o estado WMS) o Devolución
     let cancelBadgeHtml = '';
     const isCancelled = !isReturned && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
     if (isReturned) {
-      cancelBadgeHtml = `<span class="badge" style="background-color: #ffe4e6; color: #9f1239; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-arrow-go-back-line"></i> DEVOLUCIÓN</span>`;
+      const isRetActive = selectedTag === 'DEVOLUCIÓN';
+      cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isRetActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('DEVOLUCIÓN', event)" style="background-color: #ffe4e6; color: #9f1239; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isRetActive ? 'outline: 2px solid #9f1239; box-shadow: 0 0 6px rgba(159,18,57,0.4);' : ''}" title="Devolución (Clic para filtrar)"><i class="ri-arrow-go-back-line"></i> DEVOLUCIÓN</span>`;
     } else if (isCancelled) {
-      cancelBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-close-circle-line"></i> CANCELADO</span>`;
+      const isCancActive = selectedTag === 'CANCELADO';
+      cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isCancActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CANCELADO', event)" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCancActive ? 'outline: 2px solid #991b1b; box-shadow: 0 0 6px rgba(153,27,27,0.4);' : ''}" title="Cancelado (Clic para filtrar)"><i class="ri-close-circle-line"></i> CANCELADO</span>`;
     }
 
     // 3. Estado de Preparación (Fulfillment) de Shopify
@@ -4945,17 +5386,21 @@ window.applyWmsFiltersAndRender = function() {
     if (order.external_platform === 'Shopify' && rawShopify) {
       const shpfyFullStatus = rawShopify.fulfillment_status;
       if (shpfyFullStatus === 'fulfilled') {
-        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-circle-line"></i> FULFILLED</span>`;
+        const isFulfillActive = selectedTag === 'FULFILLED';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('FULFILLED', event)" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #3730a3; box-shadow: 0 0 6px rgba(55,48,163,0.4);' : ''}" title="Shopify Fulfilled (Clic para filtrar)"><i class="ri-checkbox-circle-line"></i> FULFILLED</span>`;
       } else if (shpfyFullStatus === 'partial') {
-        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-blank-circle-line"></i> FULFILL. PARCIAL</span>`;
+        const isFulfillActive = selectedTag === 'FULFILL. PARCIAL';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('FULFILL. PARCIAL', event)" style="background-color: #ffedd5; color: #9a3412; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #9a3412; box-shadow: 0 0 6px rgba(154,52,18,0.4);' : ''}" title="Shopify Fulfillment Parcial (Clic para filtrar)"><i class="ri-checkbox-blank-circle-line"></i> FULFILL. PARCIAL</span>`;
       } else if (shpfyFullStatus === 'restocked') {
-        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-arrow-go-back-line"></i> RESTOCKED</span>`;
+        const isFulfillActive = selectedTag === 'RESTOCKED';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('RESTOCKED', event)" style="background-color: #f1f5f9; color: #475569; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Shopify Restocked (Clic para filtrar)"><i class="ri-arrow-go-back-line"></i> RESTOCKED</span>`;
       }
     }
 
     let labelBadgeHtml = '';
     if (order.label_url || order.tracking_number) {
-      labelBadgeHtml = `<span class="badge" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem;" title="Etiqueta Generada"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
+      const isLabelActive = selectedTag === 'Etiqueta';
+      labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
     }
 
     const orderDisplayId = order.external_order_number 
@@ -5363,7 +5808,24 @@ window.applyWmsFiltersAndRender = function() {
     const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
     let noteBadgeHtml = '';
     if (orderNote) {
-      noteBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')}"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
+      const isNoteActive = selectedTag === 'CON NOTA';
+      noteBadgeHtml = `<span class="badge wms-order-tag-badge ${isNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('CON NOTA', event)" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isNoteActive ? 'outline: 2px solid #92400e; box-shadow: 0 0 6px rgba(146,64,14,0.4);' : ''}" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-chat-3-line" style="color: #d97706;"></i> CON NOTA</span>`;
+    }
+
+    let customPlatformTagsHtml = '';
+    const rawStoreTags = new Set();
+    if (order.raw_shopify_data?.tags) {
+      String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (order.tags) {
+      (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (rawStoreTags.size > 0) {
+      customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
+        const isCustomActive = selectedTag === t;
+        const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta de tienda: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
+      }).join('');
     }
 
     const pickerBadgeHtml = window.renderPickerStatusBadge ? window.renderPickerStatusBadge(order) : '';
@@ -5430,7 +5892,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}
           </div>
         </td>
       </tr>
@@ -5801,6 +6263,9 @@ window.refreshWmsOrders = async function(btn) {
 
     if (window.updateMerchantFilterOptions) {
       window.updateMerchantFilterOptions();
+    }
+    if (window.updateOrderTagFilterOptions) {
+      window.updateOrderTagFilterOptions();
     }
     applyWmsFiltersAndRender();
 

@@ -1557,3 +1557,20 @@ body:has(.floating-support-btn) .scroll-to-top-btn,
   }
 }
 
+/* WMS Order Badges / Tags Interactive Styling */
+.wms-order-tag-badge {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, outline 0.15s ease, filter 0.15s ease;
+  user-select: none;
+  cursor: pointer;
+}
+
+.wms-order-tag-badge:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.92);
+}
+
+.wms-order-tag-badge.wms-tag-active {
+  outline: 2px solid var(--color-primary) !important;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5) !important;
+  font-weight: 800 !important;
+}
