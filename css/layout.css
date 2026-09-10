@@ -1511,13 +1511,23 @@ body:has(.floating-support-btn) .scroll-to-top-btn,
   box-shadow: 0 0 12px rgba(94, 23, 235, 0.4) !important;
 }
 
-/* Floating Bulk Actions Bar (Sticky) */
-#wms-bulk-actions-container,
+/* Floating Bulk Actions Bar & Sticky Action Containers */
+#wms-sticky-actions-container,
 #catalog-bulk-actions-container,
 #merchants-bulk-actions-container {
   position: sticky;
   top: 0;
   z-index: 900;
+}
+
+#wms-sticky-actions-container {
+  background: var(--color-bg);
+  padding-top: 0.25rem;
+  padding-bottom: 0.5rem;
+}
+
+#wms-sticky-actions-container .bulk-actions-bar {
+  margin-bottom: 0.5rem;
 }
 
 .bulk-actions-bar {

@@ -1494,7 +1494,20 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   const savedOrderMap = {};
   if (savedSnapshot && savedSnapshot.orders && Array.isArray(savedSnapshot.orders)) {
     savedSnapshot.orders.forEach(so => {
-      if (so && so.id) savedOrderMap[so.id] = so;
+      if (so && so.id) {
+        // Sanear si en el snapshot previo venía con isMarketplace=true pero surchargeMarketplace=0
+        if (so.isMarketplace && (!so.surchargeMarketplace || so.surchargeMarketplace === 0)) {
+          const mktRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
+          so.surchargeMarketplace = mktRate;
+          so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + so.surchargeMarketplace;
+          so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
+        } else if (!so.isMarketplace && so.surchargeMarketplace > 0) {
+          so.surchargeMarketplace = 0;
+          so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0);
+          so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
+        }
+        savedOrderMap[so.id] = so;
+      }
     });
   }
 
@@ -1523,25 +1536,24 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const extraUnitsCount = Math.max(0, unitsCount - (cfg.pick_pack_rules.base_included_units || 10));
     const surchargeUnits = extraUnitsCount * (cfg.pick_pack_rules.surcharge_extra_unit || 50);
 
-    // Detección de pedido Marketplace (+ $100)
+    // Detección automática de pedido Marketplace (+ $100)
     const platformUpper = String(ord.external_platform || '').toUpperCase();
     const agendaUpper = String(ord.agenda || '').toUpperCase();
     const operadorUpper = String(ord.operador || '').toUpperCase();
 
-    const isMarketplace = platformUpper.includes('MERCADO') || 
-                          platformUpper.includes('FALABELLA') || 
-                          platformUpper.includes('RIPLEY') || 
-                          platformUpper.includes('WALMART') || 
-                          platformUpper.includes('PARIS') || 
-                          agendaUpper.includes('MERCADO') || 
-                          agendaUpper.includes('FALABELLA') || 
-                          agendaUpper.includes('FLEX') || 
-                          agendaUpper.includes('CENTRO DE ENVIOS') || 
-                          operadorUpper.includes('MERCADOLIBRE') || 
-                          operadorUpper.includes('FALABELLA');
+    const isMarketplaceAuto = platformUpper.includes('MERCADO') || 
+                              platformUpper.includes('FALABELLA') || 
+                              platformUpper.includes('RIPLEY') || 
+                              platformUpper.includes('WALMART') || 
+                              platformUpper.includes('PARIS') || 
+                              agendaUpper.includes('MERCADO') || 
+                              agendaUpper.includes('FALABELLA') || 
+                              agendaUpper.includes('FLEX') || 
+                              agendaUpper.includes('CENTRO DE ENVIOS') || 
+                              operadorUpper.includes('MERCADOLIBRE') || 
+                              operadorUpper.includes('FALABELLA');
 
-    const surchargeMarketplace = isMarketplace ? (cfg.pick_pack_rules.surcharge_marketplace_collect || 100) : 0;
-    const unitPickPackTotal = basePickPackRate + surchargeSku + surchargeUnits + surchargeMarketplace;
+    const mktSurchargeRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
 
     // Reglas de Despacho (Punto D)
     const shippingMethodUpper = String(ord.shipping_method || '').toUpperCase();
@@ -1598,10 +1610,27 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
     // Sobreescritura manual por pedido si el admin ya lo editó (o si estaba guardado en snapshot)
     const manualOrderOverride = (customOverrides.orders && customOverrides.orders[ord.id]) || savedOrder;
+    
+    // Respetar override manual de isMarketplace si existe; de lo contrario usar auto-detección
+    const isMarketplace = manualOrderOverride?.isMarketplace !== undefined
+      ? !!manualOrderOverride.isMarketplace
+      : isMarketplaceAuto;
+
+    // Regla estricta de recargo Marketplace:
+    // Checkbox marcado (true) = $100 (o tarifa configurada si > 0). NUNCA $0 si isMarketplace es true.
+    // Checkbox desmarcado (false) = $0.
+    let finalSurchargeMarketplace = 0;
+    if (isMarketplace) {
+      finalSurchargeMarketplace = (manualOrderOverride?.surchargeMarketplace !== undefined && manualOrderOverride.surchargeMarketplace > 0)
+        ? manualOrderOverride.surchargeMarketplace
+        : mktSurchargeRate;
+    } else {
+      finalSurchargeMarketplace = 0;
+    }
+
     const finalBaseRate = manualOrderOverride?.baseRate !== undefined ? manualOrderOverride.baseRate : basePickPackRate;
     const finalSurchargeSku = manualOrderOverride?.surchargeSku !== undefined ? manualOrderOverride.surchargeSku : surchargeSku;
     const finalSurchargeUnits = manualOrderOverride?.surchargeUnits !== undefined ? manualOrderOverride.surchargeUnits : surchargeUnits;
-    const finalSurchargeMarketplace = manualOrderOverride?.surchargeMarketplace !== undefined ? manualOrderOverride.surchargeMarketplace : surchargeMarketplace;
     const finalDeliveryType = manualOrderOverride?.deliveryType || deliveryType;
     let finalShippingFreight = shippingFreight;
     if (manualOrderOverride?.shippingFreight !== undefined) {
@@ -1629,7 +1658,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     return {
       id: ord.id,
       rowNumber: idx + 1,
-      orderNumber: ord.external_order_number || ord.id.slice(0, 8),
+      orderNumber: ord.external_order_number || (ord.raw_shopify_data?.name ? ord.raw_shopify_data.name : ord.id.slice(0, 8)),
+      externalOrderNumber: ord.external_order_number || (ord.raw_shopify_data?.name ? ord.raw_shopify_data.name : ord.id.slice(0, 8)),
+      platform: ord.external_platform || (ord.raw_shopify_data ? 'Shopify' : (ord.raw_woocommerce_data ? 'WooCommerce' : (ord.raw_meli_data ? 'Mercado Libre' : 'Manual'))),
+      externalPlatform: ord.external_platform || (ord.raw_shopify_data ? 'Shopify' : (ord.raw_woocommerce_data ? 'WooCommerce' : (ord.raw_meli_data ? 'Mercado Libre' : 'Manual'))),
       date: ord.created_at ? ord.created_at.slice(0, 10) : '—',
       destination: ord.shipping_city || 'Santiago',
       isColina,
@@ -2408,7 +2440,7 @@ export function exportBillingToExcel(customState = null) {
   }, {});
 
   const ordersHeaders = [
-    "N°", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
+    "N°", "REF. ORIGEN", "PLATAFORMA", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
     "TICKET VENTA ($)", "TIPO ENTREGA", "SKUS", "UNIDADES", "MKT?",
     "TARIFA BASE ($)", "REC. SKU ($)", "REC. UNID ($)", "REC. MKT ($)",
     "PREPARACIÓN TOTAL ($)", "FLETE ENVÍO ($)", "TOTAL COBRADO ($)", "ESTADO WMS", "INCLUIDO?"
@@ -2416,6 +2448,8 @@ export function exportBillingToExcel(customState = null) {
 
   const ordersRows = (b.orders || []).map((o, idx) => [
     idx + 1,
+    o.orderNumber || o.externalOrderNumber || o.id,
+    o.platform || o.externalPlatform || 'Manual',
     o.id,
     o.date,
     o.agenda || 'Sin agenda',
@@ -4228,7 +4262,8 @@ window.updateBgOrderCell = function(orderId, field, value) {
     order.surchargeUnits = extraUnits * 50;
   } else if (field === 'isMarketplace') {
     order.isMarketplace = !!value;
-    order.surchargeMarketplace = order.isMarketplace ? 100 : 0;
+    const mktSurcharge = (billingState.pricingConfig?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+    order.surchargeMarketplace = order.isMarketplace ? mktSurcharge : 0;
   } else if (field === 'baseRate') {
     order.baseRate = Math.max(0, parseInt(value, 10) || 0);
   } else if (field === 'shippingFreight') {
@@ -4560,7 +4595,8 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
     // F. Marketplace
     if (updates.mkt !== null) {
       ord.isMarketplace = updates.mkt;
-      ord.surchargeMarketplace = ord.isMarketplace ? 100 : 0;
+      const mktSurcharge = (billingState.pricingConfig?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+      ord.surchargeMarketplace = ord.isMarketplace ? mktSurcharge : 0;
     }
 
     // G. Tarifa Base Pick & Pack
@@ -6653,6 +6689,67 @@ window.updateChecklistNavBadge = updateChecklistNavBadge;
 // --- SUBSISTEMA DE VISUALIZACIÓN INTERACTIVA PARA CLIENTES (PORTAL COMERCIO) ---
 // ============================================================================
 
+// Generar badge con color e icono para la plataforma de origen del pedido
+export function getPlatformBadgeHTML(platform) {
+  const p = String(platform || 'Manual').trim();
+  const pLower = p.toLowerCase();
+  
+  let icon = 'ri-global-line';
+  let color = '#64748b';
+  let bg = 'rgba(100, 116, 139, 0.1)';
+  let border = 'rgba(100, 116, 139, 0.25)';
+  let slug = 'manual';
+
+  if (pLower.includes('shopify')) {
+    icon = 'ri-shopping-bag-3-fill';
+    color = '#10b981';
+    bg = 'rgba(16, 185, 129, 0.12)';
+    border = 'rgba(16, 185, 129, 0.3)';
+    slug = 'shopify';
+  } else if (pLower.includes('mercado') || pLower.includes('meli')) {
+    icon = 'ri-shopping-cart-fill';
+    color = '#f59e0b';
+    bg = 'rgba(245, 158, 11, 0.12)';
+    border = 'rgba(245, 158, 11, 0.3)';
+    slug = 'mercadolibre';
+  } else if (pLower.includes('woo')) {
+    icon = 'ri-store-2-fill';
+    color = '#8b5cf6';
+    bg = 'rgba(139, 92, 246, 0.12)';
+    border = 'rgba(139, 92, 246, 0.3)';
+    slug = 'woocommerce';
+  } else if (pLower.includes('falabella')) {
+    icon = 'ri-store-3-fill';
+    color = '#84cc16';
+    bg = 'rgba(132, 204, 22, 0.12)';
+    border = 'rgba(132, 204, 22, 0.3)';
+    slug = 'falabella';
+  } else if (pLower.includes('paris')) {
+    icon = 'ri-store-line';
+    color = '#e11d48';
+    bg = 'rgba(225, 29, 72, 0.12)';
+    border = 'rgba(225, 29, 72, 0.3)';
+    slug = 'paris';
+  } else if (pLower.includes('ripley')) {
+    icon = 'ri-store-line';
+    color = '#7c3aed';
+    bg = 'rgba(124, 58, 237, 0.12)';
+    border = 'rgba(124, 58, 237, 0.3)';
+    slug = 'ripley';
+  } else if (pLower.includes('vtex')) {
+    icon = 'ri-shopping-cart-line';
+    color = '#ec4899';
+    bg = 'rgba(236, 72, 153, 0.12)';
+    border = 'rgba(236, 72, 153, 0.3)';
+    slug = 'vtex';
+  }
+
+  return `<span class="cm-platform-badge cm-platform-${slug}" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; background: ${bg}; color: ${color}; border: 1px solid ${border}; white-space: nowrap;">
+    <i class="${icon}"></i> ${escapeHtml(p)}
+  </span>`;
+}
+window.getPlatformBadgeHTML = getPlatformBadgeHTML;
+
 // Inyectar estilos específicos para el modal interactivo de clientes
 export function injectClientInteractiveModalStyles() {
   injectBillingGeneratorStyles();
@@ -7108,6 +7205,16 @@ export function injectClientInteractiveModalStyles() {
       font-weight: 700;
       display: inline-block;
     }
+    .cm-platform-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
     .cm-cell-qty {
       text-align: center;
       font-weight: 700;
@@ -7237,6 +7344,46 @@ export function injectClientInteractiveModalStyles() {
   document.head.appendChild(style);
 }
 
+/**
+ * Garantiza que si una orden está marcada como Marketplace, su recargo sea estrictamente $100
+ * (o tarifa configurada) y nunca $0, recalculando sus totales de preparación y pedido.
+ */
+export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
+  if (!snapshot || !Array.isArray(snapshot.orders)) return;
+  const cfg = config || billingState.pricingConfig;
+  const mktRate = (cfg?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+  let changed = false;
+
+  snapshot.orders.forEach(o => {
+    if (o.isMarketplace && (!o.surchargeMarketplace || o.surchargeMarketplace === 0)) {
+      o.surchargeMarketplace = mktRate;
+      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + o.surchargeMarketplace;
+      o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
+      changed = true;
+    } else if (!o.isMarketplace && o.surchargeMarketplace > 0) {
+      o.surchargeMarketplace = 0;
+      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0);
+      o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
+      changed = true;
+    }
+  });
+
+  if (changed && snapshot.totals) {
+    const billable = snapshot.orders.filter(o => !o.isExcluded);
+    snapshot.totals.pickPackNet = billable.reduce((acc, o) => acc + (o.pickPackTotal || 0), 0);
+    const storageNet = snapshot.totals.storageNet || 0;
+    const shippingNet = snapshot.totals.shippingRmFlexNet || 0;
+    const inboundNet = snapshot.totals.inboundNet || 0;
+    const fixedFeeNet = snapshot.totals.fixedFeeNet || 0;
+    const suppliesNet = Array.isArray(snapshot.supplies) ? snapshot.supplies.reduce((acc, s) => acc + (s.total || 0), 0) : 0;
+    const adjustmentsNet = Array.isArray(snapshot.adjustments) ? snapshot.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0) : 0;
+    snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + suppliesNet + adjustmentsNet);
+    snapshot.totals.iva = Math.round(snapshot.totals.totalNet * 0.19);
+    snapshot.totals.totalGross = snapshot.totals.totalNet + snapshot.totals.iva;
+    snapshot.totals.totalToPay = snapshot.totals.totalGross;
+  }
+}
+
 // Abrir el Modal Interactivo para el Cliente (Desglose, Registro, Métricas)
 export async function openClientInteractiveBillingModal(recordId, initialTab = 'desglose') {
   injectBillingGeneratorStyles();
@@ -7307,6 +7454,9 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
     return;
   }
 
+  // Garantizar que recargos Marketplace y totales sean consistentes
+  sanitizeSnapshotOrdersMarketplace(snapshot);
+
   // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
   const commName = snapshot.comercio || rec.comercio;
   if (!snapshot.commerceInfo) snapshot.commerceInfo = {};
@@ -7341,6 +7491,39 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
   } catch (e) {}
 
   if (typeof Swal !== 'undefined') Swal.close();
+
+  // Enriquecer pedidos con referencia de origen y plataforma si no vinieran en el snapshot
+  if (snapshot.orders && Array.isArray(snapshot.orders)) {
+    const needsOrderEnrichment = snapshot.orders.some(o => !o.platform || !o.orderNumber || o.orderNumber === o.id.slice(0, 8));
+    if (needsOrderEnrichment) {
+      try {
+        const orderIds = snapshot.orders.map(o => o.id);
+        const { data: dbOrders } = await supabase
+          .from('orders')
+          .select('id, external_order_number, external_platform, raw_shopify_data, raw_woocommerce_data, raw_meli_data')
+          .in('id', orderIds);
+        if (dbOrders && dbOrders.length > 0) {
+          const oMap = {};
+          dbOrders.forEach(dbo => { oMap[dbo.id] = dbo; });
+          snapshot.orders.forEach(o => {
+            const dbo = oMap[o.id];
+            if (dbo) {
+              const plat = dbo.external_platform || (dbo.raw_shopify_data ? 'Shopify' : (dbo.raw_woocommerce_data ? 'WooCommerce' : (dbo.raw_meli_data ? 'Mercado Libre' : 'Manual')));
+              o.platform = o.platform || plat;
+              o.externalPlatform = o.externalPlatform || plat;
+              const refNum = dbo.external_order_number || dbo.raw_shopify_data?.name || (dbo.raw_shopify_data?.order_number ? `#${dbo.raw_shopify_data.order_number}` : null);
+              if (refNum) {
+                o.orderNumber = refNum;
+                o.externalOrderNumber = refNum;
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Error enriqueciendo pedidos con plataforma/referencia:', err);
+      }
+    }
+  }
 
   // Marcar modo cliente
   snapshot.isClientView = true;
@@ -7440,7 +7623,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
 
               <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <div style="position: relative;">
-                  <input type="text" id="client-orders-filter-input" class="form-input" placeholder="Buscar por ID, Comuna u Operador..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 260px; padding-left: 2rem; border-radius: 8px;" oninput="window.filterClientOrdersTable()">
+                  <input type="text" id="client-orders-filter-input" class="form-input" placeholder="Buscar por N° Pedido, Plataforma, Comuna u Operador..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 260px; padding-left: 2rem; border-radius: 8px;" oninput="window.filterClientOrdersTable()">
                   <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted, #94a3b8);"></i>
                 </div>
                 <span id="client-orders-filter-count" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 5px 10px; border-radius: 6px;">
@@ -7454,24 +7637,36 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                 <thead>
                   <tr>
                     <th style="width: 40px; text-align: center;">N°</th>
-                    <th style="min-width: 140px;">ID Pedido</th>
-                    <th style="min-width: 100px;">Fecha</th>
-                    <th style="min-width: 130px;">Agenda</th>
-                    <th style="min-width: 180px;">Destino / Comuna</th>
-                    <th style="min-width: 120px;">Operador</th>
-                    <th style="min-width: 140px;">Tipo Entrega</th>
-                    <th style="width: 60px; text-align: center;">SKUs</th>
-                    <th style="width: 60px; text-align: center;">Unid.</th>
+                    <th style="min-width: 140px;">Ref. Pedido</th>
+                    <th style="min-width: 120px; text-align: center;">Plataforma</th>
+                    <th style="min-width: 95px;">Fecha</th>
+                    <th style="min-width: 120px;">Agenda</th>
+                    <th style="min-width: 160px;">Destino / Comuna</th>
+                    <th style="min-width: 110px;">Operador</th>
+                    <th style="min-width: 130px;">Tipo Entrega</th>
+                    <th style="width: 55px; text-align: center;">SKUs</th>
+                    <th style="width: 55px; text-align: center;">Unid.</th>
                     <th style="width: 95px; text-align: right;">Prep. Total</th>
                     <th style="width: 95px; text-align: right;">Flete Envío</th>
                     <th class="th-total-order" style="width: 105px; text-align: right;">Total Pedido</th>
                   </tr>
                 </thead>
                 <tbody id="client-modal-orders-body">
-                  ${orders.map((o, idx) => `
+                  ${orders.map((o, idx) => {
+                    const refDisplay = o.orderNumber || o.externalOrderNumber || (o.id ? o.id.slice(0, 8) : '—');
+                    const platformName = o.platform || o.externalPlatform || (o.isMarketplace ? 'Marketplace' : 'Shopify');
+                    return `
                     <tr class="client-modal-order-row">
                       <td class="cm-cell-num">${idx + 1}</td>
-                      <td class="cm-cell-id">${escapeHtml(o.id || '—')}</td>
+                      <td class="cm-cell-id">
+                        <div style="font-weight: 800; font-size: 0.85rem; color: #a855f7;">${escapeHtml(refDisplay)}</div>
+                        <div style="font-size: 0.68rem; color: var(--color-text-muted); font-family: monospace; font-weight: 500;" title="ID WMS: ${escapeHtml(o.id || '')}">
+                          ${escapeHtml((o.id || '').slice(0, 13))}...
+                        </div>
+                      </td>
+                      <td style="text-align: center;">
+                        ${getPlatformBadgeHTML(platformName)}
+                      </td>
                       <td class="cm-cell-date">${escapeHtml(o.date || '—')}</td>
                       <td class="cm-cell-agenda ${o.agenda ? '' : 'empty'}">${escapeHtml(o.agenda || 'Sin agenda')}</td>
                       <td class="cm-cell-dest">${escapeHtml(o.destination || 'Santiago')}</td>
@@ -7487,7 +7682,8 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                       <td class="cm-cell-money">${formatCLP(o.shippingFreight || 0)}</td>
                       <td class="cm-cell-total">${formatCLP(o.orderTotal || 0)}</td>
                     </tr>
-                  `).join('') || `<tr><td colspan="12" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
+                    `;
+                  }).join('') || `<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
                 </tbody>
               </table>
             </div>
@@ -7596,6 +7792,9 @@ export async function downloadClientBillingPdf(recordId) {
     return;
   }
 
+  // Garantizar que recargos Marketplace y totales sean consistentes
+  sanitizeSnapshotOrdersMarketplace(snapshot);
+
   // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
   const commName = snapshot.comercio || '';
   if (!snapshot.commerceInfo) snapshot.commerceInfo = {};
@@ -7680,6 +7879,9 @@ export async function downloadClientBillingExcel(recordId) {
     if (typeof Swal !== 'undefined') Swal.fire('Error', 'No se encontró la información del cobro para exportar a Excel.', 'error');
     return;
   }
+
+  // Garantizar que recargos Marketplace y totales sean consistentes
+  sanitizeSnapshotOrdersMarketplace(snapshot);
 
   exportBillingToExcel(snapshot);
 }

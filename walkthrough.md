@@ -2699,8 +2699,17 @@ Hemos integrado un filtro desplegable específico por **Comercio** en la tarjeta
    - El botón **Limpiar** (`clearPendingInvoiceFilters`) restablece todos los filtros a su estado por defecto.
    - El estado de los filtros y la apertura del panel persisten automáticamente si el usuario registra facturas o si la vista se vuelve a renderizar.
 
-
-
 ---
 
+## 116. Doble Panel de Acciones Flotante (Sticky) en Gestor de Pedidos
 
+Hemos unificado y hecho flotantes ambos paneles de acción en la vista del Administrador ([`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), [`css/layout.css`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/css/layout.css), [`admin.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/admin.html)) para que permanezcan siempre visibles en la parte superior durante el scroll vertical por la tabla de pedidos:
+
+1. **Estructura Flotante Unificada (`#wms-sticky-actions-container`)**:
+   - Agrupamos tanto la **Barra de Acciones Masivas** (azul) como el **Panel de Control de Pedidos** (toolbar con botones de crear pedido, manifiesto, sincronizar, exportar, actualizar, etc.) dentro de un único contenedor sticky (`position: sticky; top: 0; z-index: 900; background: var(--color-bg);`).
+   - Esto evita que el scroll vertical de `.content-area` oculte los botones de control y permite operar pedidos masivamente sin necesidad de volver a subir al inicio de la página.
+
+2. **Diseño y Acople Dinámico**:
+   - El panel de control de pedidos (`#wms-orders-control-bar`) se estilizó como una barra de herramientas independiente con elevación y sombras suaves (`box-shadow`, `border-radius: var(--radius-lg)` y fondo de superficie).
+   - Cuando no hay pedidos seleccionados, el contenedor de acciones masivas colapsa a 0px de alto y el panel de control se ancla suavemente arriba.
+   - Cuando se seleccionan pedidos, la barra azul de acciones masivas aparece inmediatamente sobre el panel de control con un margen reducido de `0.5rem`, manteniendo ambos paneles apilados de forma armónica.

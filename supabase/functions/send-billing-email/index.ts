@@ -2141,7 +2141,7 @@ serve(async (req) => {
         ? 'linear-gradient(135deg, #5f06fa, #7c3aed)' 
         : 'linear-gradient(135deg, #2563eb, #1d4ed8)';
       emailTitle = isInteractiveBilling
-        ? 'Desglose Interactivo de Facturación'
+        ? 'Desglose de Facturación'
         : 'Resumen de Facturación';
 
       let correctionNoticeHtml = '';

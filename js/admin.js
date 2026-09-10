@@ -4032,13 +4032,14 @@ async function renderAdminOrders() {
       <!-- Agrupación por Pestañas de Estado WMS -->
       <div id="wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
 
-      <!-- Barra de Acciones Masivas Flotante (Sticky) -->
-      <div id="wms-bulk-actions-container" style="position: sticky; top: 0; z-index: 900;"></div>
+      <!-- Contenedor Flotante de Ambos Paneles de Acciones (Sticky al hacer Scroll) -->
+      <div id="wms-sticky-actions-container" class="wms-sticky-actions-container" style="position: sticky; top: 0; z-index: 900; background: var(--color-bg); padding-top: 0.25rem; padding-bottom: 0.5rem;">
+        <!-- Panel 1: Barra de Acciones Masivas Flotante (Azul) -->
+        <div id="wms-bulk-actions-container"></div>
 
-      <!-- Tabla de Pedidos -->
-      <div class="card">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-          <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
+        <!-- Panel 2: Barra de Control de Pedidos Flotante -->
+        <div id="wms-orders-control-bar" class="card-header wms-control-panel-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06); padding: 0.75rem 1.25rem;">
+          <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 700;">Panel de Control de Pedidos</h3>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
               <i class="ri-add-circle-line"></i> Crear Pedido
@@ -4063,6 +4064,10 @@ async function renderAdminOrders() {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Tabla de Pedidos -->
+      <div class="card" style="margin-top: 0.5rem;">
         <div class="card-body" style="overflow-x: auto;">
           <table class="data-table">
             <thead>
@@ -5882,7 +5887,7 @@ function renderWmsBulkActionsBar() {
   }
   
   container.innerHTML = `
-    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
       <div style="display: flex; align-items: center; gap: 1rem;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} pedidos seleccionados</span>
@@ -11534,6 +11539,9 @@ async function renderAdminInventory() {
         </button>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-admin-refresh-global" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: transparent; font-weight: 600;" title="Actualizar y refrescar datos de inventario">
+          <i class="ri-refresh-line" id="icon-admin-refresh-global"></i> Actualizar
+        </button>
         <button id="btn-admin-open-dimensions-modal" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.06); font-weight: 600;" title="Generar Hoja / Planilla de Dimensiones y Pesaje para Bodega">
           <i class="ri-ruler-2-line"></i> Solicitud de Dimensiones
         </button>
@@ -11553,6 +11561,32 @@ async function renderAdminInventory() {
   const tabRequests = document.getElementById('tab-admin-inv-requests');
   const quickNewReq = document.getElementById('btn-admin-quick-new-request');
   const openDimsBtn = document.getElementById('btn-admin-open-dimensions-modal');
+  const refreshGlobalBtn = document.getElementById('btn-admin-refresh-global');
+
+  if (refreshGlobalBtn) {
+    refreshGlobalBtn.addEventListener('click', async () => {
+      const icon = document.getElementById('icon-admin-refresh-global');
+      if (icon) icon.className = 'ri-loader-4-line ri-spin';
+      refreshGlobalBtn.disabled = true;
+      try {
+        updateAdminInventoryRequestsTabBadge();
+        if (window.activeAdminInventoryTab === 'requests') {
+          await renderAdminInventoryRequestsWorkspace();
+        } else {
+          if (window.activeAdminInventoryCommerce) {
+            await renderAdminInventoryWorkspace(window.activeAdminInventoryCommerce);
+          } else {
+            await renderAdminInventoryStockTab();
+          }
+        }
+      } catch (err) {
+        console.error('Error al actualizar inventario:', err);
+      } finally {
+        if (icon) icon.className = 'ri-refresh-line';
+        refreshGlobalBtn.disabled = false;
+      }
+    });
+  }
 
   if (tabStock) {
     tabStock.addEventListener('click', () => {
@@ -11774,6 +11808,9 @@ async function renderAdminInventoryWorkspace(commerce) {
                 <input type="checkbox" id="admin-inv-filter-outofstock" ${window.adminInventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
               </label>
             </div>
+            <button id="btn-admin-refresh-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: rgba(99, 102, 241, 0.05); cursor: pointer; border-radius: var(--radius-md); font-weight: 600;" title="Actualizar y refrescar stock de ${commerce}">
+              <i class="ri-refresh-line" id="icon-admin-refresh-inventory"></i> Actualizar
+            </button>
             <button id="btn-admin-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
             </button>
@@ -11897,6 +11934,22 @@ async function renderAdminInventoryWorkspace(commerce) {
         });
       }
     });
+
+    const refreshBtn = document.getElementById('btn-admin-refresh-inventory');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        const icon = document.getElementById('icon-admin-refresh-inventory');
+        if (icon) icon.className = 'ri-loader-4-line ri-spin';
+        refreshBtn.disabled = true;
+        try {
+          await renderAdminInventoryWorkspace(commerce);
+        } catch (err) {
+          console.error('Error al refrescar inventario admin:', err);
+          if (icon) icon.className = 'ri-refresh-line';
+          refreshBtn.disabled = false;
+        }
+      });
+    }
 
     const exportBtn = document.getElementById('btn-admin-export-inventory');
     if (exportBtn) {
@@ -12653,9 +12706,14 @@ async function renderAdminInventoryRequestsWorkspace() {
             </p>
           </div>
           
-          <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; background: #6366f1; border-color: #6366f1; padding: 0 1.15rem; border-radius: var(--radius-md); box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25); cursor: pointer;">
-            <i class="ri-add-line" style="font-size: 1.1rem;"></i> Nueva Solicitud
-          </button>
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button id="btn-admin-refresh-requests" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; border-color: var(--color-border); color: var(--color-text-main); background: transparent; padding: 0 0.85rem; border-radius: var(--radius-md); cursor: pointer;" title="Refrescar solicitudes de inventario">
+              <i class="ri-refresh-line" id="icon-admin-refresh-requests"></i> Actualizar
+            </button>
+            <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; background: #6366f1; border-color: #6366f1; padding: 0 1.15rem; border-radius: var(--radius-md); box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25); cursor: pointer;">
+              <i class="ri-add-line" style="font-size: 1.1rem;"></i> Nueva Solicitud
+            </button>
+          </div>
         </div>
 
         <!-- Barra de Filtros Dedicada y Responsiva -->
@@ -12754,6 +12812,23 @@ async function renderAdminInventoryRequestsWorkspace() {
         if (statusFilter) statusFilter.value = '';
         if (whFilter) whFilter.value = '';
         renderAdminInventoryRequestsTableBody();
+      });
+    }
+
+    const refreshReqsBtn = document.getElementById('btn-admin-refresh-requests');
+    if (refreshReqsBtn) {
+      refreshReqsBtn.addEventListener('click', async () => {
+        const icon = document.getElementById('icon-admin-refresh-requests');
+        if (icon) icon.className = 'ri-loader-4-line ri-spin';
+        refreshReqsBtn.disabled = true;
+        try {
+          updateAdminInventoryRequestsTabBadge();
+          await renderAdminInventoryRequestsWorkspace();
+        } catch (err) {
+          console.error('Error al refrescar solicitudes:', err);
+          if (icon) icon.className = 'ri-refresh-line';
+          refreshReqsBtn.disabled = false;
+        }
       });
     }
 

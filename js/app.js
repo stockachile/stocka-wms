@@ -3941,6 +3941,9 @@ async function renderInventory() {
                 <input type="checkbox" id="inv-filter-outofstock" ${window.inventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
               </label>
             </div>
+            <button id="btn-refresh-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: rgba(99, 102, 241, 0.05); cursor: pointer; border-radius: var(--radius-md); font-weight: 600;" title="Actualizar y refrescar datos de stock">
+              <i class="ri-refresh-line" id="icon-refresh-inventory"></i> Actualizar
+            </button>
             <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
             </button>
@@ -4075,6 +4078,22 @@ async function renderInventory() {
         });
       }
     });
+
+    const refreshBtn = document.getElementById('btn-refresh-inventory');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async () => {
+        const icon = document.getElementById('icon-refresh-inventory');
+        if (icon) icon.className = 'ri-loader-4-line ri-spin';
+        refreshBtn.disabled = true;
+        try {
+          await renderInventory();
+        } catch (err) {
+          console.error('Error al refrescar inventario cliente:', err);
+          if (icon) icon.className = 'ri-refresh-line';
+          refreshBtn.disabled = false;
+        }
+      });
+    }
 
     // Inicializar listener de exportación CSV
     const exportBtn = document.getElementById('btn-export-inventory');
