@@ -2707,9 +2707,221 @@ Hemos unificado y hecho flotantes ambos paneles de acción en la vista del Admin
 
 1. **Estructura Flotante Unificada (`#wms-sticky-actions-container`)**:
    - Agrupamos tanto la **Barra de Acciones Masivas** (azul) como el **Panel de Control de Pedidos** (toolbar con botones de crear pedido, manifiesto, sincronizar, exportar, actualizar, etc.) dentro de un único contenedor sticky (`position: sticky; top: 0; z-index: 900; background: var(--color-bg);`).
+   - La tabla se refresca de forma síncrona y fluida al cambiar el filtro temporal, eliminando consultas en bucle innecesarias.
+
+---
+
+## 105. Configuración de Holding SILVER FOX para Facturación de FORTE MAX y MENPRIME
+
+Hemos integrado el nuevo comercio holding **SILVER FOX** en el módulo de facturación para agrupar de forma transparente y automática a las marcas individuales **FORTE MAX** y **MENPRIME**:
+
+1. **Definición de Mapeos de Facturación**:
+   - Agregamos los registros correspondientes en la tabla `billing_mappings` mapeando `FORTE MAX` y `MENPRIME` al holding `SILVER FOX`. Esto se incluyó en las sentencias de inserción iniciales de [supabase_schema_billing.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing.sql).
+   
+2. **Estado del Servicio y Facturación Dinámica**:
+   - Agregamos un registro para `SILVER FOX` en la tabla `commerce_billing_status` estableciéndolo como `al_dia = true`.
+   - Debido al diseño dinámico del módulo de facturación del sistema, las vistas administrativa y de cliente ahora agruparán automáticamente todos los cobros de Fulfillment y Envíame de `FORTE MAX` y `MENPRIME` bajo el registro consolidado de `SILVER FOX` de manera idéntica a como se procesa con `BIG BANG`.
+   - La información de RUT (`77.265.758-7`) y Razón Social (`SILVER FOX SPA`) se heredará de manera inteligente desde la configuración de los comercios individuales si el holding no cuenta con una configuración directa.
+
+---
+
+## 106. Resolución Dinámica de Holdings en los Desplegables de Facturación
+
+Corregimos y mejoramos la experiencia de usuario al agregar comercios y registrar saldos adicionales en el panel administrativo:
+
+1. **Función de Resolución Unificada (`window.getBillingCommerceOptions`)**:
+   - Implementamos un resolvedor dinámico en `js/admin.js` que consulta `v_comercios_config` y `billing_mappings` en conjunto.
+   - Si un comercio pertenece a un holding (ej: `FORTE MAX` o `MENPRIME` mapeados a `SILVER FOX`), agrupa y muestra directamente la opción del holding con el formato `SILVER FOX (Holding)` en el desplegable, previniendo duplicados y permitiendo agregar directamente registros al holding correspondiente.
+   
+2. **Aplicación en Formularios Administrativos**:
+   - Reemplazamos la renderización estática por este resolvedor en los modales:
+     * **Añadir Comercio a un Periodo** (`window.openAddCommerceModal`).
+     * **Crear Saldo Adicional / Cobro Extraordinario** (`window.openCreateExtraChargeModal`).
+     * **Editar Saldo Adicional** (`window.openEditExtraChargeModal`).
+
+---
+
+## 107. Integración Completa de Opción Tiendanube en Selectores de Catálogo y Filtros de Origen
+
+Hemos incorporado "Tiendanube" como opción de plataforma principal y filtro de origen en todo el sistema:
+
+1. **Selector de Plataforma Principal / Catálogo Maestro**:
+   - Agregamos la opción `<option value="Tiendanube">Tiendanube</option>` en el selector `#eq-main-platform-select` en ambos portales:
+     * Portal del Administrador (`js/admin.js` - línea ~7885).
+     * Portal del Cliente (`js/app.js` - línea ~1975).
+   - Esto permite configurar Tiendanube como el origen del catálogo maestro de productos de un comercio y sincronizar correctamente sus inventarios.
+
+2. **Filtros de Pedidos por Canal de Origen**:
+   - Incluimos "Tiendanube" en los filtros de origen de pedidos (`#filter-origen` and `#filter-client-origen`):
+     * Portal del Administrador (`js/admin.js`).
+     * Portal del Cliente (`js/app.js`).
+     * Modal de creación de pedidos en el dashboard (`dashboard.html` - `#order-cust-origen`).
+
+3. **Filtro de Movimientos de Inventario**:
+   - Agregamos la opción al selector de plataforma de movimientos `#movs-filter-platform` en `js/app.js` para permitir a los clientes filtrar los movimientos de inventario originados por ventas en Tiendanube.
+
+4. **Incremento de Versiones para Cache-Busting**:
+   - Incrementamos la versión de los scripts en `admin.html` (de `1.0.10` a `1.0.11`) y `dashboard.html` (de `1.0.11` a `1.0.12`) para garantizar que los navegadores carguen las opciones actualizadas inmediatamente.
+
+---
+
+## 108. Integración del Logo Oficial de Tiendanube en Badges y Vistas de Integraciones
+
+Hemos incorporado el logotipo oficial de **Tiendanube** en todas las vistas, grillas y resúmenes del WMS, alineándolo con el resto de las plataformas:
+
+1. **Uso del Archivo de Imagen**:
+   - Agregamos la ruta `img/tiendanube.png` en el resolvedor del badge de plataforma `getPlatformBadge(platform)`.
+   - Con esto, todas las tablas y listas que usan esta función (como las listas de integraciones activas en `js/app.js` y `js/admin.js`) muestran automáticamente el logo de Tiendanube en lugar del tag de texto estilizado anterior.
+
+2. **Carga Dinámica en Detalle de Pedidos**:
+   - Las vistas de detalles de órdenes en el portal del administrador (`js/admin.js`) y del cliente (`js/app.js`) cargan dinámicamente el logotipo usando la ruta `./img/${platformLower}.png`.
+   - Con el nuevo archivo `tiendanube.png` cargado en el directorio de imágenes del WMS, ambos portales ahora despliegan correctamente el logo en el bloque de **Origen de la Orden** al recibir pedidos de este canal.
+
+---
+
+## 109. Integración del Logo Oficial Stocka.cap en Pedidos Manuales
+
+Hemos incorporado el logotipo oficial de **Stocka.cap** (`img/stocka.cap.png`) para identificar visualmente a todos los pedidos ingresados manualmente en el WMS:
+
+1. **Uso en getPlatformBadge**:
+   - Modificamos la función `getPlatformBadge(platform)` tanto en `js/app.js` como en `js/admin.js` para asociar los valores de plataforma que contengan `"manual"` o `"stocka"` con la imagen del logo `img/stocka.cap.png`.
+   - Esto asegura que todas las grillas e historiales de integraciones activas muestren el logo corporativo de Stocka.cap para las órdenes manuales.
+
+2. **Cálculo y Resolución Dinámica del Logo en Detalles**:
+   - Ajustamos la resolución de `platformLower` en las vistas detalladas y modales de pedidos de ambos portales (`js/app.js` y `js/admin.js`).
+   - Si la plataforma de origen es `"Manual"`, el resolvedor dinámico lo traduce automáticamente a `"stocka.cap"`, permitiendo que la etiqueta de origen (`originHtml` / `originBadge`) cargue directamente `./img/stocka.cap.png` sin fallar ni recurrir al fallback de texto plano.
+
+---
+
+## 110. Remoción de Fondos Oscuros Laterales en Notificaciones (Toasts) y Optimización de Colores
+
+Hemos realizado un ajuste específico de estilos y comportamiento en las notificaciones flotantes (toasts) y alertas del WMS:
+
+1. **Remoción del Fondo Oscuro Lateral y Desenfoque en Notificaciones**:
+   - Modificamos la aplicación de las reglas en `css/layout.css` asociadas a SweetAlert2. Ahora, el fondo oscuro (`rgba(0, 0, 0, 0.5)`) y el desenfoque trasero (`backdrop-filter: blur(4px)`) se aplican de manera exclusiva mediante la clase `.swal2-container.swal2-backdrop-show`.
+   - Con esto, al desplegarse una notificación de tipo Toast (la cual carece de la clase de fondo activo), la pantalla no se oscurece ni se desenfoca lateralmente en absoluto.
+   - Los modales regulares (`.modal-overlay`), paneles laterales (`.slide-over-overlay`) y alertas estándar de confirmación conservan correctamente su fondo difuminado de fondo para resguardar la experiencia de usuario.
+
+2. **Resolución de Legibilidad de Notificaciones en Modo Claro**:
+   - Ajustamos la estructura de colores por defecto en `.swal2-popup.swal2-toast` para actuar como fondo blanco y letras oscuras en Modo Claro (que es el tema base por defecto de la aplicación, donde no hay atributo `data-theme` presente en el elemento `html`).
+   - Añadimos la regla con el selector `[data-theme="dark"] .swal2-popup.swal2-toast` para sobreescribir los textos con tonos claros y fondo oscuro cuando el WMS está configurado en Modo Oscuro.
+   - Modificamos las notificaciones del picker en `js/admin.js` para añadir detalles contextuales del pedido modificado.
+
+---
+
+## 111. Corrección de Contraste en Botones Primarios del Proyecto
+
+Hemos corregido la accesibilidad y el contraste de legibilidad de los botones principales del sistema (tanto en modo claro como en modo oscuro):
+
+1. **Reemplazo de Color de Texto**:
+   - Localizamos los botones dinámicos en `js/admin.js` y `js/incidencias.js` que tenían el fondo configurado con la variable primaria `var(--color-primary)` (azul rey) pero forzaban el texto a color negro (`color: #000;`).
+   - Modificamos el estilo inline de estos elementos para usar color blanco (`color: #ffffff;`), igualando el comportamiento del estilo nativo de la clase `.btn-primary` definida en las hojas de estilo del proyecto.
+   - Esto incluye botones clave como "+ Crear Comercio", "Guardar Cambios" (comercio), "Editar", "Guardar Regla", "Cargar Documento Manual", "Guardar Documento", "Copiar SQL" y "Guardar Mensaje".
+
+---
+
+## 112. Prevención de Recorte de Menú de Acciones en Tablas
+
+Hemos resuelto un problema visual clásico donde los menús desplegables de "Acciones" en las tablas se cortaban o quedaban inaccesibles cuando la tabla tenía pocas filas (o una sola fila, como suele ocurrir al filtrar):
+
+1. **Ajuste de Margen de Desplazamiento (`padding-bottom`)**:
+   - Modificamos la clase `.table-responsive` en `css/layout.css` agregando la regla `padding-bottom: 90px !important;`.
+   - Al forzar esta holgura vertical en los contenedores de tablas responsivas, nos aseguramos de que el menú flotante de acciones tenga espacio suficiente para desplegarse hacia abajo sin ser recortado por el límite del contenedor con desborde (`overflow: auto`).
+   - El uso de `!important` garantiza que el espacio se mantenga libre incluso en vistas que aplican remoción de padding inline (`style="padding: 0;"`), manteniendo a su vez el diseño alineado horizontalmente.
+
+---
+
+## 113. Control de Estado Activo / Archivado en Productos y Propagación de Filtros
+
+Hemos implementado el sistema de estado para productos (**Activo** y **Archivado**) y propagado el filtro en todos los selectores, formularios, autocompletados, y listados del sistema. Los detalles del desarrollo son los siguientes:
+
+### 1. Interfaz de Usuario para Edición de Estado
+- **Formularios de Edición de Productos**:
+  - En [`dashboard.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/dashboard.html) y [`admin.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/admin.html), añadimos un selector de estado `<select>` con opciones **Activo** (`active`) y **Archivado** (`archived`) al modal de edición de productos.
+  - Sincronizamos este nuevo campo en las funciones de guardado en Supabase en [`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) y [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js).
+- **Edición Rápida (Quick Edit)**:
+  - Añadimos la columna **Estado** al grid de edición rápida del catálogo maestro.
+  - Al hacer doble clic en la celda de estado, se despliega un selector interactivo. Los cambios de estado realizados se guardan en Supabase de forma inmediata y reactiva.
+- **Visualización en el Catálogo Maestro**:
+  - Si un producto está archivado, se muestra un badge o etiqueta visual claro **"Archivado"** en rojo tanto en el catálogo de clientes como en el de administración, permitiendo distinguirlos a simple vista sin impedir su edición.
+
+### 2. Propagación del Filtro de Productos Archivados
+- **Dropdowns y Selectores**:
+  - Modificamos las consultas e inicializaciones de listas dinámicas en la creación de pedidos manuales, packs, autocompletados y **devoluciones/cambios (Logística Inversa)** para que los productos con estado `'archived'` queden excluidos.
+  - Específicamente, en el módulo de **Logística Inversa (devoluciones y cambios)**, también excluimos los combos/packs (`is_pack`) y los productos virtuales (`is_virtual`) para exigir que se ingresen los artículos individuales y físicos.
+  - Esto aplica tanto a la vista del cliente/comercio (`js/app.js`) como a la vista administrativa (`js/admin.js`).
+- **Módulos de Inventario y Movimientos**:
+  - Filtramos los productos con estado `'archived'` del listado del workspace de inventario en ambos entornos.
+- **Bloqueo de Movimientos y Ajustes**:
+  - Añadimos validaciones estrictas al guardar cambios en los modales de edición para impedir la edición de stock inicial en productos archivados.
+  - Actualizamos los cargadores masivos de stock mediante planilla Excel para que verifiquen el estado del producto y generen un error explícito si se intenta importar inventario para un SKU archivado.
+
+### 3. Edición Masiva de Estado (Activar y Archivar)
+- **Selección Múltiple en Catálogo (Cliente & Admin)**:
+  - Añadimos checkboxes de selección de fila y un checkbox de selección general "catalog-select-all" en el encabezado de la tabla del Catálogo Master tanto en la vista del comercio/cliente (`js/app.js`) como en la del administrador (`js/admin.js`).
+- **Barra de Acciones Masivas (Bulk Actions Bar)**:
+  - Cuando se selecciona uno o más productos, aparece dinámicamente la barra de acciones masivas `#catalog-bulk-actions-container`.
+  - Añadimos dos botones de acción a la barra: **Activar Seleccionados** (Marcar como Activo) y **Archivar Seleccionados** (Marcar como Archivado).
+- **Procesamiento Masivo y Confirmación**:
+  - Al hacer clic en cualquiera de estas opciones, se despliega una advertencia SweetAlert2 para confirmar la acción en lote.
+  - Al confirmar, se realiza una actualización masiva en la tabla `products` de Supabase usando el operador `.in('id', selectedIds)`. La interfaz se recarga automáticamente y la selección se limpia.
+
+---
+
+## 114. Integración del Logo Oficial de Jumpseller en el WMS
+
+Hemos integrado el nuevo logotipo de **Jumpseller** (`img/jumpseller.png`) para identificar visualmente a todos los comercios y pedidos integrados mediante esta plataforma en el WMS:
+
+1. **Soporte en getPlatformBadge (Cliente & Admin)**:
+   - Modificamos la función `getPlatformBadge(platform)` tanto en [`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) como en [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js).
+   - Añadimos la condición para detectar la plataforma `"jumpseller"` (resolviendo en minúsculas).
+   - Con esto, todas las vistas generales, listas de integraciones activas e historiales de órdenes cargan directamente el archivo de imagen oficial `img/jumpseller.png` en lugar del tag de texto estilizado anterior.
+   - Mantuvimos el resolvedor dinámico de detalles del pedido y la función de fallback intacta para garantizar la consistencia visual ante cualquier error de carga.
+
+---
+
+## 115. Filtro por Comercio en Facturas por Emitir (Facturación 2.0)
+
+Hemos integrado un filtro desplegable específico por **Comercio** en la tarjeta de **Facturas por Emitir** del submódulo **Tareas y Pendientes** (Dashboard de Control de Facturación):
+
+1. **Selector Desplegable de Comercio**:
+   - Se añadió un `<select id="filter-pending-commerce-select">` con la lista ordenada y única de comercios con facturas pendientes (`invoicesToEmit`), incluyendo la opción predeterminada *"Todos"*.
+2. **Buscador de Texto Específico**:
+   - El campo de búsqueda libre ahora se titula **Buscar RUT / Razón Social** (`#filter-pending-search`), permitiendo buscar rápidamente por nombre, RUT (con o sin puntos) o Razón Social sin perder la capacidad de selección por lista.
+3. **Filtrado Reactivo y Combinado**:
+   - La función [`applyPendingInvoiceFilters`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) combina de forma simultánea el comercio seleccionado en el menú desplegable, el texto de búsqueda libre, el período y el servicio.
+4. **Persistencia y Botón Limpiar**:
+   - El botón **Limpiar** (`clearPendingInvoiceFilters`) restablece todos los filtros a su estado por defecto.
+   - El estado de los filtros y la apertura del panel persisten automáticamente si el usuario registra facturas o si la vista se vuelve a renderizar.
+
+---
+
+## 116. Doble Panel de Acciones Flotante (Sticky) en Gestor de Pedidos
+
+Hemos unificado y hecho flotantes ambos paneles de acción en la vista del Administrador ([`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), [`css/layout.css`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/css/layout.css), [`admin.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/admin.html)) para que permanezcan siempre visibles en la parte superior durante el scroll vertical por la tabla de pedidos:
+
+1. **Estructura Flotante Unificada (`#wms-sticky-actions-container`)**:
+   - Agrupamos tanto la **Barra de Acciones Masivas** (azul) como el **Panel de Control de Pedidos** (toolbar con botones de crear pedido, manifiesto, sincronizar, exportar, actualizar, etc.) dentro de un único contenedor sticky (`position: sticky; top: 0; z-index: 900; background: var(--color-bg);`).
    - Esto evita que el scroll vertical de `.content-area` oculte los botones de control y permite operar pedidos masivamente sin necesidad de volver a subir al inicio de la página.
 
 2. **Diseño y Acople Dinámico**:
    - El panel de control de pedidos (`#wms-orders-control-bar`) se estilizó como una barra de herramientas independiente con elevación y sombras suaves (`box-shadow`, `border-radius: var(--radius-lg)` y fondo de superficie).
    - Cuando no hay pedidos seleccionados, el contenedor de acciones masivas colapsa a 0px de alto y el panel de control se ancla suavemente arriba.
    - Cuando se seleccionan pedidos, la barra azul de acciones masivas aparece inmediatamente sobre el panel de control con un margen reducido de `0.5rem`, manteniendo ambos paneles apilados de forma armónica.
+
+---
+
+## 117. Columna Stock Actual (Físico en Bodega) en Catálogo Master
+
+Hemos añadido la columna **Stock Actual** justo al lado de **Stock Inicial** en el Catálogo Master tanto para la vista del Administrador ([`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) como para la del Cliente/Merchant ([`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)):
+
+1. **Cálculo de Stock Físico en Bodega**:
+   - Se calcula sumando la cantidad de todas las ubicaciones de inventario asociadas al producto: `(item.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0)`.
+   - Para productos virtuales (`is_virtual === true`), se indica claramente la etiqueta `"Virtual"`.
+   - Los productos con stock físico mayor a 0 se visualizan con un badge verde destacado, y aquellos con stock 0 con un badge suave en color rojo.
+
+2. **Cálculo de Volumen Total de Almacenamiento**:
+   - Se actualizó el cálculo de `totalVol` en la tabla del catálogo para reflejar el volumen ocupado por el **Stock Actual** disponible en bodega (`unitVol * currentStock`), adaptándose con precisión al requerimiento de control de volumen de almacenamiento físico.
+
+3. **Ordenamiento**:
+   - Se agregó la cabecera interactiva con soporte de ordenación ascendente y descendente por la columna `data-sort="current_stock"`.

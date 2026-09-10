@@ -9933,7 +9933,7 @@ function renderMasterCatalogRows(products) {
   if (products.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="15" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No hay productos en el catálogo master.
         </td>
       </tr>
@@ -9958,6 +9958,9 @@ function renderMasterCatalogRows(products) {
     } else if (sortCol === 'stock') {
       valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
       valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
+    } else if (sortCol === 'current_stock') {
+      valA = (a.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+      valB = (b.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
     } else if (sortCol === 'price') {
       valA = parseFloat(a.price || 0);
       valB = parseFloat(b.price || 0);
@@ -10071,12 +10074,21 @@ function renderMasterCatalogRows(products) {
       : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + printBtn + deleteBtn;
 
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
+    const currentStock = (item.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
 
     const initialStockCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.5rem 1rem; text-align: center;">
            <input type="number" class="quick-edit-stock form-input" data-id="${item.id}" data-old="${initialStock}" value="${initialStock}" style="width: 75px; text-align: center; padding: 0.25rem 0.5rem; height: 32px; font-size: 0.85rem; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
          </td>`
       : `<td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>`;
+
+    const currentStockBadge = currentStock > 0
+      ? `<span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; font-weight: 700; font-size: 0.85rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.25);">${currentStock}</span>`
+      : (item.is_virtual
+          ? `<span style="color: var(--color-text-muted); font-size: 0.8rem;">Virtual</span>`
+          : `<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-weight: 700; font-size: 0.85rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid rgba(239, 68, 68, 0.2);">0</span>`);
+
+    const currentStockCell = `<td style="padding: 0.75rem 1.5rem; text-align: center;">${currentStockBadge}</td>`;
 
     const dimensionsCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.5rem 1rem;">
@@ -10092,7 +10104,7 @@ function renderMasterCatalogRows(products) {
       : `<td style="padding: 0.75rem 1.5rem;">${dimensions}</td>`;
 
     const unitVol = parseFloat(item.volumen || 0);
-    const totalVol = unitVol * initialStock;
+    const totalVol = unitVol * currentStock;
     const volumenHtml = (item.volumen !== null && item.volumen !== undefined)
       ? `<div style="font-size: 0.8rem; line-height: 1.2;">
            Unit: ${unitVol.toFixed(5)} m³<br>
@@ -10175,6 +10187,7 @@ function renderMasterCatalogRows(products) {
         ${nameCell}
         ${barcodeCell}
         ${initialStockCell}
+        ${currentStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}${virtualBadge}</td>
         ${statusCell}
@@ -17397,6 +17410,9 @@ async function renderAdminCatalogWorkspace(commerce) {
                     </th>
                     <th class="sortable-header" data-sort="stock" style="padding: 1rem 1.5rem; text-align: center; cursor: pointer; user-select: none;" title="Ordenar por Stock Inicial">
                       Stock Inicial <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="current_stock" style="padding: 1rem 1.5rem; text-align: center; cursor: pointer; user-select: none;" title="Ordenar por Stock Actual / Físico en Bodega">
+                      Stock Actual <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
                     <th class="sortable-header" data-sort="price" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Precio">
                       Precio <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
