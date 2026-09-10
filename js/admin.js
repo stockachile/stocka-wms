@@ -5266,6 +5266,11 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
+    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+
     const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [] };
     const hasStockAlert = stockAlert.hasStockAlert;
     const stockAlertDetails = stockAlert.stockAlertDetails;
