@@ -38,6 +38,23 @@ function injectImporterStyles() {
       font-weight: 700;
       color: var(--color-text-main);
     }
+    .importer-preview-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: var(--color-surface-hover);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    }
+    .importer-preview-table tfoot td {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
+      background: var(--color-surface-hover);
+      border-top: 2px solid var(--color-border);
+      border-bottom: 2px solid var(--color-border);
+      box-shadow: 0 -1px 3px rgba(0,0,0,0.05);
+      font-weight: 700;
+    }
     .importer-alert-warning {
       background: rgba(217, 119, 6, 0.1);
       border: 1px solid #d97706;
@@ -269,13 +286,64 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
         <!-- Alertas / IDs no configurados -->
         <div id="importer-warnings-container" style="display: none;"></div>
 
+        <!-- Resumen Global de Facturación Envíame -->
+        <div id="importer-global-summary-card" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1.1rem; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+            <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-calculator-line" style="color: #9c27b0; font-size: 1.15rem;"></i>
+              Resumen Global a Facturar (Planilla Envíame)
+            </span>
+            <span id="importer-global-commerces-count" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">
+              0 comercios seleccionados
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.65rem;">
+            <!-- Despachos Totales -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total Despachos</span>
+              <span id="global-total-qty" style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">0</span>
+            </div>
+
+            <!-- Monto Neto -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Neto Total</span>
+              <span id="global-total-net" style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">$0</span>
+            </div>
+
+            <!-- IVA 19% -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">IVA Total (19%)</span>
+              <span id="global-total-iva" style="font-size: 1.1rem; font-weight: 800; color: #2563eb;">$0</span>
+            </div>
+
+            <!-- Total Factura (Bruto) -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total Factura</span>
+              <span id="global-total-factura" style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">$0</span>
+            </div>
+
+            <!-- Indemnizaciones -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Indemnizaciones</span>
+              <span id="global-total-indemnizaciones" style="font-size: 1.1rem; font-weight: 800; color: #ef4444;">-$0</span>
+            </div>
+
+            <!-- Total a Pagar / Cobrar -->
+            <div style="background: rgba(156, 39, 176, 0.07); border: 1.5px solid #9c27b0; border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 700; color: #9c27b0; text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total a Pagar</span>
+              <span id="global-total-pagar" style="font-size: 1.15rem; font-weight: 900; color: #9c27b0;">$0</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Tabla Resumen -->
         <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
           <div class="card-header" style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
             <h4 style="margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--color-text-main);"><i class="ri-list-check" style="margin-right: 0.25rem;"></i> Comercios Detectados en la Planilla</h4>
             <span id="importer-total-summary-badge" class="badge badge-neutral" style="font-size: 0.75rem;">0 despachos detectados</span>
           </div>
-          <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+          <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
             <table class="importer-preview-table">
               <thead>
                 <tr>
@@ -295,6 +363,23 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
                 </tr>
               </thead>
               <tbody id="importer-results-tbody"></tbody>
+              <tfoot id="importer-results-tfoot">
+                <tr>
+                  <td style="text-align: center; vertical-align: middle;">
+                    <i class="ri-functions" style="font-weight: bold; color: #9c27b0; font-size: 1.05rem;" title="Totales de Columnas"></i>
+                  </td>
+                  <td colspan="3" style="vertical-align: middle; font-weight: 800; color: var(--color-text-main); font-size: 0.8rem;">
+                    TOTAL CONSOLIDADO
+                  </td>
+                  <td id="tfoot-col-qty" style="text-align: right; font-weight: 800; vertical-align: middle; color: var(--color-text-main);">0</td>
+                  <td id="tfoot-col-net" style="text-align: right; font-weight: 800; vertical-align: middle; color: var(--color-text-main);">$0</td>
+                  <td id="tfoot-col-iva" style="text-align: right; font-weight: 700; vertical-align: middle; color: #2563eb;">$0</td>
+                  <td id="tfoot-col-total" style="text-align: right; font-weight: 800; vertical-align: middle; color: var(--color-text-main);">$0</td>
+                  <td id="tfoot-col-indemn" style="text-align: right; font-weight: 800; vertical-align: middle; color: #ef4444;">-$0</td>
+                  <td id="tfoot-col-pagar" style="text-align: right; font-weight: 900; vertical-align: middle; color: #5B00E4; font-size: 0.85rem;">$0</td>
+                  <td style="text-align: center; vertical-align: middle; color: var(--color-text-muted); font-size: 0.75rem;">—</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -322,6 +407,7 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
                 </tr>
               </thead>
               <tbody id="importer-groups-tbody"></tbody>
+              <tfoot id="importer-groups-tfoot"></tfoot>
             </table>
           </div>
         </div>
@@ -836,6 +922,11 @@ window.aggregateAndRender = function(periodId) {
       document.getElementById('importer-groups-badge').textContent = `${conglomerateGroups.length} conglomerados`;
       groupTbody.innerHTML = '';
       
+      let grandGroupQty = 0;
+      let grandGroupNet = 0;
+      let grandGroupInd = 0;
+      let grandGroupPay = 0;
+
       conglomerateGroups.forEach(g => {
         const subNames = g.commerces.map(c => c.commerce).join(', ');
         const totalQty = g.commerces.reduce((sum, c) => sum + c.totals.quantity, 0);
@@ -843,6 +934,11 @@ window.aggregateAndRender = function(periodId) {
         const totalInd = g.commerces.reduce((sum, c) => sum + c.totals.indemnizaciones, 0);
         const totalPay = g.commerces.reduce((sum, c) => sum + c.totals.totalAPagar, 0);
         
+        grandGroupQty += totalQty;
+        grandGroupNet += totalNet;
+        grandGroupInd += totalInd;
+        grandGroupPay += totalPay;
+
         groupTbody.innerHTML += `
           <tr>
             <td style="font-weight: 600; color: #5B00E4; vertical-align: middle;">${g.billingGroup}</td>
@@ -857,6 +953,20 @@ window.aggregateAndRender = function(periodId) {
           </tr>
         `;
       });
+
+      const groupTfoot = document.getElementById('importer-groups-tfoot');
+      if (groupTfoot) {
+        groupTfoot.innerHTML = `
+          <tr style="background: var(--color-surface-hover); border-top: 2px solid var(--color-border); font-weight: 700;">
+            <td colspan="2" style="font-weight: 800; color: #5B00E4; vertical-align: middle; font-size: 0.8rem;">TOTAL CONGLOMERADOS</td>
+            <td style="text-align: right; font-weight: 800; vertical-align: middle;">${grandGroupQty.toLocaleString('es-CL')}</td>
+            <td style="text-align: right; font-weight: 800; vertical-align: middle;">${formatCLP(grandGroupNet)}</td>
+            <td style="text-align: right; color: #ef4444; font-weight: 800; vertical-align: middle;">-${formatCLP(grandGroupInd)}</td>
+            <td style="text-align: right; font-weight: 900; color: #5B00E4; vertical-align: middle;">${formatCLP(grandGroupPay)}</td>
+            <td style="text-align: center; vertical-align: middle; color: var(--color-text-muted);">—</td>
+          </tr>
+        `;
+      }
     } else {
       groupCard.style.display = 'none';
     }
@@ -866,11 +976,26 @@ window.aggregateAndRender = function(periodId) {
   const selectAllCheckbox = document.getElementById('importer-select-all');
   if (selectAllCheckbox) {
     selectAllCheckbox.checked = true;
+    selectAllCheckbox.indeterminate = false;
     selectAllCheckbox.onchange = (el) => {
       const checkboxes = tbody.querySelectorAll('.importer-row-select');
       checkboxes.forEach(cb => cb.checked = el.target.checked);
+      window.updateImporterTableTotals();
     };
   }
+
+  // Registrar listeners en cada checkbox individual
+  tbody.querySelectorAll('.importer-row-select').forEach(cb => {
+    cb.onchange = () => {
+      const allCbs = tbody.querySelectorAll('.importer-row-select');
+      const checkedCbs = tbody.querySelectorAll('.importer-row-select:checked');
+      if (selectAllCheckbox) {
+        selectAllCheckbox.checked = (allCbs.length > 0 && allCbs.length === checkedCbs.length);
+        selectAllCheckbox.indeterminate = (checkedCbs.length > 0 && checkedCbs.length < allCbs.length);
+      }
+      window.updateImporterTableTotals();
+    };
+  });
   
   document.getElementById('importer-total-summary-badge').textContent = `${totalCount} despachos y ${detectedCommerces.length} comercios detectados`;
   
@@ -882,6 +1007,93 @@ window.aggregateAndRender = function(periodId) {
   
   // Renderizar y sincronizar tabla de indemnizaciones manuales
   window.renderIndemnificationsTable(periodId);
+
+  // Calcular y renderizar totales consolidados
+  window.updateImporterTableTotals();
+};
+
+// --- CALCULO DINÁMICO DE TOTALES POR COLUMNA Y RESUMEN GLOBAL ---
+window.updateImporterTableTotals = function() {
+  const tbody = document.getElementById('importer-results-tbody');
+  if (!tbody || !window.importerParsedData) return;
+
+  const checkboxes = tbody.querySelectorAll('.importer-row-select');
+  let selectedCount = 0;
+  const totalRows = window.importerParsedData.length;
+
+  let sumQty = 0;
+  let sumNet = 0;
+  let sumIva = 0;
+  let sumTotal = 0;
+  let sumIndemn = 0;
+  let sumPagar = 0;
+
+  checkboxes.forEach(cb => {
+    if (cb.checked) {
+      const idx = parseInt(cb.getAttribute('data-idx'), 10);
+      const rowData = window.importerParsedData[idx];
+      if (rowData && rowData.totals) {
+        selectedCount++;
+        sumQty += (rowData.totals.quantity || 0);
+        sumNet += (rowData.totals.net || 0);
+        sumIva += (rowData.totals.iva || 0);
+        sumTotal += (rowData.totals.total || 0);
+        sumIndemn += (rowData.totals.indemnizaciones || 0);
+        sumPagar += (rowData.totals.totalAPagar || 0);
+      }
+    }
+  });
+
+  // 1. Actualizar fila de pie de tabla (tfoot)
+  const tfootQty = document.getElementById('tfoot-col-qty');
+  const tfootNet = document.getElementById('tfoot-col-net');
+  const tfootIva = document.getElementById('tfoot-col-iva');
+  const tfootTotal = document.getElementById('tfoot-col-total');
+  const tfootIndemn = document.getElementById('tfoot-col-indemn');
+  const tfootPagar = document.getElementById('tfoot-col-pagar');
+
+  if (tfootQty) tfootQty.textContent = sumQty.toLocaleString('es-CL');
+  if (tfootNet) tfootNet.textContent = formatCLP(sumNet);
+  if (tfootIva) tfootIva.textContent = formatCLP(sumIva);
+  if (tfootTotal) tfootTotal.textContent = formatCLP(sumTotal);
+  if (tfootIndemn) tfootIndemn.textContent = sumIndemn > 0 ? `-${formatCLP(sumIndemn)}` : '-$0';
+  if (tfootPagar) tfootPagar.textContent = formatCLP(sumPagar);
+
+  // 2. Actualizar tarjetas del Resumen Global
+  const gQty = document.getElementById('global-total-qty');
+  const gNet = document.getElementById('global-total-net');
+  const gIva = document.getElementById('global-total-iva');
+  const gFactura = document.getElementById('global-total-factura');
+  const gIndemn = document.getElementById('global-total-indemnizaciones');
+  const gPagar = document.getElementById('global-total-pagar');
+  const gCommercesCount = document.getElementById('importer-global-commerces-count');
+
+  if (gQty) gQty.textContent = sumQty.toLocaleString('es-CL');
+  if (gNet) gNet.textContent = formatCLP(sumNet);
+  if (gIva) gIva.textContent = formatCLP(sumIva);
+  if (gFactura) gFactura.textContent = formatCLP(sumTotal);
+  if (gIndemn) gIndemn.textContent = sumIndemn > 0 ? `-${formatCLP(sumIndemn)}` : '-$0';
+  if (gPagar) gPagar.textContent = formatCLP(sumPagar);
+
+  if (gCommercesCount) {
+    if (totalRows === 0) {
+      gCommercesCount.innerHTML = `<span style="color: var(--color-text-muted);">Sin comercios detectados</span>`;
+    } else if (selectedCount === totalRows) {
+      gCommercesCount.innerHTML = `<span style="color: #16a34a; font-weight: 700;"><i class="ri-checkbox-circle-fill"></i> Todos seleccionados (${selectedCount} de ${totalRows} comercios)</span>`;
+    } else {
+      gCommercesCount.innerHTML = `<span style="color: #d97706; font-weight: 700;"><i class="ri-alert-line"></i> ${selectedCount} de ${totalRows} comercios seleccionados</span>`;
+    }
+  }
+
+  // 3. Actualizar badge en cabecera de tabla
+  const summaryBadge = document.getElementById('importer-total-summary-badge');
+  if (summaryBadge) {
+    if (selectedCount === totalRows) {
+      summaryBadge.textContent = `${sumQty.toLocaleString('es-CL')} despachos y ${selectedCount} comercios detectados`;
+    } else {
+      summaryBadge.textContent = `${sumQty.toLocaleString('es-CL')} despachos (${selectedCount} de ${totalRows} comercios seleccionados)`;
+    }
+  }
 };
 
 // Reasignar comercio de un envío derivado de Envíame
