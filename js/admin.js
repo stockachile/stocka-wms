@@ -7194,6 +7194,25 @@ window.applyBulkWmsStatus = async function() {
         .in('id', idsToProcess);
         
       if (error) throw error;
+
+      if (newStatus !== 'Cancelado') {
+        const toRestoreIds = [];
+        if (window.loadedOrders) {
+          idsToProcess.forEach(id => {
+            const o = window.loadedOrders.find(ord => ord.id === id);
+            if (o && o.status === 'cancelado' && !o.raw_shopify_data?.cancelled_at) {
+              toRestoreIds.push(id);
+              o.status = 'para procesar';
+            }
+          });
+        }
+        if (toRestoreIds.length > 0) {
+          await supabase
+            .from('orders')
+            .update({ status: 'para procesar' })
+            .in('id', toRestoreIds);
+        }
+      }
       
       if (window.loadedOrders) {
         idsToProcess.forEach(id => {
@@ -8191,6 +8210,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       const updateData = { estado_wms: newWmsStatus };
       if (newWmsStatus === 'Cancelado') {
         updateData.status = 'cancelado';
+      } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
+        updateData.status = 'para procesar';
       }
       const { error } = await supabase
         .from('orders')
@@ -8202,6 +8223,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       order.estado_wms = newWmsStatus;
       if (newWmsStatus === 'Cancelado') {
         order.status = 'cancelado';
+      } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
+        order.status = 'para procesar';
       }
       
       applyWmsFiltersAndRender();

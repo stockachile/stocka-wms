@@ -50,6 +50,10 @@ const IMPRESIONES_GROUP_JID = '120363423098929019@g.us'; // IMPRESIONES - genera
 // Solo procesar pedidos creados desde hoy en adelante (02 de Septiembre de 2026 en adelante)
 const AUTO_PICKUP_CUTOFF_DATE = process.env.AUTO_PICKUP_CUTOFF_DATE || '2026-09-02T00:00:00.000-04:00';
 
+// Desfase de seguridad para pedidos de retiro (por defecto 5 minutos)
+// Permite que la plataforma de origen termine de ingresar los ítems y que el cliente no edite inmediatamente
+const AUTO_PICKUP_DELAY_MINUTES = parseInt(process.env.AUTO_PICKUP_DELAY_MINUTES || '5', 10);
+
 // Archivo persistente para evitar repetir alertas de quiebre de stock sobre el mismo pedido
 const SHORTAGE_LOG_FILE = path.join(__dirname, '../shortage_alerts_sent.json');
 
@@ -208,6 +212,20 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     return { skipped: true, reason: `Pedido anterior a la fecha de activación de automatización (${AUTO_PICKUP_CUTOFF_DATE})` };
   }
 
+  // 2.0 Validar desfase de seguridad (salvo que sea forzado)
+  if (order.created_at && !options.force && !options.ignoreDelay) {
+    const orderAgeMs = Date.now() - new Date(order.created_at).getTime();
+    const minDelayMs = AUTO_PICKUP_DELAY_MINUTES * 60 * 1000;
+    if (orderAgeMs < minDelayMs) {
+      const remainingSecs = Math.ceil((minDelayMs - orderAgeMs) / 1000);
+      const remainingMins = Math.ceil(remainingSecs / 60);
+      return {
+        skipped: true,
+        reason: `Pedido en periodo de desfase de seguridad (${Math.round(orderAgeMs / 1000)}s de creado). Se procesará automáticamente en ~${remainingMins} min para asegurar sincronización completa de productos.`
+      };
+    }
+  }
+
   const orderNo = String(order.external_order_number || order.id);
 
   // 2.1 Verificar si el pedido ya registra completado/retirado en el historial del Picker
@@ -267,9 +285,25 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
     return { skipped: true, reason: `Bodega no corresponde a Sucursal Ñuñoa (sucursal_pickeo: ${order.sucursal_pickeo}, defaultWarehouse: ${commerceDefaultWarehouse})` };
   }
 
+  // 2.4 Validar que el pedido tenga ítems registrados en WMS
+  const orderItems = order.order_items || [];
+  if (orderItems.length === 0) {
+    console.warn(`[AutoPickup] ⚠️ Pedido #${orderNo} no tiene ítems en WMS order_items. Omitiendo auto-procesado a la espera de sincronización de ítems.`);
+    return {
+      skipped: true,
+      reason: `El pedido #${orderNo} aún no tiene ítems registrados en WMS. Se omite para evitar enviar pedidos sin SKU al Picker.`
+    };
+  }
 
   // 2.5 Validación de Stock en Bodega Ñuñoa y consulta en otras sucursales
-  const physicalItems = (order.order_items || []).filter(oi => !oi.products?.is_virtual && oi.products?.id);
+  const physicalItems = orderItems.filter(oi => !oi.products?.is_virtual && oi.products?.id);
+  if (physicalItems.length === 0) {
+    console.warn(`[AutoPickup] ⚠️ Pedido #${orderNo} no contiene productos físicos con ID válido.`);
+    return {
+      skipped: true,
+      reason: `El pedido #${orderNo} no contiene productos físicos válidos para preparar en bodega.`
+    };
+  }
   const stockShortages = [];
 
   if (physicalItems.length > 0) {
@@ -614,13 +648,22 @@ async function processAllPendingPickups(options = {}) {
 
   console.log(`[AutoPickup] Buscando pedidos pendientes de retiro...`);
 
-  const { data: pendingOrders, error } = await wmsClient
+  // Calcular límite de tiempo según desfase configurado (ej. 5 minutos atrás)
+  const cutoffTime = new Date(Date.now() - AUTO_PICKUP_DELAY_MINUTES * 60 * 1000).toISOString();
+
+  let query = wmsClient
     .from('orders')
     .select('id, external_order_number, comercio, created_at')
     .eq('categoria_entrega', 'RETIRO')
     .in('payment_status', ['paid', 'PAID', 'pagado', 'PAGADO'])
     .in('estado_wms', ['En procesamiento', 'Ingresado', 'no procesado'])
-    .gte('created_at', AUTO_PICKUP_CUTOFF_DATE)
+    .gte('created_at', AUTO_PICKUP_CUTOFF_DATE);
+
+  if (!options.force && !options.ignoreDelay) {
+    query = query.lte('created_at', cutoffTime);
+  }
+
+  const { data: pendingOrders, error } = await query
     .order('created_at', { ascending: false })
     .limit(options.limit || 20);
 

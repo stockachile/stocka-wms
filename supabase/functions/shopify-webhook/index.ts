@@ -370,7 +370,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
     }
   }
 
+  let totalCreatedUnits = 0;
   for (const [prodId, info] of expectedQuantitiesCreate.entries()) {
+    totalCreatedUnits += info.quantity;
     const { error: itemErr } = await supabase
       .from("order_items")
       .insert([{
@@ -385,6 +387,13 @@ async function handleOrderCreate(merchantId, comercio, order) {
     } else {
       console.log(`Registrado item SKU ${info.sku} x ${info.quantity} para el pedido.`);
     }
+  }
+
+  if (totalCreatedUnits > 0) {
+    await supabase
+      .from("orders")
+      .update({ cantidad: totalCreatedUnits })
+      .eq("id", newOrder.id);
   }
 }
 
@@ -502,7 +511,15 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  if (isClosedOrDispatched || isAdvancedOrPrep) {
+  // Verificar si el pedido realmente tiene ítems registrados en WMS
+  const { count: existingItemsCount } = await supabase
+    .from("order_items")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", existingOrder.id);
+
+  const hasNoExistingItems = !existingItemsCount || existingItemsCount === 0;
+
+  if (!hasNoExistingItems && (isClosedOrDispatched || isAdvancedOrPrep)) {
     let alertMessage = `El pedido ${finalOrderNumber || order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = 'MODIFICADO_EN_PREPARACION';
 
