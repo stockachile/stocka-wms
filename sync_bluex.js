@@ -474,7 +474,44 @@ async function syncBlueExpress() {
           matchedOrder = phoneOrders[0];
         }
       }
+    // Si se encontró la orden en el WMS, adoptar el comercio real de la orden para que coincida en AutoTrack y filtros
+    if (matchedOrder && matchedOrder.comercio) {
+      resolvedComercio = matchedOrder.comercio;
+      bluexRecord.comercio = matchedOrder.comercio;
     }
+
+    // Determinar el estado global (AutoTrack)
+    let globalStatus = 'SIN MOVIMIENTO';
+    const upperState = macroState.toUpperCase();
+    if (upperState.includes('TRANSIT') || upperState.includes('DELIVER') || upperState.includes('OUT_FOR_DELIVERY') || upperState.includes('REPARTO') || upperState.includes('RUTA') || upperState.includes('ENTREGAD')) {
+      globalStatus = 'DESPACHADO';
+    } else if (upperState.includes('PICKUP') || upperState.includes('PREPARATION') || upperState.includes('CREAD') || upperState.includes('EMITID')) {
+      globalStatus = 'SIN MOVIMIENTO';
+    } else if (upperState.includes('CANCEL') || upperState.includes('FAIL') || upperState.includes('INCIDENCIA')) {
+      globalStatus = 'ALERTA';
+    }
+
+    // Registro para la tabla unificada de AutoTrack
+    const unificadoRecord = {
+      id: `bluex_envios:${osNumber}`,
+      source_table: 'bluex_envios',
+      source_id: osNumber,
+      empresa_comercio_proveedor: resolvedComercio,
+      tracking: osNumber,
+      tracking_url: trackingUrl,
+      courier: 'BLUEXPRESS',
+      status: macroState,
+      global_status: globalStatus,
+      servicio_tipo_envio: 'ESTÁNDAR',
+      nombre_destinatario: receiverName,
+      telefono_destino: receiverPhone,
+      direccion_destino: address,
+      comuna_destino: commune,
+      pedido_referencia: matchedOrder?.external_order_number || osNumber,
+      created_at: dateStr ? new Date(dateStr).toISOString() : new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    upsertUnificadosList.push(unificadoRecord);
 
     // Actualizar pedido en WMS si hubo coincidencia
     if (matchedOrder) {
@@ -491,6 +528,11 @@ async function syncBlueExpress() {
       }
       if (matchedOrder.courier !== 'BLUEXPRESS') {
         updatePayload.courier = 'BLUEXPRESS';
+      }
+
+      // Si Blue Express reporta movimiento activo (DESPACHADO) y la orden está en estado previo, avanzar a 'despachado'
+      if (globalStatus === 'DESPACHADO' && ['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
+        updatePayload.status = 'despachado';
       }
 
       const { error: updateError } = await supabase
@@ -527,6 +569,25 @@ async function syncBlueExpress() {
       }
     } else {
       upsertedCount += batch.length;
+    }
+  }
+
+  // --- Upsert masivo en tabla envios_unificados (AutoTrack) ---
+  let unificadosCount = 0;
+  if (upsertUnificadosList.length > 0) {
+    console.log(`📡 Sincronizando ${upsertUnificadosList.length} registros en 'envios_unificados' para AutoTrack...`);
+    for (let i = 0; i < upsertUnificadosList.length; i += batchSize) {
+      const batch = upsertUnificadosList.slice(i, i + batchSize);
+      const { error: uError } = await supabase
+        .from('envios_unificados')
+        .upsert(batch, { onConflict: 'id' });
+
+      if (uError) {
+        console.warn('ℹ️ Nota en envios_unificados (requiere ejecutar supabase_schema_bluex_unification.sql en Supabase):', uError.message);
+        break;
+      } else {
+        unificadosCount += batch.length;
+      }
     }
   }
 

@@ -1430,15 +1430,18 @@
               </div>
               <div id="manage-dec-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"></div>
             </div>
-            <div style="overflow-x: auto; max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
+            <div style="overflow-x: auto; max-height: 290px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
               <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                 <thead>
-                  <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); position: sticky; top: 0; z-index: 10;">
-                    <th style="padding: 10px 12px;">Producto</th>
-                    <th style="padding: 10px 12px; text-align: right; width: 90px;">Declarado</th>
-                    <th style="padding: 10px 12px; text-align: center; width: 130px;">Recibido (Físico)</th>
-                    <th style="padding: 10px 12px; text-align: center; width: 95px;">Pendiente</th>
-                    <th style="padding: 10px 12px; text-align: right; width: 90px;">Diferencia</th>
+                  <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); position: sticky; top: 0; z-index: 10; font-size: 0.78rem;">
+                    <th style="padding: 10px 12px; min-width: 150px;">Producto / SKU</th>
+                    <th style="padding: 10px 10px; text-align: center; width: 135px;">Medidas Decl.</th>
+                    <th style="padding: 10px 10px; text-align: center; width: 220px;">Medidas Físicas Reales (L×An×Al cm)</th>
+                    <th style="padding: 10px 10px; text-align: right; width: 95px;">Vol. Conf.</th>
+                    <th style="padding: 10px 10px; text-align: right; width: 75px;">Declarado</th>
+                    <th style="padding: 10px 10px; text-align: center; width: 110px;">Recibido (Físico)</th>
+                    <th style="padding: 10px 10px; text-align: center; width: 80px;">Pendiente</th>
+                    <th style="padding: 10px 10px; text-align: right; width: 80px;">Diferencia</th>
                   </tr>
                 </thead>
                 <tbody id="manage-dec-products-tbody">
@@ -2546,7 +2549,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.3"></script>
-  <script type="module" src="./js/admin.js?v=1.0.80"></script>
+  <script type="module" src="./js/admin.js?v=1.0.82"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.0.6"></script>

@@ -165,6 +165,24 @@ async function syncMerchantOrders(integration) {
       const existingDbMap = new Map((existingDbRows || []).map(r => [String(r.id), r]));
       const payloadsToUpsert = [];
 
+      // Detectar conductores o planes de ruta que ya han iniciado viaje o entregado hoy
+      const activeDriversSet = new Set();
+      const activePlansSet = new Set();
+
+      function registerActiveRouteCandidate(orderObj) {
+        if (!orderObj) return;
+        const st = getOptirouteStatusName(orderObj.status !== undefined ? orderObj.status : orderObj.status_name);
+        if (st === 'ONROUTE' || st === 'ONGOING' || st === 'ARRIVED' || st === 'DELIVERED') {
+          const drv = orderObj.assigned_driver || orderObj.driver || orderObj.waypoint?.route_driver || orderObj.raw_data?.assigned_driver || orderObj.raw_data?.waypoint?.route_driver;
+          if (drv) activeDriversSet.add(String(drv).trim().toLowerCase());
+          const plan = orderObj.route_plan || orderObj.waypoint?.route_plan || orderObj.raw_data?.route_plan || orderObj.raw_data?.waypoint?.route_plan;
+          if (plan) activePlansSet.add(String(typeof plan === 'object' ? plan.id || plan.name : plan).trim().toLowerCase());
+        }
+      }
+
+      optirouteOrders.forEach(registerActiveRouteCandidate);
+      (existingDbRows || []).forEach(registerActiveRouteCandidate);
+
       for (const optiOrder of optirouteOrders) {
         const idStr = String(optiOrder.id);
         const existing = existingDbMap.get(idStr);
@@ -280,8 +298,16 @@ async function syncMerchantOrders(integration) {
           raw_data: detailedOrder
         };
 
+        const orderDriver = optiOrder.assigned_driver || optiOrder.driver || detailedOrder.assigned_driver || detailedOrder.waypoint?.route_driver || existing?.raw_data?.assigned_driver;
+        const orderPlan = optiOrder.route_plan || optiOrder.waypoint?.route_plan || detailedOrder.route_plan || detailedOrder.waypoint?.route_plan || existing?.raw_data?.route_plan;
+
+        const isRouteActiveForOrder = Boolean(
+          (orderDriver && activeDriversSet.has(String(orderDriver).trim().toLowerCase())) ||
+          (orderPlan && activePlansSet.has(String(typeof orderPlan === 'object' ? orderPlan.id || orderPlan.name : orderPlan).trim().toLowerCase()))
+        );
+
         // Evaluar y enviar correos automáticos por Brevo en segundo plano
-        await processAutomaticBrevoEmails(payloadItem, existing, detailedOrder);
+        await processAutomaticBrevoEmails(payloadItem, existing, detailedOrder, isRouteActiveForOrder);
 
         payloadsToUpsert.push(payloadItem);
       }
@@ -505,7 +531,7 @@ async function recordApiMetrics(metrics) {
 // ==========================================
 const BREVO_API_KEY = process.env.BREVO_API_KEY || ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
 
-async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
+async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder, isRouteActiveForOrder = false) {
   const email = item.email_cliente_destino;
   if (!email || !email.includes('@')) return;
 
@@ -535,12 +561,14 @@ async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
       currentRaw.failed_email_notified_at = now;
     }
   } 
-  // 3. ENVÍO PROGRAMADO / EN RUTA (EXCLUSIVAMENTE CUANDO LA RUTA ESTÁ ACTIVA: ONROUTE / ONGOING / ARRIVED)
-  else if ((status === 'ONROUTE' || status === 'ONGOING' || status === 'ARRIVED') && !isDispatchNotified) {
-    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de DESPACHO EN RUTA a ${email} (Ref: ${item.referencia || 'S/R'})...`);
-    const sent = await sendBrevoNotificationEmailNode(item, 'dispatch');
-    if (sent) {
-      currentRaw.email_notified_at = now;
+  // 3. ENVÍO PROGRAMADO / EN RUTA (CUANDO EL PEDIDO O LA RUTA DEL CONDUCTOR YA INICIÓ RECORRIDO)
+  else if ((status === 'ONROUTE' || status === 'ONGOING' || status === 'ARRIVED' || isRouteActiveForOrder) && !isDispatchNotified) {
+    if (status !== 'CANCELLED' && status !== 'DELETED' && status !== 'DELIVERED' && status !== 'SKIPPED') {
+      console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de DESPACHO EN RUTA a ${email} (Ref: ${item.referencia || 'S/R'}, Ruta iniciada)...`);
+      const sent = await sendBrevoNotificationEmailNode(item, 'dispatch');
+      if (sent) {
+        currentRaw.email_notified_at = now;
+      }
     }
   }
 

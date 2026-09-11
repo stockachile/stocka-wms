@@ -3812,9 +3812,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
       if (orders && orders.length > 0) {
         const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
+        const cleanOrderRefs = orders.map(o => (o.external_order_number || '').replace(/^#/, '').trim()).filter(Boolean);
         const orderIds = orders.map(o => o.id);
         const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
-        const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
+        const allRefs = [...orderRefs, ...cleanOrderRefs, ...orderIds, ...orderTrackings];
 
         const shipData = await fetchEnviosUnificadosByRefs(allRefs);
         window.loadedShipments = shipData || [];
@@ -4030,14 +4031,20 @@ async function renderAdminOrders() {
           return false;
         }
 
+        const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
+        const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
+        const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
         const refMatches = s.pedido_referencia === order.id || 
                            (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                           (order.tracking_number && s.pedido_referencia === order.tracking_number);
+                           (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number)) ||
+                           (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId));
         if (!refMatches) return false;
 
         let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
-        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
+        if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
+        if (s.source_table === 'bluex_envios') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -4067,6 +4074,12 @@ async function renderAdminOrders() {
                 if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
                   gStatus = 'DESPACHADO';
                 } else if (rawStatus === 'cancelado') {
+                  gStatus = 'ALERTA';
+                }
+              } else if (s.source_table === 'bluex_envios') {
+                if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+                  gStatus = 'DESPACHADO';
+                } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
                   gStatus = 'ALERTA';
                 }
               }
@@ -4106,6 +4119,14 @@ async function renderAdminOrders() {
           } else if (rawStatus === 'cancelado') {
             globStatus = 'ALERTA';
           } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'bluex_envios') {
+          if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
@@ -5038,15 +5059,21 @@ window.applyWmsFiltersAndRender = function() {
         return false;
       }
 
+      const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
+      const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
+      const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
       const refMatches = s.pedido_referencia === order.id || 
                          (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                         (order.tracking_number && s.pedido_referencia === order.tracking_number);
+                         (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number)) ||
+                         (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId));
       if (!refMatches) return false;
 
       // Validar coincidencia de comercio para evitar colisiones cruzadas
       let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
       const orderCommerce = (order.comercio || '').trim().toUpperCase();
-      if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+      if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
+      if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
+      if (s.source_table === 'bluex_envios') return true;
 
       let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
       if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -5081,6 +5108,14 @@ window.applyWmsFiltersAndRender = function() {
               } else if (rawStatus === 'cancelado') {
                 gStatus = 'ALERTA';
               } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+                gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'bluex_envios') {
+              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
@@ -5307,6 +5342,14 @@ window.applyWmsFiltersAndRender = function() {
           } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
             globStatus = 'SIN MOVIMIENTO';
           }
+        } else if (shipment.source_table === 'bluex_envios') {
+          if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5506,6 +5549,14 @@ window.applyWmsFiltersAndRender = function() {
             } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
               globStatus = 'SIN MOVIMIENTO';
             }
+          } else if (shipment.source_table === 'bluex_envios') {
+            if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad')) {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid')) {
+              globStatus = 'ALERTA';
+            } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
+              globStatus = 'SIN MOVIMIENTO';
+            }
           }
         }
         if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5559,6 +5610,14 @@ window.applyWmsFiltersAndRender = function() {
           } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
             globStatus = 'SIN MOVIMIENTO';
           }
+        } else if (shipment.source_table === 'bluex_envios') {
+          if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5585,6 +5644,8 @@ window.applyWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">LightData</span>`;
       } else if (shipment.source_table === 'enviame_shipments') {
         platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
+      } else if (shipment.source_table === 'bluex_envios') {
+        platformBadge = `<span class="badge" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Blue Express</span>`;
       } else if (shipment.source_table === 'optiroute_orders') {
         platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
       }
@@ -18451,10 +18512,12 @@ async function renderConsolidatedShipments() {
         }
 
         const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
-          : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+          : s.source_table === 'enviame_shipments' ? 'Enviame' 
+          : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
         
         const platformColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
-          : s.source_table === 'enviame_shipments' ? '#10b981' : '#8b5cf6';
+          : s.source_table === 'enviame_shipments' ? '#10b981' 
+          : s.source_table === 'bluex_envios' ? '#0032A0' : '#8b5cf6';
 
         const trackingDisplay = s.tracking
           ? (s.tracking_url && s.tracking_url !== 'N/A'
@@ -18954,7 +19017,9 @@ async function renderConsolidatedShipments() {
 
         const headers = ['Referencia Pedido', 'Comercio', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
         const rows = dataToExport.map(s => {
-          const platformName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+          const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
+            : s.source_table === 'enviame_shipments' ? 'Enviame' 
+            : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
           return [
             s.pedido_referencia || '',
@@ -19079,7 +19144,8 @@ function showShipmentDetailsModal(shipment) {
   const updatedStr = updatedObj ? updatedObj.toLocaleString() : '-';
 
   const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
-    : shipment.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+    : shipment.source_table === 'enviame_shipments' ? 'Enviame' 
+    : shipment.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
 
   // Stepper timeline
   let step1Class = 'completed';
@@ -27526,6 +27592,9 @@ function handleManageStatusChange(status) {
       if (window.renderManageDeclarationProducts && dec) {
         window.renderManageDeclarationProducts(dec, status);
       }
+      if (window.recalculateManageDeclarationTotals) {
+        window.recalculateManageDeclarationTotals();
+      }
     }
   } else if (status === 'Recepción Parcial') {
     if (groupReceived) groupReceived.style.display = 'block';
@@ -27791,9 +27860,9 @@ window.manageDeclaration = async function(id) {
 
     if (error) throw error;
 
-    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales
+    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales (incluyendo medidas)
     try {
-      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
+      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
       window.adminCatalogProductsCache = prods || [];
     } catch (e) {
       console.error('Error preloading products for admin:', e);
@@ -27819,7 +27888,8 @@ window.manageDeclaration = async function(id) {
         const prods = window.adminCatalogProductsCache || [];
         const matches = prods.filter(p =>
           (p.name && p.name.toLowerCase().includes(term)) ||
-          (p.sku && p.sku.toLowerCase().includes(term))
+          (p.sku && p.sku.toLowerCase().includes(term)) ||
+          (p.barcode && p.barcode.toLowerCase().includes(term))
         );
 
         let html = '';
@@ -27827,18 +27897,22 @@ window.manageDeclaration = async function(id) {
           html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias</div>';
         } else {
           matches.forEach(p => {
+            const dimsText = (p.largo && p.ancho && p.alto) ? `${p.largo}×${p.ancho}×${p.alto} cm` : 'Sin medidas';
             html += `
               <div class="admin-search-result-item" 
                    data-sku="${p.sku}" 
                    data-name="${p.name.replace(/"/g, '&quot;')}" 
                    data-vol="${p.volumen || 0}" 
+                   data-largo="${p.largo || ''}" 
+                   data-ancho="${p.ancho || ''}" 
+                   data-alto="${p.alto || ''}" 
                    data-price="${p.price || 0}" 
                    data-barcode="${p.barcode || ''}"
                    style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
                    onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                    onmouseout="this.style.backgroundColor='transparent'">
                 <strong style="color: var(--color-text-main);">${p.name}</strong>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Medidas: ${dimsText} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
               </div>
             `;
           });
@@ -27870,34 +27944,66 @@ window.manageDeclaration = async function(id) {
             html: `
               <div style="text-align: left; font-size: 0.9rem;">
                 <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">SKU *</label>
-                <input id="swal-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                <input id="swal-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; height: 36px; font-size: 0.85rem;">
                 
                 <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Nombre / Descripción *</label>
-                <input id="swal-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                <input id="swal-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; height: 36px; font-size: 0.85rem;">
                 
-                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+                  <div>
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Largo (cm) *</label>
+                    <input id="swal-custom-largo" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+                  </div>
+                  <div>
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Ancho (cm) *</label>
+                    <input id="swal-custom-ancho" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+                  </div>
+                  <div>
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Alto (cm) *</label>
+                    <input id="swal-custom-alto" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
                   <div style="flex: 1;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Cantidad Recibida *</label>
-                    <input id="swal-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Cantidad Recibida *</label>
+                    <input id="swal-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box; height: 36px; font-size: 0.85rem; text-align: center; font-weight: 700;">
                   </div>
                   <div style="flex: 1;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Código de Barras</label>
-                    <input id="swal-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Código de Barras</label>
+                    <input id="swal-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box; height: 36px; font-size: 0.85rem;">
                   </div>
                 </div>
                 
-                <div style="display: flex; gap: 1rem;">
+                <div style="display: flex; gap: 0.75rem;">
                   <div style="flex: 1;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Volumen Unitario (m³)</label>
-                    <input id="swal-custom-vol" type="number" step="0.000001" class="swal2-input" value="0.000100" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Volumen Unitario (m³)</label>
+                    <input id="swal-custom-vol" type="number" step="0.000001" class="swal2-input" placeholder="0.000100" style="width: 100%; margin: 0; box-sizing: border-box; height: 36px; font-size: 0.85rem; text-align: center; background: rgba(0,0,0,0.02);">
                   </div>
                   <div style="flex: 1;">
-                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Precio Unitario ($)</label>
-                    <input id="swal-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Precio Unitario ($)</label>
+                    <input id="swal-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box; height: 36px; font-size: 0.85rem; text-align: right;">
                   </div>
                 </div>
               </div>
             `,
+            didOpen: () => {
+              const lInp = document.getElementById('swal-custom-largo');
+              const anInp = document.getElementById('swal-custom-ancho');
+              const alInp = document.getElementById('swal-custom-alto');
+              const volInp = document.getElementById('swal-custom-vol');
+              const calcV = () => {
+                const l = parseFloat(lInp.value) || 0;
+                const an = parseFloat(anInp.value) || 0;
+                const al = parseFloat(alInp.value) || 0;
+                if (l > 0 && an > 0 && al > 0) {
+                  volInp.value = ((l * an * al) / 1000000).toFixed(6);
+                }
+              };
+              lInp.addEventListener('input', calcV);
+              anInp.addEventListener('input', calcV);
+              alInp.addEventListener('input', calcV);
+            },
             focusConfirm: false,
             showCancelButton: true,
             confirmButtonText: 'Agregar',
@@ -27907,7 +28013,10 @@ window.manageDeclaration = async function(id) {
               const name = document.getElementById('swal-custom-name').value.trim();
               const qty = parseInt(document.getElementById('swal-custom-qty').value, 10);
               const barcode = document.getElementById('swal-custom-barcode').value.trim();
-              const vol = parseFloat(document.getElementById('swal-custom-vol').value);
+              const largo = parseFloat(document.getElementById('swal-custom-largo').value) || null;
+              const ancho = parseFloat(document.getElementById('swal-custom-ancho').value) || null;
+              const alto = parseFloat(document.getElementById('swal-custom-alto').value) || null;
+              let vol = parseFloat(document.getElementById('swal-custom-vol').value);
               const price = parseFloat(document.getElementById('swal-custom-price').value);
 
               if (!sku) {
@@ -27922,12 +28031,15 @@ window.manageDeclaration = async function(id) {
                 Swal.showValidationMessage('La cantidad debe ser mayor o igual a 1.');
                 return false;
               }
-              return { sku, name, qty, barcode, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
+              if (largo && ancho && alto && (!vol || vol <= 0)) {
+                vol = (largo * ancho * alto) / 1000000;
+              }
+              return { sku, name, qty, barcode, largo, ancho, alto, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
             }
           });
 
           if (formValues) {
-            const { sku, name, qty, barcode, vol, price } = formValues;
+            const { sku, name, qty, barcode, largo, ancho, alto, vol, price } = formValues;
 
             if (!window.currentDeclarationProductsEditing) {
               window.currentDeclarationProductsEditing = [];
@@ -27943,7 +28055,15 @@ window.manageDeclaration = async function(id) {
                 qty: 0,
                 qty_confirmed: qty,
                 price: price,
+                largo: largo,
+                ancho: ancho,
+                alto: alto,
                 volumen: vol,
+                vol: vol,
+                confirmed_largo: largo,
+                confirmed_ancho: ancho,
+                confirmed_alto: alto,
+                confirmed_volumen: vol,
                 barcode: barcode
               });
 
@@ -27962,6 +28082,9 @@ window.manageDeclaration = async function(id) {
         const sku = item.getAttribute('data-sku');
         const name = item.getAttribute('data-name');
         const vol = parseFloat(item.getAttribute('data-vol') || '0');
+        const largo = parseFloat(item.getAttribute('data-largo') || '') || null;
+        const ancho = parseFloat(item.getAttribute('data-ancho') || '') || null;
+        const alto = parseFloat(item.getAttribute('data-alto') || '') || null;
         const price = parseFloat(item.getAttribute('data-price') || '0');
         const barcode = item.getAttribute('data-barcode') || '';
 
@@ -27979,7 +28102,15 @@ window.manageDeclaration = async function(id) {
             qty: 0,
             qty_confirmed: 1,
             price: price,
+            largo: largo,
+            ancho: ancho,
+            alto: alto,
             volumen: vol,
+            vol: vol,
+            confirmed_largo: largo,
+            confirmed_ancho: ancho,
+            confirmed_alto: alto,
+            confirmed_volumen: vol,
             barcode: barcode
           });
           
@@ -28425,6 +28556,23 @@ document.addEventListener('submit', async (e) => {
       }
     }
 
+    // Validar medidas físicas de los productos si se va a confirmar recepción
+    if (status === 'Recibido Conforme') {
+      if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
+        const itemWithoutDims = window.currentDeclarationProductsEditing.find(p => {
+          const l = parseFloat(p.confirmed_largo) || parseFloat(p.largo) || 0;
+          const an = parseFloat(p.confirmed_ancho) || parseFloat(p.ancho) || 0;
+          const al = parseFloat(p.confirmed_alto) || parseFloat(p.alto) || 0;
+          const vol = parseFloat(p.confirmed_volumen) || parseFloat(p.volumen) || parseFloat(p.vol) || 0;
+          return (l <= 0 || an <= 0 || al <= 0) && vol <= 0;
+        });
+        if (itemWithoutDims) {
+          alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">El producto <strong>${itemWithoutDims.sku}</strong> no tiene medidas físicas confirmadas (Largo, Ancho, Alto). Debes ingresar sus dimensiones en la tabla antes de marcar como Recibido Conforme.</div>`;
+          return;
+        }
+      }
+    }
+
     // Validar bodega si es Bodega Asignada
     let warehouseId = null;
     if (status === 'Bodega Asignada') {
@@ -28522,8 +28670,30 @@ document.addEventListener('submit', async (e) => {
           const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
             ? parseInt(item.qty_confirmed, 10)
             : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
+
+          const confLargo = (item.confirmed_largo !== undefined && item.confirmed_largo !== null && item.confirmed_largo !== '') ? parseFloat(item.confirmed_largo) : (parseFloat(item.largo) || null);
+          const confAncho = (item.confirmed_ancho !== undefined && item.confirmed_ancho !== null && item.confirmed_ancho !== '') ? parseFloat(item.confirmed_ancho) : (parseFloat(item.ancho) || null);
+          const confAlto = (item.confirmed_alto !== undefined && item.confirmed_alto !== null && item.confirmed_alto !== '') ? parseFloat(item.confirmed_alto) : (parseFloat(item.alto) || null);
+          let confVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen !== '') ? parseFloat(item.confirmed_volumen) : null;
+          if (confVol === null || isNaN(confVol) || confVol <= 0) {
+            if (confLargo && confAncho && confAlto) {
+              confVol = (confLargo * confAncho * confAlto) / 1000000;
+            } else {
+              confVol = parseFloat(item.volumen) || parseFloat(item.vol) || 0;
+            }
+          }
+
           return {
             ...item,
+            largo: confLargo,
+            ancho: confAncho,
+            alto: confAlto,
+            volumen: confVol,
+            vol: confVol,
+            confirmed_largo: confLargo,
+            confirmed_ancho: confAncho,
+            confirmed_alto: confAlto,
+            confirmed_volumen: confVol,
             qty_confirmed: qtyConfirmed,
             qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
           };
@@ -28559,7 +28729,7 @@ document.addEventListener('submit', async (e) => {
         throw error;
       }
 
-      // 2.5 Actualizar inventario físico de productos (credito incremental delta)
+      // 2.5 Actualizar inventario físico de productos (credito incremental delta) y actualizar catálogo de medidas
       const isFinishingStatus = ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
       const isStockReceivingStatus = ['Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(status);
 
@@ -28593,11 +28763,23 @@ document.addEventListener('submit', async (e) => {
               const alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
               const deltaToAdd = Math.max(0, itemQty - alreadyAdded);
 
-              if (item.sku && deltaToAdd > 0) {
+              const confLargo = (item.confirmed_largo !== undefined && item.confirmed_largo !== null && item.confirmed_largo !== '') ? parseFloat(item.confirmed_largo) : (parseFloat(item.largo) || null);
+              const confAncho = (item.confirmed_ancho !== undefined && item.confirmed_ancho !== null && item.confirmed_ancho !== '') ? parseFloat(item.confirmed_ancho) : (parseFloat(item.ancho) || null);
+              const confAlto = (item.confirmed_alto !== undefined && item.confirmed_alto !== null && item.confirmed_alto !== '') ? parseFloat(item.confirmed_alto) : (parseFloat(item.alto) || null);
+              let confVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen !== '') ? parseFloat(item.confirmed_volumen) : null;
+              if (confVol === null || isNaN(confVol) || confVol <= 0) {
+                if (confLargo && confAncho && confAlto) {
+                  confVol = (confLargo * confAncho * confAlto) / 1000000;
+                } else {
+                  confVol = parseFloat(item.volumen) || parseFloat(item.vol) || 0;
+                }
+              }
+
+              if (item.sku) {
                 // Buscar producto por SKU y comercio
                 const { data: prod, error: prodErr } = await supabase
                   .from('products')
-                  .select('id')
+                  .select('id, volumen, largo, ancho, alto')
                   .eq('comercio', latestDec.comercio)
                   .ilike('sku', item.sku.trim())
                   .limit(1)
@@ -28614,7 +28796,10 @@ document.addEventListener('submit', async (e) => {
                         sku: item.sku.trim(),
                         name: item.name || item.sku.trim(),
                         comercio: latestDec.comercio,
-                        volumen: item.volumen || item.vol || 0,
+                        volumen: confVol || 0,
+                        largo: confLargo,
+                        ancho: confAncho,
+                        alto: confAlto,
                         price: item.price || 0,
                         barcode: item.barcode || ''
                       }])
@@ -28627,9 +28812,26 @@ document.addEventListener('submit', async (e) => {
                   } catch (createErr) {
                     console.error('Error auto-creating missing product on intake confirmation:', createErr);
                   }
+                } else {
+                  // Actualizar dimensiones en el catálogo maestro si fueron confirmadas
+                  if (confLargo && confAncho && confAlto) {
+                    try {
+                      await supabase
+                        .from('products')
+                        .update({
+                          largo: confLargo,
+                          ancho: confAncho,
+                          alto: confAlto,
+                          volumen: confVol
+                        })
+                        .eq('id', productId);
+                    } catch (updProdErr) {
+                      console.warn('Error updating product dimensions in catalog:', updProdErr);
+                    }
+                  }
                 }
 
-                if (productId) {
+                if (productId && deltaToAdd > 0) {
                   // Buscar o crear registro de inventario
                   const { data: inv, error: invErr } = await supabase
                     .from('inventory')
@@ -43614,7 +43816,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     }
 
     // 2. Buscar envíos en envios_unificados usando todas las referencias posibles
-    const refs = [order.id, order.external_order_number, order.tracking_number].filter(Boolean);
+    const cleanExt = (order.external_order_number || '').replace(/^#/, '').trim();
+    const refs = [order.id, order.external_order_number, cleanExt, order.tracking_number].filter(Boolean);
     const { data: shipData, error: shipErr } = await supabase
       .from('envios_unificados')
       .select('*')
@@ -43631,7 +43834,9 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
 
         let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
-        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
+        if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
+        if (s.source_table === 'bluex_envios') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -43660,6 +43865,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
               } else if (rawStatus === 'cancelado') {
                 gStatus = 'ALERTA';
               } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+                gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'bluex_envios') {
+              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
@@ -43708,6 +43921,9 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         if (tUrl && (tUrl.includes('api.enviame.io/s2/') || tUrl.includes('api.enviame.io/api/'))) {
           tUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(s.tracking)}`;
         }
+        if (s.source_table === 'bluex_envios' && !tUrl && s.tracking) {
+          tUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(s.tracking)}`;
+        }
         if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
           tUrl = null;
         }
@@ -43729,6 +43945,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             } else if (rawStatus === 'cancelado') {
               gStatus = 'ALERTA';
             } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'bluex_envios') {
+            if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -44534,11 +44758,11 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     return;
   }
 
-  // Solo es solo lectura si el estado es 'Recibido Conforme'. En 'Recibido con Incidencias' y 'Recepción Parcial' los inputs DEBEN ser editables
-  const isReadOnly = activeStatus === 'Recibido Conforme';
+  // Solo ocultamos el botón de agregar si la declaración ya estaba guardada como Recibido Conforme
+  const isAlreadyFinished = dec && dec.status === 'Recibido Conforme' && activeStatus === 'Recibido Conforme';
   const addProdContainer = document.getElementById('manage-dec-add-product-container');
   if (addProdContainer) {
-    addProdContainer.style.display = isReadOnly ? 'none' : 'block';
+    addProdContainer.style.display = isAlreadyFinished ? 'none' : 'block';
   }
 
   const products = getDeclarationProducts(dec) || [];
@@ -44547,12 +44771,51 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
     window.currentDeclarationProductsEditing_id = dec.id;
     window.currentDeclarationProductsEditing = products.map(item => {
+      // Buscar en el catálogo precargado si faltan dimensiones
+      const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku && item.sku && p.sku.toLowerCase().trim() === item.sku.toLowerCase().trim());
+
+      const declaredLargo = item.declared_largo || item.largo || catProd?.largo || null;
+      const declaredAncho = item.declared_ancho || item.ancho || catProd?.ancho || null;
+      const declaredAlto = item.declared_alto || item.alto || catProd?.alto || null;
+      let declaredVol = item.declared_volumen || item.volumen || item.vol || catProd?.volumen || null;
+      if (!declaredVol && declaredLargo && declaredAncho && declaredAlto) {
+        declaredVol = (parseFloat(declaredLargo) * parseFloat(declaredAncho) * parseFloat(declaredAlto)) / 1000000;
+      }
+
+      const confirmedLargo = (item.confirmed_largo !== undefined && item.confirmed_largo !== null && item.confirmed_largo !== '') ? item.confirmed_largo : declaredLargo;
+      const confirmedAncho = (item.confirmed_ancho !== undefined && item.confirmed_ancho !== null && item.confirmed_ancho !== '') ? item.confirmed_ancho : declaredAncho;
+      const confirmedAlto = (item.confirmed_alto !== undefined && item.confirmed_alto !== null && item.confirmed_alto !== '') ? item.confirmed_alto : declaredAlto;
+      
+      let confirmedVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null) ? parseFloat(item.confirmed_volumen) : null;
+      if (confirmedVol === null || isNaN(confirmedVol)) {
+        if (confirmedLargo && confirmedAncho && confirmedAlto) {
+          confirmedVol = (parseFloat(confirmedLargo) * parseFloat(confirmedAncho) * parseFloat(confirmedAlto)) / 1000000;
+        } else {
+          confirmedVol = declaredVol ? parseFloat(declaredVol) : 0;
+        }
+      }
+
       // Si ya tiene cantidad confirmada guardada en BD, usarla. De lo contrario, usar la declarada como sugerencia inicial
       const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
         ? parseInt(item.qty_confirmed, 10) 
         : (parseInt(item.qty, 10) || 0);
+
       return {
         ...item,
+        price: item.price || catProd?.price || 0,
+        barcode: item.barcode || catProd?.barcode || '',
+        declared_largo: declaredLargo ? parseFloat(declaredLargo) : null,
+        declared_ancho: declaredAncho ? parseFloat(declaredAncho) : null,
+        declared_alto: declaredAlto ? parseFloat(declaredAlto) : null,
+        declared_volumen: declaredVol ? parseFloat(declaredVol) : 0,
+        largo: declaredLargo ? parseFloat(declaredLargo) : null,
+        ancho: declaredAncho ? parseFloat(declaredAncho) : null,
+        alto: declaredAlto ? parseFloat(declaredAlto) : null,
+        volumen: declaredVol ? parseFloat(declaredVol) : 0,
+        confirmed_largo: confirmedLargo ? parseFloat(confirmedLargo) : null,
+        confirmed_ancho: confirmedAncho ? parseFloat(confirmedAncho) : null,
+        confirmed_alto: confirmedAlto ? parseFloat(confirmedAlto) : null,
+        confirmed_volumen: confirmedVol ? parseFloat(confirmedVol) : 0,
         qty_confirmed: qtyConfirmed,
         qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
       };
@@ -44562,7 +44825,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (window.currentDeclarationProductsEditing.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+        <td colspan="8" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
           No hay productos registrados en esta recepción. Usa el buscador superior para agregar productos.
         </td>
       </tr>
@@ -44587,7 +44850,13 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       diffColor = 'var(--color-danger)';
     }
 
-    const deleteButtonHtml = isReadOnly ? '' : `
+    const isDimAdjusted = item.declared_largo && (
+      (item.confirmed_largo && item.confirmed_largo !== item.declared_largo) ||
+      (item.confirmed_ancho && item.confirmed_ancho !== item.declared_ancho) ||
+      (item.confirmed_alto && item.confirmed_alto !== item.declared_alto)
+    );
+
+    const deleteButtonHtml = isAlreadyFinished ? '' : `
       <button type="button" onclick="window.removeManageDeclarationProduct(${idx})" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 4px; display: inline-flex; align-items: center;" title="Eliminar producto de la recepción">
         <i class="ri-delete-bin-line"></i>
       </button>
@@ -44595,29 +44864,96 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
     tbody.innerHTML += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
-        <td style="padding: 10px 12px; max-width: 260px;">
+        <td style="padding: 8px 10px; max-width: 200px;">
           <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.sku}">${item.sku}</div>
           <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
         </td>
-        <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: var(--color-text-main);">${declared}</td>
-        <td style="padding: 10px 12px; text-align: center;">
-          <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+        <td style="padding: 8px 6px; text-align: center;">
+          ${(item.declared_largo && item.declared_ancho && item.declared_alto) ? `
+            <div style="font-weight: 600; font-size: 0.78rem; color: var(--color-text-main);">${item.declared_largo}×${item.declared_ancho}×${item.declared_alto} cm</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">${(item.declared_volumen || ((item.declared_largo*item.declared_ancho*item.declared_alto)/1000000)).toFixed(4)} m³</div>
+          ` : `
+            <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; font-weight: 600;">Sin medidas</span>
+          `}
+        </td>
+        <td style="padding: 8px 6px; text-align: center;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 3px;">
+            <input type="number" step="0.1" min="0.1" class="form-input manage-dec-dim-largo" data-index="${idx}" value="${item.confirmed_largo !== null && item.confirmed_largo !== undefined ? item.confirmed_largo : ''}" placeholder="L" title="Largo (cm)" oninput="window.updateManageDeclarationProductDims(${idx})" style="width: 52px; text-align: center; padding: 3px 2px; font-size: 0.8rem; height: 28px; border-radius: 4px; background: var(--color-surface); font-weight: 600;">
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600;">×</span>
+            <input type="number" step="0.1" min="0.1" class="form-input manage-dec-dim-ancho" data-index="${idx}" value="${item.confirmed_ancho !== null && item.confirmed_ancho !== undefined ? item.confirmed_ancho : ''}" placeholder="An" title="Ancho (cm)" oninput="window.updateManageDeclarationProductDims(${idx})" style="width: 52px; text-align: center; padding: 3px 2px; font-size: 0.8rem; height: 28px; border-radius: 4px; background: var(--color-surface); font-weight: 600;">
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600;">×</span>
+            <input type="number" step="0.1" min="0.1" class="form-input manage-dec-dim-alto" data-index="${idx}" value="${item.confirmed_alto !== null && item.confirmed_alto !== undefined ? item.confirmed_alto : ''}" placeholder="Al" title="Alto (cm)" oninput="window.updateManageDeclarationProductDims(${idx})" style="width: 52px; text-align: center; padding: 3px 2px; font-size: 0.8rem; height: 28px; border-radius: 4px; background: var(--color-surface); font-weight: 600;">
+          </div>
+          <div id="manage-dec-dim-badge-${idx}">
+            ${isDimAdjusted ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; margin-top: 2px; display: inline-block;">Ajustado</span>' : ''}
+          </div>
+        </td>
+        <td style="padding: 8px 8px; text-align: right; font-weight: 600; font-size: 0.8rem; color: var(--color-text-main);" id="manage-dec-prod-vol-${idx}">
+          ${(item.confirmed_volumen || 0).toFixed(4)} m³
+        </td>
+        <td style="padding: 8px 8px; text-align: right; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+          ${declared}
+        </td>
+        <td style="padding: 8px 6px; text-align: center;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
             <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" 
-                   style="width: 85px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 32px; margin: 0 auto; font-weight: 600; background: var(--color-bg); border-radius: 6px;" 
+                   style="width: 70px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto; font-weight: 600; background: var(--color-bg); border-radius: 6px;" 
                    oninput="window.updateManageDeclarationProductQty(${idx}, this.value)"
-                   ${isReadOnly ? 'disabled style="cursor: not-allowed; opacity: 0.8; width: 85px; text-align: center; height: 32px;"' : ''}>
+                   ${activeStatus === 'Recibido Conforme' ? 'disabled style="cursor: not-allowed; opacity: 0.85; width: 70px; text-align: center; height: 30px;"' : ''}>
             ${deleteButtonHtml}
           </div>
         </td>
-        <td style="padding: 10px 12px; text-align: center; font-weight: 700; color: ${pending > 0 ? '#d97706' : 'var(--color-text-muted)'};" id="manage-dec-prod-pending-${idx}">
+        <td style="padding: 8px 6px; text-align: center; font-weight: 700; font-size: 0.85rem; color: ${pending > 0 ? '#d97706' : 'var(--color-text-muted)'};" id="manage-dec-prod-pending-${idx}">
           ${pending}
         </td>
-        <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${diffColor};" id="manage-dec-prod-diff-${idx}">
+        <td style="padding: 8px 10px; text-align: right; font-weight: 700; font-size: 0.85rem; color: ${diffColor};" id="manage-dec-prod-diff-${idx}">
           ${diffSign}${diff}
         </td>
       </tr>
     `;
   });
+};
+
+window.updateManageDeclarationProductDims = function(idx) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  
+  const lInp = document.querySelector(`.manage-dec-dim-largo[data-index="${idx}"]`);
+  const anInp = document.querySelector(`.manage-dec-dim-ancho[data-index="${idx}"]`);
+  const alInp = document.querySelector(`.manage-dec-dim-alto[data-index="${idx}"]`);
+  
+  const l = parseFloat(lInp?.value) || 0;
+  const an = parseFloat(anInp?.value) || 0;
+  const al = parseFloat(alInp?.value) || 0;
+  
+  item.confirmed_largo = l > 0 ? l : null;
+  item.confirmed_ancho = an > 0 ? an : null;
+  item.confirmed_alto = al > 0 ? al : null;
+  
+  let unitVol = 0;
+  if (l > 0 && an > 0 && al > 0) {
+    unitVol = (l * an * al) / 1000000;
+  }
+  item.confirmed_volumen = unitVol;
+  
+  const volEl = document.getElementById(`manage-dec-prod-vol-${idx}`);
+  if (volEl) {
+    volEl.textContent = `${unitVol.toFixed(4)} m³`;
+  }
+
+  const badgeEl = document.getElementById(`manage-dec-dim-badge-${idx}`);
+  if (badgeEl) {
+    const isAdjusted = item.declared_largo && (
+      (item.confirmed_largo && item.confirmed_largo !== item.declared_largo) ||
+      (item.confirmed_ancho && item.confirmed_ancho !== item.declared_ancho) ||
+      (item.confirmed_alto && item.confirmed_alto !== item.declared_alto)
+    );
+    badgeEl.innerHTML = isAdjusted 
+      ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; margin-top: 2px; display: inline-block;">Ajustado</span>' 
+      : '';
+  }
+  
+  window.recalculateManageDeclarationTotals();
 };
 
 window.updateManageDeclarationProductQty = function(idx, val) {
@@ -44654,7 +44990,7 @@ window.updateManageDeclarationProductQty = function(idx, val) {
     diffEl.style.color = diffColor;
   }
 
-  // Recalcular los totales de la declaración (Física e Incidencias)
+  // Recalcular los totales de la declaración (Física, Volumen e Incidencias)
   window.recalculateManageDeclarationTotals();
 };
 
@@ -44672,6 +45008,7 @@ window.recalculateManageDeclarationTotals = function() {
   let totalReceived = 0;
   let totalDeclared = 0;
   let missingQty = 0;
+  let totalVolumeConfirmed = 0;
 
   window.currentDeclarationProductsEditing.forEach(item => {
     const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
@@ -44681,13 +45018,22 @@ window.recalculateManageDeclarationTotals = function() {
     if (decQty > rec) {
       missingQty += (decQty - rec);
     }
+
+    const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+      ? parseFloat(item.confirmed_volumen)
+      : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+    totalVolumeConfirmed += (unitVol * rec);
   });
 
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
+  const volumeConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
 
   if (qtyReceivedInput) {
     qtyReceivedInput.value = totalReceived;
+  }
+  if (volumeConfirmedInput && totalVolumeConfirmed > 0) {
+    volumeConfirmedInput.value = totalVolumeConfirmed.toFixed(4);
   }
   if (qtyIncidentsInput) {
     const currentStatus = document.getElementById('manage-dec-status')?.value;
@@ -47339,6 +47685,40 @@ window.exportDeclarationOperationsPDF = async function(id) {
       }
     }
 
+    // 3.1 Cargar dimensiones del catálogo maestro si no vienen en la declaración
+    if (products.length > 0) {
+      try {
+        const skusToFetch = products.filter(p => !p.largo || !p.ancho || !p.alto).map(p => (p.sku || '').trim()).filter(Boolean);
+        if (skusToFetch.length > 0) {
+          const { data: dbProds } = await supabase
+            .from('products')
+            .select('sku, largo, ancho, alto, volumen')
+            .eq('comercio', dec.comercio)
+            .in('sku', skusToFetch);
+
+          if (dbProds && dbProds.length > 0) {
+            const dbMap = new Map();
+            dbProds.forEach(p => {
+              if (p.sku) dbMap.set(p.sku.trim().toUpperCase(), p);
+            });
+            products.forEach(p => {
+              if (p.sku) {
+                const dbP = dbMap.get(p.sku.trim().toUpperCase());
+                if (dbP) {
+                  if (!p.largo && dbP.largo) p.largo = dbP.largo;
+                  if (!p.ancho && dbP.ancho) p.ancho = dbP.ancho;
+                  if (!p.alto && dbP.alto) p.alto = dbP.alto;
+                  if (!p.vol && !p.volumen && dbP.volumen) p.vol = dbP.volumen;
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Error fetching product dimensions for operations PDF:', e);
+      }
+    }
+
     // 4. Configurar etiquetas de Etiquetado y Descarga
     const lt = dec.labeling_type || 'completely';
     const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
@@ -47366,26 +47746,44 @@ window.exportDeclarationOperationsPDF = async function(id) {
     if (products.length > 0) {
       products.forEach((p, idx) => {
         totalQtyCount += (p.qty || 0);
+        const hasDims = (p.largo && p.ancho && p.alto);
+        const dimsDeclaredText = hasDims 
+          ? `<div><strong>${p.largo}×${p.ancho}×${p.alto}</strong> cm</div><span style="font-size: 8px; color: #64748b;">${((p.largo*p.ancho*p.alto)/1000000).toFixed(4)} m³</span>`
+          : ((p.vol || p.volumen) ? `<div>${(parseFloat(p.vol || p.volumen) || 0).toFixed(4)} m³</div>` : '<span style="color:#94a3b8; font-style:italic;">S/medidas</span>');
+
         productsHtml += `
           <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
-            <td style="padding: 6px 8px; color: #64748b; font-size: 10px; text-align: center;">${idx + 1}</td>
-            <td style="padding: 6px 8px; color: #0f172a; font-weight: 700; font-size: 10px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
-            <td style="padding: 6px 8px; color: #1e293b; font-size: 10px; line-height: 1.3;">
+            <td style="padding: 5px 6px; color: #64748b; font-size: 9.5px; text-align: center;">${idx + 1}</td>
+            <td style="padding: 5px 6px; color: #0f172a; font-weight: 700; font-size: 9.5px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
+            <td style="padding: 5px 6px; color: #1e293b; font-size: 9.5px; line-height: 1.25;">
               <div style="font-weight: 500;">${p.name}</div>
             </td>
-            <td style="padding: 6px 8px; color: #475569; font-size: 9.5px; font-family: monospace; white-space: nowrap;">
+            <td style="padding: 5px 6px; color: #475569; font-size: 9px; font-family: monospace; white-space: nowrap;">
               ${p.barcode || '<span style="color:#94a3b8; font-style:italic;">Sin registrar</span>'}
             </td>
-            <td style="padding: 6px 8px; color: #0f172a; text-align: right; font-weight: 700; font-size: 11px;">
+            <td style="padding: 5px 6px; text-align: center; font-size: 9px; color: #334155; background: #f8fafc;">
+              ${dimsDeclaredText}
+            </td>
+            <td style="padding: 5px 6px; text-align: center; background: #fffdf5;">
+              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 2px; font-size: 8.5px; color: #64748b;">
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
+                <span>×</span>
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
+                <span>×</span>
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
+                <span style="font-size: 7.5px;">cm</span>
+              </div>
+            </td>
+            <td style="padding: 5px 6px; color: #0f172a; text-align: right; font-weight: 700; font-size: 10.5px;">
               ${p.qty}
             </td>
-            <td style="padding: 6px 8px; text-align: center;">
-              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 68px; height: 22px; border-radius: 3px; margin: 0 auto;"></div>
+            <td style="padding: 5px 6px; text-align: center;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 55px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 6px 8px; text-align: center;">
-              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 16px; height: 16px; border-radius: 3px; margin: 0 auto;"></div>
+            <td style="padding: 5px 6px; text-align: center;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 15px; height: 15px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 6px 8px; border-left: 1px dashed #e2e8f0;">
+            <td style="padding: 5px 6px; border-left: 1px dashed #e2e8f0;">
               <div style="border-bottom: 1px dotted #cbd5e1; height: 16px; width: 100%;"></div>
             </td>
           </tr>
@@ -47394,7 +47792,7 @@ window.exportDeclarationOperationsPDF = async function(id) {
     } else {
       productsHtml = `
         <tr>
-          <td colspan="8" style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
+          <td colspan="10" style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
             No se encontraron productos detallados o la planilla no contiene filas legibles.
           </td>
         </tr>
@@ -47522,15 +47920,17 @@ window.exportDeclarationOperationsPDF = async function(id) {
 
         <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; text-align: left;">
           <thead>
-            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 9.5px; text-transform: uppercase;">
-              <th style="padding: 5px 6px; width: 28px; text-align: center;">#</th>
-              <th style="padding: 5px 6px; width: 130px;">SKU</th>
+            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 9px; text-transform: uppercase;">
+              <th style="padding: 5px 6px; width: 24px; text-align: center;">#</th>
+              <th style="padding: 5px 6px; width: 110px;">SKU</th>
               <th style="padding: 5px 6px;">Descripción / Producto</th>
-              <th style="padding: 5px 6px; width: 130px;">Cód. Barras</th>
-              <th style="padding: 5px 6px; width: 75px; text-align: right;">Cant. Decl.</th>
-              <th style="padding: 5px 6px; width: 95px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
-              <th style="padding: 5px 6px; width: 50px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
-              <th style="padding: 5px 6px; width: 140px;">Incidencias / Ubicación</th>
+              <th style="padding: 5px 6px; width: 95px;">Cód. Barras</th>
+              <th style="padding: 5px 6px; width: 105px; text-align: center; background: #f8fafc; color: #475569;">Medidas Decl.</th>
+              <th style="padding: 5px 6px; width: 125px; text-align: center; background: #fef3c7; color: #b45309;">Medidas Físicas Reales</th>
+              <th style="padding: 5px 6px; width: 60px; text-align: right;">Cant. Decl.</th>
+              <th style="padding: 5px 6px; width: 80px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
+              <th style="padding: 5px 6px; width: 40px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
+              <th style="padding: 5px 6px; width: 110px;">Incidencias / Ubicación</th>
             </tr>
           </thead>
           <tbody>
@@ -47538,10 +47938,10 @@ window.exportDeclarationOperationsPDF = async function(id) {
           </tbody>
           <tfoot>
             <tr style="background: #f8fafc; border-top: 2px solid #94a3b8; font-weight: 700;">
-              <td colspan="4" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
+              <td colspan="6" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
               <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #0f172a;">${totalQtyCount || dec.quantity_declared}</td>
               <td style="padding: 6px 8px; text-align: center;">
-                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 68px; height: 22px; border-radius: 3px; margin: 0 auto;"></div>
+                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 55px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
               </td>
               <td colspan="2" style="padding: 6px 8px; font-size: 9px; color: #64748b;">&larr; Total Físico Recibido en Bodega</td>
             </tr>
@@ -47556,7 +47956,7 @@ window.exportDeclarationOperationsPDF = async function(id) {
             <!-- Col 1: Control de Calidad / Checkboxes de Incidencias -->
             <div style="border: 1px solid #cbd5e1; border-radius: 5px; padding: 8px 10px; background: #fafafa;">
               <strong style="font-size: 9.5px; text-transform: uppercase; color: #334155; display: block; margin-bottom: 4px;">
-                Inspección Visual en Andén:
+                Inspección Visual en Andén & Aforo:
               </strong>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px; font-size: 9px; color: #334155; margin-bottom: 5px;">
                 <span>[ &nbsp; ] Carga Conforme</span>
@@ -47565,6 +47965,9 @@ window.exportDeclarationOperationsPDF = async function(id) {
                 <span>[ &nbsp; ] Faltante Stock</span>
                 <span>[ &nbsp; ] Sobrante Stock</span>
                 <span>[ &nbsp; ] Sin Código Barras</span>
+              </div>
+              <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 4px; padding: 3px 5px; margin-bottom: 4px; font-size: 8px; color: #92400e; line-height: 1.25;">
+                <strong>Control de Dimensiones:</strong> Medir con huincha las dimensiones reales de cada bulto. Si difieren de lo declarado, anotar las medidas reales en la columna para rectificación en sistema.
               </div>
               <div style="border-top: 1px dashed #cbd5e1; padding-top: 3px; font-size: 8.5px; color: #64748b;">
                 Obs: _____________________________________________

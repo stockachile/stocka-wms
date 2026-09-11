@@ -109,8 +109,12 @@ export async function renderOptirouteSupport() {
             <button id="btn-print-labels" class="btn btn-primary" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-printer-line"></i> Imprimir Selección (<span id="print-count">0</span>)
             </button>
+            <!-- Botón Notificar Inicio de Ruta (Despacho Masivo a Todos los Clientes) -->
+            <button id="btn-notify-route-start" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #0284c7; color: white; border: none; padding: 0 0.8rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Enviar correo de Envío Programado masivamente a todos los clientes de la ruta">
+              <i class="ri-rocket-line"></i> 🚀 Notificar Inicio de Ruta
+            </button>
             <!-- Botón Enviar Correos Masivos (Brevo) -->
-            <button id="btn-send-bulk-email" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #2563eb; color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Enviar correos masivos por Brevo">
+            <button id="btn-send-bulk-email" class="btn btn-outline" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); color: var(--color-text-main); background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Abrir gestor de correos masivos por Brevo">
               <i class="ri-mail-send-line"></i> Enviar Correos Masivos
             </button>
             <!-- Botón Forzar Actualización Live API -->
@@ -1915,7 +1919,18 @@ export async function renderOptirouteSupport() {
       });
     }
 
-    // Listener para Enviar Correos Brevo (Masivo)
+    // Listener para Notificar Inicio de Ruta (Envío Programado Masivo a Toda la Ruta)
+    const btnNotifyRouteStart = document.getElementById('btn-notify-route-start');
+    if (btnNotifyRouteStart) {
+      btnNotifyRouteStart.style.display = 'inline-flex';
+      const newNotifyBtn = btnNotifyRouteStart.cloneNode(true);
+      btnNotifyRouteStart.parentNode.replaceChild(newNotifyBtn, btnNotifyRouteStart);
+      newNotifyBtn.addEventListener('click', async () => {
+        await handleManualRouteStartDispatch(data);
+      });
+    }
+
+    // Listener para Enviar Correos Brevo (Modal General)
     if (btnSendBulkEmail) {
       btnSendBulkEmail.style.display = 'inline-flex';
       const newEmailBtn = btnSendBulkEmail.cloneNode(true);
@@ -5861,25 +5876,134 @@ modal.style.position = 'fixed';
   }
 
   async function checkAndAutoSendDispatchEmails(waypoints) {
-    const dispatchWaypoints = waypoints.filter(w => {
-      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
-      const isActiveRoute = st.includes('onroute') || st.includes('ongoing') || st.includes('arrived') || st.includes('en ruta') || st.includes('ruta') || w.status_code === 6 || w.status_code === 2 || w.status_code === 4 || w.status === 6 || w.status === 2 || w.status === 4;
-      const hasEmail = w.email && w.email.includes('@');
-      const notNotified = !w.dispatch_email_notified;
-      return isActiveRoute && hasEmail && notNotified;
+    if (!waypoints || waypoints.length === 0) return;
+
+    // Agrupar los pedidos por Conductor / Vehículo
+    const driverGroups = groupWaypointsByDriver(waypoints);
+    const dispatchWaypoints = [];
+
+    driverGroups.forEach(group => {
+      // 1. Determinar si la ruta de este conductor ya inició:
+      // Se considera que el conductor inició su ruta si AL MENOS UNA parada está en camino (ONROUTE/ONGOING),
+      // o ya llegó a destino (ARRIVED), o ya fue entregada (DELIVERED).
+      const isDriverRouteStarted = group.items.some(w => {
+        const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+        const code = Number(w.status_code !== undefined ? w.status_code : w.status);
+        return code === 6 || code === 2 || code === 4 || code === 3 ||
+               st.includes('onroute') || st.includes('ongoing') || st.includes('arrived') || st.includes('entregad') || st.includes('en ruta') || st.includes('tránsito');
+      });
+
+      if (isDriverRouteStarted) {
+        // 2. Si el conductor inició su recorrido, agregar a TODOS sus destinatarios pendientes
+        group.items.forEach(w => {
+          const hasEmail = w.email && w.email.includes('@');
+          const notNotified = !w.dispatch_email_notified;
+          const code = Number(w.status_code !== undefined ? w.status_code : w.status);
+          const st = String(w.status || '').toLowerCase();
+          const isInvalid = code === -1 || code === -4 || st.includes('cancelad') || st.includes('eliminad');
+
+          if (hasEmail && notNotified && !isInvalid) {
+            dispatchWaypoints.push(w);
+          }
+        });
+      }
     });
 
     if (dispatchWaypoints.length === 0) return;
 
-    console.log(`Auto-enviando ${dispatchWaypoints.length} correos de aviso de despacho en ruta...`);
+    console.log(`🚀 [INICIO DE RUTA AUTOMÁTICO] Auto-enviando masivamente ${dispatchWaypoints.length} correos de aviso de despacho a los clientes de las rutas iniciadas...`);
     for (const item of dispatchWaypoints) {
       try {
         await sendBrevoNotificationEmail(item, 'dispatch');
         item.dispatch_email_notified = true;
-        console.log(`🚚 Correo de aviso de despacho enviado a ${item.email} para pedido ${item.reference}`);
+        console.log(`🚚 Correo de aviso de despacho enviado a ${item.email} para pedido ${item.reference} (${item.route_driver || 'Conductor'})`);
       } catch (err) {
         console.warn(`Error auto-enviando correo de aviso de despacho a ${item.reference}:`, err.message);
       }
+    }
+  }
+
+  // Disparo manual masivo para notificar inicio de ruta a todos los clientes pendientes
+  async function handleManualRouteStartDispatch(data) {
+    const scope = (data && data.length > 0) ? data : ((allWaypoints && allWaypoints.length > 0) ? allWaypoints : []);
+    if (scope.length === 0) {
+      alert('No hay envíos disponibles en la ruta actual.');
+      return;
+    }
+
+    const pending = scope.filter(w => {
+      const hasEmail = w.email && w.email.includes('@');
+      const notNotified = !w.dispatch_email_notified;
+      const code = Number(w.status_code !== undefined ? w.status_code : w.status);
+      const st = String(w.status || '').toLowerCase();
+      const isInvalid = code === -1 || code === -4 || st.includes('cancelad') || st.includes('eliminad');
+      return hasEmail && notNotified && !isInvalid;
+    });
+
+    const alreadyNotified = scope.filter(w => w.dispatch_email_notified && w.email && w.email.includes('@')).length;
+    const withoutEmail = scope.filter(w => !w.email || !w.email.includes('@')).length;
+
+    if (pending.length === 0) {
+      alert(`Todos los clientes con correo de esta ruta (${alreadyNotified}) ya han recibido su aviso de despacho.\n(Envíos sin correo configurado: ${withoutEmail}).`);
+      return;
+    }
+
+    const confirmMsg = `🚀 Notificación Masiva de Inicio de Ruta:\n\n` +
+      `¿Deseas enviar el correo de "Aviso de Despacho (Envío Programado)" a los ${pending.length} destinatarios pendientes?\n\n` +
+      `• Destinatarios a notificar ahora: ${pending.length}\n` +
+      `• Ya notificados previamente: ${alreadyNotified}\n` +
+      `• Sin correo registrado: ${withoutEmail}\n\n` +
+      `Cada cliente recibirá su enlace personalizado de seguimiento en vivo con diseño oficial Stocka.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    const notifModal = document.createElement('div');
+    notifModal.style.position = 'fixed';
+    notifModal.style.inset = '0';
+    notifModal.style.background = 'rgba(15, 23, 42, 0.75)';
+    notifModal.style.zIndex = '999999';
+    notifModal.style.display = 'flex';
+    notifModal.style.alignItems = 'center';
+    notifModal.style.justifyContent = 'center';
+    notifModal.innerHTML = `
+      <div style="background: white; padding: 1.5rem 2rem; border-radius: 10px; max-width: 450px; width: 90%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+        <h4 style="margin: 0 0 0.5rem 0; color: #0f172a; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+          <i class="ri-rocket-line" style="color: #0284c7;"></i> Enviando Avisos de Despacho...
+        </h4>
+        <p id="dispatch-progress-text" style="font-size: 0.85rem; color: #64748b; margin: 0 0 1rem 0;">Procesando 0 de ${pending.length} correos...</p>
+        <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+          <div id="dispatch-progress-bar" style="width: 0%; height: 100%; background: #0284c7; transition: width 0.2s;"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(notifModal);
+
+    const progText = notifModal.querySelector('#dispatch-progress-text');
+    const progBar = notifModal.querySelector('#dispatch-progress-bar');
+
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
+      try {
+        await sendBrevoNotificationEmail(item, 'dispatch');
+        item.dispatch_email_notified = true;
+        successCount++;
+      } catch (e) {
+        console.warn(`Error enviando a ${item.reference}:`, e);
+        failCount++;
+      }
+      const pct = Math.round(((i + 1) / pending.length) * 100);
+      if (progText) progText.textContent = `Procesando ${i + 1} de ${pending.length} correos (${pct}%)...`;
+      if (progBar) progBar.style.width = `${pct}%`;
+    }
+
+    notifModal.remove();
+
+    alert(`🎉 Proceso completado:\n\n• ${successCount} correos de aviso de despacho enviados exitosamente.` + (failCount > 0 ? `\n• ${failCount} errores.` : ''));
+    if (typeof renderShipmentsTable === 'function') {
+      renderShipmentsTable(currentFilteredWaypoints && currentFilteredWaypoints.length > 0 ? currentFilteredWaypoints : allWaypoints);
     }
   }
 
