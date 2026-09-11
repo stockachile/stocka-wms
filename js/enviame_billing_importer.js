@@ -46,13 +46,9 @@ function injectImporterStyles() {
       box-shadow: 0 1px 2px rgba(0,0,0,0.06);
     }
     .importer-preview-table tfoot td {
-      position: sticky;
-      bottom: 0;
-      z-index: 3;
       background: var(--color-surface-hover);
       border-top: 2px solid var(--color-border);
       border-bottom: 2px solid var(--color-border);
-      box-shadow: 0 -1px 3px rgba(0,0,0,0.05);
       font-weight: 700;
     }
     .importer-alert-warning {
