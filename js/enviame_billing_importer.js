@@ -472,7 +472,7 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
           </label>
           <div style="display: flex; gap: 0.5rem;">
             <button onclick="document.getElementById('modal-enviame-importer').remove()" class="btn btn-outline">Cancelar</button>
-            <button id="btn-importer-process" onclick="window.processSelectedEnviameImports('${periodId}')" class="btn btn-primary" style="background: #9c27b0; border-color: #9c27b0;"><i class="ri-checkbox-circle-line"></i> Procesar y Registrar Seleccionados</button>
+            <button id="btn-importer-process" onclick="window.openEnviameProcessPreviewModal('${periodId}')" class="btn btn-primary" style="background: #9c27b0; border-color: #9c27b0;"><i class="ri-checkbox-circle-line"></i> Procesar y Registrar Seleccionados</button>
           </div>
         </div>
       </div>
@@ -1692,7 +1692,7 @@ window.previewEnviameBreakdownPDF = function(index) {
   modal = document.createElement('div');
   modal.id = 'modal-enviame-preview';
   modal.className = 'modal-overlay active';
-  modal.style.zIndex = '11000';
+  modal.style.zIndex = '12000';
   modal.style.display = 'flex';
   modal.style.alignItems = 'center';
   modal.style.justifyContent = 'center';
@@ -1851,11 +1851,329 @@ function generateExcelBlobForBreakdown(commData, periodName) {
   return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
-window.processSelectedEnviameImports = async function(periodId) {
+// --- MODAL DE VISTA PREVIA Y CONFIRMACIÓN ANTES DE REGISTRAR ---
+window.openEnviameProcessPreviewModal = async function(periodId) {
   const tbody = document.getElementById('importer-results-tbody');
-  const checkedBoxes = tbody.querySelectorAll('.importer-row-select:checked');
+  const checkedBoxes = tbody ? tbody.querySelectorAll('.importer-row-select:checked') : [];
   
-  if (checkedBoxes.length === 0) {
+  if (!checkedBoxes || checkedBoxes.length === 0) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Sin selecciones',
+      text: 'Por favor, selecciona al menos un comercio para registrar.',
+      confirmButtonColor: '#9c27b0'
+    });
+    return;
+  }
+  
+  const emissionDate = document.getElementById('importer-fecha-emision')?.value || '';
+  const deadlineDate = document.getElementById('importer-fecha-limite')?.value || '';
+  const notifyClient = document.getElementById('importer-send-notification')?.checked ?? true;
+  const periodName = document.querySelector('#modal-enviame-importer h3')?.textContent.split('- Periodo: ')[1]?.trim() || '';
+  
+  // Mostrar feedback mientras se consultan contactos
+  Swal.fire({
+    title: 'Preparando vista previa...',
+    text: 'Consultando contactos y datos de facturación',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+  
+  let allContacts = [];
+  try {
+    const { data: contactsData, error: contactsErr } = await supabase
+      .from('billing_contacts')
+      .select('comercio, nombre, email, rol, activo')
+      .eq('activo', true);
+    if (!contactsErr && contactsData) {
+      allContacts = contactsData;
+    }
+  } catch (err) {
+    console.warn('Error al cargar billing_contacts:', err);
+  }
+  
+  Swal.close();
+  
+  // Mapear contactos por comercio y por conglomerado
+  const contactsByCommerce = {};
+  allContacts.forEach(c => {
+    if (c.comercio) {
+      const k = c.comercio.trim().toLowerCase();
+      if (!contactsByCommerce[k]) contactsByCommerce[k] = [];
+      contactsByCommerce[k].push(c);
+    }
+  });
+
+  const getContactsFor = (commerceName, billingGroupName) => {
+    const cKey = (commerceName || '').trim().toLowerCase();
+    const gKey = (billingGroupName || '').trim().toLowerCase();
+    const list1 = contactsByCommerce[cKey] || [];
+    const list2 = contactsByCommerce[gKey] || [];
+    const combined = [...list1];
+    list2.forEach(c2 => {
+      if (!combined.some(c1 => (c1.email || '').trim().toLowerCase() === (c2.email || '').trim().toLowerCase())) {
+        combined.push(c2);
+      }
+    });
+    return combined;
+  };
+
+  const indexesToProcess = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-idx'), 10));
+  const selectedCommerces = indexesToProcess.map(idx => ({
+    idx,
+    ...window.importerParsedData[idx]
+  }));
+  
+  let totalShipments = 0;
+  let totalNet = 0;
+  let totalIva = 0;
+  let totalFactura = 0;
+  let totalIndemn = 0;
+  let totalPagar = 0;
+  let withoutContactsCount = 0;
+
+  selectedCommerces.forEach(c => {
+    totalShipments += (c.totals?.quantity || 0);
+    totalNet += (c.totals?.net || 0);
+    totalIva += (c.totals?.iva || 0);
+    totalFactura += (c.totals?.total || 0);
+    totalIndemn += (c.totals?.indemnizaciones || 0);
+    totalPagar += (c.totals?.totalAPagar || 0);
+    
+    const contactsList = getContactsFor(c.commerce, c.billingGroup);
+    if (contactsList.length === 0) withoutContactsCount++;
+  });
+
+  // Remover modal previo de confirmación si existiera
+  const oldModal = document.getElementById('modal-enviame-process-preview');
+  if (oldModal) oldModal.remove();
+
+  const previewModal = document.createElement('div');
+  previewModal.id = 'modal-enviame-process-preview';
+  previewModal.className = 'modal-overlay active';
+  previewModal.style.zIndex = '11000';
+  previewModal.style.display = 'flex';
+  previewModal.style.alignItems = 'center';
+  previewModal.style.justifyContent = 'center';
+  previewModal.style.background = 'rgba(0, 0, 0, 0.65)';
+  previewModal.style.position = 'fixed';
+  previewModal.style.top = '0';
+  previewModal.style.left = '0';
+  previewModal.style.width = '100vw';
+  previewModal.style.height = '100vh';
+  previewModal.style.backdropFilter = 'blur(3px)';
+
+  // Generar cards por cada comercio seleccionado
+  const commercesCardsHtml = selectedCommerces.map(c => {
+    const contactsList = getContactsFor(c.commerce, c.billingGroup);
+    const hasContacts = contactsList.length > 0;
+    const isConglomerate = c.billingGroup && c.billingGroup !== c.commerce;
+
+    const contactsHtml = hasContacts
+      ? `<div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.35rem;">
+          ${contactsList.map(cnt => `
+            <span style="display: inline-flex; align-items: center; gap: 0.35rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.25rem 0.55rem; font-size: 0.75rem; color: var(--color-text-main);">
+              <i class="ri-mail-line" style="color: #2563eb; font-size: 0.85rem;"></i>
+              <strong>${cnt.nombre || 'Contacto'}:</strong>
+              <a href="mailto:${cnt.email}" style="color: #2563eb; text-decoration: underline;" title="Enviar correo a ${cnt.email}">${cnt.email}</a>
+              ${cnt.rol ? `<span style="color: var(--color-text-muted); font-size: 0.7rem;">(${cnt.rol})</span>` : ''}
+            </span>
+          `).join('')}
+        </div>`
+      : `<div style="margin-top: 0.35rem; display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; padding: 0.3rem 0.6rem; color: #dc2626; font-size: 0.75rem; font-weight: 600;">
+          <i class="ri-error-warning-line"></i> Sin contactos de facturación registrados. No se enviará notificación automática por correo.
+        </div>`;
+
+    return `
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; margin-bottom: 0.85rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+        <!-- Cabecera del Comercio -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding-bottom: 0.65rem; border-bottom: 1px solid var(--color-border);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.05rem; font-weight: 800; color: var(--color-text-main);">${c.commerce}</span>
+            ${isConglomerate ? `<span style="font-size: 0.72rem; padding: 0.2rem 0.5rem; background: rgba(91,0,228,0.08); color: #5B00E4; border: 1px solid rgba(91,0,228,0.25); border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-government-line"></i> Holding: ${c.billingGroup}</span>` : ''}
+          </div>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.previewEnviameBreakdownPDF(${c.idx})" style="padding: 0.25rem 0.65rem; font-size: 0.75rem; border-color: #9c27b0; color: #9c27b0; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;" title="Ver documento PDF individual que recibirá el comercio">
+              <i class="ri-file-text-line"></i> Previsualizar Documento
+            </button>
+            ${isConglomerate ? `
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.previewEnviameGroupBreakdownPDF('${c.billingGroup}', '${periodId}')" style="padding: 0.25rem 0.65rem; font-size: 0.75rem; border-color: #5B00E4; color: #5B00E4; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;" title="Ver documento PDF consolidado del conglomerado">
+                <i class="ri-government-line"></i> Ver Consolidado
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Cuerpo del Comercio en 2 Columnas -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-top: 0.75rem;">
+          <!-- Columna 1: Datos de Empresa y Contacto -->
+          <div>
+            <div style="display: flex; gap: 1.25rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--color-text-main);">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 600; display: block;">Razón Social:</span>
+                <strong style="color: var(--color-text-main);">${c.razon_social || c.commerce}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 600; display: block;">RUT:</span>
+                <code style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main);">${c.rut || 'No configurado'}</code>
+              </div>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; font-weight: 600; display: block;">Contacto(s) que recibirá(n) el desglose:</span>
+              ${contactsHtml}
+            </div>
+          </div>
+
+          <!-- Columna 2: Resumen Financiero -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; display: flex; flex-direction: column; justify-content: center;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem 0.65rem; font-size: 0.775rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block;">Despachos</span>
+                <strong style="color: var(--color-text-main);">${c.totals.quantity.toLocaleString('es-CL')}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block;">Neto</span>
+                <strong style="color: var(--color-text-main);">${formatCLP(c.totals.net)}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block;">IVA (19%)</span>
+                <strong style="color: #2563eb;">${formatCLP(c.totals.iva)}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block;">Total Factura</span>
+                <strong style="color: var(--color-text-main);">${formatCLP(c.totals.total)}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block;">Indemnizaciones</span>
+                <strong style="color: #ef4444;">${c.totals.indemnizaciones > 0 ? '-' + formatCLP(c.totals.indemnizaciones) : '$0'}</strong>
+              </div>
+              <div style="background: rgba(156, 39, 176, 0.08); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid rgba(156, 39, 176, 0.25);">
+                <span style="color: #9c27b0; font-size: 0.68rem; font-weight: 700; display: block; text-transform: uppercase;">Total a Pagar</span>
+                <strong style="color: #9c27b0; font-size: 0.85rem; font-weight: 900;">${formatCLP(c.totals.totalAPagar)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  previewModal.innerHTML = `
+    <div class="modal-content" style="max-width: 1100px; width: 95%; height: 90vh; background: var(--color-bg); border-radius: var(--radius-lg); display: flex; flex-direction: column; box-shadow: var(--shadow-xl); border: 1px solid var(--color-border); overflow: hidden;">
+      
+      <!-- Modal Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-file-list-3-line" style="color: #9c27b0; font-size: 1.4rem;"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); font-weight: 800;">
+              Vista Previa y Confirmación de Registro de Cobros
+            </h3>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+              Periodo: <strong>${periodName || 'Actual'}</strong> | Emisión: <strong>${emissionDate || 'N/A'}</strong> | Plazo: <strong>${deadlineDate || 'N/A'}</strong>
+            </span>
+          </div>
+        </div>
+        <button onclick="document.getElementById('modal-enviame-process-preview').remove()" class="btn-close" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted); padding: 0.2rem;"><i class="ri-close-line"></i></button>
+      </div>
+
+      <!-- Modal Body (Scrollable) -->
+      <div style="flex-grow: 1; overflow-y: auto; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+        
+        <!-- Resumen Global de los Comercios Seleccionados -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1.15rem; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+            <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-calculator-line" style="color: #9c27b0; font-size: 1.15rem;"></i>
+              Resumen Consolidado a Procesar (${selectedCommerces.length} comercios)
+            </span>
+            <span>
+              ${withoutContactsCount > 0 
+                ? `<span style="font-size: 0.75rem; color: #d97706; font-weight: 700; background: rgba(217,119,6,0.1); padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-alert-line"></i> ${withoutContactsCount} comercio(s) sin contacto</span>`
+                : `<span style="font-size: 0.75rem; color: #16a34a; font-weight: 700; background: rgba(22,163,74,0.1); padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-checkbox-circle-line"></i> Todos con contactos registrados</span>`
+              }
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.65rem;">
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total Despachos</span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">${totalShipments.toLocaleString('es-CL')}</span>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Neto Total</span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">${formatCLP(totalNet)}</span>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">IVA Total (19%)</span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: #2563eb;">${formatCLP(totalIva)}</span>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total Factura</span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main);">${formatCLP(totalFactura)}</span>
+            </div>
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Indemnizaciones</span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: #ef4444;">${totalIndemn > 0 ? '-' + formatCLP(totalIndemn) : '$0'}</span>
+            </div>
+            <div style="background: rgba(156, 39, 176, 0.07); border: 1.5px solid #9c27b0; border-radius: var(--radius-sm); padding: 0.55rem 0.75rem;">
+              <span style="font-size: 0.68rem; font-weight: 700; color: #9c27b0; text-transform: uppercase; display: block; margin-bottom: 0.15rem;">Total a Pagar</span>
+              <span style="font-size: 1.15rem; font-weight: 900; color: #9c27b0;">${formatCLP(totalPagar)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Instrucción / Información -->
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.2rem;">
+          <i class="ri-information-line" style="color: #9c27b0; font-size: 1.05rem;"></i>
+          <span>Revisa los datos de cada comercio y haz clic en <strong>Previsualizar Documento</strong> para verificar el PDF exacto que se generará y enviará antes de confirmar.</span>
+        </div>
+
+        <!-- Listado de Comercios -->
+        <div>
+          ${commercesCardsHtml}
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background: var(--color-surface); border-top: 1px solid var(--color-border); flex-wrap: wrap; gap: 0.75rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.825rem; font-weight: 600; color: var(--color-text-main); cursor: pointer;">
+          <input type="checkbox" id="preview-send-notification" ${notifyClient ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: #9c27b0;">
+          ¿Enviar notificaciones por correo automáticamente al registrar?
+        </label>
+        <div style="display: flex; gap: 0.65rem;">
+          <button type="button" onclick="document.getElementById('modal-enviame-process-preview').remove()" class="btn btn-outline" style="padding: 0.5rem 1rem;">
+            <i class="ri-arrow-left-line"></i> Volver a la Planilla
+          </button>
+          <button type="button" id="btn-confirm-and-register" onclick="window.executeConfirmedEnviameProcessing('${periodId}')" class="btn btn-primary" style="background: #9c27b0; border-color: #9c27b0; font-weight: 700; padding: 0.5rem 1.35rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-checkbox-circle-fill"></i> Confirmar y Registrar (${selectedCommerces.length} Comercios)
+          </button>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(previewModal);
+};
+
+// --- PROCESAMIENTO DEFINITIVO CONFIRMADO ---
+window.executeConfirmedEnviameProcessing = async function(periodId) {
+  const previewSendNotifCb = document.getElementById('preview-send-notification');
+  const notifyClient = previewSendNotifCb ? previewSendNotifCb.checked : (document.getElementById('importer-send-notification')?.checked ?? true);
+  
+  // Sincronizar checkbox en modal base
+  const baseSendNotifCb = document.getElementById('importer-send-notification');
+  if (baseSendNotifCb) baseSendNotifCb.checked = notifyClient;
+
+  // Cerrar modal de confirmación
+  const previewModal = document.getElementById('modal-enviame-process-preview');
+  if (previewModal) previewModal.remove();
+
+  const tbody = document.getElementById('importer-results-tbody');
+  const checkedBoxes = tbody ? tbody.querySelectorAll('.importer-row-select:checked') : [];
+  
+  if (!checkedBoxes || checkedBoxes.length === 0) {
     Swal.fire({
       icon: 'warning',
       title: 'Sin selecciones',
@@ -1869,7 +2187,6 @@ window.processSelectedEnviameImports = async function(periodId) {
   const deadlineDate = document.getElementById('importer-fecha-limite').value;
   const defaultPagoStatus = document.getElementById('importer-pago-status').value;
   const defaultFacturaStatus = document.getElementById('importer-factura-status').value;
-  const notifyClient = document.getElementById('importer-send-notification').checked;
   const periodName = document.querySelector('#modal-enviame-importer h3').textContent.split('- Periodo: ')[1]?.trim() || '';
   
   const indexesToProcess = Array.from(checkedBoxes).map(cb => parseInt(cb.getAttribute('data-idx')));
@@ -2262,6 +2579,11 @@ window.processSelectedEnviameImports = async function(periodId) {
     
     modalContent.innerHTML = originalHtml;
   }
+};
+
+// Alias para compatibilidad
+window.processSelectedEnviameImports = function(periodId) {
+  window.openEnviameProcessPreviewModal(periodId);
 };
 
 // --- RENDERIZACIÓN DE PDF CONSOLIDADO DE CONGLOMERADOS ---
@@ -2795,7 +3117,7 @@ window.previewEnviameGroupBreakdownPDF = function(groupName, periodId) {
   modal = document.createElement('div');
   modal.id = 'modal-enviame-preview';
   modal.className = 'modal-overlay active';
-  modal.style.zIndex = '11000';
+  modal.style.zIndex = '12000';
   modal.style.display = 'flex';
   modal.style.alignItems = 'center';
   modal.style.justifyContent = 'center';
