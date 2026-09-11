@@ -38,23 +38,16 @@ Como las órdenes de flete (OF) en `starkenpro.cl` contienen datos de despacho y
 
 ---
 
-## Comandos Disponibles
+## Operación 100% Online en la Nube (GitHub Actions)
 
-A partir de ahora, puedes sincronizar en cualquier momento con un solo comando en tu terminal (desde `C:\Users\felip\Desktop\WMS STOCKA`):
+Al igual que con **Blue Express**, la sincronización de Starken Pro opera de forma 100% autónoma en la nube cada 3 horas a través de **GitHub Actions** (`.github/workflows/sync_starken.yml`), sin necesidad de tener scripts ni terminales corriendo en local:
 
-```bash
-# Sincronización normal (últimos 30 días)
-npm run sync:starken
-
-# Sincronizar un rango personalizado (ejemplo: últimos 7 o 60 días)
-node sync_starken.js --days 7
-node sync_starken.js --days 60
-
-# Ejecutar el scheduler continuo en segundo plano (cada 3 horas)
-npm run schedule:starken
-
-# Ejecutar script batch para Windows (un solo clic)
-run_sync_starken.bat
-```
+1. **Secret en GitHub Repository:**
+   - URL: `https://github.com/stockachile/stocka-wms/settings/secrets/actions`
+   - Secreto: `STARKEN_STATE_JSON` con el contenido del JSON de sesión.
+2. **Ejecución Automática:**
+   - Corre cada 3 horas (UTC: 1, 4, 7, 10, 13, 16, 19, 22).
+3. **Disparo Manual Online:**
+   - En `https://github.com/stockachile/stocka-wms/actions/workflows/sync_starken.yml`, haz clic en **Run workflow**.
 
 La sesión queda persistida en `starken_state.json` y se renueva automáticamente sin requerir interacción manual recurrente.
