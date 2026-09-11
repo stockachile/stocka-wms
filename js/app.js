@@ -3171,35 +3171,47 @@ async function renderCatalog() {
     window.currentUnmappedSyncedProducts = unmappedSynced;
 
     const isObserver = userRole === 'observer';
-    const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
+    const createBtn = isObserver ? '' : `<button class="btn btn-primary" id="btn-new-product" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease;"><i class="ri-add-line" style="font-size: 1.05rem;"></i><span>Nuevo Producto</span></button>`;
+    
     const importBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
+      ? `<button class="btn btn-catalog-action" id="btn-import-from-main" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.28); color: #2563eb; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;" title="Sincronizar y actualizar todo el catálogo desde ${mainPlatform}">
+          <i class="ri-download-cloud-2-line" style="font-size: 1rem;"></i>
+          <span>Importar de ${mainPlatform}</span>
+        </button>`
       : '';
+      
     const importNewBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-outline" id="btn-import-new-only-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; border-color: var(--color-success); color: var(--color-success); background: transparent;"><i class="ri-add-circle-line" style="margin-right: 0.25rem;"></i>Importar Nuevos de ${mainPlatform}</button>`
+      ? `<button class="btn btn-catalog-action" id="btn-import-new-only-from-main" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.32); color: #059669; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;" title="Buscar e importar únicamente productos nuevos de ${mainPlatform}">
+          <i class="ri-add-circle-line" style="font-size: 1rem;"></i>
+          <span>Importar Nuevos de ${mainPlatform}</span>
+        </button>`
       : '';
 
     const quickEditBtnStyle = window.catalogQuickEditMode
-      ? 'background-color: var(--color-success); color: white; border-color: var(--color-success); font-weight: 600;'
-      : 'border-color: var(--color-primary); color: var(--color-primary); background: transparent;';
+      ? 'background: #10b981; color: white; border: 1px solid #10b981; font-weight: 600; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);'
+      : 'background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.28); color: #4f46e5; font-weight: 600;';
 
     const quickEditBtnHtml = isObserver ? '' : `
-      <button class="btn" id="btn-toggle-quick-edit" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.2s; ${quickEditBtnStyle}">
-        <i class="${window.catalogQuickEditMode ? 'ri-save-line' : 'ri-edit-2-line'}"></i> 
-        ${window.catalogQuickEditMode ? 'Guardar Cambios Rápidos' : 'Edición Rápida'}
+      <button class="btn btn-catalog-action" id="btn-toggle-quick-edit" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease; ${quickEditBtnStyle}">
+        <i class="${window.catalogQuickEditMode ? 'ri-save-line' : 'ri-edit-2-line'}" style="font-size: 1rem;"></i> 
+        <span>${window.catalogQuickEditMode ? 'Guardar Cambios Rápidos' : 'Edición Rápida'}</span>
       </button>
     `;
+
     const excelActionsDropdown = isObserver ? '' : `
       <style>
-        .excel-dropdown { position: relative; display: inline-block; margin-right: 0.5rem; }
-        .excel-dropdown-content { display: none; position: absolute; right: 0; top: 100%; background-color: var(--color-surface); min-width: 200px; box-shadow: var(--shadow-lg); z-index: 1000; border-radius: var(--radius-md); border: 1px solid var(--color-border); padding: 0.5rem; margin-top: 0; }
+        .excel-dropdown { position: relative; display: inline-block; }
+        .excel-dropdown-content { display: none; position: absolute; right: 0; top: calc(100% + 4px); background-color: var(--color-surface); min-width: 215px; box-shadow: var(--shadow-lg); z-index: 1000; border-radius: var(--radius-md); border: 1px solid var(--color-border); padding: 0.5rem; }
         .excel-dropdown:hover .excel-dropdown-content { display: flex; flex-direction: column; gap: 0.25rem; }
         .excel-dropdown-btn { width: 100%; text-align: left; padding: 0.5rem 0.75rem; border: none; background: transparent; cursor: pointer; border-radius: var(--radius-sm); color: var(--color-text-main); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; transition: background 0.2s; }
         .excel-dropdown-btn:hover { background: var(--color-bg); }
+        .btn-catalog-action:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); filter: brightness(0.96); }
       </style>
       <div class="excel-dropdown">
-        <button class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #107c41; color: #107c41; background: transparent;">
-          <i class="ri-file-excel-2-line"></i> Acciones Excel <i class="ri-arrow-down-s-line"></i>
+        <button class="btn btn-catalog-action" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16, 124, 65, 0.08); border: 1px solid rgba(16, 124, 65, 0.3); color: #107c41; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;">
+          <i class="ri-file-excel-2-line" style="font-size: 1rem;"></i>
+          <span>Acciones Excel</span>
+          <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; opacity: 0.8;"></i>
         </button>
         <div class="excel-dropdown-content">
           <div style="position: relative;">
