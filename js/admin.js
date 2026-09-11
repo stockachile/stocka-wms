@@ -4044,7 +4044,7 @@ async function renderAdminOrders() {
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
         if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-        if (s.source_table === 'bluex_envios') return true;
+        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -4080,6 +4080,12 @@ async function renderAdminOrders() {
                 if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
                   gStatus = 'DESPACHADO';
                 } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+                  gStatus = 'ALERTA';
+                }
+              } else if (s.source_table === 'starken_envios') {
+                if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+                  gStatus = 'DESPACHADO';
+                } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
                   gStatus = 'ALERTA';
                 }
               }
@@ -4127,6 +4133,14 @@ async function renderAdminOrders() {
           } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
             globStatus = 'ALERTA';
           } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'starken_envios') {
+          if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
@@ -5073,7 +5087,7 @@ window.applyWmsFiltersAndRender = function() {
       const orderCommerce = (order.comercio || '').trim().toUpperCase();
       if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
       if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-      if (s.source_table === 'bluex_envios') return true;
+      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
 
       let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
       if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -5116,6 +5130,14 @@ window.applyWmsFiltersAndRender = function() {
               } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+                gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'starken_envios') {
+              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
@@ -5350,6 +5372,14 @@ window.applyWmsFiltersAndRender = function() {
           } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
+        } else if (shipment.source_table === 'starken_envios') {
+          if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5557,6 +5587,14 @@ window.applyWmsFiltersAndRender = function() {
             } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
               globStatus = 'SIN MOVIMIENTO';
             }
+          } else if (shipment.source_table === 'starken_envios') {
+            if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+              globStatus = 'ALERTA';
+            } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
+              globStatus = 'SIN MOVIMIENTO';
+            }
           }
         }
         if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5618,6 +5656,14 @@ window.applyWmsFiltersAndRender = function() {
           } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
+        } else if (shipment.source_table === 'starken_envios') {
+          if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -5646,6 +5692,8 @@ window.applyWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
       } else if (shipment.source_table === 'bluex_envios') {
         platformBadge = `<span class="badge" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Blue Express</span>`;
+      } else if (shipment.source_table === 'starken_envios') {
+        platformBadge = `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Starken Pro</span>`;
       } else if (shipment.source_table === 'optiroute_orders') {
         platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
       }
@@ -9261,7 +9309,7 @@ async function renderIntegrations() {
         }
 
         // Acciones rápidas de sincronización
-        const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
+        const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube', 'BlueExpress', 'Starken', 'StarkenPro'].includes(mi.platform);
         if (supportManualSync && mi.is_active) {
           syncStatusHtml += `
             <div style="margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap;">
@@ -18513,11 +18561,13 @@ async function renderConsolidatedShipments() {
 
         const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
           : s.source_table === 'enviame_shipments' ? 'Enviame' 
-          : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+          : s.source_table === 'bluex_envios' ? 'Blue Express' 
+          : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
         
         const platformColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
           : s.source_table === 'enviame_shipments' ? '#10b981' 
-          : s.source_table === 'bluex_envios' ? '#0032A0' : '#8b5cf6';
+          : s.source_table === 'bluex_envios' ? '#0032A0' 
+          : s.source_table === 'starken_envios' ? '#b91c1c' : '#8b5cf6';
 
         const trackingDisplay = s.tracking
           ? (s.tracking_url && s.tracking_url !== 'N/A'
@@ -19019,7 +19069,8 @@ async function renderConsolidatedShipments() {
         const rows = dataToExport.map(s => {
           const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
-            : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+            : s.source_table === 'bluex_envios' ? 'Blue Express' 
+            : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
           return [
             s.pedido_referencia || '',
@@ -19145,7 +19196,8 @@ function showShipmentDetailsModal(shipment) {
 
   const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
     : shipment.source_table === 'enviame_shipments' ? 'Enviame' 
-    : shipment.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+    : shipment.source_table === 'bluex_envios' ? 'Blue Express' 
+    : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
 
   // Stepper timeline
   let step1Class = 'completed';
@@ -27653,6 +27705,10 @@ function handleManageStatusChange(status) {
     qtyIncidentsInput.removeAttribute('required');
     incidentsPanel.style.display = 'none';
   }
+
+  if (typeof window.recalculateManageDeclarationCosts === 'function') {
+    window.recalculateManageDeclarationCosts();
+  }
 }
 
 function renderIncidentsInputsList() {
@@ -28224,9 +28280,22 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-qty-received').value = dec.status === 'Creada' ? dec.quantity_declared : dec.quantity_received;
     document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
     document.getElementById('manage-dec-volume-confirmed').value = (dec.status === 'Creada' || dec.status === 'Bodega Asignada') ? (dec.volume_declared || '') : (dec.volume_confirmed || '');
+    const volConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
+    if (volConfirmedInput) {
+      volConfirmedInput.oninput = function() {
+        if (typeof window.recalculateManageDeclarationCosts === 'function') {
+          window.recalculateManageDeclarationCosts();
+        }
+      };
+    }
     const labelingQtyConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
     if (labelingQtyConfirmedInput) {
       labelingQtyConfirmedInput.value = (dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null) ? dec.labeling_qty_confirmed : (dec.labeling_qty_requested || 0);
+      labelingQtyConfirmedInput.oninput = function() {
+        if (typeof window.recalculateManageDeclarationCosts === 'function') {
+          window.recalculateManageDeclarationCosts();
+        }
+      };
     }
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
     
@@ -28283,6 +28352,12 @@ window.manageDeclaration = async function(id) {
     // Renderizar listado de productos para control de conteo
     if (window.renderManageDeclarationProducts) {
       window.renderManageDeclarationProducts(dec, dec.status);
+    }
+    if (window.recalculateManageDeclarationTotals) {
+      window.recalculateManageDeclarationTotals();
+    }
+    if (window.recalculateManageDeclarationCosts) {
+      window.recalculateManageDeclarationCosts();
     }
 
     // Consultar estado en el Picker y renderizar la caja del panel
@@ -43836,7 +43911,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
         if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-        if (s.source_table === 'bluex_envios') return true;
+        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -43873,6 +43948,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
               } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+                gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'starken_envios') {
+              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
@@ -43924,6 +44007,9 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         if (s.source_table === 'bluex_envios' && !tUrl && s.tracking) {
           tUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(s.tracking)}`;
         }
+        if (s.source_table === 'starken_envios' && !tUrl && s.tracking) {
+          tUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(s.tracking)}`;
+        }
         if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
           tUrl = null;
         }
@@ -43953,6 +44039,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'starken_envios') {
+            if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -44825,13 +44919,23 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (window.currentDeclarationProductsEditing.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+        <td colspan="9" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
           No hay productos registrados en esta recepción. Usa el buscador superior para agregar productos.
         </td>
       </tr>
     `;
     return;
   }
+
+  // Función interna para formateo legible de volumen
+  const formatVol = (v) => {
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return '0.0000';
+    if (num < 0.001) {
+      return num.toFixed(6).replace(/(\.\d*?[1-9])0+$/, '$1');
+    }
+    return num.toFixed(4);
+  };
 
   // Renderizar filas
   tbody.innerHTML = '';
@@ -44862,8 +44966,17 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       </button>
     `;
 
+    const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+      ? parseFloat(item.confirmed_volumen)
+      : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+
+    const rowTotalVol = unitVol * confirmed;
+
     tbody.innerHTML += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+        <td style="padding: 8px 6px; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-weight: 700; font-family: monospace;">
+          ${idx + 1}
+        </td>
         <td style="padding: 8px 10px; max-width: 200px;">
           <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.sku}">${item.sku}</div>
           <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
@@ -44888,8 +45001,9 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
             ${isDimAdjusted ? '<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; font-weight: 600; margin-top: 2px; display: inline-block;">Ajustado</span>' : ''}
           </div>
         </td>
-        <td style="padding: 8px 8px; text-align: right; font-weight: 600; font-size: 0.8rem; color: var(--color-text-main);" id="manage-dec-prod-vol-${idx}">
-          ${(item.confirmed_volumen || 0).toFixed(4)} m³
+        <td style="padding: 8px 8px; text-align: right;" id="manage-dec-prod-vol-${idx}">
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);" title="Volumen unitario (${unitVol.toFixed(6)} m³)">${formatVol(unitVol)} m³</div>
+          <div id="manage-dec-prod-tot-vol-${idx}" style="font-size: 0.7rem; color: var(--color-primary); font-weight: 700;" title="Volumen total fila (${rowTotalVol.toFixed(6)} m³)">${formatVol(rowTotalVol)} m³ tot</div>
         </td>
         <td style="padding: 8px 8px; text-align: right; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
           ${declared}
@@ -44936,9 +45050,27 @@ window.updateManageDeclarationProductDims = function(idx) {
   }
   item.confirmed_volumen = unitVol;
   
+  const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
+    ? parseInt(item.qty_confirmed, 10) 
+    : (parseInt(item.qty, 10) || 0);
+
+  const formatVol = (v) => {
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return '0.0000';
+    if (num < 0.001) {
+      return num.toFixed(6).replace(/(\.\d*?[1-9])0+$/, '$1');
+    }
+    return num.toFixed(4);
+  };
+
+  const rowTotalVol = unitVol * confirmed;
+
   const volEl = document.getElementById(`manage-dec-prod-vol-${idx}`);
   if (volEl) {
-    volEl.textContent = `${unitVol.toFixed(4)} m³`;
+    volEl.innerHTML = `
+      <div style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);" title="Volumen unitario (${unitVol.toFixed(6)} m³)">${formatVol(unitVol)} m³</div>
+      <div id="manage-dec-prod-tot-vol-${idx}" style="font-size: 0.7rem; color: var(--color-primary); font-weight: 700;" title="Volumen total fila (${rowTotalVol.toFixed(6)} m³)">${formatVol(rowTotalVol)} m³ tot</div>
+    `;
   }
 
   const badgeEl = document.getElementById(`manage-dec-dim-badge-${idx}`);
@@ -44990,6 +45122,25 @@ window.updateManageDeclarationProductQty = function(idx, val) {
     diffEl.style.color = diffColor;
   }
 
+  // Actualizar el volumen total de la fila
+  const unitVol = (window.currentDeclarationProductsEditing[idx].confirmed_volumen !== undefined && window.currentDeclarationProductsEditing[idx].confirmed_volumen !== null && window.currentDeclarationProductsEditing[idx].confirmed_volumen > 0)
+    ? parseFloat(window.currentDeclarationProductsEditing[idx].confirmed_volumen)
+    : (parseFloat(window.currentDeclarationProductsEditing[idx].volumen) || parseFloat(window.currentDeclarationProductsEditing[idx].vol) || 0);
+
+  const formatVol = (v) => {
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return '0.0000';
+    if (num < 0.001) {
+      return num.toFixed(6).replace(/(\.\d*?[1-9])0+$/, '$1');
+    }
+    return num.toFixed(4);
+  };
+
+  const totVolEl = document.getElementById(`manage-dec-prod-tot-vol-${idx}`);
+  if (totVolEl) {
+    totVolEl.textContent = `${formatVol(unitVol * parsedVal)} m³ tot`;
+  }
+
   // Recalcular los totales de la declaración (Física, Volumen e Incidencias)
   window.recalculateManageDeclarationTotals();
 };
@@ -45028,12 +45179,36 @@ window.recalculateManageDeclarationTotals = function() {
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
   const volumeConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
+  const volumeConfirmedDisplay = document.getElementById('manage-dec-volume-confirmed-display');
+  const tableTotalVol = document.getElementById('manage-dec-table-total-vol');
+  const tableTotalQty = document.getElementById('manage-dec-table-total-qty');
+  const tableVolDiff = document.getElementById('manage-dec-table-vol-diff');
 
   if (qtyReceivedInput) {
     qtyReceivedInput.value = totalReceived;
   }
-  if (volumeConfirmedInput && totalVolumeConfirmed > 0) {
-    volumeConfirmedInput.value = totalVolumeConfirmed.toFixed(4);
+  if (volumeConfirmedInput) {
+    if (totalVolumeConfirmed > 0) {
+      volumeConfirmedInput.value = totalVolumeConfirmed >= 0.001 ? totalVolumeConfirmed.toFixed(4) : totalVolumeConfirmed.toFixed(6);
+    }
+  }
+  if (volumeConfirmedDisplay) {
+    volumeConfirmedDisplay.textContent = totalVolumeConfirmed > 0 
+      ? (totalVolumeConfirmed >= 0.001 ? totalVolumeConfirmed.toFixed(4) : totalVolumeConfirmed.toFixed(6))
+      : (window.currentDeclarationEditing?.volume_confirmed || '0.0000');
+  }
+  if (tableTotalVol) {
+    tableTotalVol.textContent = `${(totalVolumeConfirmed > 0 ? (totalVolumeConfirmed >= 0.001 ? totalVolumeConfirmed.toFixed(4) : totalVolumeConfirmed.toFixed(6)) : '0.0000')} m³`;
+  }
+  if (tableTotalQty) {
+    tableTotalQty.textContent = `${totalReceived} uds`;
+  }
+  if (tableVolDiff) {
+    const decVol = parseFloat(window.currentDeclarationEditing?.volume_declared) || 0;
+    const diff = totalVolumeConfirmed - decVol;
+    const sign = diff > 0 ? '+' : '';
+    tableVolDiff.textContent = `${sign}${diff.toFixed(4)} m³`;
+    tableVolDiff.style.color = diff > 0 ? 'var(--color-success)' : (diff < 0 ? 'var(--color-danger)' : 'var(--color-text-main)');
   }
   if (qtyIncidentsInput) {
     const currentStatus = document.getElementById('manage-dec-status')?.value;
@@ -45042,6 +45217,287 @@ window.recalculateManageDeclarationTotals = function() {
     } else if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recepción Parcial') {
       qtyIncidentsInput.value = 0;
     }
+  }
+
+  if (typeof window.recalculateManageDeclarationCosts === 'function') {
+    window.recalculateManageDeclarationCosts();
+  }
+};
+
+window.recalculateManageDeclarationCosts = function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+
+  const ufRate = window.modalUfRate || window.currentUfValue || 38200;
+  
+  // UF Badge
+  const ufBadge = document.getElementById('manage-dec-uf-badge');
+  if (ufBadge) {
+    ufBadge.textContent = `UF Ref: $${Math.round(ufRate).toLocaleString('es-CL')} CLP`;
+  }
+
+  // 1. Declarados
+  const volDeclared = parseFloat(dec.volume_declared) || 0;
+  const requiresUnloading = dec.requires_unloading === true || dec.requires_unloading === 'true' || dec.requires_unloading === 1;
+  const labelingRequested = parseInt(dec.labeling_qty_requested, 10) || 0;
+  const isStockaLabeling = dec.labeling_type === 'stocka' || (dec.labeling_type !== 'completely' && labelingRequested > 0);
+
+  // Recargo por aviso tardío (< 24h)
+  let hasLateNotice = false;
+  if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+    const selectedDate = new Date(dec.estimated_arrival_date + 'T00:00:00');
+    const createdDate = dec.created_at ? new Date(dec.created_at) : new Date();
+    const diffTime = selectedDate.getTime() - createdDate.getTime();
+    if (diffTime < 24 * 60 * 60 * 1000) {
+      hasLateNotice = true;
+    }
+  }
+  const baseUnloadEst = requiresUnloading ? (0.1 * volDeclared) : 0;
+  const baseLabelEst = (labelingRequested * 100) / ufRate;
+  if (dec.estimated_cost && Math.abs(dec.estimated_cost - (baseUnloadEst + baseLabelEst + (0.75 * volDeclared))) < 0.01) {
+    hasLateNotice = true;
+  }
+
+  // 2. Físicos Confirmados
+  let volConfirmed = 0;
+  if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
+    window.currentDeclarationProductsEditing.forEach(item => {
+      const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
+      const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+        ? parseFloat(item.confirmed_volumen)
+        : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+      volConfirmed += (unitVol * rec);
+    });
+  } else {
+    volConfirmed = parseFloat(document.getElementById('manage-dec-volume-confirmed')?.value) || parseFloat(dec.volume_confirmed) || volDeclared;
+  }
+
+  // Uds Etiquetadas confirmadas
+  let labelingConfirmed = 0;
+  const labelingConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+  if (labelingConfirmedInput && labelingConfirmedInput.value !== '') {
+    labelingConfirmed = parseInt(labelingConfirmedInput.value, 10) || 0;
+  } else if (dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null) {
+    labelingConfirmed = parseInt(dec.labeling_qty_confirmed, 10) || 0;
+  } else {
+    labelingConfirmed = labelingRequested;
+  }
+
+  const formatVol = (v) => {
+    const num = parseFloat(v);
+    if (isNaN(num) || num <= 0) return '0.0000';
+    if (num < 0.001) {
+      return num.toFixed(6).replace(/(\.\d*?[1-9])0+$/, '$1');
+    }
+    return num.toFixed(4);
+  };
+
+  // Item 1: Descarga en Bodega
+  const unloadRate = 0.1000;
+  const unloadEstUf = requiresUnloading ? (unloadRate * volDeclared) : 0;
+  const unloadEstClp = unloadEstUf * ufRate;
+  const unloadRealUf = requiresUnloading ? (unloadRate * volConfirmed) : 0;
+  const unloadRealClp = unloadRealUf * ufRate;
+  const unloadDiffUf = unloadRealUf - unloadEstUf;
+  const unloadDiffClp = unloadRealClp - unloadEstClp;
+
+  // Item 2: Recargo Aviso Tardío (< 24h)
+  const surchargeRate = 0.7500;
+  const surchargeEstUf = hasLateNotice ? (surchargeRate * volDeclared) : 0;
+  const surchargeEstClp = surchargeEstUf * ufRate;
+  const surchargeRealUf = hasLateNotice ? (surchargeRate * volConfirmed) : 0;
+  const surchargeRealClp = surchargeRealUf * ufRate;
+  const surchargeDiffUf = surchargeRealUf - surchargeEstUf;
+  const surchargeDiffClp = surchargeRealClp - surchargeEstClp;
+
+  // Item 3: Servicio de Etiquetado ($100 CLP / ud)
+  const labelingRateClp = 100;
+  const labelingEstUf = (labelingRequested * labelingRateClp) / ufRate;
+  const labelingEstClp = labelingRequested * labelingRateClp;
+  const labelingRealUf = (labelingConfirmed * labelingRateClp) / ufRate;
+  const labelingRealClp = labelingConfirmed * labelingRateClp;
+  const labelingDiffUf = labelingRealUf - labelingEstUf;
+  const labelingDiffClp = labelingRealClp - labelingEstClp;
+
+  // Totales
+  const totalEstUf = unloadEstUf + surchargeEstUf + labelingEstUf;
+  const totalEstClp = unloadEstClp + surchargeEstClp + labelingEstClp;
+  const totalRealUf = unloadRealUf + surchargeRealUf + labelingRealUf;
+  const totalRealClp = unloadRealClp + surchargeRealClp + labelingRealClp;
+  const totalDiffUf = totalRealUf - totalEstUf;
+  const totalDiffClp = totalRealClp - totalEstClp;
+
+  // Guardar cálculo para botón de aplicar
+  window.lastCalculatedRealCostUf = totalRealUf;
+
+  const quickCalcEl = document.getElementById('manage-dec-quick-calc-val');
+  if (quickCalcEl) {
+    quickCalcEl.textContent = totalRealUf.toFixed(4);
+  }
+
+  // Render Filas
+  const tbody = document.getElementById('manage-dec-cost-breakdown-tbody');
+  if (tbody) {
+    const renderDiff = (diffUf, diffClp) => {
+      if (Math.abs(diffUf) < 0.00001) {
+        return `<span style="color: var(--color-text-muted); font-family: monospace;">0.0000 UF</span>`;
+      }
+      const isPos = diffUf > 0;
+      const color = isPos ? 'var(--color-success)' : 'var(--color-danger)';
+      const sign = isPos ? '+' : '';
+      return `
+        <div style="font-weight: 700; color: ${color}; font-family: monospace;">${sign}${diffUf.toFixed(4)} UF</div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted);">${sign}$${Math.round(diffClp).toLocaleString('es-CL')} CLP</div>
+      `;
+    };
+
+    let rowsHtml = '';
+
+    // Fila 1: Descarga
+    rowsHtml += `
+      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+        <td style="padding: 8px 12px;">
+          <div style="font-weight: 600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-primary); margin-right: 4px;"></i> Descarga en Bodega</div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">${requiresUnloading ? 'Servicio solicitado por cliente' : 'No solicitado por cliente (0 UF)'}</div>
+        </td>
+        <td style="padding: 8px 10px; text-align: center; color: var(--color-text-muted); font-family: monospace;">
+          ${requiresUnloading ? '0.1000 UF / m³' : '—'}
+        </td>
+        <td style="padding: 8px 10px; text-align: right;">
+          <div style="font-weight: 600; font-family: monospace;">${unloadEstUf.toFixed(4)} UF</div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(unloadEstClp).toLocaleString('es-CL')} CLP</div>
+          <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volDeclared)} m³)</div>
+        </td>
+        <td style="padding: 8px 10px; text-align: right;">
+          <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${unloadRealUf.toFixed(4)} UF</div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(unloadRealClp).toLocaleString('es-CL')} CLP</div>
+          <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volConfirmed)} m³)</div>
+        </td>
+        <td style="padding: 8px 12px; text-align: right;">
+          ${renderDiff(unloadDiffUf, unloadDiffClp)}
+        </td>
+      </tr>
+    `;
+
+    // Fila 2: Recargo Tardío
+    if (hasLateNotice || surchargeEstUf > 0) {
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle; background: rgba(245, 158, 11, 0.03);">
+          <td style="padding: 8px 12px;">
+            <div style="font-weight: 600; color: #d97706;"><i class="ri-time-line" style="margin-right: 4px;"></i> Recargo Aviso Tardío (&lt; 24h)</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);">Declaración ingresada con aviso inmediato (&lt; 24h)</div>
+          </td>
+          <td style="padding: 8px 10px; text-align: center; color: #d97706; font-family: monospace;">
+            0.7500 UF / m³
+          </td>
+          <td style="padding: 8px 10px; text-align: right;">
+            <div style="font-weight: 600; font-family: monospace;">${surchargeEstUf.toFixed(4)} UF</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(surchargeEstClp).toLocaleString('es-CL')} CLP</div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volDeclared)} m³)</div>
+          </td>
+          <td style="padding: 8px 10px; text-align: right;">
+            <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${surchargeRealUf.toFixed(4)} UF</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(surchargeRealClp).toLocaleString('es-CL')} CLP</div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volConfirmed)} m³)</div>
+          </td>
+          <td style="padding: 8px 12px; text-align: right;">
+            ${renderDiff(surchargeDiffUf, surchargeDiffClp)}
+          </td>
+        </tr>
+      `;
+    }
+
+    // Fila 3: Etiquetado
+    if (labelingRequested > 0 || labelingConfirmed > 0 || isStockaLabeling) {
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+          <td style="padding: 8px 12px;">
+            <div style="font-weight: 600; color: var(--color-text-main);"><i class="ri-price-tag-3-line" style="color: var(--color-primary); margin-right: 4px;"></i> Servicio de Etiquetado</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);">Rotulado por Stocka (${labelingConfirmed} uds confirmadas)</div>
+          </td>
+          <td style="padding: 8px 10px; text-align: center; color: var(--color-text-muted); font-family: monospace;">
+            $100 CLP / ud
+          </td>
+          <td style="padding: 8px 10px; text-align: right;">
+            <div style="font-weight: 600; font-family: monospace;">${labelingEstUf.toFixed(4)} UF</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(labelingEstClp).toLocaleString('es-CL')} CLP</div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${labelingRequested} uds)</div>
+          </td>
+          <td style="padding: 8px 10px; text-align: right;">
+            <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${labelingRealUf.toFixed(4)} UF</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(labelingRealClp).toLocaleString('es-CL')} CLP</div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${labelingConfirmed} uds)</div>
+          </td>
+          <td style="padding: 8px 12px; text-align: right;">
+            ${renderDiff(labelingDiffUf, labelingDiffClp)}
+          </td>
+        </tr>
+      `;
+    }
+
+    tbody.innerHTML = rowsHtml;
+  }
+
+  // Totales de pie de tabla
+  const totEstEl = document.getElementById('manage-dec-cost-total-est');
+  if (totEstEl) {
+    totEstEl.innerHTML = `
+      <div style="font-weight: 700; font-family: monospace;">${totalEstUf.toFixed(4)} UF</div>
+      <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(totalEstClp).toLocaleString('es-CL')} CLP</div>
+    `;
+  }
+
+  const totRealEl = document.getElementById('manage-dec-cost-total-real');
+  if (totRealEl) {
+    totRealEl.innerHTML = `
+      <div style="font-weight: 800; color: var(--color-primary); font-size: 1.05rem; font-family: monospace;">${totalRealUf.toFixed(4)} UF</div>
+      <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">$${Math.round(totalRealClp).toLocaleString('es-CL')} CLP</div>
+    `;
+  }
+
+  const totDiffEl = document.getElementById('manage-dec-cost-total-diff');
+  if (totDiffEl) {
+    if (Math.abs(totalDiffUf) < 0.00001) {
+      totDiffEl.innerHTML = `<span style="color: var(--color-text-muted); font-family: monospace;">0.0000 UF</span>`;
+    } else {
+      const isPos = totalDiffUf > 0;
+      const color = isPos ? 'var(--color-success)' : 'var(--color-danger)';
+      const sign = isPos ? '+' : '';
+      totDiffEl.innerHTML = `
+        <div style="font-weight: 800; color: ${color}; font-family: monospace;">${sign}${totalDiffUf.toFixed(4)} UF</div>
+        <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">${sign}$${Math.round(totalDiffClp).toLocaleString('es-CL')} CLP</div>
+      `;
+    }
+  }
+};
+
+window.applyCalculatedCostToRealCost = function() {
+  const realCostInput = document.getElementById('manage-dec-real-cost');
+  if (!realCostInput) return;
+  const calculatedVal = window.lastCalculatedRealCostUf !== undefined ? window.lastCalculatedRealCostUf : 0;
+  realCostInput.value = calculatedVal.toFixed(4);
+  
+  // Disparar input event para actualizar CLP
+  realCostInput.dispatchEvent(new Event('input'));
+  
+  // Feedback visual
+  realCostInput.style.transition = 'all 0.3s ease';
+  realCostInput.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+  realCostInput.style.borderColor = 'var(--color-success)';
+  setTimeout(() => {
+    realCostInput.style.backgroundColor = '';
+    realCostInput.style.borderColor = '';
+  }, 1000);
+
+  if (window.Swal) {
+    window.Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Costo calculado (${calculatedVal.toFixed(4)} UF) aplicado`,
+      showConfirmButton: false,
+      timer: 2000
+    });
   }
 };
 
@@ -62166,6 +62622,21 @@ window.openCreateOrderModal = async function() {
   const form = document.getElementById('form-new-order');
   if (form) form.reset();
 
+  const allowOutOfStockCheckbox = document.getElementById('order-allow-out-of-stock');
+  if (allowOutOfStockCheckbox) allowOutOfStockCheckbox.checked = false;
+
+  const stockAlertContainer = document.getElementById('order-selected-product-stock-alert');
+  if (stockAlertContainer) {
+    stockAlertContainer.style.display = 'none';
+    stockAlertContainer.innerHTML = '';
+  }
+
+  const summaryBanner = document.getElementById('summary-out-of-stock-banner');
+  if (summaryBanner) {
+    summaryBanner.style.display = 'none';
+    summaryBanner.innerHTML = '';
+  }
+
   const searchInput = document.getElementById('order-product-search');
   if (searchInput) searchInput.value = '';
   const hiddenInput = document.getElementById('order-product');
@@ -62260,7 +62731,7 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         promises.push(
           supabase
             .from('inventory')
-            .select('product_id, quantity, committed_quantity')
+            .select('product_id, quantity, committed_quantity, reserved_quantity')
             .in('product_id', batchIds)
         );
       }
@@ -62270,13 +62741,21 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         if (res.data) {
           res.data.forEach(inv => {
             const pid = inv.product_id;
-            const avail = (inv.quantity || 0) - (inv.committed_quantity || 0);
-            stockMap[pid] = (stockMap[pid] || 0) + avail;
+            if (!stockMap[pid]) {
+              stockMap[pid] = { physical: 0, committed: 0, reserved: 0 };
+            }
+            stockMap[pid].physical += (inv.quantity || 0);
+            stockMap[pid].committed += (inv.committed_quantity || 0);
+            stockMap[pid].reserved += (inv.reserved_quantity || 0);
           });
         }
       });
       productsList.forEach(p => {
-        p.availableStock = Math.max(0, stockMap[p.id] || 0);
+        const s = stockMap[p.id] || { physical: 0, committed: 0, reserved: 0 };
+        p.physicalStock = s.physical;
+        p.committedStock = s.committed;
+        p.reservedStock = s.reserved;
+        p.availableStock = s.physical - s.committed - s.reserved;
       });
     }
 
@@ -62314,24 +62793,120 @@ window.filterAdminNewOrderProducts = function() {
   let html = '';
   filtered.forEach(p => {
     const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
-    const stockQty = p.availableStock !== undefined ? p.availableStock : 0;
-    const isOutOfStock = stockQty <= 0;
-    const stockColor = isOutOfStock ? 'var(--color-danger, #ef4444)' : 'var(--color-success, #10b981)';
-    const stockText = isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`;
+    const phys = p.physicalStock !== undefined ? p.physicalStock : 0;
+    const comm = p.committedStock !== undefined ? p.committedStock : 0;
+    const res = p.reservedStock !== undefined ? p.reservedStock : 0;
+    const avail = p.availableStock !== undefined ? p.availableStock : 0;
+    const isOutOfStock = avail <= 0;
+    const availBadge = isOutOfStock 
+      ? `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-alert-line"></i> Disp: ${avail} und.</span>`
+      : `<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-checkbox-circle-line"></i> Disp: ${avail} und.</span>`;
 
     html += `
-      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
-        <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
-          <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
-          <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.55rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.25rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
+          <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">${p.sku}</span>
+          <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.8rem;">${window.formatCLP(p.price || 0)}</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.name}">
+          ${p.name}
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem; font-size: 0.72rem; margin-top: 0.15rem; background: var(--color-surface-hover, rgba(0,0,0,0.02)); padding: 0.25rem 0.4rem; border-radius: 4px; border: 1px dashed var(--color-border);">
+          <div style="display: flex; gap: 0.6rem; color: var(--color-text-muted); align-items: center; font-size: 0.72rem;">
+            <span title="Stock físico total en bodega" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Fís: <strong style="color: var(--color-text-main);">${phys}</strong></span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock en mesa de empaque o preparación" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.85rem;"></i> Mesa: <strong style="color: #d97706;">${res}</strong></span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock asignado a pedidos en procesamiento" style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-time-line" style="color: var(--color-accent, #3b82f6); font-size: 0.85rem;"></i> Comp: <strong style="color: var(--color-accent, #3b82f6);">${comm}</strong></span>
+          </div>
+          <div>
+            ${availBadge}
+          </div>
         </div>
       </div>
     `;
   });
   
   dropdownList.innerHTML = html;
+};
+
+window.updateAdminProductStockAlert = function() {
+  const container = document.getElementById('order-selected-product-stock-alert');
+  const prodId = document.getElementById('order-product')?.value;
+  const qtyInput = document.getElementById('order-qty');
+  const requestedQty = parseInt(qtyInput?.value, 10) || 1;
+
+  if (!container) return;
+
+  if (!prodId) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  const product = (window.tempAdminProductsList || []).find(p => p.id === prodId);
+  if (!product) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  const existingIdx = (window.tempAdminNewOrderItems || []).findIndex(i => i.product_id === prodId);
+  const currentInCart = existingIdx !== -1 ? window.tempAdminNewOrderItems[existingIdx].quantity : 0;
+  const totalRequested = requestedQty + currentInCart;
+
+  const phys = product.physicalStock !== undefined ? product.physicalStock : 0;
+  const comm = product.committedStock !== undefined ? product.committedStock : 0;
+  const res = product.reservedStock !== undefined ? product.reservedStock : 0;
+  const avail = product.availableStock !== undefined ? product.availableStock : 0;
+
+  const isDeficit = totalRequested > avail;
+  const deficitQty = Math.max(0, totalRequested - avail);
+
+  if (isDeficit) {
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; animation: fadeIn 0.2s ease;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="font-weight: 700; color: #ef4444; font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i> Advertencia: Stock disponible insuficiente para ${product.sku}
+          </span>
+          <span style="font-size: 0.78rem; font-weight: 700; background: #ef4444; color: white; padding: 2px 8px; border-radius: 12px;">
+            Faltante: ${deficitQty} und.
+          </span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--color-text-main); background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.2);">
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> <strong>Físico:</strong> ${phys} und.</span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.9rem;"></i> <strong>En Mesa (Reservado):</strong> ${res} und.</span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-time-line" style="color: var(--color-accent, #3b82f6); font-size: 0.9rem;"></i> <strong>Comprometido:</strong> ${comm} und.</span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.3rem; color: #ef4444; font-weight: bold;"><i class="ri-alert-line" style="font-size: 0.9rem;"></i> <strong>Disponible Actual:</strong> ${avail} und.</span>
+        </div>
+        <div style="font-size: 0.74rem; color: var(--color-text-muted); line-height: 1.3;">
+          Cantidad solicitada (en este paso + agregada): <strong>${totalRequested} und.</strong> Se permite forzar el ingreso como administrador bajo modalidad de quiebre de stock.
+        </div>
+      </div>
+    `;
+  } else {
+    container.style.display = 'block';
+    container.innerHTML = `
+      <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; color: var(--color-text-main);">
+          <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> Stock OK:</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Fís: <strong>${phys}</strong></span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.85rem;"></i> Mesa: <strong>${res}</strong></span>
+          <span style="color: var(--color-border);">|</span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-time-line" style="color: var(--color-accent, #3b82f6); font-size: 0.85rem;"></i> Comp: <strong>${comm}</strong></span>
+        </div>
+        <div>
+          <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> Disponible: ${avail} und.</span>
+        </div>
+      </div>
+    `;
+  }
 };
 
 window.addAdminNewOrderItem = function() {
@@ -62362,36 +62937,103 @@ window.addAdminNewOrderItem = function() {
   const currentQty = existingIdx !== -1 ? window.tempAdminNewOrderItems[existingIdx].quantity : 0;
   const totalRequested = qty + currentQty;
 
-  if (product.availableStock !== undefined && totalRequested > product.availableStock) {
-    alert(`No hay stock suficiente para el producto ${product.sku}.\n` +
-          `Stock disponible: ${product.availableStock} unidades.\n` +
-          `Cantidad solicitada en total: ${totalRequested} unidades.`);
-    return;
+  const phys = product.physicalStock !== undefined ? product.physicalStock : 0;
+  const comm = product.committedStock !== undefined ? product.committedStock : 0;
+  const res = product.reservedStock !== undefined ? product.reservedStock : 0;
+  const avail = product.availableStock !== undefined ? product.availableStock : 0;
+
+  const isDeficit = totalRequested > avail;
+  const allowOutOfStock = document.getElementById('order-allow-out-of-stock')?.checked;
+
+  const proceedAdd = () => {
+    if (existingIdx !== -1) {
+      window.tempAdminNewOrderItems[existingIdx].quantity += qty;
+      window.tempAdminNewOrderItems[existingIdx].isOversold = (window.tempAdminNewOrderItems[existingIdx].quantity > avail);
+      window.tempAdminNewOrderItems[existingIdx].deficit = Math.max(0, window.tempAdminNewOrderItems[existingIdx].quantity - avail);
+      window.tempAdminNewOrderItems[existingIdx].physicalStock = phys;
+      window.tempAdminNewOrderItems[existingIdx].committedStock = comm;
+      window.tempAdminNewOrderItems[existingIdx].reservedStock = res;
+      window.tempAdminNewOrderItems[existingIdx].availableStock = avail;
+    } else {
+      window.tempAdminNewOrderItems.push({
+        product_id: prodId,
+        sku: product.sku,
+        name: product.name,
+        price: product.price || 0,
+        volumen: product.volumen || 0,
+        quantity: qty,
+        isOversold: (qty > avail),
+        deficit: Math.max(0, qty - avail),
+        physicalStock: phys,
+        committedStock: comm,
+        reservedStock: res,
+        availableStock: avail
+      });
+    }
+
+    window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+
+    selectProd.value = '';
+    const searchInput = document.getElementById('order-product-search');
+    if (searchInput) searchInput.value = '';
+    const dropdownList = document.getElementById('order-product-dropdown-list');
+    if (dropdownList) dropdownList.style.display = 'none';
+    qtyInput.value = '1';
+
+    const stockAlertContainer = document.getElementById('order-selected-product-stock-alert');
+    if (stockAlertContainer) {
+      stockAlertContainer.style.display = 'none';
+      stockAlertContainer.innerHTML = '';
+    }
+
+    window.renderAdminNewOrderItemsTable();
+  };
+
+  if (isDeficit && !allowOutOfStock) {
+    const deficitQty = totalRequested - avail;
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Stock Insuficiente',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <p style="margin: 0;">El producto <strong>${product.sku}</strong> no cuenta con stock disponible suficiente para esta orden:</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.6rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.25rem;">
+              <div style="display: flex; align-items: center; gap: 0.35rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> <strong>Stock Físico:</strong> ${phys} und.</div>
+              <div style="display: flex; align-items: center; gap: 0.35rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.9rem;"></i> <strong>En Mesa (Reservado):</strong> ${res} und.</div>
+              <div style="display: flex; align-items: center; gap: 0.35rem;"><i class="ri-time-line" style="color: var(--color-accent, #3b82f6); font-size: 0.9rem;"></i> <strong>Comprometido:</strong> ${comm} und.</div>
+              <div style="color: #ef4444; font-weight: bold; margin-top: 0.15rem; display: flex; align-items: center; gap: 0.35rem;"><i class="ri-alert-line" style="font-size: 0.9rem;"></i> <strong>Disponible Actual:</strong> ${avail} und.</div>
+              <div style="color: #d97706; font-weight: bold; margin-top: 0.1rem; display: flex; align-items: center; gap: 0.35rem;"><i class="ri-information-line" style="font-size: 0.9rem;"></i> Solicitado en total: ${totalRequested} und. (Faltante: ${deficitQty} und.)</div>
+            </div>
+            <p style="margin: 0.35rem 0 0 0; color: #475569; font-size: 0.8rem;">¿Deseas agregar este producto al pedido de todas formas bajo modalidad de <strong>sobreventa / quiebre</strong>?</p>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: '<i class="ri-check-line"></i> Sí, Forzar e Ingresar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#f59e0b',
+        cancelButtonColor: '#64748b'
+      }).then(resAction => {
+        if (resAction.isConfirmed) {
+          const allowCheckbox = document.getElementById('order-allow-out-of-stock');
+          if (allowCheckbox) allowCheckbox.checked = true;
+          proceedAdd();
+        }
+      });
+      return;
+    } else {
+      const confirmForce = confirm(`No hay stock suficiente para ${product.sku}.\n` +
+        `Disponible: ${avail} und. (Físico: ${phys}, Comprometido: ${comm}, En mesa: ${res})\n` +
+        `Solicitado: ${totalRequested} und. (Faltante: ${deficitQty} und.)\n\n` +
+        `¿Deseas forzar el ingreso bajo quiebre de stock?`);
+      if (confirmForce) {
+        proceedAdd();
+      }
+      return;
+    }
   }
 
-  if (existingIdx !== -1) {
-    window.tempAdminNewOrderItems[existingIdx].quantity += qty;
-  } else {
-    window.tempAdminNewOrderItems.push({
-      product_id: prodId,
-      sku: product.sku,
-      name: product.name,
-      price: product.price || 0,
-      volumen: product.volumen || 0,
-      quantity: qty
-    });
-  }
-
-  window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
-
-  selectProd.value = '';
-  const searchInput = document.getElementById('order-product-search');
-  if (searchInput) searchInput.value = '';
-  const dropdownList = document.getElementById('order-product-dropdown-list');
-  if (dropdownList) dropdownList.style.display = 'none';
-  qtyInput.value = '1';
-
-  window.renderAdminNewOrderItemsTable();
+  proceedAdd();
 };
 
 window.removeAdminNewOrderItem = function(index) {
@@ -62438,15 +63080,32 @@ window.renderAdminNewOrderItemsTable = function() {
     totalVal += subtotal;
     totalVol += item.quantity * (item.volumen || 0);
 
+    const isOversold = item.isOversold || (item.availableStock !== undefined && item.quantity > item.availableStock);
+    const deficit = item.deficit || Math.max(0, item.quantity - (item.availableStock || 0));
+
+    let oversoldBadge = '';
+    if (isOversold) {
+      oversoldBadge = `
+        <div style="margin-top: 0.25rem;">
+          <span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); font-size: 0.72rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;" title="Stock disponible: ${item.availableStock !== undefined ? item.availableStock : 0} | Físico: ${item.physicalStock || 0} | Comprometido: ${item.committedStock || 0} | En Mesa: ${item.reservedStock || 0}">
+            <i class="ri-error-warning-line"></i> Quiebre: -${deficit} und. (Disp: ${item.availableStock !== undefined ? item.availableStock : 0})
+          </span>
+        </div>
+      `;
+    }
+
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
         <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
-        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">
+          <div>${item.name}</div>
+          ${oversoldBadge}
+        </td>
         <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: center;">
-          <button type="button" onclick="window.removeAdminNewOrderItem(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i></button>
+          <button type="button" onclick="window.removeAdminNewOrderItem(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;" title="Eliminar ítem"><i class="ri-delete-bin-line"></i></button>
         </td>
       </tr>
     `;
@@ -62517,23 +63176,31 @@ window.initAdminWizardOrder = function() {
     };
   }
 
+  // Escuchar cambios en la cantidad de producto para alertar en vivo
+  const orderQtyInput = document.getElementById('order-qty');
+  if (orderQtyInput) {
+    orderQtyInput.oninput = function() {
+      window.updateAdminProductStockAlert();
+    };
+    orderQtyInput.onchange = function() {
+      window.updateAdminProductStockAlert();
+    };
+  }
+
   // Delegación de clic en producto
   document.addEventListener('click', function(e) {
     const opt = e.target.closest('.order-product-option');
     if (opt) {
       const prodId = opt.getAttribute('data-id');
       const displayVal = opt.getAttribute('data-display');
-      const product = (window.tempAdminProductsList || []).find(p => p.id === prodId);
-      if (product && product.availableStock !== undefined && product.availableStock <= 0) {
-        alert(`Este producto (${product.sku}) no cuenta con stock disponible en este momento.`);
-        return;
-      }
       const selectProd = document.getElementById('order-product');
       const searchInput = document.getElementById('order-product-search');
       const dropdownList = document.getElementById('order-product-dropdown-list');
       if (selectProd) selectProd.value = prodId;
       if (searchInput) searchInput.value = displayVal;
       if (dropdownList) dropdownList.style.display = 'none';
+      
+      window.updateAdminProductStockAlert();
       return;
     }
     if (prodSearchInput && prodDropdown && e.target !== prodSearchInput && !prodDropdown.contains(e.target)) {
@@ -62928,6 +63595,32 @@ window.populateAdminWizardSummary = function() {
   document.getElementById('summary-shipping-net').textContent = window.formatCLP(displayNet);
   document.getElementById('summary-shipping-tax').textContent = window.formatCLP(displayTax);
   document.getElementById('summary-shipping-total').textContent = window.formatCLP(displayTotal);
+
+  const summaryWarningEl = document.getElementById('summary-out-of-stock-banner');
+  if (summaryWarningEl) {
+    const oversoldItems = items.filter(i => i.isOversold || (i.availableStock !== undefined && i.quantity > i.availableStock));
+    if (oversoldItems.length > 0) {
+      const itemsListStr = oversoldItems.map(i => {
+        const def = i.deficit || Math.max(0, i.quantity - (i.availableStock || 0));
+        return `<strong>${i.sku}</strong> (Faltante: ${def} und.)`;
+      }).join(', ');
+
+      summaryWarningEl.style.display = 'block';
+      summaryWarningEl.innerHTML = `
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-sm); padding: 0.85rem 1rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+          <i class="ri-alert-fill" style="color: #f59e0b; font-size: 1.3rem; margin-top: 1px;"></i>
+          <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; color: var(--color-text-main);">
+            <span style="font-weight: 700; color: #d97706;">Atención: Pedido con Quiebre de Stock (Sobrevendido)</span>
+            <span>Este pedido incluye ítems sin stock disponible suficiente: ${itemsListStr}.</span>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Al confirmar, el pedido se creará en estado <em>En procesamiento</em> y aumentará el stock comprometido. El inventario disponible figurará en negativo hasta la recepción de nueva mercadería.</span>
+          </div>
+        </div>
+      `;
+    } else {
+      summaryWarningEl.style.display = 'none';
+      summaryWarningEl.innerHTML = '';
+    }
+  }
 };
 
 window.validateAdminWizardStep = function(step) {
@@ -63795,7 +64488,7 @@ setTimeout(() => {
           .eq('product_id', item.product_id);
           
         let bestWarehouse = null;
-        let maxAvailable = -1;
+        let maxAvailable = -Infinity;
 
         if (invData && invData.length > 0) {
           invData.forEach(inv => {
@@ -63805,6 +64498,9 @@ setTimeout(() => {
               bestWarehouse = inv.warehouse_id;
             }
           });
+          if (!bestWarehouse) {
+            bestWarehouse = invData[0].warehouse_id;
+          }
         }
 
         if (!bestWarehouse) {

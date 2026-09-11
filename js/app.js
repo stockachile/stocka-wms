@@ -7169,6 +7169,14 @@ window.applyClientWmsFiltersAndRender = function() {
               } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
+            } else if (s.source_table === 'starken_envios') {
+              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
+                gStatus = 'SIN MOVIMIENTO';
+              }
             }
           }
           return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 1 : 0;
@@ -7437,6 +7445,12 @@ window.applyClientWmsFiltersAndRender = function() {
         if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
           trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(shipment.tracking)}`;
         }
+        if (shipment.source_table === 'bluex_envios' && !trackingUrl && shipment.tracking) {
+          trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(shipment.tracking)}`;
+        }
+        if (shipment.source_table === 'starken_envios' && !trackingUrl && shipment.tracking) {
+          trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(shipment.tracking)}`;
+        }
         // Limpiar si no es una URL real
         if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
           trackingUrl = null;
@@ -7471,6 +7485,14 @@ window.applyClientWmsFiltersAndRender = function() {
             } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
+              globStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (shipment.source_table === 'starken_envios') {
+            if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+              globStatus = 'ALERTA';
+            } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -7529,6 +7551,14 @@ window.applyClientWmsFiltersAndRender = function() {
           } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
+        } else if (shipment.source_table === 'starken_envios') {
+          if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -7552,6 +7582,8 @@ window.applyClientWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
       } else if (shipment.source_table === 'bluex_envios') {
         platformBadge = `<span class="badge" style="background-color: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Blue Express</span>`;
+      } else if (shipment.source_table === 'starken_envios') {
+        platformBadge = `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Starken Pro</span>`;
       } else if (shipment.source_table === 'optiroute_orders') {
         platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
       }
@@ -7757,6 +7789,14 @@ window.applyClientWmsFiltersAndRender = function() {
           } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
             globStatus = 'ALERTA';
           } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'starken_envios') {
+          if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
@@ -12547,11 +12587,13 @@ async function renderShipments() {
 
         const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
           : s.source_table === 'enviame_shipments' ? 'Enviame' 
-          : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+          : s.source_table === 'bluex_envios' ? 'Blue Express' 
+          : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
         
         const platformColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
           : s.source_table === 'enviame_shipments' ? '#10b981' 
-          : s.source_table === 'bluex_envios' ? '#0032A0' : '#8b5cf6';
+          : s.source_table === 'bluex_envios' ? '#0032A0' 
+          : s.source_table === 'starken_envios' ? '#b91c1c' : '#8b5cf6';
 
         const trackingDisplay = s.tracking
           ? (s.tracking_url && s.tracking_url !== 'N/A'
@@ -12988,7 +13030,8 @@ async function renderShipments() {
         const rows = filtered.map(s => {
           const platformName = s.source_table === 'lightdata_envios' ? 'LightData' 
             : s.source_table === 'enviame_shipments' ? 'Enviame' 
-            : s.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+            : s.source_table === 'bluex_envios' ? 'Blue Express' 
+            : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
           return [
             s.pedido_referencia || '',
@@ -13089,7 +13132,8 @@ function showShipmentDetailsModal(shipment) {
 
   const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
     : shipment.source_table === 'enviame_shipments' ? 'Enviame' 
-    : shipment.source_table === 'bluex_envios' ? 'Blue Express' : 'Optiroute';
+    : shipment.source_table === 'bluex_envios' ? 'Blue Express' 
+    : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
 
   // Calculate timeline stepper progress
   let step1Class = 'completed';

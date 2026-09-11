@@ -1,0 +1,39 @@
+name: Sync Starken Pro to Supabase
+
+on:
+  schedule:
+    # Se ejecuta cada 3 horas (UTC: 1, 4, 7, 10, 13, 16, 19, 22) desfasado 1 hora de Bluex
+    - cron: '0 1,4,7,10,13,16,19,22 * * *'
+  workflow_dispatch:
+    # Permite gatillar la sincronización manualmente desde GitHub Actions o desde el WMS
+
+jobs:
+  sync:
+    name: Run Starken Pro Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Sincronización Starken Pro
+        env:
+          STARKEN_USERNAME: ${{ secrets.STARKEN_USERNAME }}
+          STARKEN_PASSWORD: ${{ secrets.STARKEN_PASSWORD }}
+          STARKEN_STATE_JSON: ${{ secrets.STARKEN_STATE_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HEADLESS: 'true'
+        run: node sync_starken.js

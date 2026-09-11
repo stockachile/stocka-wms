@@ -768,9 +768,15 @@
             </p>
             
             <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem;">
-              <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-                <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
-              </h4>
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+                </h4>
+                <label style="display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.78rem; font-weight: 600; color: #d97706; background: rgba(245, 158, 11, 0.08); padding: 0.3rem 0.65rem; border-radius: 20px; border: 1px solid rgba(245, 158, 11, 0.3); transition: all 0.2s;" title="Permite agregar productos al pedido incluso si no hay stock disponible">
+                  <input type="checkbox" id="order-allow-out-of-stock" style="accent-color: #f59e0b; width: 15px; height: 15px; cursor: pointer;">
+                  <span>Permitir agregar sin stock suficiente (Venta bajo quiebre)</span>
+                </label>
+              </div>
 
               <!-- Selector de Producto -->
               <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap;">
@@ -792,6 +798,9 @@
                 </div>
                 <button type="button" onclick="window.addAdminNewOrderItem()" class="btn btn-primary" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; cursor: pointer; color: white; display: flex; align-items: center; gap: 0.25rem; height: 36px; border: none; font-weight: 600;"><i class="ri-add-line"></i> Añadir</button>
               </div>
+
+              <!-- Tarjeta dinámica de desglose de stock y advertencias en vivo -->
+              <div id="order-selected-product-stock-alert" style="display: none;"></div>
 
               <!-- Tabla de ítems -->
               <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
@@ -1154,6 +1163,9 @@
               </div>
 
             </div>
+            
+            <!-- Banner de advertencia si hay ítems con quiebre de stock en el resumen -->
+            <div id="summary-out-of-stock-banner" style="display: none; margin-top: 1.25rem;"></div>
           </div>
 
         </div>
@@ -1263,8 +1275,8 @@
 
   <!-- Modal Gestionar Declaración (Admin) -->
   <div class="modal-overlay" id="modal-manage-declaration">
-    <div class="modal-content" style="max-width: 800px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
-      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+    <div class="modal-content" style="max-width: 1200px; width: 96vw; display: flex; flex-direction: column; max-height: 92vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar Recepción de Stock</h3>
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <button type="button" class="btn btn-outline btn-sm" onclick="window.editDeclarationAdmin(document.getElementById('manage-dec-id').value)" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-primary); color: var(--color-primary); display: flex; align-items: center; gap: 0.3rem;" title="Editar datos declarados del ingreso">
@@ -1275,7 +1287,7 @@
       </div>
       <form id="form-manage-declaration" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
         <input type="hidden" id="manage-dec-id">
-        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem;">
           <div id="modal-dec-alert-container"></div>
           
           <!-- Grid Informativo del Ingreso -->
@@ -1333,17 +1345,23 @@
                 <i class="ri-checkbox-multiple-line" style="color: var(--color-primary);"></i> Carga y Costos
               </h4>
 
-              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
                 <div>
-                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Cantidad Declarada</span>
-                  <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-primary);">
-                    <span id="manage-dec-qty-declared"></span> <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">uds</span>
+                  <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block; margin-bottom: 2px;">Cant. Decl.</span>
+                  <div style="font-size: 1.1rem; font-weight: 700; color: var(--color-primary);">
+                    <span id="manage-dec-qty-declared"></span> <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span>
                   </div>
                 </div>
                 <div>
-                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Volumen Declarado</span>
-                  <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">
-                    <span id="manage-dec-volume-declared"></span> <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">m³</span>
+                  <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block; margin-bottom: 2px;">Vol. Declarado</span>
+                  <div style="font-size: 1.1rem; font-weight: 700; color: var(--color-text-main);">
+                    <span id="manage-dec-volume-declared"></span> <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">m³</span>
+                  </div>
+                </div>
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block; margin-bottom: 2px;">Vol. Confirmado</span>
+                  <div style="font-size: 1.1rem; font-weight: 800; color: var(--color-success);">
+                    <span id="manage-dec-volume-confirmed-display">0.0000</span> <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">m³</span>
                   </div>
                 </div>
               </div>
@@ -1382,7 +1400,10 @@
               </div>
 
               <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
-                <span style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-main);">Costo Estimado</span>
+                <div>
+                  <span style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-main); display: block;">Costo Estimado</span>
+                  <span id="manage-dec-estimated-cost-clp" style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;"></span>
+                </div>
                 <span id="manage-dec-estimated-cost" style="font-size: 1.05rem; font-weight: 800; color: var(--color-success);"></span>
               </div>
             </div>
@@ -1434,10 +1455,11 @@
               <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                 <thead>
                   <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); position: sticky; top: 0; z-index: 10; font-size: 0.78rem;">
-                    <th style="padding: 10px 12px; min-width: 150px;">Producto / SKU</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 45px;">#</th>
+                    <th style="padding: 10px 12px; min-width: 170px;">Producto / SKU</th>
                     <th style="padding: 10px 10px; text-align: center; width: 135px;">Medidas Decl.</th>
-                    <th style="padding: 10px 10px; text-align: center; width: 220px;">Medidas Físicas Reales (L×An×Al cm)</th>
-                    <th style="padding: 10px 10px; text-align: right; width: 95px;">Vol. Conf.</th>
+                    <th style="padding: 10px 10px; text-align: center; width: 225px;">Medidas Físicas Reales (L×An×Al cm)</th>
+                    <th style="padding: 10px 10px; text-align: right; width: 105px;">Vol. Conf.</th>
                     <th style="padding: 10px 10px; text-align: right; width: 75px;">Declarado</th>
                     <th style="padding: 10px 10px; text-align: center; width: 110px;">Recibido (Físico)</th>
                     <th style="padding: 10px 10px; text-align: center; width: 80px;">Pendiente</th>
@@ -1449,6 +1471,29 @@
                 </tbody>
               </table>
             </div>
+
+            <!-- Barra Resumen de Totales y Volumen Calculado en Vivo -->
+            <div id="manage-dec-totals-summary-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.18); padding: 0.75rem 1rem; border-radius: 8px; margin-top: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <div style="width: 34px; height: 34px; border-radius: 6px; background: rgba(37, 99, 235, 0.12); display: flex; align-items: center; justify-content: center;">
+                  <i class="ri-calculator-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
+                </div>
+                <div>
+                  <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase;">Volumen Total Calculado (según medidas físicas)</span>
+                  <span id="manage-dec-table-total-vol" style="font-size: 1.15rem; font-weight: 800; color: var(--color-primary);">0.0000 m³</span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
+                <div>
+                  <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase;">Total Uds Recibidas</span>
+                  <span id="manage-dec-table-total-qty" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">0 uds</span>
+                </div>
+                <div style="font-size: 0.8rem; padding: 4px 10px; border-radius: 6px; background: var(--color-surface); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.35rem;">
+                  <span style="color: var(--color-text-muted);">Dif. vs Decl:</span>
+                  <strong id="manage-dec-table-vol-diff" style="color: var(--color-text-main); font-family: monospace;">0.0000 m³</strong>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Campo oculto de Estado -->
@@ -1459,6 +1504,55 @@
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-git-commit-line" style="color: var(--color-primary);"></i> Avance del Proceso de Recepción *</label>
             <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
               <!-- Botones dinámicos generados por JS -->
+            </div>
+          </div>
+
+          <!-- Panel de Desglose Itemizado de Costos -->
+          <div id="manage-dec-cost-breakdown-panel" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
+                <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Desglose Itemizado de Costos de Recepción
+              </label>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span id="manage-dec-uf-badge" class="badge" style="background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; font-weight: 600; padding: 4px 8px; border-radius: 6px;">UF Ref: $38.200</span>
+                <button type="button" class="btn btn-outline" id="btn-apply-cost-calc" onclick="window.applyCalculatedCostToRealCost()" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; background: rgba(95, 6, 250, 0.06); height: auto; line-height: 1.2;" title="Copiar el costo total real calculado al campo de Costo Real Confirmado">
+                  <i class="ri-magic-line"></i> Usar Costo Calculado
+                </button>
+              </div>
+            </div>
+
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.85rem; line-height: 1.4;">
+              Auditoría transparente del cobro según dimensiones físicas confirmadas, volumen total y servicios aplicados:
+            </p>
+
+            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; margin-bottom: 0.75rem;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left;">
+                <thead>
+                  <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+                    <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main);">Concepto / Servicio</th>
+                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: center;">Tarifa Base</th>
+                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: right;">Estimado (Declarado)</th>
+                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-primary); text-align: right;">Real Calculado (Físico)</th>
+                    <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main); text-align: right;">Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody id="manage-dec-cost-breakdown-tbody">
+                  <!-- Generado dinámicamente por JS -->
+                </tbody>
+                <tfoot>
+                  <tr style="background: rgba(95, 6, 250, 0.04); border-top: 2px solid var(--color-border); font-weight: 700;">
+                    <td style="padding: 10px 12px; color: var(--color-text-main); font-size: 0.88rem;">TOTAL INGRESO</td>
+                    <td style="padding: 10px 10px; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">Suma conceptos</td>
+                    <td style="padding: 10px 10px; text-align: right;" id="manage-dec-cost-total-est">0.0000 UF</td>
+                    <td style="padding: 10px 10px; text-align: right; color: var(--color-primary); font-size: 0.95rem;" id="manage-dec-cost-total-real">0.0000 UF</td>
+                    <td style="padding: 10px 12px; text-align: right;" id="manage-dec-cost-total-diff">0.0000 UF</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic;">
+              * Puedes ajustar manualmente el campo "Costo Real Confirmado (UF)" abajo si deseas aplicar algún cobro especial o descuento antes de cerrar la recepción.
             </div>
           </div>
 
@@ -1475,8 +1569,16 @@
             </div>
 
             <div class="form-group" id="manage-dec-group-real-cost" style="margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Costo Real Confirmado (UF) *</label>
-              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required style="width: 100%;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Costo Real Confirmado (UF) *</span>
+              </label>
+              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required style="width: 100%; font-weight: 700; color: var(--color-primary);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; flex-wrap: wrap; gap: 4px;">
+                <span id="manage-dec-real-cost-clp" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">≈ $0 CLP</span>
+                <button type="button" onclick="window.applyCalculatedCostToRealCost()" style="font-size: 0.72rem; color: var(--color-primary); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0;">
+                  Usar auto (<span id="manage-dec-quick-calc-val">0.0000</span> UF)
+                </button>
+              </div>
             </div>
 
             <div class="form-group" id="manage-dec-group-incidents" style="margin-bottom: 0;">
@@ -2549,7 +2651,7 @@
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script src="./js/inbound_notifications.js?v=1.0.3"></script>
-  <script type="module" src="./js/admin.js?v=1.0.82"></script>
+  <script type="module" src="./js/admin.js?v=1.0.85"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.0.6"></script>

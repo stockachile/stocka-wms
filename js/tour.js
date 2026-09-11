@@ -54,6 +54,15 @@ const TOUR_STEPS = [
     position: 'right'
   },
   {
+    selector: 'a.nav-item[data-view="integrations"]',
+    tag: 'Canales de Venta',
+    icon: 'ri-plug-line',
+    title: 'Integraciones Ecommerce',
+    description: 'Conecta tus tiendas para que tus pedidos, catálogo y despachos se sincronicen de inmediato con el WMS. Mira los ejemplos:',
+    position: 'right',
+    isIntegrationStep: true
+  },
+  {
     selector: '#sidebar-support-btn, a.nav-item[data-view="tickets"]',
     tag: 'Atención 24/7',
     icon: 'ri-customer-service-2-line',
@@ -171,6 +180,65 @@ class GuidedTour {
     }
     dotsHtml += '</div>';
 
+    // Contenido extra interactivo para el paso de integraciones
+    let extraHtml = '';
+    if (step.isIntegrationStep) {
+      this.popoverEl.classList.add('tour-popover-wide');
+      extraHtml = `
+        <div class="tour-integration-container">
+          <div class="tour-plat-selector">
+            <button type="button" class="tour-plat-tab active" data-plat="shopify">
+              <i class="ri-shopping-bag-3-line" style="color: #10b981;"></i> Shopify
+            </button>
+            <button type="button" class="tour-plat-tab" data-plat="meli">
+              <i class="ri-store-2-line" style="color: #f59e0b;"></i> MercadoLibre
+            </button>
+          </div>
+
+          <div class="tour-plat-card" id="tour-card-shopify">
+            <div class="tour-plat-step-item">
+              <span class="step-badge">1</span>
+              <div><strong>URL de la tienda:</strong> Ingresa <code>mitienda.myshopify.com</code> y pulsa <em>Conectar</em>.</div>
+            </div>
+            <div class="tour-plat-step-item">
+              <span class="step-badge">2</span>
+              <div><strong>Instalar App:</strong> Aprueba los permisos en 1 clic en tu panel de Shopify.</div>
+            </div>
+            <div class="tour-plat-step-item">
+              <span class="step-badge">3</span>
+              <div><strong>PIN Partner:</strong> Pega tu PIN de 4 dígitos para sincronizar guías y tracking.</div>
+            </div>
+          </div>
+
+          <div class="tour-plat-card" id="tour-card-meli" style="display: none;">
+            <div class="tour-plat-step-item">
+              <span class="step-badge">1</span>
+              <div><strong>Obtener Código:</strong> Autoriza la app con tu cuenta de Mercado Libre.</div>
+            </div>
+            <div class="tour-plat-step-item">
+              <span class="step-badge">2</span>
+              <div><strong>Pegar Código:</strong> Copia el código completo <code>TG-...</code> de la URL al WMS.</div>
+            </div>
+            <div class="tour-plat-step-item">
+              <span class="step-badge">3</span>
+              <div><strong>Colaborador:</strong> Agrega el correo de Stocka para imprimir etiquetas Flex y Envíos.</div>
+            </div>
+          </div>
+
+          <div class="tour-integration-actions">
+            <button type="button" class="tour-btn-open-guide" id="tour-btn-detail-guide">
+              <i class="ri-book-open-line"></i> Guía Detallada
+            </button>
+            <button type="button" class="tour-btn-open-view" id="tour-btn-open-module">
+              <i class="ri-external-link-line"></i> Abrir Módulo
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      this.popoverEl.classList.remove('tour-popover-wide');
+    }
+
     this.popoverEl.innerHTML = `
       <div class="tour-arrow" id="tour-arrow"></div>
       <div class="tour-header">
@@ -186,6 +254,8 @@ class GuidedTour {
         <span>${step.title}</span>
       </h3>
       <p class="tour-description">${step.description}</p>
+
+      ${extraHtml}
 
       ${dotsHtml}
 
@@ -204,7 +274,7 @@ class GuidedTour {
       </div>
     `;
 
-    // Event Listeners de botones
+    // Event Listeners de botones de navegación
     const closeBtn = document.getElementById('tour-btn-close');
     const backBtn = document.getElementById('tour-btn-back');
     const skipBtn = document.getElementById('tour-btn-skip');
@@ -214,6 +284,46 @@ class GuidedTour {
     if (skipBtn) skipBtn.onclick = () => this.finish(true);
     if (backBtn) backBtn.onclick = () => this.prev();
     if (nextBtn) nextBtn.onclick = () => isLast ? this.finish() : this.next();
+
+    // Event Listeners para la sección interactiva de integraciones
+    if (step.isIntegrationStep) {
+      const platTabs = this.popoverEl.querySelectorAll('.tour-plat-tab');
+      const cardShopify = document.getElementById('tour-card-shopify');
+      const cardMeli = document.getElementById('tour-card-meli');
+      platTabs.forEach(tab => {
+        tab.onclick = () => {
+          platTabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const plat = tab.getAttribute('data-plat');
+          if (plat === 'shopify') {
+            if (cardShopify) cardShopify.style.display = 'flex';
+            if (cardMeli) cardMeli.style.display = 'none';
+          } else {
+            if (cardShopify) cardShopify.style.display = 'none';
+            if (cardMeli) cardMeli.style.display = 'flex';
+          }
+          this.updatePositions(targetEl, step);
+        };
+      });
+
+      const btnDetailGuide = document.getElementById('tour-btn-detail-guide');
+      if (btnDetailGuide) {
+        btnDetailGuide.onclick = () => {
+          const activeTab = this.popoverEl.querySelector('.tour-plat-tab.active');
+          const activePlat = activeTab ? activeTab.getAttribute('data-plat') : 'shopify';
+          showIntegrationsDetailModal(activePlat);
+        };
+      }
+
+      const btnOpenModule = document.getElementById('tour-btn-open-module');
+      if (btnOpenModule) {
+        btnOpenModule.onclick = () => {
+          const activeTab = this.popoverEl.querySelector('.tour-plat-tab.active');
+          const activePlat = activeTab ? activeTab.getAttribute('data-plat') : 'shopify';
+          openIntegrationsViewFromTour(activePlat);
+        };
+      }
+    }
 
     // Activar clases
     this.spotlightEl.classList.add('active');
@@ -460,6 +570,193 @@ export function checkFirstTimeTour() {
     console.warn('[Tour] Error en checkFirstTimeTour:', err);
   }
 }
+
+// Abrir vista de integraciones desde el tour
+export function openIntegrationsViewFromTour(platform = 'shopify') {
+  const tour = getTourInstance();
+  if (tour && tour.active) {
+    tour.finish(true);
+  }
+
+  const navItem = document.querySelector('a.nav-item[data-view="integrations"]');
+  if (navItem) {
+    navItem.click();
+    setTimeout(() => {
+      const tabTarget = platform === 'meli' ? 'tab-meli' : 'tab-shopify';
+      const tabBtn = document.querySelector(`.integration-tab[data-tab="${tabTarget}"]`);
+      if (tabBtn) {
+        tabBtn.click();
+        tabBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 450);
+  }
+}
+
+// Modal interactivo detallado de integraciones (Shopify & Mercado Libre)
+export function showIntegrationsDetailModal(initialPlatform = 'shopify') {
+  if (!window.Swal) return;
+
+  let currentPlat = initialPlatform;
+
+  const buildHtml = (plat) => {
+    const isShopify = plat === 'shopify';
+    return `
+      <div style="text-align: left; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;">
+        <!-- Selector superior de plataforma -->
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; background: var(--color-bg, #f1f5f9); padding: 4px; border-radius: 10px; border: 1px solid var(--color-border, #cbd5e1);">
+          <button type="button" id="swal-tab-shopify" style="flex: 1; padding: 0.55rem 1rem; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.2s; ${isShopify ? 'background: var(--color-surface, #ffffff); color: var(--color-primary, #2563eb); box-shadow: 0 2px 5px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted, #64748b);'}">
+            <i class="ri-shopping-bag-3-line" style="color: #10b981; font-size: 1.1rem;"></i> Integración Shopify
+          </button>
+          <button type="button" id="swal-tab-meli" style="flex: 1; padding: 0.55rem 1rem; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; transition: all 0.2s; ${!isShopify ? 'background: var(--color-surface, #ffffff); color: var(--color-primary, #2563eb); box-shadow: 0 2px 5px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted, #64748b);'}">
+            <i class="ri-store-2-line" style="color: #f59e0b; font-size: 1.1rem;"></i> Integración Mercado Libre
+          </button>
+        </div>
+
+        <!-- Contenedor Shopify -->
+        <div id="swal-panel-shopify" style="display: ${isShopify ? 'block' : 'none'};">
+          <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 0.85rem 1rem; border-radius: 0 8px 8px 0; margin-bottom: 1.25rem;">
+            <strong style="color: #065f46; display: flex; align-items: center; gap: 0.35rem; font-size: 0.92rem;">
+              <i class="ri-checkbox-circle-fill" style="color: #10b981;"></i> Conexión Directa en 3 Pasos
+            </strong>
+            <p style="margin: 0.25rem 0 0; font-size: 0.82rem; color: #047857; line-height: 1.45;">
+              Sincroniza tus pedidos automáticamente con WMS STOCKA. Cuando empaquetemos tu orden, el estado de envío y el enlace del courier se reflejarán de inmediato en tu panel de Shopify.
+            </p>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">1</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">Escribe la URL de tu Tienda</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  Ingresa tu dominio (ej: <code>mitienda.myshopify.com</code>) y pulsa el botón <strong>Conectar Tienda Shopify</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">2</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">Instala la App Oficial de STOCKA</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  Se abrirá tu tienda Shopify. Haz clic en <strong>Instalar aplicación</strong> para otorgar los permisos de sincronización de pedidos y existencias.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #2563eb; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">3</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">PIN de Colaborador (Shopify Partners)</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  En tu Shopify ve a <em>Configuración &gt; Usuarios / Permisos &gt; Seguridad</em>. Copia tu <strong>PIN de 4 dígitos</strong> y guárdalo en el WMS para que nuestro equipo pueda vincular tu cuenta partner.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contenedor MercadoLibre -->
+        <div id="swal-panel-meli" style="display: ${!isShopify ? 'block' : 'none'};">
+          <div style="background: rgba(245, 158, 11, 0.08); border-left: 4px solid #f59e0b; padding: 0.85rem 1rem; border-radius: 0 8px 8px 0; margin-bottom: 1.25rem;">
+            <strong style="color: #92400e; display: flex; align-items: center; gap: 0.35rem; font-size: 0.92rem;">
+              <i class="ri-flashlight-fill" style="color: #f59e0b;"></i> Sincronización Flex, Envíos y FULL
+            </strong>
+            <p style="margin: 0.25rem 0 0; font-size: 0.82rem; color: #b45309; line-height: 1.45;">
+              Permite procesar tus ventas con Flex ($3.200 + IVA en 36 comunas de Santiago), MercadoEnvíos oficial con generación de etiquetas de transporte y preparación para Full.
+            </p>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #f59e0b; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">1</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">Obtener Código de Autorización</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  En la pestaña de MercadoLibre haz clic en <strong>👉 Obtener Código de Autorización</strong> e inicia sesión con tu cuenta de vendedor.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #f59e0b; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">2</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">Pegar el Código TG Completo</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  Copia el código que aparece tras <code>code=</code> en tu navegador (ej: <code>TG-xxxxxxxxx-xxxxxxxxxx</code>). Pégalo en el WMS y haz clic en <strong>Conectar MercadoLibre API</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.85rem; align-items: flex-start;">
+              <span style="width: 26px; height: 26px; border-radius: 50%; background: #f59e0b; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;">3</span>
+              <div>
+                <strong style="font-size: 0.88rem; color: var(--color-text-main);">Invitación a Colaborador</strong>
+                <p style="margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.45;">
+                  En Mercado Libre ve a <em>Colaboradores</em> y envía la invitación al correo que figura en la tarjeta de tu comercio en WMS para imprimir etiquetas al empacar.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  window.Swal.fire({
+    title: 'Guía de Integración Ecommerce',
+    html: buildHtml(currentPlat),
+    width: '560px',
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-external-link-line"></i> Ir al Módulo de Integraciones',
+    cancelButtonText: 'Cerrar',
+    confirmButtonColor: 'var(--color-primary, #2563eb)',
+    cancelButtonColor: '#64748b',
+    didOpen: () => {
+      const modal = window.Swal.getHtmlContainer();
+      if (!modal) return;
+
+      const btnShopify = modal.querySelector('#swal-tab-shopify');
+      const btnMeli = modal.querySelector('#swal-tab-meli');
+      const panelShopify = modal.querySelector('#swal-panel-shopify');
+      const panelMeli = modal.querySelector('#swal-panel-meli');
+
+      if (btnShopify && btnMeli) {
+        btnShopify.onclick = () => {
+          currentPlat = 'shopify';
+          panelShopify.style.display = 'block';
+          panelMeli.style.display = 'none';
+          btnShopify.style.background = 'var(--color-surface, #ffffff)';
+          btnShopify.style.color = 'var(--color-primary, #2563eb)';
+          btnShopify.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+          btnMeli.style.background = 'transparent';
+          btnMeli.style.color = 'var(--color-text-muted, #64748b)';
+          btnMeli.style.boxShadow = 'none';
+        };
+
+        btnMeli.onclick = () => {
+          currentPlat = 'meli';
+          panelShopify.style.display = 'none';
+          panelMeli.style.display = 'block';
+          btnMeli.style.background = 'var(--color-surface, #ffffff)';
+          btnMeli.style.color = 'var(--color-primary, #2563eb)';
+          btnMeli.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+          btnShopify.style.background = 'transparent';
+          btnShopify.style.color = 'var(--color-text-muted, #64748b)';
+          btnShopify.style.boxShadow = 'none';
+        };
+      }
+    }
+  }).then((res) => {
+    if (res.isConfirmed) {
+      openIntegrationsViewFromTour(currentPlat);
+    }
+  });
+}
+
+// Exponer globalmente
+window.showIntegrationsDetailModal = showIntegrationsDetailModal;
+window.openIntegrationsViewFromTour = openIntegrationsViewFromTour;
 
 // Inicializar eventos al cargar el documento
 document.addEventListener('DOMContentLoaded', () => {

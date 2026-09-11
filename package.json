@@ -6,6 +6,10 @@
     "login:bluex": "node login_bluex_interactive.js",
     "session:bluex": "node save_bluex_session.js",
     "schedule:bluex": "node scheduler_sync.js",
+    "sync:starken": "node sync_starken.js",
+    "login:starken": "node login_starken_interactive.js",
+    "session:starken": "node save_starken_session.js",
+    "schedule:starken": "node scheduler_sync_starken.js",
     "sync:lightdata": "node sync_lightdata.js"
   },
   "dependencies": {

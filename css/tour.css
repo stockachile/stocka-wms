@@ -154,6 +154,10 @@
   transform: translateY(0);
 }
 
+#tour-popover.tour-popover-wide {
+  width: 410px;
+}
+
 /* Flecha indicadora del popover */
 .tour-arrow {
   position: absolute;
@@ -448,6 +452,205 @@
   .tour-chip-btn span {
     display: none;
   }
+}
+
+/* ==========================================================================
+   Contenido Especial del Tour: Integraciones Ecommerce (Shopify & MercadoLibre)
+   ========================================================================== */
+
+.tour-integration-container {
+  margin-top: 0.75rem;
+  margin-bottom: 0.85rem;
+  background: var(--color-bg, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  padding: 0.85rem;
+  font-size: 0.82rem;
+}
+
+.tour-plat-selector {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.65rem;
+  background: var(--color-surface, #ffffff);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #cbd5e1);
+}
+
+.tour-plat-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted, #64748b);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tour-plat-tab:hover {
+  color: var(--color-text-main, #0f172a);
+}
+
+.tour-plat-tab.active {
+  background: var(--color-primary, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.tour-plat-tab.active i {
+  color: #ffffff !important;
+}
+
+.tour-plat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tour-plat-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--color-text-main, #334155);
+}
+
+.tour-plat-step-item .step-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary, #2563eb);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.tour-plat-step-item code {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #cbd5e1);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--color-primary, #2563eb);
+}
+
+.tour-integration-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed var(--color-border, #cbd5e1);
+}
+
+.tour-btn-open-guide,
+.tour-btn-open-view {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  transition: all 0.2s ease;
+}
+
+.tour-btn-open-guide {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #cbd5e1);
+  color: var(--color-text-main, #0f172a);
+}
+
+.tour-btn-open-guide:hover {
+  background: var(--color-surface-hover, #f1f5f9);
+  border-color: #94a3b8;
+}
+
+.tour-btn-open-view {
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  color: var(--color-primary, #2563eb);
+}
+
+.tour-btn-open-view:hover {
+  background: var(--color-primary, #2563eb);
+  color: #ffffff;
+}
+
+/* Modo oscuro para la caja de integración */
+[data-theme="dark"] .tour-integration-container {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .tour-plat-selector {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .tour-plat-tab {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .tour-plat-tab:hover {
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .tour-plat-tab.active {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .tour-plat-step-item {
+  color: #cbd5e1;
+}
+
+[data-theme="dark"] .tour-plat-step-item code {
+  background: #1e293b;
+  border-color: #334155;
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .tour-integration-actions {
+  border-top-color: #334155;
+}
+
+[data-theme="dark"] .tour-btn-open-guide {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+[data-theme="dark"] .tour-btn-open-guide:hover {
+  background: #334155;
+}
+
+[data-theme="dark"] .tour-btn-open-view {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .tour-btn-open-view:hover {
+  background: #3b82f6;
+  color: #ffffff;
 }
 
 /* ==========================================================================

@@ -375,7 +375,7 @@
       const st = item.estado_wms || item.status || 'Preparado';
       const globSt = item.global_status || (st.toLowerCase().includes('despachad') ? 'DESPACHADO' : 'SIN MOVIMIENTO');
       
-      let plat = item.source_table === 'lightdata_envios' ? 'LightData' : item.source_table === 'enviame_shipments' ? 'Envíame' : item.source_table === 'optiroute_orders' ? 'Optiroute' : item.source_table === 'bluex_envios' ? 'Blue Express' : (item.external_platform || item.origen || 'Shopify');
+      let plat = item.source_table === 'lightdata_envios' ? 'LightData' : item.source_table === 'enviame_shipments' ? 'Envíame' : item.source_table === 'optiroute_orders' ? 'Optiroute' : item.source_table === 'bluex_envios' ? 'Blue Express' : item.source_table === 'starken_envios' ? 'Starken Pro' : (item.external_platform || item.origen || 'Shopify');
       if (item.external_platform === 'Shopify' || item.origen === 'Shopify') {
         plat = 'Shopify';
       }

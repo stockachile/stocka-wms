@@ -92,6 +92,8 @@ serve(async (req) => {
       'Paris': 'sync_paris.yml',
       'LightData': 'sync_lightdata.yml',
       'BlueExpress': 'sync_bluex.yml',
+      'Starken': 'sync_starken.yml',
+      'StarkenPro': 'sync_starken.yml',
       'Optiroute': 'optiroute_sync.yml',
       'Walmart': 'sync_walmart.yml',
       'Shopify': 'sync_shopify.yml',
