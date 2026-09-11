@@ -2925,3 +2925,20 @@ Hemos añadido la columna **Stock Actual** justo al lado de **Stock Inicial** en
 
 3. **Ordenamiento**:
    - Se agregó la cabecera interactiva con soporte de ordenación ascendente y descendente por la columna `data-sort="current_stock"`.
+
+---
+
+## 118. Blindaje de Importación de Catálogo y Modal de Advertencia con Aceptación Obligatoria
+
+Hemos reforzado la importación completa desde plataformas de origen (Shopify, MercadoLibre, Falabella, Paris, Ripley, WooCommerce, Jumpseller, Walmart, Tiendanube) en ambos portales ([`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) y [`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)):
+
+1. **Modal de Advertencia y Checkbox Obligatorio**:
+   - Al pulsar el botón **"Importar de [Plataforma]"**, se despliega una alerta modal SweetAlert2 con una advertencia clara sobre los efectos de la sincronización directa.
+   - Se destaca la recomendación de utilizar el botón **"Importar Nuevos de [Plataforma]"** si solo se busca añadir nuevos productos.
+   - Se incluye una casilla de verificación obligatoria (*"Entiendo los efectos de importar desde la plataforma de origen y deseo continuar"*), manteniendo el botón de confirmación bloqueado y deshabilitado hasta que el usuario marque dicha casilla.
+
+2. **Blindaje de Datos y Fusión Segura (*Safe Merge*)**:
+   - En caso de proceder con la importación, el sistema consulta previamente los productos existentes en el WMS.
+   - **Preservación total de datos del WMS**: Conserva intactas las dimensiones (`length`, `width`, `height`), volumen (`volumen`), peso (`weight`), código de barras del WMS (si la plataforma externa viene vacía), alias para el picker, flags de picker (`send_barcode_to_picker`, `send_alias_to_picker`), estado (`status`), packs (`is_pack`), productos virtuales (`is_virtual`), lote y fecha de vencimiento.
+   - Se implementó la inserción en lotes controlados (*chunks* de 100 registros) para garantizar la integridad y estabilidad en bases de datos con catálogos extensos.
+

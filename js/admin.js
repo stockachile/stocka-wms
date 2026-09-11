@@ -10959,66 +10959,152 @@ function setupCatalogListeners(commerce, mainPlatform) {
   const btnImport = document.getElementById('btn-import-from-main');
   if (btnImport) {
     btnImport.addEventListener('click', async () => {
-      if (confirm(`¿Deseas importar todos los productos desde tu plataforma principal (${mainPlatform}) al catálogo master de WMS?`)) {
+      const confirmResult = await Swal.fire({
+        title: `¿Importar todo el catálogo desde ${mainPlatform}?`,
+        html: `
+          <div style="text-align: left; font-size: 0.9rem; line-height: 1.5; color: var(--color-text);">
+            <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem;">
+              <strong style="color: #ef4444; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                <i class="ri-alert-line"></i> Advertencia de Sobrescritura
+              </strong>
+              Al importar directamente todo el catálogo desde <strong>${mainPlatform}</strong>, se sincronizarán y actualizarán los productos existentes en el WMS.
+            </div>
+            <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 0.75rem 1rem; border-radius: 4px; margin-bottom: 1rem;">
+              <strong style="color: #10b981; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                <i class="ri-lightbulb-line"></i> Opción Recomendada
+              </strong>
+              Si solo has agregado artículos nuevos en tu tienda, te recomendamos utilizar el botón <strong>"Importar Nuevos de ${mainPlatform}"</strong> (botón verde) para traer únicamente los productos nuevos sin alterar las configuraciones existentes.
+            </div>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; margin-top: 1rem; font-size: 0.85rem; font-weight: 500;">
+              <input type="checkbox" id="swal-ack-import-risks" style="margin-top: 0.2rem; cursor: pointer; width: 16px; height: 16px;">
+              <span>Entiendo los efectos de importar desde la plataforma de origen y deseo continuar.</span>
+            </label>
+          </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, importar catálogo',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#3b82f6',
+        didOpen: () => {
+          const confirmBtn = Swal.getConfirmButton();
+          const checkbox = document.getElementById('swal-ack-import-risks');
+          if (confirmBtn && checkbox) {
+            confirmBtn.disabled = true;
+            confirmBtn.style.opacity = '0.5';
+            confirmBtn.style.cursor = 'not-allowed';
+            checkbox.addEventListener('change', () => {
+              confirmBtn.disabled = !checkbox.checked;
+              confirmBtn.style.opacity = checkbox.checked ? '1' : '0.5';
+              confirmBtn.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
+            });
+          }
+        },
+        preConfirm: () => {
+          const checkbox = document.getElementById('swal-ack-import-risks');
+          if (!checkbox || !checkbox.checked) {
+            Swal.showValidationMessage('Debes marcar la casilla para confirmar que conoces los efectos.');
+            return false;
+          }
+          return true;
+        }
+      });
+
+      if (confirmResult.isConfirmed) {
         btnImport.disabled = true;
-        btnImport.textContent = 'Importando...';
+        btnImport.innerHTML = `<i class="ri-loader-4-line ri-spin" style="margin-right: 0.25rem;"></i>Importando...`;
         try {
           const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
           
           if (!syncedProds || syncedProds.length === 0) {
-            alert(`No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`);
+            Swal.fire('Atención', `No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`, 'warning');
             return;
           }
 
           const merchantId = await resolveMerchantId(commerce);
           if (!merchantId) {
-            alert('No se pudo encontrar el merchant_id asociado a este comercio.');
+            Swal.fire('Error', 'No se pudo encontrar el merchant_id asociado a este comercio.', 'error');
             return;
           }
 
+          // Consultar productos existentes para blindar y preservar datos propios del WMS (medidas, pesos, códigos de barra, alias, packs, etc.)
+          const existingWmsProds = await window.fetchAllSupabaseRows('products', '*', q => q.eq('comercio', commerce));
+          const existingMap = new Map();
+          (existingWmsProds || []).forEach(p => {
+            if (p.sku) existingMap.set(String(p.sku).trim().toUpperCase(), p);
+          });
+
           const productsToInsert = syncedProds.map(sp => {
+            const cleanSku = String(sp.sku || '').trim().toUpperCase();
+            const existing = existingMap.get(cleanSku);
+
+            const resolvedBarcode = (sp.barcode && String(sp.barcode).trim()) 
+              ? String(sp.barcode).trim() 
+              : (existing?.barcode || null);
+
             const productRow = {
               merchant_id: merchantId,
               comercio: commerce,
               sku: sp.sku,
-              name: sp.name,
-              price: parseFloat(sp.price) || 0,
-              image_url: sp.image_url || null,
-              barcode: sp.barcode || null,
-              description: `Importado automáticamente de ${mainPlatform}`
+              name: sp.name || existing?.name || '',
+              price: (sp.price !== undefined && sp.price !== null && !isNaN(parseFloat(sp.price))) ? parseFloat(sp.price) : (existing ? existing.price : 0),
+              image_url: sp.image_url || existing?.image_url || null,
+              barcode: resolvedBarcode,
+              description: existing?.description || `Importado automáticamente de ${mainPlatform}`,
+
+              // Blindaje de datos físicos y atributos del WMS
+              length: existing?.length !== undefined ? existing.length : null,
+              width: existing?.width !== undefined ? existing.width : null,
+              height: existing?.height !== undefined ? existing.height : null,
+              volumen: existing?.volumen !== undefined ? existing.volumen : null,
+              weight: existing?.weight !== undefined ? existing.weight : null,
+              expiration_date: existing?.expiration_date || null,
+              lot_number: existing?.lot_number || null,
+              alias: existing?.alias || null,
+              send_barcode_to_picker: existing?.send_barcode_to_picker ?? false,
+              send_alias_to_picker: existing?.send_alias_to_picker ?? false,
+              is_pack: existing?.is_pack ?? false,
+              is_virtual: existing?.is_virtual ?? false,
+              status: existing?.status || 'active'
             };
 
             if (mainPlatform === 'Shopify') {
-              productRow.shopify_product_id = 'imported';
+              productRow.shopify_product_id = existing?.shopify_product_id || 'imported';
             } else if (mainPlatform === 'MercadoLibre') {
-              productRow.raw_meli_data = {};
+              productRow.raw_meli_data = existing?.raw_meli_data || {};
             } else if (mainPlatform === 'Falabella') {
-              productRow.raw_falabella_data = {};
+              productRow.raw_falabella_data = existing?.raw_falabella_data || {};
             } else if (mainPlatform === 'Paris') {
-              productRow.raw_paris_data = {};
+              productRow.raw_paris_data = existing?.raw_paris_data || {};
             } else if (mainPlatform === 'Ripley') {
-              productRow.raw_ripley_data = {};
+              productRow.raw_ripley_data = existing?.raw_ripley_data || {};
             } else if (mainPlatform === 'WooCommerce') {
-              productRow.raw_woocommerce_data = {};
+              productRow.raw_woocommerce_data = existing?.raw_woocommerce_data || {};
             } else if (mainPlatform === 'Jumpseller') {
-              productRow.raw_jumpseller_data = {};
+              productRow.raw_jumpseller_data = existing?.raw_jumpseller_data || {};
             } else if (mainPlatform === 'Walmart') {
-              productRow.raw_walmart_data = {};
+              productRow.raw_walmart_data = existing?.raw_walmart_data || {};
+            } else if (mainPlatform === 'Tiendanube') {
+              productRow.raw_tiendanube_data = existing?.raw_tiendanube_data || {};
             }
 
             return productRow;
           });
 
-          const { error: insErr } = await supabase
-            .from('products')
-            .upsert(productsToInsert, { onConflict: 'comercio,sku' });
+          const batchSize = 100;
+          for (let i = 0; i < productsToInsert.length; i += batchSize) {
+            const chunk = productsToInsert.slice(i, i + batchSize);
+            const { error: insErr } = await supabase
+              .from('products')
+              .upsert(chunk, { onConflict: 'comercio,sku' });
 
-          if (insErr) throw insErr;
+            if (insErr) throw insErr;
+          }
 
-          alert(`¡Importación completada! Se importaron/actualizaron ${productsToInsert.length} productos en el catálogo master.`);
+          Swal.fire('¡Importación Exitosa!', `Se importaron/actualizaron ${productsToInsert.length} productos en el catálogo master preservando las configuraciones y datos físicos de WMS.`, 'success');
           renderAdminCatalogWorkspace(commerce);
         } catch (err) {
-          alert('Error al importar catálogo: ' + err.message);
+          Swal.fire('Error', 'Error al importar catálogo: ' + err.message, 'error');
         } finally {
           btnImport.disabled = false;
           btnImport.innerHTML = `<i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}`;
@@ -11117,6 +11203,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               productRow.raw_jumpseller_data = {};
             } else if (mainPlatform === 'Walmart') {
               productRow.raw_walmart_data = {};
+            } else if (mainPlatform === 'Tiendanube') {
+              productRow.raw_tiendanube_data = {};
             }
 
             return productRow;
