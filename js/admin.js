@@ -5829,7 +5829,7 @@ window.applyWmsFiltersAndRender = function() {
       customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
         const isCustomActive = selectedTag === t;
         const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta de tienda: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
+        return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta de tienda: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
       }).join('');
     }
 
@@ -5897,7 +5897,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
           </div>
         </td>
       </tr>
@@ -6058,6 +6058,16 @@ window.applyWmsFiltersAndRender = function() {
                     <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
                   </div>
                   ${originalPlatformStatusHtml}
+                  ${customPlatformTagsHtml ? `
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border); text-align: left;">
+                      <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.3rem;">
+                        <i class="ri-price-tag-3-line" style="font-size: 0.9rem; color: var(--color-primary);"></i> Etiquetas de Plataforma (${rawStoreTags.size}):
+                      </span>
+                      <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                        ${customPlatformTagsHtml}
+                      </div>
+                    </div>
+                  ` : ''}
                   ${(order.external_platform === 'Shopify' || order.origen === 'Shopify' || order.raw_shopify_data) ? `
                     <div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed var(--color-border);">
                       <button id="btn-resync-shopify-${order.id}" onclick="window.resyncShopifyOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: #96bf48; color: #446513; background: rgba(150, 191, 72, 0.08); padding: 0.35rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;" title="Llama a la actualización del pedido directamente desde Shopify">
@@ -26967,6 +26977,9 @@ window.renderDeclarationsAdmin = async function() {
           case 'En proceso de conteo/clasificación':
             statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
             break;
+          case 'Recepción Parcial':
+            statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+            break;
           case 'Recibido Conforme':
             statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
             break;
@@ -26986,12 +26999,19 @@ window.renderDeclarationsAdmin = async function() {
         }
 
         let qtyReceivedText = '—';
-        if (['Recibido Conforme', 'Recibido con Incidencias', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
+        if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
           const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+          const declared = parseInt(dec.quantity_declared, 10) || 0;
+          const received = parseInt(dec.quantity_received, 10) || 0;
+          const pending = Math.max(0, declared - received);
+          const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
+            ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
+            : '';
           qtyReceivedText = `
             <div style="font-size: 0.85rem;">
-              <span>Recibido: <strong>${dec.quantity_received}</strong></span><br>
-              <span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>
+              <span>Recibido: <strong>${received}</strong> / ${declared}</span>
+              ${pendingHtml}
+              ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
             </div>
           `;
         }
@@ -27366,19 +27386,27 @@ function renderStatusActionButtons(currentStatus) {
         <i class="ri-swap-box-line" style="font-size: 1.1rem;"></i> Marcar como: En proceso de conteo/clasificación
       </button>
     `;
-  } else if (currentStatus === 'En proceso de conteo/clasificación') {
+  } else if (currentStatus === 'En proceso de conteo/clasificación' || currentStatus === 'Recepción Parcial') {
+    const isPartial = currentStatus === 'Recepción Parcial';
     actionsHtml = `
       <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
-        Estado actual: <strong style="color: var(--color-accent);">${currentStatus}</strong>. Selecciona el resultado final:
+        Estado actual: <strong style="color: ${isPartial ? '#d97706' : 'var(--color-accent)'};">${currentStatus}</strong>. ${isPartial ? 'Ajusta las cantidades físicas y selecciona el siguiente avance del ingreso:' : 'Selecciona el resultado de la recepción:'}
       </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido Conforme" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); border-radius: 8px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem;">
+        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido Conforme" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); border-radius: 8px;">
           <i class="ri-checkbox-circle-line" style="font-size: 1.5rem;"></i>
-          <span>Recibido Conforme</span>
+          <span style="font-weight: 700;">Recibido Conforme</span>
+          <span style="font-size: 0.7rem; opacity: 0.85;">(100% Carga Completa)</span>
         </button>
-        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido con Incidencias" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); border-radius: 8px;">
+        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recepción Parcial" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; border-radius: 8px;">
+          <i class="ri-pie-chart-2-line" style="font-size: 1.5rem;"></i>
+          <span style="font-weight: 700;">Recepción Parcial</span>
+          <span style="font-size: 0.7rem; opacity: 0.85;">(Saldo en espera)</span>
+        </button>
+        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido con Incidencias" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); border-radius: 8px;">
           <i class="ri-error-warning-line" style="font-size: 1.5rem;"></i>
-          <span>Recibido con Incidencias</span>
+          <span style="font-weight: 700;">Recibido con Incidencias</span>
+          <span style="font-size: 0.7rem; opacity: 0.85;">(Cierre con faltantes)</span>
         </button>
       </div>
     `;
@@ -27400,6 +27428,8 @@ function renderStatusActionButtons(currentStatus) {
     submitBtn.style.gap = '0.4rem';
     if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias') {
       submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios / Facturación';
+    } else if (currentStatus === 'Recepción Parcial') {
+      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Recepción Parcial';
     } else {
       submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
     }
@@ -27413,9 +27443,13 @@ function renderStatusActionButtons(currentStatus) {
       if (btn.classList.contains('btn-status-choice')) {
         container.querySelectorAll('.btn-status-choice').forEach(b => {
           b.style.backgroundColor = 'transparent';
-          b.style.color = b.getAttribute('data-status') === 'Recibido Conforme' ? 'var(--color-success)' : 'var(--color-danger)';
+          const bSt = b.getAttribute('data-status');
+          b.style.color = bSt === 'Recibido Conforme' ? 'var(--color-success)' : (bSt === 'Recepción Parcial' ? '#d97706' : 'var(--color-danger)');
         });
-        btn.style.backgroundColor = targetStatus === 'Recibido Conforme' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)';
+        const activeColor = targetStatus === 'Recibido Conforme' 
+          ? 'rgba(16, 185, 129, 0.12)' 
+          : (targetStatus === 'Recepción Parcial' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.12)');
+        btn.style.backgroundColor = activeColor;
       }
       
       statusInput.value = targetStatus;
@@ -27460,7 +27494,7 @@ function handleManageStatusChange(status) {
     }
   }
 
-  if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+  if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
     if (groupVolumeConfirmed) groupVolumeConfirmed.style.display = 'block';
     if (volumeConfirmedInput) volumeConfirmedInput.setAttribute('required', 'required');
   } else {
@@ -27492,6 +27526,26 @@ function handleManageStatusChange(status) {
       if (window.renderManageDeclarationProducts && dec) {
         window.renderManageDeclarationProducts(dec, status);
       }
+    }
+  } else if (status === 'Recepción Parcial') {
+    if (groupReceived) groupReceived.style.display = 'block';
+    if (groupIncidents) groupIncidents.style.display = 'block';
+    if (groupLabeling) groupLabeling.style.display = 'block';
+    if (labelingQtyConfirmedInput) labelingQtyConfirmedInput.setAttribute('required', 'required');
+    qtyReceivedInput.disabled = false;
+    qtyReceivedInput.removeAttribute('readonly');
+    qtyReceivedInput.setAttribute('required', 'required');
+    qtyIncidentsInput.value = 0;
+    qtyIncidentsInput.disabled = false;
+    qtyIncidentsInput.removeAttribute('readonly');
+    qtyIncidentsInput.setAttribute('required', 'required');
+    incidentsPanel.style.display = 'none';
+
+    if (window.renderManageDeclarationProducts && dec) {
+      window.renderManageDeclarationProducts(dec, status);
+    }
+    if (window.recalculateManageDeclarationTotals) {
+      window.recalculateManageDeclarationTotals();
     }
   } else if (status === 'Recibido con Incidencias') {
     if (groupReceived) groupReceived.style.display = 'block';
@@ -27647,6 +27701,7 @@ window.renderDeclarationHistoryTimeline = function(dec) {
     'Bodega Asignada': 'ri-map-pin-line',
     'En Recepción - Pendiente Conteo': 'ri-play-circle-line',
     'En proceso de conteo/clasificación': 'ri-swap-box-line',
+    'Recepción Parcial': 'ri-pie-chart-2-line',
     'Recibido Conforme': 'ri-checkbox-circle-fill',
     'Recibido con Incidencias': 'ri-error-warning-fill',
     'admin_edit': 'ri-shield-check-line',
@@ -27658,6 +27713,7 @@ window.renderDeclarationHistoryTimeline = function(dec) {
     'Bodega Asignada': '#2563eb',
     'En Recepción - Pendiente Conteo': '#0284c7',
     'En proceso de conteo/clasificación': '#d97706',
+    'Recepción Parcial': '#d97706',
     'Recibido Conforme': '#10b981',
     'Recibido con Incidencias': '#ef4444',
     'admin_edit': '#8b5cf6',
@@ -28340,7 +28396,7 @@ document.addEventListener('submit', async (e) => {
 
     let labelingQtyConfirmed = 0;
     const labelingQtyConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
-    if (labelingQtyConfirmedInput && (status === 'Recibido Conforme' || status === 'Recibido con Incidencias')) {
+    if (labelingQtyConfirmedInput && (status === 'Recibido Conforme' || status === 'Recibido con Incidencias' || status === 'Recepción Parcial')) {
       labelingQtyConfirmed = parseInt(labelingQtyConfirmedInput.value) || 0;
       if (isNaN(labelingQtyConfirmed) || labelingQtyConfirmed < 0) {
         alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de unidades etiquetadas debe ser un número válido mayor o igual a 0.</div>';
@@ -28349,7 +28405,9 @@ document.addEventListener('submit', async (e) => {
     }
 
     if (!stageComment) {
-      if (status === 'Recibido Conforme' || status === 'Recibido con Incidencias') {
+      if (status === 'Recepción Parcial') {
+        stageComment = 'Recepción parcial de stock registrada';
+      } else if (status === 'Recibido Conforme' || status === 'Recibido con Incidencias') {
         stageComment = 'Actualización de facturación / notas de recepción por Admin';
       } else {
         stageComment = `Actualización de estado / datos: ${status}`;
@@ -28358,7 +28416,7 @@ document.addEventListener('submit', async (e) => {
 
     // Validar volumen confirmado si el estado requiere confirmación de recepción
     let volumeConfirmed = 0;
-    if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+    if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
       const rawVol = (document.getElementById('manage-dec-volume-confirmed')?.value || '').toString().replace(',', '.');
       volumeConfirmed = parseFloat(rawVol);
       if (isNaN(volumeConfirmed) || volumeConfirmed <= 0) {
@@ -28383,6 +28441,8 @@ document.addEventListener('submit', async (e) => {
     if (status === 'Recibido Conforme') {
       const qtyDeclared = parseInt(document.getElementById('manage-dec-qty-declared').textContent) || 0;
       qtyReceived = qtyDeclared;
+      qtyIncidents = 0;
+    } else if (status === 'Recepción Parcial') {
       qtyIncidents = 0;
     } else if (status === 'Recibido con Incidencias') {
       saveCurrentIncidentsInputs();
@@ -28464,13 +28524,14 @@ document.addEventListener('submit', async (e) => {
             : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
           return {
             ...item,
-            qty_confirmed: qtyConfirmed
+            qty_confirmed: qtyConfirmed,
+            qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
           };
         });
         updateData.quantity_declared = updateData.products_list.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
       }
 
-      if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+      if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
         updateData.volume_confirmed = volumeConfirmed;
         updateData.labeling_qty_confirmed = labelingQtyConfirmed;
       }
@@ -28498,12 +28559,11 @@ document.addEventListener('submit', async (e) => {
         throw error;
       }
 
-      // 2.5 Actualizar inventario físico de productos si el ingreso es finalizado
-      const isTransitioningToFinal = 
-        !['Recibido Conforme', 'Recibido con Incidencias'].includes(latestDec.status) &&
-        ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
+      // 2.5 Actualizar inventario físico de productos (credito incremental delta)
+      const isFinishingStatus = ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
+      const isStockReceivingStatus = ['Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(status);
 
-      if (isTransitioningToFinal) {
+      if (isFinishingStatus) {
         // Limpiar del sistema Picker si existe la orden activa
         if (pickerSupabase) {
           const orderNumber = `ING-${id.substring(0, 8).toUpperCase()}`;
@@ -28517,16 +28577,23 @@ document.addEventListener('submit', async (e) => {
             console.error("[WMS] Error al eliminar del Picker al finalizar:", pErr);
           }
         }
+      }
+
+      if (isStockReceivingStatus) {
         const productsList = updateData.products_list || getDeclarationProducts(latestDec);
         if (productsList && productsList.length > 0) {
           const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
           if (targetWarehouseId) {
+            let inventoryModified = false;
             for (const item of productsList) {
               const itemQty = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
-                ? item.qty_confirmed 
-                : item.qty;
+                ? parseInt(item.qty_confirmed, 10) 
+                : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
 
-              if (item.sku && itemQty > 0) {
+              const alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
+              const deltaToAdd = Math.max(0, itemQty - alreadyAdded);
+
+              if (item.sku && deltaToAdd > 0) {
                 // Buscar producto por SKU y comercio
                 const { data: prod, error: prodErr } = await supabase
                   .from('products')
@@ -28573,7 +28640,7 @@ document.addEventListener('submit', async (e) => {
 
                   if (!invErr) {
                     if (inv) {
-                      const newQty = (inv.quantity || 0) + itemQty;
+                      const newQty = (inv.quantity || 0) + deltaToAdd;
                       await supabase
                         .from('inventory')
                         .update({ quantity: newQty })
@@ -28584,24 +28651,35 @@ document.addEventListener('submit', async (e) => {
                         .insert([{
                           product_id: productId,
                           warehouse_id: targetWarehouseId,
-                          quantity: itemQty,
+                          quantity: deltaToAdd,
                           committed_quantity: 0
                         }]);
                     }
 
-                    // Registrar movimiento de stock
+                    // Registrar movimiento de stock incremental
                     await supabase
                       .from('movements')
                       .insert([{
                         product_id: productId,
                         warehouse_id: targetWarehouseId,
                         type: 'in',
-                        quantity: itemQty,
-                        reference_doc: `Ingreso de Stock: ${latestDec.title}`
+                        quantity: deltaToAdd,
+                        reference_doc: `Ingreso de Stock (${status}): ${latestDec.title}`
                       }]);
+
+                    item.qty_inventory_added = alreadyAdded + deltaToAdd;
+                    inventoryModified = true;
                   }
                 }
               }
+            }
+
+            // Persistir qty_inventory_added en la base de datos
+            if (inventoryModified) {
+              await supabase
+                .from('stock_declarations')
+                .update({ products_list: productsList })
+                .eq('id', id);
             }
           }
         }
@@ -28636,7 +28714,7 @@ document.addEventListener('submit', async (e) => {
             }
           } 
           // 3.2 Marcado como Recibido en Bodega / En conteo
-          else if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].includes(status) && !['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus)) {
+          else if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].includes(status) && !['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus)) {
             if (window.sendStockInboundNotification) {
               await window.sendStockInboundNotification({
                 event: 'received',
@@ -28650,7 +28728,23 @@ document.addEventListener('submit', async (e) => {
               });
             }
           }
-          // 3.3 Completado (Conforme o con Incidencias)
+          // 3.3 Recepción Parcial
+          else if (status === 'Recepción Parcial') {
+            if (window.sendStockInboundNotification) {
+              await window.sendStockInboundNotification({
+                event: 'partial_received',
+                declarationId: id,
+                comercio: comercio,
+                title: title,
+                decData: updatedDec,
+                warehouse: updatedDec.warehouses,
+                status: status,
+                stageComment: stageComment,
+                productsList: updateData.products_list || []
+              });
+            }
+          }
+          // 3.4 Completado (Conforme o con Incidencias)
           else if (['Recibido Conforme', 'Recibido con Incidencias'].includes(status) && !['Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus)) {
             if (window.sendStockInboundNotification) {
               await window.sendStockInboundNotification({
@@ -28667,7 +28761,7 @@ document.addEventListener('submit', async (e) => {
               });
             }
           }
-          // 3.4 Cualquier otra actualización de estado
+          // 3.5 Cualquier otra actualización de estado
           else {
             const notifTitle = 'Actualización de Estado de Ingreso';
             let commentText = stageComment ? ` Comentario: "${stageComment}"` : '';
@@ -44431,7 +44525,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   const tbody = document.getElementById('manage-dec-products-tbody');
   if (!section || !tbody) return;
 
-  const visibleStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'];
+  const visibleStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'];
   const showSection = visibleStatuses.indexOf(activeStatus) !== -1;
   section.style.display = showSection ? 'block' : 'none';
 
@@ -44440,7 +44534,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     return;
   }
 
-  // Solo es solo lectura si el estado es 'Recibido Conforme'. En 'Recibido con Incidencias' y conteo los inputs DEBEN ser editables
+  // Solo es solo lectura si el estado es 'Recibido Conforme'. En 'Recibido con Incidencias' y 'Recepción Parcial' los inputs DEBEN ser editables
   const isReadOnly = activeStatus === 'Recibido Conforme';
   const addProdContainer = document.getElementById('manage-dec-add-product-container');
   if (addProdContainer) {
@@ -44459,7 +44553,8 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         : (parseInt(item.qty, 10) || 0);
       return {
         ...item,
-        qty_confirmed: qtyConfirmed
+        qty_confirmed: qtyConfirmed,
+        qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
       };
     });
   }
@@ -44467,7 +44562,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (window.currentDeclarationProductsEditing.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+        <td colspan="5" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
           No hay productos registrados en esta recepción. Usa el buscador superior para agregar productos.
         </td>
       </tr>
@@ -44480,6 +44575,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   window.currentDeclarationProductsEditing.forEach((item, idx) => {
     const declared = parseInt(item.qty, 10) || 0;
     const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) : declared;
+    const pending = Math.max(0, declared - confirmed);
     const diff = confirmed - declared;
     
     let diffColor = 'var(--color-text-muted)';
@@ -44499,7 +44595,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
     tbody.innerHTML += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
-        <td style="padding: 10px 12px; max-width: 300px;">
+        <td style="padding: 10px 12px; max-width: 260px;">
           <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.sku}">${item.sku}</div>
           <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
         </td>
@@ -44512,6 +44608,9 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
                    ${isReadOnly ? 'disabled style="cursor: not-allowed; opacity: 0.8; width: 85px; text-align: center; height: 32px;"' : ''}>
             ${deleteButtonHtml}
           </div>
+        </td>
+        <td style="padding: 10px 12px; text-align: center; font-weight: 700; color: ${pending > 0 ? '#d97706' : 'var(--color-text-muted)'};" id="manage-dec-prod-pending-${idx}">
+          ${pending}
         </td>
         <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${diffColor};" id="manage-dec-prod-diff-${idx}">
           ${diffSign}${diff}
@@ -44530,7 +44629,15 @@ window.updateManageDeclarationProductQty = function(idx, val) {
   window.currentDeclarationProductsEditing[idx].qty_confirmed = parsedVal;
   
   const declared = parseInt(window.currentDeclarationProductsEditing[idx].qty, 10) || 0;
+  const pending = Math.max(0, declared - parsedVal);
   const diff = parsedVal - declared;
+
+  // Actualizar el valor de pendiente en la fila correspondiente
+  const pendingEl = document.getElementById(`manage-dec-prod-pending-${idx}`);
+  if (pendingEl) {
+    pendingEl.textContent = pending;
+    pendingEl.style.color = pending > 0 ? '#d97706' : 'var(--color-text-muted)';
+  }
 
   // Actualizar el valor de la diferencia en la fila correspondiente
   const diffEl = document.getElementById(`manage-dec-prod-diff-${idx}`);
@@ -44586,7 +44693,7 @@ window.recalculateManageDeclarationTotals = function() {
     const currentStatus = document.getElementById('manage-dec-status')?.value;
     if (currentStatus === 'Recibido con Incidencias') {
       qtyIncidentsInput.value = missingQty > 0 ? missingQty : (parseInt(qtyIncidentsInput.value, 10) || 1);
-    } else if (currentStatus === 'Recibido Conforme') {
+    } else if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recepción Parcial') {
       qtyIncidentsInput.value = 0;
     }
   }
@@ -47795,6 +47902,8 @@ window.viewDeclarationProducts = async function(id) {
     }
 
     const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+    const hasConfirmed = products.some(p => p.qty_confirmed !== undefined && p.qty_confirmed !== null);
+
     const adminNoticeHtml = hasAdminEdit ? `
       <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.825rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
         <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
@@ -47810,19 +47919,28 @@ window.viewDeclarationProducts = async function(id) {
             <th style="padding: 8px;">#</th>
             <th style="padding: 8px;">SKU</th>
             <th style="padding: 8px;">Nombre Producto</th>
-            <th style="padding: 8px; text-align: right;">Cant. Declarada</th>
+            <th style="padding: 8px; text-align: right;">Declarada</th>
+            ${hasConfirmed ? '<th style="padding: 8px; text-align: right;">Recibida</th><th style="padding: 8px; text-align: right;">Pendiente</th>' : ''}
           </tr>
         </thead>
         <tbody>
     `;
 
     products.forEach((p, idx) => {
+      const declared = parseInt(p.qty, 10) || 0;
+      const confirmed = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : declared;
+      const pending = Math.max(0, declared - confirmed);
+
       tableHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
           <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
           <td style="padding: 8px;">${p.name}</td>
-          <td style="padding: 8px; text-align: right; font-weight: bold;">${(p.qty || 0).toLocaleString()}</td>
+          <td style="padding: 8px; text-align: right; font-weight: bold;">${declared.toLocaleString('es-CL')}</td>
+          ${hasConfirmed ? `
+            <td style="padding: 8px; text-align: right; font-weight: 700; color: var(--color-primary);">${confirmed.toLocaleString('es-CL')}</td>
+            <td style="padding: 8px; text-align: right; font-weight: 700; color: ${pending > 0 ? '#d97706' : 'var(--color-text-muted)'};">${pending.toLocaleString('es-CL')}</td>
+          ` : ''}
         </tr>
       `;
     });

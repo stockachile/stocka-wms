@@ -317,6 +317,84 @@
       `;
     }
 
+    // 3.5 EVENTO: RECEPCIÓN PARCIAL DE STOCK
+    else if (event === 'partial_received' || event === 'partial' || status === 'Recepción Parcial') {
+      emailSubject = `📦 [${shortCode}] Recepción Parcial de Stock Registrada - ${comercio}`;
+      headerGradient = 'linear-gradient(135deg, #b45309, #f59e0b)';
+      emailTitle = 'Recepción Parcial de Stock';
+      badgeText = 'RECEPCIÓN PARCIAL';
+      badgeColor = '#d97706';
+
+      const qtyDeclared = dec.quantity_declared || (productsList || []).reduce((acc, p) => acc + (parseInt(p.qty || p.quantity || 0, 10)), 0);
+      const qtyReceived = dec.quantity_received || (productsList || []).reduce((acc, p) => acc + (parseInt(p.qty_confirmed || 0, 10)), 0);
+      const qtyPending = Math.max(0, qtyDeclared - qtyReceived);
+      const whName = warehouse?.name || dec?.warehouses?.name || 'Bodega STOCKA';
+      const volConfirmed = parseFloat(dec.volume_confirmed || dec.volume_declared || 0).toFixed(4);
+
+      let productsRowsHtml = '';
+      if (productsList && productsList.length > 0) {
+        productsRowsHtml = `
+          <div style="margin-top: 20px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e293b; font-weight: 700;">Detalle de Avance por Producto:</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; color: #334155; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;">
+              <thead>
+                <tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">
+                  <th style="padding: 8px 10px; font-weight: 600;">SKU</th>
+                  <th style="padding: 8px 10px; font-weight: 600;">Producto</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600;">Declarado</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600;">Recibido</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600; color: #d97706;">Pendiente</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${productsList.map((p, idx) => {
+                  const decQty = parseInt(p.qty || p.quantity || 0, 10);
+                  const recQty = parseInt(p.qty_confirmed || 0, 10);
+                  const pendQty = Math.max(0, decQty - recQty);
+                  return `
+                    <tr style="border-bottom: 1px solid #e2e8f0; background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                      <td style="padding: 8px 10px; font-family: monospace; font-weight: 600; color: #2563eb;">${p.sku || '-'}</td>
+                      <td style="padding: 8px 10px;">${p.name || '-'}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 600;">${decQty.toLocaleString('es-CL')}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: #059669;">${recQty.toLocaleString('es-CL')}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: ${pendQty > 0 ? '#d97706' : '#64748b'};">${pendQty.toLocaleString('es-CL')}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      bodyContentHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo <strong>${comercio}</strong>,<br><br>
+          Te informamos que se ha procesado una <strong>recepción parcial de stock</strong> para tu ingreso <strong>"${title}"</strong> (${shortCode}) en <strong>${whName}</strong>.
+          Las unidades recibidas ya se encuentran ingresadas en tu inventario activo para su venta y despacho.
+        </div>
+
+        <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <h4 style="margin: 0 0 12px 0; font-size: 14px; color: #92400e; font-weight: 700; text-transform: uppercase;">Resumen de Recepción Parcial:</h4>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600; width: 42%;">Código de Ingreso:</td><td style="padding: 7px 0; font-weight: 700; color: #2563eb; font-family: monospace;">${shortCode}</td></tr>
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600;">Bodega:</td><td style="padding: 7px 0; font-weight: 600;">${whName}</td></tr>
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600;">Unidades Declaradas:</td><td style="padding: 7px 0; font-weight: 600;">${qtyDeclared.toLocaleString('es-CL')} uds</td></tr>
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600;">Unidades Recibidas a la fecha:</td><td style="padding: 7px 0;"><span style="background-color: #dcfce7; color: #15803d; padding: 3px 8px; border-radius: 4px; font-weight: 700;">${qtyReceived.toLocaleString('es-CL')} uds</span></td></tr>
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600;">Saldo Pendiente de Entrega:</td><td style="padding: 7px 0;"><span style="background-color: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 4px; font-weight: 700;">${qtyPending.toLocaleString('es-CL')} uds</span></td></tr>
+            <tr style="border-bottom: 1px solid #fef3c7;"><td style="padding: 7px 0; font-weight: 600;">Volumen Confirmado:</td><td style="padding: 7px 0; font-weight: 600;">${volConfirmed} m³</td></tr>
+            <tr><td style="padding: 7px 0; font-weight: 600;">Observaciones:</td><td style="padding: 7px 0; font-style: italic;">${stageComment || dec.admin_notes || 'Recepción parcial registrada.'}</td></tr>
+          </table>
+        </div>
+
+        ${productsRowsHtml}
+
+        <div style="margin-top: 20px; padding: 14px; background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 13px; color: #1e40af; line-height: 1.5;">
+          <strong>Estado Activo:</strong> Tu ingreso permanece en estado <strong>Recepción Parcial</strong> en la plataforma. Una vez que arribe el saldo restante, se registrará la recepción complementaria o el cierre correspondiente.
+        </div>
+      `;
+    }
+
     // 4. EVENTO: COMPLETADO (CONFORME O CON INCIDENCIAS)
     else if (event === 'completed') {
       const isConforme = status === 'Recibido Conforme';

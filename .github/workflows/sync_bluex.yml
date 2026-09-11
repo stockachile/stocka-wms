@@ -1,0 +1,39 @@
+name: Sync Blue Express to Supabase
+
+on:
+  schedule:
+    # Se ejecuta cada 3 horas (UTC: 0, 3, 6, 9, 12, 15, 18, 21)
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+    # Permite gatillar la sincronización manualmente desde GitHub Actions o desde el WMS
+
+jobs:
+  sync:
+    name: Run Blue Express Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Sincronización Blue Express
+        env:
+          BLUEX_USERNAME: ${{ secrets.BLUEX_USERNAME }}
+          BLUEX_PASSWORD: ${{ secrets.BLUEX_PASSWORD }}
+          BLUEX_STATE_JSON: ${{ secrets.BLUEX_STATE_JSON }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HEADLESS: 'true'
+        run: node sync_bluex.js

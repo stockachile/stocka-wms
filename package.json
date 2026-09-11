@@ -1,7 +1,12 @@
 {
   "scripts": {
     "build": "node scripts/build.js",
-    "compile-rates": "node scripts/compile_rates_excel.js"
+    "compile-rates": "node scripts/compile_rates_excel.js",
+    "sync:bluex": "node sync_bluex.js",
+    "login:bluex": "node login_bluex_interactive.js",
+    "session:bluex": "node save_bluex_session.js",
+    "schedule:bluex": "node scheduler_sync.js",
+    "sync:lightdata": "node sync_lightdata.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

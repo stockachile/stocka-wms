@@ -91,6 +91,7 @@ serve(async (req) => {
       'Falabella': 'sync_falabella.yml',
       'Paris': 'sync_paris.yml',
       'LightData': 'sync_lightdata.yml',
+      'BlueExpress': 'sync_bluex.yml',
       'Optiroute': 'optiroute_sync.yml',
       'Walmart': 'sync_walmart.yml',
       'Shopify': 'sync_shopify.yml',

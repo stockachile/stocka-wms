@@ -7829,6 +7829,21 @@ window.applyClientWmsFiltersAndRender = function() {
       `;
     }
 
+    let customPlatformTagsHtml = '';
+    const rawStoreTags = new Set();
+    if (order.raw_shopify_data?.tags) {
+      String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (order.tags) {
+      (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (rawStoreTags.size > 0) {
+      customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
+        const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        return `<span class="badge" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content;" title="Etiqueta de tienda: ${escapedTag}"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
+      }).join('');
+    }
+
     const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
@@ -7970,6 +7985,16 @@ window.applyClientWmsFiltersAndRender = function() {
                   <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
                 </div>
                 ${originalPlatformStatusHtml}
+                ${customPlatformTagsHtml ? `
+                  <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; padding-top: 0.45rem; border-top: 1px dashed var(--color-border); text-align: left;">
+                    <span style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-price-tag-3-line" style="font-size: 0.9rem; color: var(--color-primary);"></i> Etiquetas de Plataforma (${rawStoreTags.size}):
+                    </span>
+                    <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                      ${customPlatformTagsHtml}
+                    </div>
+                  </div>
+                ` : ''}
               </div>
 
               <!-- Grupo 2: Courier y Tracking -->
@@ -18998,12 +19023,12 @@ window.renderDeclarations = async function() {
                     <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                       <thead>
                         <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); font-size: 0.775rem; text-transform: uppercase; letter-spacing: 0.5px;">
-                          <th style="padding: 10px 14px; min-width: 220px;">Producto / SKU</th>
-                          <th style="padding: 10px 12px; text-align: center; width: 150px;">Medidas (L × An × Al)</th>
-                          <th style="padding: 10px 12px; text-align: right; width: 120px;">Vol. Unit.</th>
-                          <th style="padding: 10px 12px; text-align: center; width: 110px;">Cant. Declarada</th>
-                          <th style="padding: 10px 12px; text-align: right; width: 140px;">Vol. Total Ítem</th>
-                          <th style="padding: 10px 12px; text-align: center; width: 50px;"></th>
+                          <th style="padding: 10px 14px; min-width: 180px;">Producto / SKU</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 215px; min-width: 200px;">Medidas (L × An × Al)</th>
+                          <th style="padding: 10px 12px; text-align: right; width: 105px;">Vol. Unit.</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 100px;">Cant. Declarada</th>
+                          <th style="padding: 10px 12px; text-align: right; width: 125px;">Vol. Total Ítem</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 45px;"></th>
                         </tr>
                       </thead>
                       <tbody id="dec-selected-products-tbody">
@@ -20445,8 +20470,13 @@ window.renderDeclarations = async function() {
         let errors = [];
         let totalQtyFromExcel = 0;
 
+        const productsToUpdateCatalog = [];
+
         if (isCatalogSource) {
           const listRows = document.querySelectorAll('#dec-selected-products-list .selected-product-row');
+          let missingDimsCount = 0;
+          let firstMissingInput = null;
+
           listRows.forEach(row => {
             const qtyInput = row.querySelector('.dec-catalog-qty-input');
             const sku = qtyInput.getAttribute('data-sku');
@@ -20454,15 +20484,92 @@ window.renderDeclarations = async function() {
             const qty = parseInt(qtyInput.value, 10);
             const price = parseFloat(qtyInput.getAttribute('data-price') || '0');
             const barcode = qtyInput.getAttribute('data-barcode') || '';
-            const largo = parseFloat(qtyInput.getAttribute('data-largo') || '') || null;
-            const ancho = parseFloat(qtyInput.getAttribute('data-ancho') || '') || null;
-            const alto = parseFloat(qtyInput.getAttribute('data-alto') || '') || null;
+
+            // Verificar si esta fila tiene inputs editables de dimensiones
+            const inputLargo = row.querySelector('.dec-dim-largo');
+            const inputAncho = row.querySelector('.dec-dim-ancho');
+            const inputAlto = row.querySelector('.dec-dim-alto');
+
+            let largo = parseFloat(qtyInput.getAttribute('data-largo') || '') || null;
+            let ancho = parseFloat(qtyInput.getAttribute('data-ancho') || '') || null;
+            let alto = parseFloat(qtyInput.getAttribute('data-alto') || '') || null;
+            let prodVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
+
+            if (inputLargo && inputAncho && inputAlto) {
+              const lVal = parseFloat(inputLargo.value) || 0;
+              const anVal = parseFloat(inputAncho.value) || 0;
+              const alVal = parseFloat(inputAlto.value) || 0;
+
+              let hasDimError = false;
+              if (lVal <= 0) {
+                inputLargo.style.borderColor = '#ef4444';
+                hasDimError = true;
+                if (!firstMissingInput) firstMissingInput = inputLargo;
+              } else {
+                inputLargo.style.borderColor = 'var(--color-border)';
+              }
+
+              if (anVal <= 0) {
+                inputAncho.style.borderColor = '#ef4444';
+                hasDimError = true;
+                if (!firstMissingInput) firstMissingInput = inputAncho;
+              } else {
+                inputAncho.style.borderColor = 'var(--color-border)';
+              }
+
+              if (alVal <= 0) {
+                inputAlto.style.borderColor = '#ef4444';
+                hasDimError = true;
+                if (!firstMissingInput) firstMissingInput = inputAlto;
+              } else {
+                inputAlto.style.borderColor = 'var(--color-border)';
+              }
+
+              if (hasDimError) {
+                missingDimsCount++;
+              } else {
+                largo = lVal;
+                ancho = anVal;
+                alto = alVal;
+                prodVol = (largo * ancho * alto) / 1000000;
+                productsToUpdateCatalog.push({
+                  sku,
+                  name,
+                  largo,
+                  ancho,
+                  alto,
+                  volumen: prodVol
+                });
+              }
+            }
+
             if (qty > 0) {
-              const prodVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
-              parsedProducts.push({ sku, name, qty, price, barcode, vol: prodVol, volumen: prodVol, largo, ancho, alto, subtotal: qty * price });
+              parsedProducts.push({ 
+                sku, 
+                name, 
+                qty, 
+                price, 
+                barcode, 
+                vol: prodVol, 
+                volumen: prodVol, 
+                largo, 
+                ancho, 
+                alto, 
+                subtotal: qty * price 
+              });
               totalQtyFromExcel += qty;
             }
           });
+
+          if (missingDimsCount > 0) {
+            errors.push(`Existen ${missingDimsCount} producto(s) sin dimensiones informadas. Las dimensiones (Largo, Ancho, Alto en cm) son obligatorias para crear la declaración de ingreso.`);
+            if (firstMissingInput) {
+              setTimeout(() => {
+                firstMissingInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                firstMissingInput.focus();
+              }, 100);
+            }
+          }
 
           if (parsedProducts.length === 0) {
             errors.push("Debe agregar al menos 1 producto del catálogo.");
@@ -20471,13 +20578,17 @@ window.renderDeclarations = async function() {
             errors.push(`La cantidad total declarada (${qtyDeclared}) no coincide con la suma de las cantidades de los productos seleccionados (${totalQtyFromExcel}).`);
           }
 
-          // Generar la planilla Excel dinámica en Base64
+          // Generar la planilla Excel dinámica en Base64 con las medidas incluidas
           try {
             const ws = XLSX.utils.json_to_sheet(parsedProducts.map(p => ({
               'Nombre Producto': p.name,
               'SKU': p.sku,
               'Cantidad declarada': p.qty,
-              'Valor': p.price
+              'Valor': p.price,
+              'Largo (cm)': p.largo || '',
+              'Ancho (cm)': p.ancho || '',
+              'Alto (cm)': p.alto || '',
+              'Volumen Unitario (m3)': p.vol || ''
             })));
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Productos");
@@ -20523,33 +20634,24 @@ window.renderDeclarations = async function() {
               } else {
                 const catalogMap = new Map();
                 (prods || []).forEach(p => {
-                  if (p.sku) catalogMap.set(p.sku.trim().toLowerCase(), p.price || 0);
+                  if (p.sku) catalogMap.set(p.sku.trim().toUpperCase(), p);
                 });
 
                 const missingSkus = [];
                 parsedProducts.forEach(p => {
-                  if (p.sku) {
-                    const skuNorm = p.sku.trim().toLowerCase();
-                    if (!catalogMap.has(skuNorm)) {
-                      missingSkus.push(p.sku);
-                    } else {
-                      // Si en la planilla no viene valor o es 0, auto-completar desde el catálogo
-                      if (!p.price || p.price === 0) {
-                        p.price = catalogMap.get(skuNorm);
-                        p.subtotal = p.qty * p.price;
-                      }
-                    }
+                  if (p.sku && !catalogMap.has(p.sku.trim().toUpperCase())) {
+                    missingSkus.push(p.sku);
                   }
                 });
 
                 if (missingSkus.length > 0) {
-                  errors.push(`Los siguientes SKUs no existen en el catálogo del comercio (${commerce}): ${[...new Set(missingSkus)].join(', ')}. Por favor, regístrelos en el catálogo o corríjalos en la planilla.`);
+                  const uniqueMissing = [...new Set(missingSkus)];
+                  errors.push(`Los siguientes SKUs no están creados en tu catálogo maestro: <strong>${uniqueMissing.join(', ')}</strong>. Debes crearlos en el inventario antes de ingresar stock.`);
                 }
               }
             }
-          } catch (e) {
-            console.error('Error in SKU validation:', e);
-            errors.push("Ocurrió un error al validar los SKUs de la planilla: " + e.message);
+          } catch (trackingErr) {
+            console.error('Error checking catalog tracking for Excel:', trackingErr);
           }
         }
 
@@ -20561,7 +20663,7 @@ window.renderDeclarations = async function() {
             generalErrorContainer.style.display = 'block';
             const _sb3 = document.querySelector('.slideover-body'); if (_sb3) _sb3.scrollTop = 0;
           } else {
-            alert("Errores críticos en la planilla Excel:\n" + errors.join('\n'));
+            alert(errors.join('\n'));
           }
           return;
         }
@@ -20591,6 +20693,38 @@ window.renderDeclarations = async function() {
           requiresUnloading
         }, parsedProducts, warnings, cost, !!editingDeclarationId, async () => {
           // Callback de Confirmación del usuario en la modal de vista previa
+
+          // 1. Si se ingresaron nuevas dimensiones para productos sin medidas en catálogo, sincronizarlas en Supabase
+          if (productsToUpdateCatalog && productsToUpdateCatalog.length > 0) {
+            try {
+              for (const item of productsToUpdateCatalog) {
+                await supabase
+                  .from('products')
+                  .update({
+                    largo: item.largo,
+                    ancho: item.ancho,
+                    alto: item.alto,
+                    volumen: item.volumen
+                  })
+                  .eq('sku', item.sku)
+                  .eq('comercio', commerce);
+
+                if (window.decCatalogProductsCache) {
+                  const cachedItem = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === item.sku.toUpperCase());
+                  if (cachedItem) {
+                    cachedItem.largo = item.largo;
+                    cachedItem.ancho = item.ancho;
+                    cachedItem.alto = item.alto;
+                    cachedItem.volumen = item.volumen;
+                  }
+                }
+              }
+              console.log(`[Declaration] Catálogo actualizado con las nuevas dimensiones para ${productsToUpdateCatalog.length} productos.`);
+            } catch (dimErr) {
+              console.warn('Error al sincronizar dimensiones al catálogo de Supabase:', dimErr);
+            }
+          }
+
           if (editingDeclarationId) {
             const { data: currentDec, error: getError } = await supabase
               .from('stock_declarations')
@@ -20978,6 +21112,9 @@ async function fetchAndRenderClientDeclarations() {
         case 'En proceso de conteo/clasificación':
           statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
           break;
+        case 'Recepción Parcial':
+          statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+          break;
         case 'Recibido Conforme':
           statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
           break;
@@ -20997,12 +21134,17 @@ async function fetchAndRenderClientDeclarations() {
       }
         
       let qtyReceivedText = '—';
-      if (['Recibido Conforme', 'Recibido con Incidencias', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
+      if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
         const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+        const pending = Math.max(0, (dec.quantity_declared || 0) - (dec.quantity_received || 0));
+        const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
+          ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
+          : '';
         qtyReceivedText = `
           <div style="font-size: 0.85rem;">
-            <span>Recibido: <strong>${dec.quantity_received}</strong></span><br>
-            <span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>
+            <span>Recibido: <strong>${dec.quantity_received}</strong></span>
+            ${pendingHtml}
+            ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
           </div>
         `;
       }
@@ -21155,6 +21297,10 @@ window.viewDeclarationDetail = async function(id) {
       case 'En proceso de conteo/clasificación':
         detailStatusBadgeColor = 'var(--badge-warning-bg)';
         detailStatusTextColor = 'var(--badge-warning-text)';
+        break;
+      case 'Recepción Parcial':
+        detailStatusBadgeColor = 'rgba(245, 158, 11, 0.15)';
+        detailStatusTextColor = '#d97706';
         break;
       case 'Recibido Conforme':
         detailStatusBadgeColor = 'var(--badge-success-bg)';
@@ -21311,6 +21457,10 @@ window.viewDeclarationDetail = async function(id) {
           case 'En proceso de conteo/clasificación':
             statusBadgeColor = 'var(--badge-warning-bg)';
             statusTextColor = 'var(--badge-warning-text)';
+            break;
+          case 'Recepción Parcial':
+            statusBadgeColor = 'rgba(245, 158, 11, 0.15)';
+            statusTextColor = '#d97706';
             break;
           case 'Recibido Conforme':
             statusBadgeColor = 'var(--badge-success-bg)';
@@ -21760,9 +21910,16 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
     rowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">Sin productos en la planilla o planilla ya cargada anteriormente</td></tr>`;
   } else {
     parsedProducts.forEach(p => {
+      const dimInfo = (p.largo && p.ancho && p.alto) 
+        ? `<div style="font-size: 0.7rem; color: var(--color-text-muted);">${p.largo} × ${p.ancho} × ${p.alto} cm (${(p.vol || 0).toFixed(4)} m³)</div>`
+        : ((p.vol && p.vol > 0) ? `<div style="font-size: 0.7rem; color: var(--color-text-muted);">${p.vol.toFixed(4)} m³</div>` : '');
+
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.8rem;">
-          <td style="padding: 0.6rem 0.75rem; text-align: left; font-family: monospace; font-size: 0.75rem; color: var(--color-primary); font-weight: 500;">${p.sku}</td>
+          <td style="padding: 0.6rem 0.75rem; text-align: left; font-family: monospace; font-size: 0.75rem; color: var(--color-primary); font-weight: 500;">
+            ${p.sku}
+            ${dimInfo}
+          </td>
           <td style="padding: 0.6rem 0.75rem; text-align: left; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name}">${p.name}</td>
           <td style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${p.qty}</td>
           <td style="padding: 0.6rem 0.75rem; text-align: right; color: var(--color-text-muted);">$ ${p.price ? p.price.toLocaleString('es-CL') : '0'}</td>
@@ -30787,6 +30944,8 @@ window.viewDeclarationProducts = async function(id) {
     }
 
     const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+    const hasConfirmed = products.some(p => p.qty_confirmed !== undefined && p.qty_confirmed !== null);
+
     const adminNoticeHtml = hasAdminEdit ? `
       <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.825rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
         <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
@@ -30802,19 +30961,28 @@ window.viewDeclarationProducts = async function(id) {
             <th style="padding: 8px;">#</th>
             <th style="padding: 8px;">SKU</th>
             <th style="padding: 8px;">Nombre Producto</th>
-            <th style="padding: 8px; text-align: right;">Cant. Declarada</th>
+            <th style="padding: 8px; text-align: right;">Declarada</th>
+            ${hasConfirmed ? '<th style="padding: 8px; text-align: right;">Recibida</th><th style="padding: 8px; text-align: right;">Pendiente</th>' : ''}
           </tr>
         </thead>
         <tbody>
     `;
 
     products.forEach((p, idx) => {
+      const declared = parseInt(p.qty, 10) || 0;
+      const confirmed = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : declared;
+      const pending = Math.max(0, declared - confirmed);
+
       tableHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
           <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
           <td style="padding: 8px;">${p.name}</td>
-          <td style="padding: 8px; text-align: right; font-weight: bold;">${(p.qty || 0).toLocaleString()}</td>
+          <td style="padding: 8px; text-align: right; font-weight: bold;">${declared.toLocaleString('es-CL')}</td>
+          ${hasConfirmed ? `
+            <td style="padding: 8px; text-align: right; font-weight: 700; color: var(--color-primary);">${confirmed.toLocaleString('es-CL')}</td>
+            <td style="padding: 8px; text-align: right; font-weight: 700; color: ${pending > 0 ? '#d97706' : 'var(--color-text-muted)'};">${pending.toLocaleString('es-CL')}</td>
+          ` : ''}
         </tr>
       `;
     });
@@ -32574,25 +32742,35 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   const tbody = document.getElementById('dec-selected-products-tbody');
   if (!tbody) return;
 
-  // Si no pasamos medidas explícitas, intentar buscarlas en la caché del catálogo
-  if ((largo === null || ancho === null || alto === null || vol === 0) && window.decCatalogProductsCache) {
+  let catalogLargo = largo !== null ? parseFloat(largo) : null;
+  let catalogAncho = ancho !== null ? parseFloat(ancho) : null;
+  let catalogAlto = alto !== null ? parseFloat(alto) : null;
+  let catalogVol = parseFloat(vol) || 0;
+
+  // Si no pasamos medidas explícitas completas, intentar buscarlas en la caché del catálogo
+  if (window.decCatalogProductsCache) {
     const cached = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
     if (cached) {
-      if (largo === null) largo = cached.largo;
-      if (ancho === null) ancho = cached.ancho;
-      if (alto === null) alto = cached.alto;
-      if (!vol || vol === 0) vol = cached.volumen || 0;
+      if (catalogLargo === null && cached.largo !== null && cached.largo !== undefined && !isNaN(cached.largo)) catalogLargo = parseFloat(cached.largo);
+      if (catalogAncho === null && cached.ancho !== null && cached.ancho !== undefined && !isNaN(cached.ancho)) catalogAncho = parseFloat(cached.ancho);
+      if (catalogAlto === null && cached.alto !== null && cached.alto !== undefined && !isNaN(cached.alto)) catalogAlto = parseFloat(cached.alto);
+      if (catalogVol <= 0 && cached.volumen) catalogVol = parseFloat(cached.volumen);
       if (!price || price === 0) price = cached.price || 0;
       if (!barcode) barcode = cached.barcode || '';
     }
   }
 
-  let unitVol = parseFloat(vol) || 0;
-  if (unitVol <= 0 && largo && ancho && alto) {
-    unitVol = (largo * ancho * alto) / 1000000;
-  }
-  if (unitVol <= 0) {
-    unitVol = 0.0001; // fallback mínimo
+  // Comprobar estrictamente si el producto ya cuenta con dimensiones o volumen en el catálogo del sistema
+  const hasCatalogDims = Boolean(
+    (catalogLargo && catalogLargo > 0 && catalogAncho && catalogAncho > 0 && catalogAlto && catalogAlto > 0) ||
+    (catalogVol && catalogVol > 0.0001)
+  );
+
+  let unitVol = 0;
+  if (catalogLargo && catalogLargo > 0 && catalogAncho && catalogAncho > 0 && catalogAlto && catalogAlto > 0) {
+    unitVol = (catalogLargo * catalogAncho * catalogAlto) / 1000000;
+  } else if (catalogVol > 0) {
+    unitVol = catalogVol;
   }
 
   const existingRow = tbody.querySelector(`.selected-product-row[data-sku="${sku}"]`);
@@ -32604,9 +32782,10 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
       const newVal = currentVal + addVal;
       qtyInput.value = newVal;
       
+      const currentUnitVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
       const totalVolSpan = existingRow.querySelector('.dec-row-item-total-vol');
       if (totalVolSpan) {
-        totalVolSpan.textContent = `${(unitVol * newVal).toFixed(4)} m³`;
+        totalVolSpan.textContent = `${(currentUnitVol * newVal).toFixed(4)} m³`;
       }
       recalculateCatalogTotals();
     }
@@ -32616,27 +32795,47 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   const qty = parseInt(initialQty, 10) || 1;
   const rowTotalVol = (unitVol * qty).toFixed(4);
 
-  const dimsText = (largo && ancho && alto)
-    ? `${largo} × ${ancho} × ${alto} cm`
-    : '<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.75rem;">Sin medidas</span>';
+  // Celda de Medidas: Si ya tiene medidas en catálogo es de solo lectura; si no, permite ingresar L x An x Al (obligatorias)
+  let dimsCellHtml = '';
+  if (hasCatalogDims) {
+    const textDims = (catalogLargo && catalogAncho && catalogAlto)
+      ? `${catalogLargo} × ${catalogAncho} × ${catalogAlto} cm`
+      : `<span style="color: var(--color-text-muted); font-size: 0.78rem;">${unitVol.toFixed(4)} m³</span>`;
+    dimsCellHtml = `
+      <div style="font-weight: 500; font-size: 0.8rem; color: var(--color-text-main);">${textDims}</div>
+      <span style="font-size: 0.7rem; color: var(--color-success); font-weight: 600;"><i class="ri-check-line"></i> En Catálogo</span>
+    `;
+  } else {
+    dimsCellHtml = `
+      <div class="dec-dim-inputs" style="display: flex; align-items: center; justify-content: center; gap: 3px;">
+        <input type="number" class="dec-dim-largo form-input" placeholder="L" min="0.1" step="0.1" value="${catalogLargo > 0 ? catalogLargo : ''}" style="width: 46px; padding: 3px 4px; text-align: center; font-size: 0.75rem; height: 28px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);" title="Largo en cm" required>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">×</span>
+        <input type="number" class="dec-dim-ancho form-input" placeholder="An" min="0.1" step="0.1" value="${catalogAncho > 0 ? catalogAncho : ''}" style="width: 46px; padding: 3px 4px; text-align: center; font-size: 0.75rem; height: 28px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);" title="Ancho en cm" required>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted);">×</span>
+        <input type="number" class="dec-dim-alto form-input" placeholder="Al" min="0.1" step="0.1" value="${catalogAlto > 0 ? catalogAlto : ''}" style="width: 46px; padding: 3px 4px; text-align: center; font-size: 0.75rem; height: 28px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);" title="Alto en cm" required>
+        <span style="font-size: 0.7rem; color: var(--color-text-muted); margin-left: 1px;">cm</span>
+      </div>
+      <div class="dec-dim-required-badge" style="font-size: 0.68rem; color: #ef4444; font-weight: 600; margin-top: 2px; text-align: center; display: ${unitVol > 0 ? 'none' : 'block'};">* Requeridas</div>
+    `;
+  }
 
   const tr = document.createElement('tr');
   tr.className = 'selected-product-row';
   tr.setAttribute('data-sku', sku);
   tr.style.cssText = 'border-bottom: 1px solid var(--color-border); vertical-align: middle; transition: background 0.15s;';
   tr.innerHTML = `
-    <td style="padding: 10px 14px; max-width: 280px;">
+    <td style="padding: 10px 14px; max-width: 260px;">
       <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.875rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${name}">${name}</div>
       <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
         <span style="font-family: monospace; font-weight: 600; color: var(--color-primary);">${sku}</span>
         ${barcode ? `<span style="margin-left: 6px; color: var(--color-text-muted);">| CB: ${barcode}</span>` : ''}
       </div>
     </td>
-    <td style="padding: 10px 12px; text-align: center; font-size: 0.8rem; color: var(--color-text-main);">
-      ${dimsText}
+    <td style="padding: 8px 10px; text-align: center;">
+      ${dimsCellHtml}
     </td>
     <td style="padding: 10px 12px; text-align: right; font-size: 0.825rem; color: var(--color-text-muted); font-family: monospace;">
-      ${unitVol.toFixed(4)} m³
+      <span class="dec-row-item-unit-vol">${unitVol > 0 ? unitVol.toFixed(4) : '0.0000'} m³</span>
     </td>
     <td style="padding: 10px 12px; text-align: center;">
       <input type="number" class="dec-catalog-qty-input form-input" 
@@ -32645,12 +32844,13 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
              data-vol="${unitVol}" 
              data-price="${price || 0}" 
              data-barcode="${barcode || ''}" 
-             data-largo="${largo || ''}" 
-             data-ancho="${ancho || ''}" 
-             data-alto="${alto || ''}" 
+             data-largo="${catalogLargo || ''}" 
+             data-ancho="${catalogAncho || ''}" 
+             data-alto="${catalogAlto || ''}" 
+             data-has-catalog-dims="${hasCatalogDims ? 'true' : 'false'}"
              min="1" 
              value="${qty}" 
-             style="width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--color-border); text-align: center; font-size: 0.85rem; font-weight: 700; height: 32px; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main);">
+             style="width: 75px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--color-border); text-align: center; font-size: 0.85rem; font-weight: 700; height: 32px; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main);">
     </td>
     <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: var(--color-text-main); font-family: monospace; font-size: 0.875rem;">
       <span class="dec-row-item-total-vol">${rowTotalVol} m³</span>
@@ -32663,6 +32863,7 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   `;
 
   const qtyInput = tr.querySelector('.dec-catalog-qty-input');
+  const unitVolSpan = tr.querySelector('.dec-row-item-unit-vol');
   const totalVolSpan = tr.querySelector('.dec-row-item-total-vol');
 
   const onQtyChange = () => {
@@ -32671,12 +32872,57 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
       q = 1;
       qtyInput.value = 1;
     }
-    totalVolSpan.textContent = `${(unitVol * q).toFixed(4)} m³`;
+    const currentUnitVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
+    totalVolSpan.textContent = `${(currentUnitVol * q).toFixed(4)} m³`;
     recalculateCatalogTotals();
   };
 
   qtyInput.addEventListener('change', onQtyChange);
   qtyInput.addEventListener('input', onQtyChange);
+
+  // Si no tiene dimensiones en el catálogo, escuchar los 3 inputs en tiempo real
+  if (!hasCatalogDims) {
+    const inputLargo = tr.querySelector('.dec-dim-largo');
+    const inputAncho = tr.querySelector('.dec-dim-ancho');
+    const inputAlto = tr.querySelector('.dec-dim-alto');
+    const reqBadge = tr.querySelector('.dec-dim-required-badge');
+
+    const onDimChange = () => {
+      const l = parseFloat(inputLargo.value) || 0;
+      const an = parseFloat(inputAncho.value) || 0;
+      const al = parseFloat(inputAlto.value) || 0;
+
+      if (l > 0 && an > 0 && al > 0) {
+        const calcUnitVol = (l * an * al) / 1000000;
+        unitVolSpan.textContent = `${calcUnitVol.toFixed(4)} m³`;
+        qtyInput.setAttribute('data-vol', calcUnitVol);
+        qtyInput.setAttribute('data-largo', l);
+        qtyInput.setAttribute('data-ancho', an);
+        qtyInput.setAttribute('data-alto', al);
+
+        inputLargo.style.borderColor = 'var(--color-border)';
+        inputAncho.style.borderColor = 'var(--color-border)';
+        inputAlto.style.borderColor = 'var(--color-border)';
+        if (reqBadge) reqBadge.style.display = 'none';
+
+        const q = parseInt(qtyInput.value, 10) || 1;
+        totalVolSpan.textContent = `${(calcUnitVol * q).toFixed(4)} m³`;
+      } else {
+        qtyInput.setAttribute('data-vol', '0');
+        qtyInput.setAttribute('data-largo', l || '');
+        qtyInput.setAttribute('data-ancho', an || '');
+        qtyInput.setAttribute('data-alto', al || '');
+        unitVolSpan.textContent = '0.0000 m³';
+        totalVolSpan.textContent = '0.0000 m³';
+        if (reqBadge) reqBadge.style.display = 'block';
+      }
+      recalculateCatalogTotals();
+    };
+
+    if (inputLargo) inputLargo.addEventListener('input', onDimChange);
+    if (inputAncho) inputAncho.addEventListener('input', onDimChange);
+    if (inputAlto) inputAlto.addEventListener('input', onDimChange);
+  }
 
   tr.querySelector('.btn-remove-selected-prod').addEventListener('click', () => {
     tr.remove();
