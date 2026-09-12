@@ -1,6 +1,5 @@
 /**
  * Servicio de Notificación de Pedidos Manuales Pendientes para Stocka WMS
- * (Copia sincronizada para whatsapp-service)
  * 
  * Reglas de Negocio:
  * 1. Monitorea pedidos manuales en estado WMS 'En procesamiento'.
@@ -181,7 +180,21 @@ async function checkAndNotifyPendingManualOrders(options = {}) {
   const currentHour = getSantiagoHour();
   const state = loadAlertState();
 
-  // 1. Validar horario: después de 12:00 hrs
+  // 1. Validar día: No enviar mensajes los días domingo
+  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    weekday: 'short'
+  }).format(new Date());
+
+  if (!force && dayOfWeek === 'Sun') {
+    return {
+      skipped: true,
+      reason: 'Hoy es Domingo (Día no operativo para el bot). Las alertas se reanudan el lunes.',
+      lastNotifiedDate: state.lastNotifiedDate
+    };
+  }
+
+  // 2. Validar horario: después de 12:00 hrs
   if (!force && currentHour < 12) {
     return {
       skipped: true,

@@ -95,7 +95,8 @@ function clearShortageNotified(orderId) {
   }
 }
 
-// Horario de Operaciones: 10:00 a 17:30 hrs (Hora de Chile)
+// Horario de Operaciones: Lunes a Sábado de 10:00 a 17:30 hrs (Hora de Chile)
+// Los días Domingo el bot no opera ni envía mensajes.
 const OPERATING_HOURS = {
   startHour: 10,
   startMinute: 0,
@@ -104,8 +105,22 @@ const OPERATING_HOURS = {
   timeZone: 'America/Santiago'
 };
 
+function isSundayInChile(date = new Date()) {
+  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+    timeZone: OPERATING_HOURS.timeZone,
+    weekday: 'short'
+  }).format(date);
+  return dayOfWeek === 'Sun';
+}
+
 function isWithinOperatingHours() {
   const now = new Date();
+
+  // 1. Validar día de la semana: No operar domingos
+  if (isSundayInChile(now)) {
+    return false;
+  }
+
   const formatter = new Intl.DateTimeFormat('es-CL', {
     timeZone: OPERATING_HOURS.timeZone,
     hour: 'numeric',
@@ -634,16 +649,28 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
  * Escanea y procesa todos los pedidos pendientes de retiro que cumplan las condiciones
  */
 async function processAllPendingPickups(options = {}) {
-  // Validar horario de operaciones (10:00 a 17:30 hrs)
-  if (!options.force && !options.ignoreOperatingHours && !isWithinOperatingHours()) {
-    const nowTimeStr = new Date().toLocaleTimeString('es-CL', { timeZone: OPERATING_HOURS.timeZone });
-    console.log(`[AutoPickup] ⏸️ Fuera de horario operativo (10:00 a 17:30 hrs). Hora actual: ${nowTimeStr}. Los pedidos se procesarán automáticamente a partir de las 10:00 hrs.`);
-    return {
-      skipped: true,
-      reason: `Fuera de horario operativo (10:00 a 17:30 hrs). Hora actual: ${nowTimeStr}`,
-      processed: 0,
-      results: []
-    };
+  // Validar horario de operaciones (10:00 a 17:30 hrs, Lunes a Sábado)
+  if (!options.force && !options.ignoreOperatingHours) {
+    if (isSundayInChile()) {
+      console.log(`[AutoPickup] ⏸️ Hoy es Domingo. Stox no envía mensajes ni procesa retiros los domingos. Se reanudará el lunes a las 10:00 hrs.`);
+      return {
+        skipped: true,
+        reason: 'Hoy es Domingo (Día no operativo). El bot reanuda operaciones el lunes a las 10:00 hrs.',
+        processed: 0,
+        results: []
+      };
+    }
+
+    if (!isWithinOperatingHours()) {
+      const nowTimeStr = new Date().toLocaleTimeString('es-CL', { timeZone: OPERATING_HOURS.timeZone });
+      console.log(`[AutoPickup] ⏸️ Fuera de horario operativo (10:00 a 17:30 hrs). Hora actual: ${nowTimeStr}. Los pedidos se procesarán automáticamente a partir de las 10:00 hrs.`);
+      return {
+        skipped: true,
+        reason: `Fuera de horario operativo (10:00 a 17:30 hrs). Hora actual: ${nowTimeStr}`,
+        processed: 0,
+        results: []
+      };
+    }
   }
 
   console.log(`[AutoPickup] Buscando pedidos pendientes de retiro...`);

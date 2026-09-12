@@ -405,6 +405,14 @@ app.post('/notify-manual-orders', requireAuth, async (req, res) => {
   }
 });
 
+function isSundayInChile() {
+  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    weekday: 'short'
+  }).format(new Date());
+  return dayOfWeek === 'Sun';
+}
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`[HTTP] Servidor WhatsApp iniciado en http://localhost:${PORT}`);
@@ -416,20 +424,25 @@ app.listen(PORT, () => {
     if (connectionStatus === 'CONNECTED') {
       syncCycleCounter++;
 
-      // A. Procesar retiros automáticos
-      try {
-        const { processAllPendingPickups } = getAutoPickupService();
-        await processAllPendingPickups({ dryRun: false });
-      } catch (err) {
-        console.error('[AutoPickup Worker Error]:', err.message);
-      }
+      // Los días Domingo el bot no envía mensajes ni ejecuta automatizaciones
+      const isSunday = isSundayInChile();
 
-      // B. Chequear pedidos manuales pendientes después de 12 hrs (1 mensaje al día)
-      try {
-        const { checkAndNotifyPendingManualOrders } = getManualOrdersNotifier();
-        await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
-      } catch (err) {
-        console.error('[ManualOrders Worker Error]:', err.message);
+      if (!isSunday) {
+        // A. Procesar retiros automáticos
+        try {
+          const { processAllPendingPickups } = getAutoPickupService();
+          await processAllPendingPickups({ dryRun: false });
+        } catch (err) {
+          console.error('[AutoPickup Worker Error]:', err.message);
+        }
+
+        // B. Chequear pedidos manuales pendientes después de 12 hrs (1 mensaje al día)
+        try {
+          const { checkAndNotifyPendingManualOrders } = getManualOrdersNotifier();
+          await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
+        } catch (err) {
+          console.error('[ManualOrders Worker Error]:', err.message);
+        }
       }
 
       // C. Sincronización y auto-recuperación (Self-Healing) WMS <-> Picker cada 5 minutos
