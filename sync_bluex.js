@@ -531,8 +531,13 @@ async function syncBlueExpress() {
       }
 
       // Si Blue Express reporta movimiento activo (DESPACHADO) y la orden está en estado previo, avanzar a 'despachado'
-      if (globalStatus === 'DESPACHADO' && ['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
-        updatePayload.status = 'despachado';
+      if (globalStatus === 'DESPACHADO') {
+        if (['para procesar', 'en preparación', 'preparado'].includes(matchedOrder.status)) {
+          updatePayload.status = 'despachado';
+        }
+        if (!['Despachado', 'Cancelado', 'Archivado'].includes(matchedOrder.estado_wms)) {
+          updatePayload.estado_wms = 'Despachado';
+        }
       }
 
       const { error: updateError } = await supabase

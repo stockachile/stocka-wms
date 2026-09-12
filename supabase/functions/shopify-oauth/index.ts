@@ -399,6 +399,12 @@ async function syncShopifyOrders(integration: any): Promise<number> {
     const orders = data.orders || [];
 
     for (const order of orders) {
+      const isFulfilledInShopify = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
+      const isCancelledInShopify = !!order.cancelled_at;
+
+      const initialStatus = isCancelledInShopify ? "cancelado" : (isFulfilledInShopify ? "despachado" : "para procesar");
+      const initialEstadoWms = isCancelledInShopify ? "Cancelado" : (isFulfilledInShopify ? "Despachado" : "En procesamiento");
+
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
@@ -415,8 +421,9 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
         raw_shopify_data: order,
         created_at: new Date(order.created_at).toISOString(),
-        status: order.cancelled_at ? "cancelado" : "para procesar",
-        estado_wms: order.cancelled_at ? "Cancelado" : "En procesamiento"
+        status: initialStatus,
+        estado_wms: initialEstadoWms,
+        stock_descontado: isFulfilledInShopify
       };
 
       const shopifyOrderIdStr = (order.id || "").toString();
@@ -435,6 +442,18 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         const isWmsShippingEdited = (existingOrder as any).wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         
         const orderDataToUpdate = { ...orderDataToSave };
+
+        // Preservar estado operativo del WMS: NUNCA sobrescribir status ni estado_wms
+        // a menos que en Shopify el pedido haya sido cancelado
+        if (isCancelledInShopify) {
+          orderDataToUpdate.status = "cancelado";
+          orderDataToUpdate.estado_wms = "Cancelado";
+        } else {
+          delete (orderDataToUpdate as any).status;
+          delete (orderDataToUpdate as any).estado_wms;
+          delete (orderDataToUpdate as any).stock_descontado;
+        }
+
         if (isWmsItemsEdited) {
           delete (orderDataToUpdate as any).sku;
           delete (orderDataToUpdate as any).item;

@@ -285,9 +285,16 @@ async function syncOrders(integration) {
         created_at: new Date(order.created_at).toISOString()
       };
 
-      if (order.cancelled_at) {
+      const isFulfilledInShopify = order.fulfillment_status === 'fulfilled' || (order.fulfillments && order.fulfillments.length > 0);
+      const isCancelledInShopify = !!order.cancelled_at;
+
+      if (isCancelledInShopify) {
         orderDataToSave.status = 'cancelado';
         orderDataToSave.estado_wms = 'Cancelado';
+      } else if (isFulfilledInShopify) {
+        orderDataToSave.status = 'despachado';
+        orderDataToSave.estado_wms = 'Despachado';
+        orderDataToSave.stock_descontado = true;
       }
 
       let orderId;
@@ -296,6 +303,13 @@ async function syncOrders(integration) {
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
         const orderDataToUpdate = { ...orderDataToSave };
+
+        // Preservar estado operacional en WMS: no sobrescribir status ni estado_wms
+        if (!isCancelledInShopify) {
+          delete orderDataToUpdate.status;
+          delete orderDataToUpdate.estado_wms;
+          delete orderDataToUpdate.stock_descontado;
+        }
         
         // Si el pedido fue editado manualmente en WMS, no sobrescribir SKU, item, cantidad ni total_value
         if (isWmsItemsEdited) {

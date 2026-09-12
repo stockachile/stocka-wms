@@ -233,6 +233,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const finalOrderNumber = await resolveShopifyOrderNumber(comercio, order.name);
   console.log(`[Shopify Webhook] Resolviendo número de pedido para ${order.name}: ${finalOrderNumber}`);
 
+  const isFulfilledInShopify = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
+  const isCancelledInShopify = !!order.cancelled_at;
+
   // Preparamos los datos del pedido principal
   const orderData = {
     merchant_id: merchantId,
@@ -252,7 +255,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: order,
     created_at: new Date(order.created_at).toISOString(),
-    status: "para procesar"
+    status: isCancelledInShopify ? "cancelado" : (isFulfilledInShopify ? "despachado" : "para procesar"),
+    estado_wms: isCancelledInShopify ? "Cancelado" : (isFulfilledInShopify ? "Despachado" : "En procesamiento"),
+    stock_descontado: isFulfilledInShopify
   };
 
   // Verificamos que no exista
@@ -452,6 +457,15 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Si es cancelación, forzamos estado
   if (topic === "orders/cancelled") {
       updatedData.status = "cancelado";
+      updatedData.estado_wms = "Cancelado";
+  } else {
+    // Si en Shopify se marcó como cumplido/despachado (fulfilled)
+    const isFulfilled = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
+    const curWms = (existingOrder.estado_wms || '').toLowerCase().trim();
+    if (isFulfilled && !['despachado', 'entregado', 'retirado', 'cancelado'].includes(curWms)) {
+      updatedData.status = "despachado";
+      updatedData.estado_wms = "Despachado";
+    }
   }
 
   // Actualizamos en BD
