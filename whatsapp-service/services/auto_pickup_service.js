@@ -96,7 +96,7 @@ function clearShortageNotified(orderId) {
 }
 
 // Horario de Operaciones: Lunes a Sábado de 10:00 a 17:30 hrs (Hora de Chile)
-// Los días Domingo el bot no opera ni envía mensajes.
+// Los días Domingo y Feriados de Fiestas Patrias (17, 18, 19 Septiembre) el bot no opera ni envía mensajes.
 const OPERATING_HOURS = {
   startHour: 10,
   startMinute: 0,
@@ -104,6 +104,17 @@ const OPERATING_HOURS = {
   endMinute: 30,
   timeZone: 'America/Santiago'
 };
+
+// Días feriados en los que no opera el bot
+const HOLIDAYS_CHILE = [
+  '2026-09-17', // Feriado Fiestas Patrias
+  '2026-09-18', // Fiestas Patrias (Independencia Nacional)
+  '2026-09-19'  // Fiestas Patrias (Glorias del Ejército)
+];
+
+function getSantiagoDateStr(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: OPERATING_HOURS.timeZone }).format(date);
+}
 
 function isSundayInChile(date = new Date()) {
   const dayOfWeek = new Intl.DateTimeFormat('en-US', {
@@ -113,11 +124,28 @@ function isSundayInChile(date = new Date()) {
   return dayOfWeek === 'Sun';
 }
 
+function isHolidayInChile(date = new Date()) {
+  const dateStr = getSantiagoDateStr(date);
+  return HOLIDAYS_CHILE.includes(dateStr);
+}
+
+function isNonWorkingDayInChile(date = new Date()) {
+  if (isSundayInChile(date)) {
+    return { isNonWorking: true, reason: 'Hoy es Domingo' };
+  }
+  if (isHolidayInChile(date)) {
+    const dateStr = getSantiagoDateStr(date);
+    return { isNonWorking: true, reason: `Feriado de Fiestas Patrias (${dateStr})` };
+  }
+  return { isNonWorking: false };
+}
+
 function isWithinOperatingHours() {
   const now = new Date();
 
-  // 1. Validar día de la semana: No operar domingos
-  if (isSundayInChile(now)) {
+  // 1. Validar día de la semana y feriados: No operar domingos ni feriados de Fiestas Patrias
+  const nonWorking = isNonWorkingDayInChile(now);
+  if (nonWorking.isNonWorking) {
     return false;
   }
 
@@ -649,13 +677,14 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
  * Escanea y procesa todos los pedidos pendientes de retiro que cumplan las condiciones
  */
 async function processAllPendingPickups(options = {}) {
-  // Validar horario de operaciones (10:00 a 17:30 hrs, Lunes a Sábado)
+  // Validar horario de operaciones (10:00 a 17:30 hrs, Lunes a Sábado, excepto feriados)
   if (!options.force && !options.ignoreOperatingHours) {
-    if (isSundayInChile()) {
-      console.log(`[AutoPickup] ⏸️ Hoy es Domingo. Stox no envía mensajes ni procesa retiros los domingos. Se reanudará el lunes a las 10:00 hrs.`);
+    const nonWorking = isNonWorkingDayInChile();
+    if (nonWorking.isNonWorking) {
+      console.log(`[AutoPickup] ⏸️ ${nonWorking.reason}. Stox no envía mensajes ni procesa retiros. Se reanudará el próximo día hábil.`);
       return {
         skipped: true,
-        reason: 'Hoy es Domingo (Día no operativo). El bot reanuda operaciones el lunes a las 10:00 hrs.',
+        reason: `${nonWorking.reason} (Día no operativo para el bot). Se reanuda el próximo día hábil a las 10:00 hrs.`,
         processed: 0,
         results: []
       };

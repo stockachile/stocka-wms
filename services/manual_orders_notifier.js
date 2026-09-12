@@ -81,6 +81,31 @@ function getSantiagoDateStr(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(date);
 }
 
+// Días feriados de Fiestas Patrias en que el bot no envía alertas
+const HOLIDAYS_CHILE = [
+  '2026-09-17',
+  '2026-09-18',
+  '2026-09-19'
+];
+
+function isNonWorkingDayInChile(date = new Date()) {
+  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    weekday: 'short'
+  }).format(date);
+
+  if (dayOfWeek === 'Sun') {
+    return { isNonWorking: true, reason: 'Hoy es Domingo' };
+  }
+
+  const dateStr = getSantiagoDateStr(date);
+  if (HOLIDAYS_CHILE.includes(dateStr)) {
+    return { isNonWorking: true, reason: `Feriado de Fiestas Patrias (${dateStr})` };
+  }
+
+  return { isNonWorking: false };
+}
+
 /**
  * Obtiene la hora actual (0-23) según zona horaria de Santiago
  */
@@ -180,16 +205,12 @@ async function checkAndNotifyPendingManualOrders(options = {}) {
   const currentHour = getSantiagoHour();
   const state = loadAlertState();
 
-  // 1. Validar día: No enviar mensajes los días domingo
-  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Santiago',
-    weekday: 'short'
-  }).format(new Date());
-
-  if (!force && dayOfWeek === 'Sun') {
+  // 1. Validar día: No enviar mensajes los domingos ni feriados de Fiestas Patrias (17, 18, 19 Septiembre)
+  const nonWorking = isNonWorkingDayInChile();
+  if (!force && nonWorking.isNonWorking) {
     return {
       skipped: true,
-      reason: 'Hoy es Domingo (Día no operativo para el bot). Las alertas se reanudan el lunes.',
+      reason: `${nonWorking.reason} (Día no operativo para el bot). Las alertas se reanudan el próximo día hábil.`,
       lastNotifiedDate: state.lastNotifiedDate
     };
   }

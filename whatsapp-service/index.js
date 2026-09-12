@@ -405,13 +405,137 @@ app.post('/notify-manual-orders', requireAuth, async (req, res) => {
   }
 });
 
-function isSundayInChile() {
+// Días feriados de Fiestas Patrias (17, 18 y 19 de Septiembre)
+const HOLIDAYS_CHILE = ['2026-09-17', '2026-09-18', '2026-09-19'];
+
+function isNonWorkingDayInChile(date = new Date()) {
   const dayOfWeek = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Santiago',
     weekday: 'short'
-  }).format(new Date());
-  return dayOfWeek === 'Sun';
+  }).format(date);
+
+  if (dayOfWeek === 'Sun') {
+    return { isNonWorking: true, reason: 'Hoy es Domingo' };
+  }
+
+  const dateStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Santiago'
+  }).format(date);
+
+  if (HOLIDAYS_CHILE.includes(dateStr)) {
+    return { isNonWorking: true, reason: `Feriado Fiestas Patrias (${dateStr})` };
+  }
+
+  return { isNonWorking: false };
 }
+
+// Control persistente para saludo de Fiestas Patrias (18 de Septiembre 12:00 hrs)
+function getGreetingsStateFilePath() {
+  if (process.env.AUTH_DIR) {
+    const parent = path.dirname(process.env.AUTH_DIR);
+    if (fs.existsSync(parent)) {
+      return path.join(parent, 'holiday_greetings_state.json');
+    }
+  }
+  return path.join(__dirname, '../holiday_greetings_state.json');
+}
+
+function loadGreetingsState() {
+  const file = getGreetingsStateFilePath();
+  try {
+    if (fs.existsSync(file)) {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
+  } catch (err) {
+    console.error('[Greetings] Error leyendo estado:', err.message);
+  }
+  return {};
+}
+
+function saveGreetingsState(state) {
+  const file = getGreetingsStateFilePath();
+  try {
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(state, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[Greetings] Error guardando estado:', err.message);
+  }
+}
+
+function getFiestasPatriasGreetingText() {
+  return [
+    `🤖 *Stox:*`,
+    `🇨🇱 *¡TIKI TIKI TI! ¡FELICES FIESTAS PATRIAS A TODO EL EQUIPO STOCKA!* 🇨🇱`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `🍷🥟 Hoy 18 de septiembre hago una pausa en mis circuitos y servidores para desearles a todos un merecido descanso y una tremenda celebración en familia.`,
+    ``,
+    `🥩 Que no falte el buen asado, las empanadas bien jugosas, el terremoto y una buena cueca zapateada.`,
+    ``,
+    `Recarguen al máximo las energías, disfruten con los suyos y celebren con orgullo este 18. ¡A la vuelta seguimos dándolo todo en el picking y despacho!`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `🎉 *¡VIVA CHILE Y VIVA EL EQUIPO STOCKA!* 🇨🇱🤖✨`,
+    `🕒 18-09-2026 12:00 hrs`
+  ].join('\n');
+}
+
+async function checkAndSendFiestasPatriasGreeting() {
+  if (connectionStatus !== 'CONNECTED' || !sock) return;
+
+  const now = new Date();
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(now);
+  const hourStr = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Santiago', hour: '2-digit', hourCycle: 'h23' }).format(now);
+  const currentHour = parseInt(hourStr, 10);
+
+  // Verificar si es 18 de Septiembre y son las 12:00 hrs o más
+  if (dateStr === '2026-09-18' && currentHour >= 12) {
+    const state = loadGreetingsState();
+    if (!state.fiestasPatrias2026Sent) {
+      console.log('🇨🇱 [Stox] ¡Llegó el 18 de Septiembre a las 12:00 hrs! Enviando saludo de Fiestas Patrias...');
+      const targetGroup = process.env.TARGET_WA_GROUP || '120363043911687615@g.us'; // Coordinación Stocka
+      const jid = formatJid(targetGroup);
+      const greetingMessage = getFiestasPatriasGreetingText();
+
+      try {
+        await sock.sendMessage(jid, { text: greetingMessage });
+        state.fiestasPatrias2026Sent = true;
+        state.sentAt = new Date().toISOString();
+        saveGreetingsState(state);
+        console.log('✅ [Stox] Saludo de Fiestas Patrias enviado con éxito al grupo de Coordinación.');
+      } catch (err) {
+        console.error('❌ [Stox] Error enviando saludo de Fiestas Patrias:', err.message);
+      }
+    }
+  }
+}
+
+// 9. Endpoint para previsualizar o probar el saludo de Fiestas Patrias
+app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
+  const { send = false, targetGroup } = req.body;
+  const message = getFiestasPatriasGreetingText();
+
+  if (!send) {
+    return res.json({
+      preview: true,
+      message,
+      targetGroup: targetGroup || process.env.TARGET_WA_GROUP || '120363043911687615@g.us',
+      scheduledFor: '2026-09-18 12:00:00 (America/Santiago)'
+    });
+  }
+
+  if (connectionStatus !== 'CONNECTED' || !sock) {
+    return res.status(503).json({ error: 'WhatsApp no está conectado' });
+  }
+
+  try {
+    const dest = targetGroup || process.env.TARGET_WA_GROUP || '120363043911687615@g.us';
+    const jid = formatJid(dest);
+    const result = await sock.sendMessage(jid, { text: message });
+    res.json({ success: true, jid, messageId: result?.key?.id, sentMessage: message });
+  } catch (err) {
+    res.status(500).json({ error: 'Fallo al enviar saludo: ' + err.message });
+  }
+});
 
 // Iniciar servidor
 app.listen(PORT, () => {
@@ -424,11 +548,18 @@ app.listen(PORT, () => {
     if (connectionStatus === 'CONNECTED') {
       syncCycleCounter++;
 
-      // Los días Domingo el bot no envía mensajes ni ejecuta automatizaciones
-      const isSunday = isSundayInChile();
+      // A. Saludo especial programado de Fiestas Patrias (18 de Septiembre a las 12:00 hrs)
+      try {
+        await checkAndSendFiestasPatriasGreeting();
+      } catch (err) {
+        console.error('[Greeting Worker Error]:', err.message);
+      }
 
-      if (!isSunday) {
-        // A. Procesar retiros automáticos
+      // Los días Domingo y Feriados de Fiestas Patrias (17, 18, 19 Septiembre) no se envían alertas operativas
+      const nonWorking = isNonWorkingDayInChile();
+
+      if (!nonWorking.isNonWorking) {
+        // B. Procesar retiros automáticos
         try {
           const { processAllPendingPickups } = getAutoPickupService();
           await processAllPendingPickups({ dryRun: false });
@@ -436,7 +567,7 @@ app.listen(PORT, () => {
           console.error('[AutoPickup Worker Error]:', err.message);
         }
 
-        // B. Chequear pedidos manuales pendientes después de 12 hrs (1 mensaje al día)
+        // C. Chequear pedidos manuales pendientes después de 12 hrs (1 mensaje al día)
         try {
           const { checkAndNotifyPendingManualOrders } = getManualOrdersNotifier();
           await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
@@ -445,7 +576,7 @@ app.listen(PORT, () => {
         }
       }
 
-      // C. Sincronización y auto-recuperación (Self-Healing) WMS <-> Picker cada 5 minutos
+      // D. Sincronización y auto-recuperación (Self-Healing) WMS <-> Picker cada 5 minutos
       if (syncCycleCounter % 5 === 0) {
         try {
           const syncPicker = require('../sync_to_picker');
