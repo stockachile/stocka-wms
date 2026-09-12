@@ -2234,10 +2234,43 @@ html[data-theme="dark"] .stat-card-modern.teal .icon-wrapper { background: rgba(
   }
 }
 
-/* Responsive order details grid layout width ratios */
+/* Compact Admin Orders Table layout to prevent screen overflow */
+.wms-admin-orders-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.wms-admin-orders-table th,
+.wms-admin-orders-table td {
+  padding: 0.45rem 0.35rem !important;
+  font-size: 0.78rem;
+  vertical-align: middle;
+}
+
+.wms-admin-orders-table th {
+  padding: 0.55rem 0.35rem !important;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+/* Responsive order details grid layout width ratios & spacing */
+.order-detail-grid {
+  gap: 1rem !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 @media (min-width: 1024px) {
   .order-detail-grid {
-    grid-template-columns: 1.15fr 1.7fr 1.15fr !important;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr) minmax(0, 1.3fr) !important;
+  }
+}
+
+@media (min-width: 1400px) {
+  .order-detail-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.3fr) minmax(0, 1.35fr) !important;
   }
 }
 

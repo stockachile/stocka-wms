@@ -605,16 +605,16 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
       }, 0);
 
       if (totalActive <= 0) {
-        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
+        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
       }
 
       const activeLines = matchingLines.filter(li => (li.current_quantity !== undefined ? Number(li.current_quantity) > 0 : Number(li.quantity || 0) > 0));
       if (activeLines.length > 0) {
         if (activeLines.every(li => li.fulfillment_status === 'fulfilled')) {
-          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
         }
         if (activeLines.some(li => li.fulfillment_status === 'fulfilled' || li.fulfillment_status === 'partial')) {
-          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
         }
       }
     }
@@ -623,18 +623,18 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   // Estado basado en el ciclo WMS
   const wms = (order.estado_wms || '').toLowerCase().trim();
   if (wms === 'despachado' || wms === 'entregado' || wms === 'retirado') {
-    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-truck-line"></i> Despachado</span>`;
+    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-truck-line"></i> Despachado</span>`;
   }
   if (wms === 'pickeado') {
-    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Pickeado</span>`;
+    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-check-line"></i> Pickeado</span>`;
   }
   if (wms === 'en preparación') {
-    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> En preparación</span>`;
+    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-time-line"></i> En preparación</span>`;
   }
   if (wms === 'cancelado') {
-    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
+    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
   }
-  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hourglass-line"></i> No preparado</span>`;
+  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-hourglass-line"></i> No preparado</span>`;
 };
 
 // Global function to toggle table action menus
@@ -6415,15 +6415,31 @@ window.fetchInventoryForClientOrders = async function(orders) {
   if (uniqueProductIds.length === 0) return;
 
   try {
-    const { data: invData } = await supabase
-      .from('inventory')
-      .select('product_id, warehouse_id, quantity')
-      .in('product_id', uniqueProductIds);
+    const chunkSize = 50;
+    for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
+      const chunk = uniqueProductIds.slice(i, i + chunkSize);
+      const { data: invData, error: invErr } = await supabase
+        .from('inventory')
+        .select('product_id, warehouse_id, quantity')
+        .in('product_id', chunk);
 
-    if (invData) {
-      invData.forEach(inv => {
-        window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
-      });
+      if (invErr) {
+        console.error('Error fetching inventory chunk for client order stock check:', invErr);
+      } else {
+        const foundProdIds = new Set();
+        if (invData && invData.length > 0) {
+          invData.forEach(inv => {
+            window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+            foundProdIds.add(inv.product_id);
+          });
+        }
+        // Marcar los productos que no tienen registro en inventory con 0 para evitar queries redundantes
+        chunk.forEach(pId => {
+          if (!foundProdIds.has(pId)) {
+            window.clientOrdersInventoryMap[`${pId}_untracked`] = 0;
+          }
+        });
+      }
     }
   } catch (e) {
     console.error('Error fetching inventory for client order stock check:', e);
@@ -6457,6 +6473,870 @@ async function fetchEnviosUnificadosByRefs(allRefs) {
   const chunksResults = await Promise.all(promises);
   return chunksResults.flat();
 }
+
+// ==========================================
+// CLIENT PICKER OPERATORS & STATUS TRACEABILITY
+// ==========================================
+window.pickerOperatorsMap = window.pickerOperatorsMap || {};
+window.pickerStatusMap = window.pickerStatusMap || {};
+
+// Helper para normalizar identificadores de pedidos al buscar en mapas de Picker
+window.normalizeOrderKeys = function(rawKey) {
+  if (!rawKey) return [];
+  const str = String(rawKey).trim();
+  if (!str) return [];
+  const clean = str.replace(/^#/, '');
+  const withHash = '#' + clean;
+  const keys = new Set([str, clean, withHash, str.toUpperCase(), clean.toUpperCase(), withHash.toUpperCase()]);
+  return Array.from(keys);
+};
+
+// Helper para obtener el estado del Picker asignado a un pedido
+window.getPickerStatusForOrder = function(order) {
+  if (!order) return null;
+  const candidates = [
+    ...(order.external_order_number ? window.normalizeOrderKeys(order.external_order_number) : []),
+    ...(order.id ? window.normalizeOrderKeys(order.id) : [])
+  ];
+
+  for (const k of candidates) {
+    if (window.pickerStatusMap[k]) {
+      return window.pickerStatusMap[k];
+    }
+  }
+  return null;
+};
+
+// Sincronización en masa de operadores y estados del Picker para clientes
+window.fetchPickerOperators = async function(ordersList) {
+  if (!ordersList || ordersList.length === 0) return;
+  const client = window.supabase ? window.supabase.createClient(
+    'https://hpomymtecmxujbjxqawu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+  ) : null;
+  if (!client) return;
+
+  try {
+    const allQueryKeysSet = new Set();
+    ordersList.forEach(o => {
+      if (o.external_order_number) {
+        window.normalizeOrderKeys(o.external_order_number).forEach(k => allQueryKeysSet.add(k));
+      }
+      if (o.id) {
+        window.normalizeOrderKeys(o.id).forEach(k => allQueryKeysSet.add(k));
+      }
+    });
+
+    const allKeys = Array.from(allQueryKeysSet);
+    const chunkSize = 200;
+
+    for (let i = 0; i < allKeys.length; i += chunkSize) {
+      const chunk = allKeys.slice(i, i + chunkSize);
+
+      // 1. Consultar active_orders (pedidos en curso)
+      const { data: activeRows, error: activeErr } = await client
+        .from('active_orders')
+        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
+        .in('order_number', chunk);
+
+      if (!activeErr && activeRows) {
+        activeRows.forEach(row => {
+          const num = row.order_number;
+          if (!num) return;
+          const statusObj = {
+            status: row.sheet_status || 'EN PREPARACIÓN',
+            operator: row.operator || null,
+            observation: row.observation || null,
+            sucursal: row.sucursal || null,
+            totu: row.totu || null,
+            isActive: true,
+            isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
+            source: 'active_orders',
+            updatedAt: row.created_at || null
+          };
+
+          window.normalizeOrderKeys(num).forEach(k => {
+            window.pickerStatusMap[k] = statusObj;
+            if (row.operator) window.pickerOperatorsMap[k] = row.operator;
+          });
+        });
+      }
+
+      // 2. Consultar history_logs (pedidos finalizados o eventos de escaneo)
+      const { data: historyRows, error: histErr } = await client
+        .from('history_logs')
+        .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+        .in('pedido', chunk)
+        .order('created_at', { ascending: false });
+
+      if (!histErr && historyRows) {
+        const seenInHistory = new Set();
+        historyRows.forEach(row => {
+          const ped = row.pedido;
+          if (!ped) return;
+          const pedNorm = String(ped).trim().toUpperCase();
+
+          if (row.picker && row.picker !== '-') {
+            window.normalizeOrderKeys(ped).forEach(k => {
+              window.pickerOperatorsMap[k] = row.picker;
+            });
+          }
+
+          if (!seenInHistory.has(pedNorm)) {
+            seenInHistory.add(pedNorm);
+            const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
+            const statusObj = {
+              status: row.estado || 'Completado',
+              operator: row.picker || null,
+              observation: row.comentarios || null,
+              sucursal: row.sucursal || null,
+              itemsSummary: row.items_summary || null,
+              isActive: false,
+              isCompleted: isComp,
+              source: 'history_logs',
+              updatedAt: row.created_at || `${row.fecha} ${row.hora}`
+            };
+
+            window.normalizeOrderKeys(ped).forEach(k => {
+              if (!window.pickerStatusMap[k] || isComp) {
+                window.pickerStatusMap[k] = statusObj;
+              }
+            });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[WMS Cliente] Error sincronizando datos de Picker:', err);
+  }
+};
+
+// Modal de auditoría y trazabilidad histórica de Picker para el cliente
+window.openPickerOrderHistoryModal = async function(orderId) {
+  const orders = window.clientLoadedOrders || window.loadedOrders || [];
+  const order = orders.find(o => o.id === orderId);
+  const orderNumber = order ? (order.external_order_number || order.id) : orderId;
+  const commerceName = order ? (order.comercio || 'Sin comercio') : '';
+
+  const client = window.supabase ? window.supabase.createClient(
+    'https://hpomymtecmxujbjxqawu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+  ) : null;
+
+  if (!client) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Configuración no disponible',
+      text: 'No se pudo conectar a la base de datos del Picker.',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    return;
+  }
+
+  Swal.fire({
+    title: 'Consultando Picker...',
+    html: `
+      <div style="padding: 1.5rem 0; text-align: center;">
+        <i class="ri-loader-4-line spin" style="font-size: 2.5rem; color: var(--color-primary); display: inline-block; animation: spin 1s linear infinite;"></i>
+        <p style="margin-top: 1rem; color: var(--color-text-muted); font-size: 0.9rem;">Obteniendo trazabilidad y escaneos de <strong>${orderNumber}</strong>...</p>
+      </div>
+    `,
+    showConfirmButton: false,
+    allowOutsideClick: false,
+    width: '600px'
+  });
+
+  try {
+    const searchKeys = window.normalizeOrderKeys(orderNumber);
+    if (order && order.id && order.id !== orderNumber) {
+      window.normalizeOrderKeys(order.id).forEach(k => searchKeys.push(k));
+    }
+
+    const { data: activeItems, error: activeErr } = await client
+      .from('active_orders')
+      .select('*')
+      .in('order_number', searchKeys);
+
+    const { data: historyLogs, error: logsErr } = await client
+      .from('history_logs')
+      .select('*')
+      .in('pedido', searchKeys)
+      .order('created_at', { ascending: false });
+
+    if (activeErr) throw activeErr;
+    if (logsErr) throw logsErr;
+
+    const hasActive = activeItems && activeItems.length > 0;
+    const hasLogs = historyLogs && historyLogs.length > 0;
+
+    if (hasActive) {
+      const firstActive = activeItems[0];
+      const statusObj = {
+        status: firstActive.sheet_status || 'EN PREPARACIÓN',
+        operator: firstActive.operator || null,
+        observation: firstActive.observation || null,
+        sucursal: firstActive.sucursal || null,
+        totu: firstActive.totu || null,
+        isActive: true,
+        isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(firstActive.sheet_status),
+        source: 'active_orders',
+        updatedAt: firstActive.created_at || null
+      };
+      searchKeys.forEach(k => {
+        window.pickerStatusMap[k] = statusObj;
+        if (firstActive.operator) window.pickerOperatorsMap[k] = firstActive.operator;
+      });
+    }
+
+    if (hasLogs) {
+      const firstLog = historyLogs[0];
+      const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(firstLog.estado);
+      const statusObj = {
+        status: firstLog.estado || 'Completado',
+        operator: firstLog.picker || null,
+        observation: firstLog.comentarios || null,
+        sucursal: firstLog.sucursal || null,
+        itemsSummary: firstLog.items_summary || null,
+        isActive: hasActive,
+        isCompleted: isComp,
+        source: 'history_logs',
+        updatedAt: firstLog.created_at || `${firstLog.fecha} ${firstLog.hora}`
+      };
+      searchKeys.forEach(k => {
+        if (!hasActive || isComp) window.pickerStatusMap[k] = statusObj;
+        if (firstLog.picker) window.pickerOperatorsMap[k] = firstLog.picker;
+      });
+    }
+
+    if (!hasActive && !hasLogs) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin actividad en Picker',
+        html: `
+          <div style="text-align: left; padding: 0.5rem; font-size: 0.9rem; line-height: 1.5;">
+            <p>El pedido <strong style="color: var(--color-primary);">${orderNumber}</strong> (${commerceName}) aún no registra actividad ni escaneos en el sistema Picker.</p>
+            <div style="margin-top: 1rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.825rem; color: var(--color-text-muted);">
+              <i class="ri-information-line"></i> Los pedidos en preparación se actualizan automáticamente a medida que el equipo de bodega realiza el escaneo.
+            </div>
+          </div>
+        `,
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return;
+    }
+
+    const renderItemsSummaryHtml = (summaryStr) => {
+      if (!summaryStr || summaryStr === '-' || summaryStr.trim() === '') return '';
+      const parts = summaryStr.split(',').map(p => p.trim()).filter(Boolean);
+      return `
+        <div style="margin-top: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.35rem;">
+          ${parts.map(p => {
+            const isFullMatch = /\((\d+)\/\1\)/.test(p);
+            const isZero = /\(0\/\d+\)/.test(p);
+            let pillBg = isFullMatch ? 'rgba(16, 185, 129, 0.12)' : (isZero ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)');
+            let pillColor = isFullMatch ? '#059669' : (isZero ? '#dc2626' : '#d97706');
+            let pillBorder = isFullMatch ? 'rgba(16, 185, 129, 0.3)' : (isZero ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)');
+            return `<span style="background: ${pillBg}; color: ${pillColor}; border: 1px solid ${pillBorder}; border-radius: 4px; padding: 2px 6px; font-size: 0.72rem; font-family: monospace; font-weight: 600;">${p}</span>`;
+          }).join('')}
+        </div>
+      `;
+    };
+
+    let activeBannerHtml = '';
+    if (hasActive) {
+      const act = activeItems[0];
+      activeBannerHtml = `
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.35rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.8rem; font-weight: 700; color: #d97706; display: flex; align-items: center; gap: 0.35rem;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #d97706; display: inline-block;"></span>
+              REGISTRADO EN BODEGA ACTIVA
+            </span>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #b45309; font-weight: 700; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+              ${act.sheet_status || 'EN PREPARACIÓN'}
+            </span>
+          </div>
+          <div style="font-size: 0.825rem; color: var(--color-text-main); display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.25rem; margin-top: 0.25rem;">
+            <span><strong>Operario:</strong> ${act.operator || 'Sin asignar'}</span>
+            <span><strong>Sucursal:</strong> ${act.sucursal || 'Central'}</span>
+            <span><strong>Cesta/Tote:</strong> ${act.totu ? '#' + act.totu : '-'}</span>
+            <span><strong>Ítems en cola:</strong> ${activeItems.length} reg.</span>
+          </div>
+          ${act.observation ? `<div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem; background: var(--color-surface); padding: 0.35rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border);"><strong>Obs:</strong> ${window.escapeHtml(act.observation)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    let timelineHtml = '';
+    if (hasLogs) {
+      timelineHtml = `
+        <div class="picker-timeline" style="text-align: left; position: relative; padding-left: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+          <div style="position: absolute; left: 6px; top: 8px; bottom: 8px; width: 2px; background: var(--color-border);"></div>
+          ${historyLogs.map((log) => {
+            const isCompleted = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(log.estado);
+            const isPartial = String(log.estado).toUpperCase() === 'PARCIAL';
+            const dotColor = isCompleted ? '#10b981' : (isPartial ? '#0ea5e9' : '#f59e0b');
+            const formattedDate = log.fecha ? `${log.fecha} ${log.hora || ''}`.trim() : new Date(log.created_at).toLocaleString('es-CL');
+
+            return `
+              <div style="position: relative;">
+                <div style="position: absolute; left: -1.5rem; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: ${dotColor}; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px ${dotColor};"></div>
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem 0.85rem; box-shadow: var(--shadow-sm);">
+                  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-time-line"></i> ${formattedDate}
+                    </span>
+                    <span class="badge" style="background: ${isCompleted ? 'rgba(16, 185, 129, 0.12)' : (isPartial ? 'rgba(14, 165, 233, 0.12)' : 'rgba(245, 158, 11, 0.12)')}; color: ${isCompleted ? '#059669' : (isPartial ? '#0284c7' : '#d97706')}; border: 1px solid ${isCompleted ? 'rgba(16, 185, 129, 0.3)' : (isPartial ? 'rgba(14, 165, 233, 0.3)' : 'rgba(245, 158, 11, 0.3)')}; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+                      ${log.estado || 'Evento'}
+                    </span>
+                  </div>
+                  <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-user-line" style="color: var(--color-primary);"></i>
+                    <span>${log.picker || 'Operario desconocido'}</span>
+                    ${log.sucursal ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">(${log.sucursal})</span>` : ''}
+                  </div>
+                  ${log.comentarios ? `<p style="font-size: 0.82rem; color: var(--color-text-muted); margin: 0.35rem 0 0 0; line-height: 1.35;">${window.escapeHtml(log.comentarios)}</p>` : ''}
+                  ${renderItemsSummaryHtml(log.items_summary)}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      timelineHtml = `
+        <div style="text-align: center; padding: 1rem; color: var(--color-text-muted); font-size: 0.85rem;">
+          <i class="ri-history-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.25rem;"></i>
+          No hay registros históricos finalizados. El pedido se encuentra actualmente en cola activa.
+        </div>
+      `;
+    }
+
+    const modalContent = `
+      <div style="max-height: 70vh; overflow-y: auto; padding-right: 0.35rem;">
+        <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; text-align: left; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; font-size: 0.85rem;">
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Pedido:</span><strong>${orderNumber}</strong></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Comercio:</span><strong>${commerceName}</strong></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Estado WMS:</span><span class="badge status-yellow" style="font-size: 0.72rem; padding: 2px 6px;">${order ? (order.estado_wms || '-') : '-'}</span></div>
+          <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Total Registros:</span><strong>${(historyLogs || []).length} escaneos/logs</strong></div>
+        </div>
+
+        ${activeBannerHtml}
+
+        <div style="text-align: left; margin-bottom: 0.75rem;">
+          <h5 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            <i class="ri-history-line"></i> Línea de Tiempo de Auditoría
+          </h5>
+        </div>
+
+        ${timelineHtml}
+      </div>
+    `;
+
+    Swal.fire({
+      title: `Auditoría Picker: ${orderNumber}`,
+      html: modalContent,
+      width: '680px',
+      showCloseButton: true,
+      showConfirmButton: true,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: 'var(--color-primary)',
+      customClass: {
+        popup: 'picker-history-modal'
+      }
+    });
+
+  } catch (err) {
+    console.error("Error abriendo historial de Picker:", err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al consultar Picker',
+      text: err.message || 'No fue posible recuperar el historial.',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }
+};
+
+// Helper para detectar packs de un pedido
+window.getOrderPacksMap = function(order) {
+  if (!order) return new Map();
+  const packSkus = new Set(window.currentPackSkusList || []);
+  const foundPacksMap = new Map();
+
+  const checkRawItems = (items, platformType) => {
+    if (!items || !Array.isArray(items)) return;
+    items.forEach(item => {
+      let sku = '';
+      let qty = 1;
+
+      if (platformType === 'shopify') {
+        sku = item.sku || '';
+        qty = item.quantity || 1;
+      } else if (platformType === 'woocommerce') {
+        sku = item.sku || '';
+        qty = item.quantity || 1;
+      } else if (platformType === 'falabella') {
+        sku = item.SellerSku || item.sku || '';
+        qty = item.quantity || 1;
+      } else if (platformType === 'paris') {
+        sku = item.offer_sku || item.sku || '';
+        qty = item.quantity || 1;
+      } else if (platformType === 'ripley') {
+        sku = item.offer_sku || item.sku || '';
+        qty = item.quantity || 1;
+      } else if (platformType === 'meli') {
+        sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
+        qty = item.quantity || 1;
+      }
+
+      if (sku && packSkus.has(sku)) {
+        foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + Number(qty));
+      }
+    });
+  };
+
+  if (order.order_items && Array.isArray(order.order_items)) {
+    order.order_items.forEach(oi => {
+      const sku = oi.products?.sku || oi.sku;
+      if (sku && packSkus.has(sku)) {
+        foundPacksMap.set(sku, (foundPacksMap.get(sku) || 0) + Number(oi.quantity || 1));
+      }
+    });
+  }
+
+  if (order.raw_shopify_data?.line_items) checkRawItems(order.raw_shopify_data.line_items, 'shopify');
+  if (order.raw_woocommerce_data?.line_items) checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
+  if (order.raw_falabella_data?.items) checkRawItems(order.raw_falabella_data.items, 'falabella');
+  if (order.raw_paris_data?.order_lines) checkRawItems(order.raw_paris_data.order_lines, 'paris');
+  if (order.raw_ripley_data?.order_lines) checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
+  if (order.raw_meli_data?.order_items) checkRawItems(order.raw_meli_data.order_items, 'meli');
+
+  return foundPacksMap;
+};
+
+// Helper para obtener el estado del courier/despacho
+window.getClientOrderShipmentGlobalStatus = function(order) {
+  if (!order) return null;
+  const numEnvio = order.tracking_number || order.external_order_number || order.id;
+  const numEnvioClean = String(numEnvio).replace(/^#/, '').trim();
+
+  const shipments = window.clientLoadedShipments || [];
+  const shipment = shipments.find(s => {
+    const ref = String(s.numero_envio || '').replace(/^#/, '').trim();
+    const subRef = String(s.suborden || '').replace(/^#/, '').trim();
+    return ref === numEnvioClean || subRef === numEnvioClean;
+  });
+
+  if (!shipment) return null;
+
+  const st = (shipment.estado_normalizado || shipment.estado || '').toUpperCase();
+  let globStatus = 'EN TRANSITO';
+  if (st.includes('ENTREGADO') || st.includes('FINALIZADO')) globStatus = 'ENTREGADO';
+  else if (st.includes('DESPACHADO') || st.includes('EN RUTA') || st.includes('TRANSITO')) globStatus = 'DESPACHADO';
+  else if (st.includes('RETIRADO') || st.includes('EN SUCURSAL') || st.includes('LISTO')) globStatus = 'LISTO RETIRO';
+  else if (st.includes('DEVOLUCION') || st.includes('DEVUELTO') || st.includes('SINIESTRO')) globStatus = 'DEVOLUCIÓN';
+  else if (st.includes('INCIDENCIA') || st.includes('PROBLEMA') || st.includes('FALLIDO') || st.includes('RETENIDO')) globStatus = 'ALERTA';
+
+  return {
+    globStatus,
+    rawStatus: shipment.estado,
+    courier: shipment.courier || order.courier,
+    trackingNumber: shipment.numero_envio || order.tracking_number
+  };
+};
+
+// Helper para obtener el método de envío original de la plataforma
+window.getOriginShippingMethod = function(order) {
+  if (!order) return '';
+  let method = (order.shipping_method || '').trim();
+
+  if (!method || method === 'Por definir' || method.toLowerCase() === 'envío' || method.toLowerCase() === 'envio') {
+    if (order.raw_shopify_data?.shipping_lines && order.raw_shopify_data.shipping_lines.length > 0) {
+      const titles = order.raw_shopify_data.shipping_lines.map(sl => sl.title).filter(Boolean);
+      if (titles.length > 0) method = titles.join(', ');
+    } else if (order.raw_woocommerce_data?.shipping_lines && order.raw_woocommerce_data.shipping_lines.length > 0) {
+      const titles = order.raw_woocommerce_data.shipping_lines.map(sl => sl.method_title || sl.title).filter(Boolean);
+      if (titles.length > 0) method = titles.join(', ');
+    } else if (order.raw_meli_data?.shipping?.shipping_option?.name) {
+      method = order.raw_meli_data.shipping.shipping_option.name;
+    } else if (order.raw_falabella_data?.shipping_type || order.raw_falabella_data?.delivery_type) {
+      method = order.raw_falabella_data.shipping_type || order.raw_falabella_data.delivery_type;
+    } else if (order.raw_paris_data?.shipping_type) {
+      method = order.raw_paris_data.shipping_type;
+    } else if (order.raw_ripley_data?.shipping_type) {
+      method = order.raw_ripley_data.shipping_type;
+    }
+  }
+
+  if (!method || method === 'Por definir') {
+    method = order.shipping_method || order.shipping_type || '';
+  }
+
+  return method.trim();
+};
+
+// Helper para extraer la nota de un pedido
+window.getOrderNoteText = function(order) {
+  if (!order) return '';
+  const rawShopify = order.raw_shopify_data;
+  const rawWoo = order.raw_woocommerce_data;
+  const rawParis = order.raw_paris_data;
+  const rawMeli = order.raw_meli_data;
+  const rawFalabella = order.raw_falabella_data;
+
+  return order.notes ||
+    order.comentarios ||
+    order.observaciones ||
+    rawShopify?.note ||
+    rawWoo?.customer_note ||
+    rawParis?.customer_comments ||
+    rawMeli?.comments ||
+    rawFalabella?.remarks ||
+    '';
+};
+
+// Helper para alertar si un pedido no tiene stock suficiente
+window.checkClientOrderStockAlert = function(order) {
+  if (!order) return { hasStockAlert: false, stockAlertDetails: [] };
+
+  // 1. Estado explícito 'sin stock'
+  const statusLower = (order.status || '').toLowerCase().trim();
+  const wmsLower = (order.estado_wms || '').toLowerCase().trim();
+  if (statusLower === 'sin stock' || wmsLower === 'sin stock') {
+    return { hasStockAlert: true, stockAlertDetails: ['Estado: Sin stock'] };
+  }
+
+  // 2. Pedidos terminales o despachados no alertan
+  const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes(statusLower) || 
+    ['despachado', 'cancelado', 'archivado'].includes(wmsLower);
+  if (isOrderTerminalOrShipped) {
+    return { hasStockAlert: false, stockAlertDetails: [] };
+  }
+
+  // 3. Revisar seguimiento de inventario del comercio
+  const config = (window.clientCommerceConfigsMap && order.comercio) 
+    ? window.clientCommerceConfigsMap[order.comercio] 
+    : (window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null);
+
+  // Si el comercio tiene configurado explícitamente inventario_seguimiento: false, no mostrar alerta
+  if (config && config.inventario_seguimiento === false) {
+    return { hasStockAlert: false, stockAlertDetails: [] };
+  }
+
+  // Si existe regla de corte de fecha/pedido (inventario_inicio_pedidos)
+  if (config && config.inventario_seguimiento && window.shouldProcessOrderStockLocal) {
+    const isLocalProcessed = window.shouldProcessOrderStockLocal(order, config, window.clientLoadedOrders || window.loadedOrders);
+    if (!isLocalProcessed) {
+      return { hasStockAlert: false, stockAlertDetails: [] };
+    }
+  }
+
+  // 4. Chequear items del pedido
+  const itemsToCheck = (order.order_items || []).filter(item => 
+    !item.products?.is_virtual && 
+    (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item))
+  );
+
+  if (itemsToCheck.length === 0) {
+    return { hasStockAlert: false, stockAlertDetails: [] };
+  }
+
+  const invMap = window.clientOrdersInventoryMap || window.loadedOrdersInventoryMap || {};
+  let hasStockAlert = false;
+  const stockAlertDetails = [];
+
+  itemsToCheck.forEach(item => {
+    const prodId = item.product_id || item.products?.id;
+    if (!prodId) return;
+
+    const reqQty = Number(item.quantity) || 1;
+    const whId = item.warehouse_id || '';
+
+    // Stock consolidado en todas las bodegas
+    let totalAvailable = 0;
+    Object.keys(invMap).forEach(key => {
+      if (key.startsWith(prodId + '_')) {
+        totalAvailable += (invMap[key] || 0);
+      }
+    });
+
+    // Stock de la bodega asignada al item (si tiene bodega asignada)
+    const specificAvailable = (whId && invMap[`${prodId}_${whId}`] !== undefined)
+      ? invMap[`${prodId}_${whId}`]
+      : null;
+
+    const available = specificAvailable !== null ? specificAvailable : totalAvailable;
+
+    // Si no hay suficiente en la bodega asignada o en el total
+    if (available < reqQty || totalAvailable < reqQty) {
+      hasStockAlert = true;
+      const dispShow = available;
+      const faltan = reqQty - dispShow;
+      stockAlertDetails.push(`${item.products?.sku || item.products?.name || 'Sin SKU'} (Faltan ${faltan > 0 ? faltan : 1} un. / disp. ${dispShow})`);
+    }
+  });
+
+  return { hasStockAlert, stockAlertDetails };
+};
+
+// Helper para obtener TODAS las etiquetas asociadas a un pedido (sin emojis)
+window.getClientOrderTags = function(order) {
+  if (!order) return [];
+  const tags = new Set();
+
+  // 1. Categoría de Entrega (Distribución vs Retiro)
+  const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+  if (catDelivery === 'RETIRO') {
+    tags.add('RETIRO');
+  } else {
+    tags.add('DISTRIBUCIÓN');
+  }
+
+  // 2. Exportado a Shopify
+  if (order.shopify_exported) {
+    tags.add('Exportado');
+  }
+
+  // 3. Packs
+  const packsMap = window.getOrderPacksMap ? window.getOrderPacksMap(order) : null;
+  if (packsMap && packsMap.size > 0) {
+    tags.add('Con Packs');
+  }
+
+  // 4. Estado de Despacho Courier
+  const shipInfo = window.getClientOrderShipmentGlobalStatus ? window.getClientOrderShipmentGlobalStatus(order) : null;
+  if (shipInfo && shipInfo.globStatus) {
+    tags.add(shipInfo.globStatus);
+  }
+
+  // 5. Estado de Picker
+  const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+  if (pStatus) {
+    const rawStatus = (pStatus.status || '').trim();
+    const rawStatusUpper = rawStatus.toUpperCase();
+
+    if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
+      tags.add('Picker: Completado');
+    } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
+      tags.add('Picker: Listo para Retiro');
+    } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
+      tags.add('Picker: En preparación');
+    } else if (rawStatusUpper === 'PARCIAL') {
+      tags.add('Picker: Parcial');
+    } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
+      tags.add('Picker: Con Obs');
+    } else if (rawStatusUpper.includes('DERIVADO')) {
+      tags.add('Picker: Derivado');
+    } else if (rawStatusUpper === 'RETIRADO') {
+      tags.add('Picker: Retirado');
+    } else {
+      tags.add(`Picker: ${rawStatus}`);
+    }
+  } else if (order.estado_wms === 'En preparación') {
+    tags.add('Picker: Sin registro');
+  }
+
+  // 6. Estado de Pago
+  const payStatus = String(order.payment_status || '').toLowerCase().trim();
+  if (payStatus === 'paid' || payStatus === 'authorized') {
+    tags.add('PAGADO');
+  } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
+    tags.add('PAGO PENDIENTE');
+  } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
+    tags.add('PARCIALMENTE REEMBOLSADO');
+  } else if (payStatus === 'refunded' || payStatus === 'voided') {
+    tags.add('REEMBOLSADO');
+  } else if (order.payment_status) {
+    tags.add(order.payment_status.toUpperCase());
+  }
+
+  // 7. Notas del Pedido
+  const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+  if (orderNote && orderNote.trim()) {
+    tags.add('CON NOTA');
+  }
+
+  // 8. Falta de Stock
+  const stockAlert = window.checkClientOrderStockAlert ? window.checkClientOrderStockAlert(order) : null;
+  if (stockAlert && stockAlert.hasStockAlert) {
+    tags.add('SIN STOCK');
+  }
+
+  // 9. Fulfillment Status (Shopify)
+  const rawShopify = order.raw_shopify_data;
+  if (order.external_platform === 'Shopify' && rawShopify?.fulfillment_status) {
+    const shpfyFullStatus = rawShopify.fulfillment_status;
+    if (shpfyFullStatus === 'fulfilled') tags.add('FULFILLED');
+    else if (shpfyFullStatus === 'partial') tags.add('FULFILL. PARCIAL');
+    else if (shpfyFullStatus === 'restocked') tags.add('RESTOCKED');
+  }
+
+  // 10. Cancelado / Devolución
+  const isReturned = (order.status || '').toLowerCase() === 'devolución' || (order.status || '').toLowerCase() === 'devolucion';
+  const isCancelled = !isReturned && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
+  if (isReturned) {
+    tags.add('DEVOLUCIÓN');
+  } else if (isCancelled) {
+    tags.add('CANCELADO');
+  }
+
+  // 11. Etiqueta Generada
+  if (order.label_url || order.tracking_number || order.label_base64) {
+    tags.add('Etiqueta');
+  }
+
+  // 12. Tags de Plataforma (Shopify / tags personalizadas)
+  if (rawShopify?.tags) {
+    String(rawShopify.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => tags.add(t));
+  }
+  if (order.tags) {
+    (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => tags.add(t));
+  }
+
+  return Array.from(tags);
+};
+
+// Actualizar las opciones del filtro de etiquetas con conteos dinámicos
+window.updateClientOrderTagFilterOptions = function(customOrdersList) {
+  const select = document.getElementById('filter-client-order-tag');
+  if (!select) return;
+
+  const orders = customOrdersList || window.clientLoadedOrders || [];
+  const currentVal = select.value;
+
+  const tagCounts = new Map();
+  orders.forEach(order => {
+    const tags = window.getClientOrderTags(order);
+    tags.forEach(tag => {
+      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+    });
+  });
+
+  const orderPillTags = [
+    { key: 'DISTRIBUCIÓN', label: 'Distribución' },
+    { key: 'RETIRO', label: 'Retiro' },
+    { key: 'Exportado', label: 'Exportado a Shopify' },
+    { key: 'Con Packs', label: 'Con Packs' },
+    { key: 'Etiqueta', label: 'Etiqueta Generada' }
+  ];
+
+  const deliveryTags = [
+    { key: 'DISTRIBUCIÓN', label: 'Distribución' },
+    { key: 'RETIRO', label: 'Retiro en Tienda' }
+  ];
+
+  const courierTags = [
+    { key: 'DESPACHADO', label: 'Despachado' },
+    { key: 'ENTREGADO', label: 'Entregado' },
+    { key: 'ALERTA', label: 'Alerta / Problema' },
+    { key: 'DEVOLUCIÓN', label: 'Devolución' }
+  ];
+
+  const pickerTags = [
+    { key: 'Picker: Completado', label: 'Picker: Completado' },
+    { key: 'Picker: Listo para Retiro', label: 'Picker: Listo para Retiro' },
+    { key: 'Picker: En preparación', label: 'Picker: En preparación' },
+    { key: 'Picker: Parcial', label: 'Picker: Parcial' },
+    { key: 'Picker: Con Obs', label: 'Picker: Con Obs' },
+    { key: 'Picker: Derivado', label: 'Picker: Derivado' },
+    { key: 'Picker: Retirado', label: 'Picker: Retirado' },
+    { key: 'Picker: Sin registro', label: 'Picker: Sin registro activo' }
+  ];
+
+  const paymentTags = [
+    { key: 'PAGADO', label: 'Pagado' },
+    { key: 'PAGO PENDIENTE', label: 'Pago Pendiente' },
+    { key: 'PARCIALMENTE REEMBOLSADO', label: 'Parcialmente Reembolsado' },
+    { key: 'REEMBOLSADO', label: 'Reembolsado' }
+  ];
+
+  const otherKnownTags = [
+    { key: 'CON NOTA', label: 'Con Nota' },
+    { key: 'SIN STOCK', label: 'Sin Stock' },
+    { key: 'FULFILLED', label: 'Shopify Fulfilled' },
+    { key: 'FULFILL. PARCIAL', label: 'Shopify Fulfillment Parcial' },
+    { key: 'RESTOCKED', label: 'Shopify Restocked' },
+    { key: 'CANCELADO', label: 'Cancelado' }
+  ];
+
+  const knownKeys = new Set([
+    ...orderPillTags.map(t => t.key),
+    ...deliveryTags.map(t => t.key),
+    ...courierTags.map(t => t.key),
+    ...pickerTags.map(t => t.key),
+    ...paymentTags.map(t => t.key),
+    ...otherKnownTags.map(t => t.key)
+  ]);
+
+  const customPlatformTags = [];
+  tagCounts.forEach((count, tagKey) => {
+    if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
+      customPlatformTags.push({ key: tagKey, label: tagKey });
+    }
+  });
+
+  const buildOptgroup = (label, list) => {
+    const present = list.filter(item => (tagCounts.get(item.key) || 0) > 0);
+    if (present.length === 0) return '';
+    const options = present.map(item => {
+      const count = tagCounts.get(item.key) || 0;
+      return `<option value="${item.key.replace(/"/g, '&quot;')}">${item.label} (${count})</option>`;
+    }).join('');
+    return `<optgroup label="${label}">${options}</optgroup>`;
+  };
+
+  let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+  html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
+  html += buildOptgroup('Categoría de Entrega', deliveryTags);
+  html += buildOptgroup('Despacho Courier', courierTags);
+  html += buildOptgroup('Estado Picker', pickerTags);
+  html += buildOptgroup('Estado de Pago', paymentTags);
+  html += buildOptgroup('Otros Estados', otherKnownTags);
+  if (customPlatformTags.length > 0) {
+    html += buildOptgroup('Tags de Tienda / Plataforma', customPlatformTags);
+  }
+
+  select.innerHTML = html;
+  if (currentVal) {
+    select.value = currentVal;
+  }
+};
+
+// Filtrar al dar clic en la etiqueta (toggle interactivo)
+window.filterByClientOrderTag = function(tagName, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const select = document.getElementById('filter-client-order-tag');
+  if (!select) return;
+
+  if (select.value === tagName) {
+    select.value = '';
+  } else {
+    let exists = false;
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === tagName) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = tagName;
+      opt.textContent = `${tagName}`;
+      select.appendChild(opt);
+    }
+    select.value = tagName;
+  }
+
+  window.clientWmsCurrentPage = 1;
+  if (typeof applyClientWmsFiltersAndRender === 'function') {
+    applyClientWmsFiltersAndRender();
+  }
+};
+window.filterByOrderTag = window.filterByOrderTag || window.filterByClientOrderTag;
 
 async function renderOrders() {
   window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
@@ -6556,6 +7436,8 @@ async function renderOrders() {
       tracking_number,
       tracking_url,
       courier,
+      categoria_entrega,
+      label_url,
       raw_woocommerce_data,
       raw_falabella_data,
       raw_meli_data,
@@ -6590,6 +7472,10 @@ async function renderOrders() {
     });
 
     window.clientLoadedOrders = orders || [];
+
+    if (window.fetchPickerOperators) {
+      await window.fetchPickerOperators(window.clientLoadedOrders);
+    }
 
     // Cargar configuraciones adicionales de los comercios para el cliente
     let commerceConfigMap = {};
@@ -6653,6 +7539,8 @@ async function renderOrders() {
             tracking_number,
             tracking_url,
             courier,
+            categoria_entrega,
+            label_url,
             raw_woocommerce_data,
             raw_falabella_data,
             raw_meli_data,
@@ -6665,6 +7553,7 @@ async function renderOrders() {
             agenda,
             operador,
             fecha_procesamiento,
+            sucursal_pickeo,
             order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth);
@@ -6703,6 +7592,13 @@ async function renderOrders() {
           const shipData = await fetchEnviosUnificadosByRefs(allRefs);
           if (shipData && shipData.length > 0) {
             window.clientLoadedShipments = [...(window.clientLoadedShipments || []), ...shipData];
+          }
+
+          if (window.fetchPickerOperators) {
+            await window.fetchPickerOperators(histOrders);
+          }
+          if (window.updateClientOrderTagFilterOptions) {
+            window.updateClientOrderTagFilterOptions();
           }
 
           applyClientWmsFiltersAndRender();
@@ -6762,8 +7658,14 @@ async function renderOrders() {
       <div class="filters-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1rem; box-shadow: var(--shadow-sm);">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
           <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line" style="color: var(--color-primary);"></i> Buscar Pedido</label>
             <input type="text" id="search-client-orders" class="form-input" placeholder="Buscar por ID, SKU, Producto, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-price-tag-3-line" style="color: var(--color-primary);"></i> Etiqueta / Tag</label>
+            <select id="filter-client-order-tag" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todas las etiquetas</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-plug-line"></i> Origen / Integración</label>
@@ -6857,8 +7759,7 @@ async function renderOrders() {
                 <th style="text-align:center; padding: 0.65rem 0.75rem;">Artículos</th>
                 <th style="text-align:right; padding: 0.65rem 0.75rem;">Valor Total</th>
                 <th style="padding: 0.65rem 0.75rem;">Tipo Despacho</th>
-                <th style="padding: 0.65rem 0.75rem;">SLA</th>
-                <th style="padding: 0.65rem 0.75rem;">Etiqueta</th>
+                <th style="text-align:center; padding: 0.65rem 0.75rem;">Picking</th>
                 <th style="padding: 0.65rem 0.75rem;">Estado Origen</th>
                 <th style="padding: 0.65rem 0.75rem;">Estado WMS</th>
               </tr>
@@ -6890,8 +7791,14 @@ async function renderOrders() {
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (commerceSelect) commerceSelect.addEventListener('change', triggerFilterUpdate);
+    const orderTagSelect = document.getElementById('filter-client-order-tag');
     if (dateFromInput) dateFromInput.addEventListener('change', triggerFilterUpdate);
     if (dateToInput) dateToInput.addEventListener('change', triggerFilterUpdate);
+    if (orderTagSelect) orderTagSelect.addEventListener('change', triggerFilterUpdate);
+
+    if (window.updateClientOrderTagFilterOptions) {
+      window.updateClientOrderTagFilterOptions();
+    }
 
     // Listeners para acciones por lote (Bulk Actions)
     setTimeout(() => {
@@ -6975,6 +7882,7 @@ window.applyClientWmsFiltersAndRender = function() {
   const commerceSelect = document.getElementById('filter-client-commerce');
   const dateFromInput = document.getElementById('filter-client-date-from');
   const dateToInput = document.getElementById('filter-client-date-to');
+  const orderTagSelect = document.getElementById('filter-client-order-tag');
 
   const searchText = (searchInput?.value || '').toLowerCase();
   const selectedOrigen = origenSelect?.value || '';
@@ -6982,6 +7890,7 @@ window.applyClientWmsFiltersAndRender = function() {
   const selectedCommerce = commerceSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
+  const selectedTag = orderTagSelect?.value || '';
 
   const userCommerces = currentCompany
     ? currentCompany.split(',').map(c => c.trim()).filter(Boolean)
@@ -6996,6 +7905,8 @@ window.applyClientWmsFiltersAndRender = function() {
     const extNo = (order.external_order_number || '').toLowerCase();
     const tracking = (order.tracking_number || '').toLowerCase();
     const orderIdLower = order.id.toLowerCase();
+    const orderTags = window.getClientOrderTags ? window.getClientOrderTags(order) : [];
+    const tagsStr = (orderTags || []).join(' ').toLowerCase();
 
     const matchesSearch = !searchText || 
       orderIdLower.includes(searchText) || 
@@ -7003,7 +7914,8 @@ window.applyClientWmsFiltersAndRender = function() {
       skuStr.includes(searchText) || 
       nameStr.includes(searchText) || 
       customer.includes(searchText) ||
-      tracking.includes(searchText);
+      tracking.includes(searchText) ||
+      tagsStr.includes(searchText);
 
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
     const matchesStatus = !selectedStatus || order.status === selectedStatus;
@@ -7024,7 +7936,9 @@ window.applyClientWmsFiltersAndRender = function() {
       if (dateFrom || dateTo) matchesDate = false;
     }
 
-    return matchesSearch && matchesOrigen && matchesStatus && matchesCommerce && matchesDate;
+    const matchesTag = !selectedTag || orderTags.includes(selectedTag);
+
+    return matchesSearch && matchesOrigen && matchesStatus && matchesCommerce && matchesDate && matchesTag;
   };
 
   // 1. Obtener conteo de pestañas
@@ -7093,6 +8007,10 @@ window.applyClientWmsFiltersAndRender = function() {
   document.getElementById('kpi-client-processing').textContent = ordersToProcess;
   document.getElementById('kpi-client-in-prep').textContent = ordersInPrep;
   document.getElementById('kpi-client-sales').textContent = window.formatCLP(totalSales);
+
+  if (window.updateClientOrderTagFilterOptions) {
+    window.updateClientOrderTagFilterOptions();
+  }
 
   // 3. Paginación
   const totalResults = filtered.length;
@@ -7606,37 +8524,30 @@ window.applyClientWmsFiltersAndRender = function() {
     }
 
     const firstShipment = orderShipments[0] || null;
-    const rawTipo = firstShipment?.servicio_tipo_envio || order.shipping_type || '';
+    const originShippingMethod = window.getOriginShippingMethod ? window.getOriginShippingMethod(order) : (order.shipping_method || '');
     let tipoIcon = 'ri-truck-line';
-    let tipoLabel = rawTipo || '-';
-    if (/flex/i.test(rawTipo))          { tipoIcon = 'ri-flashlight-line';   tipoLabel = 'Flex'; }
-    else if (/centro.*env/i.test(rawTipo) || /fulfillment/i.test(rawTipo)) { tipoIcon = 'ri-building-2-line';  tipoLabel = 'Centro Envíos'; }
-    else if (/same.?day/i.test(rawTipo) || /24/i.test(rawTipo))            { tipoIcon = 'ri-time-line';         tipoLabel = 'Same Day'; }
-    else if (/retiro/i.test(rawTipo) || /pickup/i.test(rawTipo))           { tipoIcon = 'ri-store-line';        tipoLabel = 'Retiro'; }
-    else if (/normal/i.test(rawTipo))   { tipoIcon = 'ri-ship-line';         tipoLabel = 'Normal'; }
-    const tipoHtml = rawTipo
-      ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--color-text-main);"><i class="${tipoIcon}" style="color:var(--color-primary);"></i>${tipoLabel}</span>`
-      : `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
-
-    const createdAt = new Date(order.created_at);
-    const slaRef = firstShipment?.promised_date || firstShipment?.date_closed || null;
-    let slaHtml = `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
-    if (slaRef) {
-      const slaDate = new Date(slaRef);
-      const diffDays = Math.round((slaDate - createdAt) / (1000 * 60 * 60 * 24));
-      const slaColor = diffDays <= 1 ? '#059669' : (diffDays <= 3 ? '#d97706' : '#dc2626');
-      slaHtml = `<span style="font-size:0.78rem; font-weight:600; color:${slaColor};">${diffDays}d</span>`;
-    } else if (firstShipment?.servicio_tipo_envio) {
-      const slaMap = { flex:'<1d', 'same day':'<1d', '24':'1d', normal:'3-5d', fulfillment:'2d' };
-      const match = Object.keys(slaMap).find(k => rawTipo.toLowerCase().includes(k));
-      slaHtml = match ? `<span style="font-size:0.75rem; color:var(--color-text-muted);">${slaMap[match]}</span>` : slaHtml;
+    const methodLower = (originShippingMethod || '').toLowerCase();
+    if (/retiro|pickup|tienda|store|sucursal/i.test(methodLower)) {
+      tipoIcon = 'ri-store-2-line';
+    } else if (/flex/i.test(methodLower)) {
+      tipoIcon = 'ri-flashlight-line';
+    } else if (/same.?day|express|24|urgente/i.test(methodLower)) {
+      tipoIcon = 'ri-time-line';
+    } else if (/centro.*env/i.test(methodLower) || /fulfillment/i.test(methodLower)) {
+      tipoIcon = 'ri-building-2-line';
     }
+
+    const tipoHtml = originShippingMethod
+      ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${window.escapeHtml ? window.escapeHtml(originShippingMethod) : originShippingMethod}"><i class="${tipoIcon}" style="color:var(--color-primary); flex-shrink:0;"></i><span style="overflow:hidden; text-overflow:ellipsis;">${window.escapeHtml ? window.escapeHtml(originShippingMethod) : originShippingMethod}</span></span>`
+      : `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
 
     // Generar ítems detallados para el desplegable (Agrupando por SKU y Bodega)
     let itemsRowsHtml = '';
     const config = window.clientCommerceConfigsMap ? window.clientCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
-    const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.clientLoadedOrders) : isStockTrackingActive;
+    const isStockTrackingActive = config ? (config.inventario_seguimiento !== false) : true;
+    const shouldProcessStock = (config && config.inventario_seguimiento && window.shouldProcessOrderStockLocal)
+      ? window.shouldProcessOrderStockLocal(order, config, window.clientLoadedOrders)
+      : isStockTrackingActive;
 
     if (order.order_items && order.order_items.length > 0) {
       const grouped = {};
@@ -7686,7 +8597,16 @@ window.applyClientWmsFiltersAndRender = function() {
           stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
         } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
           const invMap = window.clientOrdersInventoryMap || {};
-          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
+          let available = (origItem.warehouse_id && invMap[origItem.product_id + '_' + origItem.warehouse_id] !== undefined)
+            ? invMap[origItem.product_id + '_' + origItem.warehouse_id]
+            : null;
+          if (available === null) {
+            let totalAcross = 0;
+            Object.keys(invMap).forEach(k => {
+              if (k.startsWith(origItem.product_id + '_')) totalAcross += (invMap[k] || 0);
+            });
+            available = totalAcross;
+          }
           if (available < item.quantity) {
             rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
             stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
@@ -7705,12 +8625,14 @@ window.applyClientWmsFiltersAndRender = function() {
               ${item.sku}
               ${campaignBadgeHtml}
             </td>
-            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
-              ${item.name}<br>
-              <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+              <span style="font-weight: 500;">${item.name}</span><br>
+              <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
+                <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+                ${window.getItemProcessingStatusBadge(order, item.sku, item.name)}
+              </div>
             </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
-            <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, item.sku, item.name)}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
@@ -7723,10 +8645,15 @@ window.applyClientWmsFiltersAndRender = function() {
       itemsRowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
-          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">${order.item || 'Sin Nombre'}</td>
+          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+            <span style="font-weight: 500;">${order.item || 'Sin Nombre'}</span><br>
+            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
+              <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> Bodega Central</small>
+              ${window.getItemProcessingStatusBadge(order, order.sku, order.item)}
+            </div>
+          </td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
-          <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, order.sku, order.item)}</td>
-          <td style="padding: 0.5rem; text-align: center;">-</td>
+          <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
         </tr>
@@ -7757,65 +8684,246 @@ window.applyClientWmsFiltersAndRender = function() {
       `;
     }
 
-    const exportBadgeHtml = order.shopify_exported 
-      ? `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.2rem;"><i class="ri-check-line"></i> Exportado</span>`
-      : '';
+// 0. Tag de Categoría de Entrega (Distribución vs Retiro)
+    const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+    let categoryBadgeHtml = '';
+    const catFilterTag = (catDelivery === 'DISTRIBUCION' ? 'DISTRIBUCIÓN' : catDelivery);
+    const isCatActive = selectedTag === catFilterTag;
+    if (catDelivery === 'RETIRO') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
+    } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #0369a1; box-shadow: 0 0 6px rgba(3,105,161,0.4);' : ''}" title="Categoría de Entrega: Distribución (Clic para filtrar)"><i class="ri-truck-line" style="color: #0369a1;"></i> DISTRIBUCIÓN</span>`;
+    } else if (order.categoria_entrega) {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #374151; box-shadow: 0 0 6px rgba(55,65,81,0.4);' : ''}" title="(Clic para filtrar)">${catDelivery}</span>`;
+    }
 
+    // 1. Tag de Exportado
+    let exportBadgeHtml = '';
+    if (order.shopify_exported) {
+      const isExportActive = selectedTag === 'Exportado';
+      exportBadgeHtml = `<span class="badge wms-order-tag-badge ${isExportActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Exportado', event)" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isExportActive ? 'outline: 2px solid #065f46; box-shadow: 0 0 6px rgba(6,95,70,0.4);' : ''}" title="Exportado a Shopify (Clic para filtrar)"><i class="ri-check-line" style="color: #065f46;"></i> Exportado</span>`;
+    }
+
+    // 2. Tag de Packs (reutiliza packBadgeHtml ya declarado arriba en el loop)
+    const packsMap = window.getOrderPacksMap ? window.getOrderPacksMap(order) : null;
+    const isPackActive = selectedTag === 'Con Packs';
+    if ((packsMap && packsMap.size > 0) || packBadgeHtml) {
+      packBadgeHtml = `<span class="badge wms-order-tag-badge ${isPackActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Con Packs', event)" style="background-color: rgba(139, 92, 246, 0.12); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isPackActive ? 'outline: 2px solid #7c3aed; box-shadow: 0 0 6px rgba(124,58,237,0.4);' : ''}" title="Contiene Packs (Clic para filtrar)"><i class="ri-stack-line" style="color: #7c3aed;"></i> Con Packs</span>`;
+    } else {
+      packBadgeHtml = '';
+    }
+
+    // 3. Tag de Despacho Courier
     let shipmentBadgeHtml = '';
-    if (orderShipments.length > 0) {
-      const shipment = orderShipments[0];
-      let globStatus = shipment.global_status;
-      let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-        if (shipment.raw_data && shipment.raw_data[23]) {
-          statusText = shipment.raw_data[23];
-        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-          statusText = order.raw_lightdata_data.raw_data[23];
-        }
+    const shipInfo = window.getClientOrderShipmentGlobalStatus ? window.getClientOrderShipmentGlobalStatus(order) : null;
+    if (shipInfo && shipInfo.globStatus) {
+      const shipGlobStatus = shipInfo.globStatus;
+      let shipBadgeBg = '#e5e7eb';
+      let shipBadgeColor = '#4b5563';
+      if (shipGlobStatus === 'DESPACHADO') {
+        shipBadgeBg = '#d1fae5';
+        shipBadgeColor = '#065f46';
+      } else if (shipGlobStatus === 'ALERTA') {
+        shipBadgeBg = '#fee2e2';
+        shipBadgeColor = '#991b1b';
+      } else if (shipGlobStatus === 'DEVOLUCIÓN') {
+        shipBadgeBg = '#ffe4e6';
+        shipBadgeColor = '#9f1239';
       }
-      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-        const rawStatus = statusText.toLowerCase().trim();
-        if (shipment.source_table === 'lightdata_envios') {
-          if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus === 'cancelado') {
-            globStatus = 'ALERTA';
-          } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'bluex_envios') {
-          if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'starken_envios') {
-          if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        }
-      }
-      if (!globStatus) globStatus = 'SIN MOVIMIENTO';
+      const isShipActive = selectedTag === shipGlobStatus;
+      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${shipGlobStatus}', event)" style="background-color: ${shipBadgeBg}; color: ${shipBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${shipBadgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Despacho: ${shipGlobStatus} (Clic para filtrar)"><i class="ri-truck-line" style="color: ${shipBadgeColor};"></i> ${shipGlobStatus}</span>`;
+    }
 
-      const courierName = shipment.courier || 'Courier';
-      let badgeBg = '#e5e7eb';
-      let badgeColor = '#4b5563';
-      
-      if (globStatus === 'DESPACHADO') {
-        badgeBg = '#d1fae5';
-        badgeColor = '#065f46';
-      } else if (globStatus === 'ALERTA') {
-        badgeBg = '#fee2e2';
-        badgeColor = '#991b1b';
+    // 4. Tag de Picker
+    let pickerBadgeHtml = '';
+    const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
+    if (pStatus) {
+      const pickerRawStatus = (pStatus.status || '').trim();
+      const rawStatusUpper = pickerRawStatus.toUpperCase();
+      let filterTag = `Picker: ${pickerRawStatus}`;
+      let bg = 'rgba(100, 116, 139, 0.12)';
+      let color = '#475569';
+      let border = 'rgba(100, 116, 139, 0.25)';
+      let icon = '<i class="ri-barcode-box-line" style="color: #475569;"></i>';
+      let labelText = `Picker: ${pickerRawStatus}`;
+
+      if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#059669';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-checkbox-circle-fill" style="color: #059669;"></i>';
+        labelText = 'Picker: Completado';
+        filterTag = 'Picker: Completado';
+      } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#059669';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-store-2-fill" style="color: #059669;"></i>';
+        labelText = 'Picker: Listo para Retiro';
+        filterTag = 'Picker: Listo para Retiro';
+      } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
+        bg = 'rgba(245, 158, 11, 0.14)';
+        color = '#d97706';
+        border = 'rgba(245, 158, 11, 0.3)';
+        icon = '<i class="ri-loader-4-line" style="color: #d97706;"></i>';
+        labelText = 'Picker: En preparación';
+        filterTag = 'Picker: En preparación';
+      } else if (rawStatusUpper === 'PARCIAL') {
+        bg = 'rgba(14, 165, 233, 0.14)';
+        color = '#0284c7';
+        border = 'rgba(14, 165, 233, 0.3)';
+        icon = '<i class="ri-qr-scan-2-line" style="color: #0284c7;"></i>';
+        labelText = 'Picker: Parcial';
+        filterTag = 'Picker: Parcial';
+      } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
+        bg = 'rgba(239, 68, 68, 0.14)';
+        color = '#dc2626';
+        border = 'rgba(239, 68, 68, 0.3)';
+        icon = '<i class="ri-alert-fill" style="color: #dc2626;"></i>';
+        labelText = 'Picker: Con Obs';
+        filterTag = 'Picker: Con Obs';
+      } else if (rawStatusUpper.includes('DERIVADO')) {
+        bg = 'rgba(139, 92, 246, 0.14)';
+        color = '#7c3aed';
+        border = 'rgba(139, 92, 246, 0.3)';
+        icon = '<i class="ri-share-forward-line" style="color: #7c3aed;"></i>';
+        labelText = `Picker: ${pickerRawStatus}`;
+        filterTag = 'Picker: Derivado';
+      } else if (rawStatusUpper === 'RETIRADO') {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#047857';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-user-received-line" style="color: #047857;"></i>';
+        labelText = 'Picker: Retirado';
+        filterTag = 'Picker: Retirado';
       }
-      
-      shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.2rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
+      const isPickerActive = selectedTag === filterTag;
+      pickerBadgeHtml = `<span class="badge wms-order-tag-badge ${isPickerActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${filterTag}', event)" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isPickerActive ? `outline: 2px solid ${color}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Estado Picker: ${pickerRawStatus} (Clic para filtrar)">${icon} ${labelText}</span>`;
+    } else if (order.estado_wms === 'En preparación') {
+      const isSinRegActive = selectedTag === 'Picker: Sin registro';
+      pickerBadgeHtml = `<span class="badge wms-order-tag-badge ${isSinRegActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Picker: Sin registro', event)" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isSinRegActive ? 'outline: 2px solid #64748b; box-shadow: 0 0 6px rgba(100,116,139,0.4);' : ''}" title="Picker: Sin registro (Clic para filtrar)"><i class="ri-inbox-archive-line" style="color: #64748b;"></i> Picker: Sin registro</span>`;
+    }
+
+    // 5. Tag de Pago
+    let paymentBadgeHtml = '';
+    const payStatus = String(order.payment_status || '').toLowerCase().trim();
+    let payTag = '';
+    let payBg = '#e5e7eb';
+    let payColor = '#4b5563';
+    let payIcon = 'ri-money-dollar-circle-line';
+    if (payStatus === 'paid' || payStatus === 'authorized') {
+      payTag = 'PAGADO';
+      payBg = '#d1fae5';
+      payColor = '#065f46';
+      payIcon = 'ri-checkbox-circle-line';
+    } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
+      payTag = 'PAGO PENDIENTE';
+      payBg = '#fef3c7';
+      payColor = '#92400e';
+      payIcon = 'ri-error-warning-line';
+    } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
+      payTag = 'PARCIALMENTE REEMBOLSADO';
+      payBg = '#fee2e2';
+      payColor = '#991b1b';
+      payIcon = 'ri-refund-line';
+    } else if (payStatus === 'refunded' || payStatus === 'voided') {
+      payTag = 'REEMBOLSADO';
+      payBg = '#fee2e2';
+      payColor = '#991b1b';
+      payIcon = 'ri-refund-line';
+    } else if (order.payment_status) {
+      payTag = order.payment_status.toUpperCase();
+    }
+    if (payTag) {
+      const isPayActive = selectedTag === payTag;
+      paymentBadgeHtml = `<span class="badge wms-order-tag-badge ${isPayActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${payTag}', event)" style="background-color: ${payBg}; color: ${payColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isPayActive ? `outline: 2px solid ${payColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Estado de pago: ${payTag} (Clic para filtrar)"><i class="${payIcon}" style="color: ${payColor};"></i> ${payTag}</span>`;
+    }
+
+    // 6. Tag de Nota
+    const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+    let noteBadgeHtml = '';
+    if (orderNote && orderNote.trim()) {
+      const isNoteActive = selectedTag === 'CON NOTA';
+      noteBadgeHtml = `<span class="badge wms-order-tag-badge ${isNoteActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('CON NOTA', event)" style="background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isNoteActive ? 'outline: 2px solid #92400e; box-shadow: 0 0 6px rgba(146,64,14,0.4);' : ''}" title="Nota: ${(orderNote || '').replace(/"/g, '&quot;')} (Clic para filtrar)"><i class="ri-chat-3-line" style="color: #92400e;"></i> CON NOTA</span>`;
+    }
+
+    // 7. Tag de Falta de Stock
+    let stockAlertBadgeHtml = '';
+    const stockAlert = window.checkClientOrderStockAlert ? window.checkClientOrderStockAlert(order) : null;
+    if (stockAlert && stockAlert.hasStockAlert) {
+      const isStockActive = selectedTag === 'SIN STOCK';
+      stockAlertBadgeHtml = `<span class="badge wms-order-tag-badge ${isStockActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('SIN STOCK', event)" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isStockActive ? 'outline: 2px solid #b91c1c; box-shadow: 0 0 6px rgba(185,28,28,0.4);' : ''}" title="Falta stock: ${stockAlert.stockAlertDetails.join(', ')} (Clic para filtrar)"><i class="ri-alert-line" style="color: #b91c1c;"></i> SIN STOCK</span>`;
+    }
+
+    // 8. Tag de Fulfillment (Shopify)
+    let fulfillmentBadgeHtml = '';
+    const rawShopify = order.raw_shopify_data;
+    if (order.external_platform === 'Shopify' && rawShopify?.fulfillment_status) {
+      const shpfyFullStatus = rawShopify.fulfillment_status;
+      if (shpfyFullStatus === 'fulfilled') {
+        const isFulfillActive = selectedTag === 'FULFILLED';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('FULFILLED', event)" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #3730a3; box-shadow: 0 0 6px rgba(55,48,163,0.4);' : ''}" title="Shopify Fulfilled (Clic para filtrar)"><i class="ri-checkbox-circle-line" style="color: #3730a3;"></i> FULFILLED</span>`;
+      } else if (shpfyFullStatus === 'partial') {
+        const isFulfillActive = selectedTag === 'FULFILL. PARCIAL';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('FULFILL. PARCIAL', event)" style="background-color: #ffedd5; color: #9a3412; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #9a3412; box-shadow: 0 0 6px rgba(154,52,18,0.4);' : ''}" title="Shopify Fulfillment Parcial (Clic para filtrar)"><i class="ri-checkbox-blank-circle-line" style="color: #9a3412;"></i> FULFILL. PARCIAL</span>`;
+      } else if (shpfyFullStatus === 'restocked') {
+        const isFulfillActive = selectedTag === 'RESTOCKED';
+        fulfillmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isFulfillActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('RESTOCKED', event)" style="background-color: #f1f5f9; color: #475569; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isFulfillActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Shopify Restocked (Clic para filtrar)"><i class="ri-arrow-go-back-line" style="color: #475569;"></i> RESTOCKED</span>`;
+      }
+    }
+
+    // 9. Tag de Cancelado o Devolución
+    let cancelBadgeHtml = '';
+    const isReturned = (order.status || '').toLowerCase() === 'devolución' || (order.status || '').toLowerCase() === 'devolucion';
+    const isCancelled = !isReturned && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
+    if (isReturned) {
+      const isRetActive = selectedTag === 'DEVOLUCIÓN';
+      cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isRetActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('DEVOLUCIÓN', event)" style="background-color: #ffe4e6; color: #9f1239; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isRetActive ? 'outline: 2px solid #9f1239; box-shadow: 0 0 6px rgba(159,18,57,0.4);' : ''}" title="Devolución (Clic para filtrar)"><i class="ri-arrow-go-back-line" style="color: #9f1239;"></i> DEVOLUCIÓN</span>`;
+    } else if (isCancelled) {
+      const isCancActive = selectedTag === 'CANCELADO';
+      cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isCancActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('CANCELADO', event)" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCancActive ? 'outline: 2px solid #991b1b; box-shadow: 0 0 6px rgba(153,27,27,0.4);' : ''}" title="Cancelado (Clic para filtrar)"><i class="ri-close-circle-line" style="color: #991b1b;"></i> CANCELADO</span>`;
+    }
+
+    // 10. Tag de Etiqueta Generada
+    let labelBadgeHtml = '';
+    if (order.label_url || order.tracking_number || order.label_base64) {
+      const isLabelActive = selectedTag === 'Etiqueta';
+      labelBadgeHtml = `<span class="badge wms-order-tag-badge ${isLabelActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('Etiqueta', event)" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isLabelActive ? 'outline: 2px solid #7117eb; box-shadow: 0 0 6px rgba(113,23,235,0.5);' : ''}" title="Etiqueta Generada (Clic para filtrar)"><i class="ri-qr-code-line" style="color: #7117eb;"></i> Etiqueta</span>`;
+    }
+
+    // Obtener estado original de la plataforma
+    let originalPlatformStatusHtml = '';
+    const origStatus = window.getOriginalPlatformStatus ? window.getOriginalPlatformStatus(order) : null;
+    if (origStatus && origStatus.details && Array.isArray(origStatus.details)) {
+      originalPlatformStatusHtml = `
+        <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; text-align: left;">
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado en Plataforma:</span>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${origStatus.details.map(d => `
+              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+                ${d.label}: ${d.value}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // 11. Tags Personalizadas de Plataforma
+    let customPlatformTagsHtml = '';
+    const rawStoreTags = new Set();
+    if (order.raw_shopify_data?.tags) {
+      String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (order.tags) {
+      (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
+    }
+    if (rawStoreTags.size > 0) {
+      customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
+        const isCustomActive = selectedTag === t;
+        const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        return `<span class="badge wms-order-tag-badge ${isCustomActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${escapedTag}', event)" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: pointer; ${isCustomActive ? 'outline: 2px solid #475569; box-shadow: 0 0 6px rgba(71,85,105,0.4);' : ''}" title="Etiqueta: ${escapedTag} (Clic para filtrar)"><i class="ri-price-tag-3-line" style="color: #475569;"></i> ${escapedTag}</span>`;
+      }).join('');
     }
 
     // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal)
@@ -7858,67 +8966,112 @@ window.applyClientWmsFiltersAndRender = function() {
       }
     }
 
-    // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
-    let hasStockAlert = false;
-    let stockAlertDetails = [];
-    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
-    if (shouldProcessStock && !isOrderTerminalOrShipped) {
-      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
-      if (itemsToCheck.length > 0) {
-        const invMap = window.clientOrdersInventoryMap || {};
-        itemsToCheck.forEach(item => {
-          let totalAvailableQty = 0;
-          Object.keys(invMap).forEach(key => {
-            if (key.startsWith(item.product_id + '_')) {
-              totalAvailableQty += invMap[key] || 0;
-            }
-          });
-          if (totalAvailableQty < item.quantity) {
-            hasStockAlert = true;
-            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - totalAvailableQty} un.)`);
-          }
-        });
-      }
-    }
-
-    const stockAlertBadgeHtml = hasStockAlert
-      ? `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: help;" title="Falta stock: ${stockAlertDetails.join(', ')}"><i class="ri-alert-line"></i> SIN STOCK</span>`
-      : '';
-
-    // Obtener estado original de la plataforma
-    let originalPlatformStatusHtml = '';
-    const origStatus = window.getOriginalPlatformStatus(order);
-    if (origStatus) {
-      originalPlatformStatusHtml = `
-        <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; text-align: left;">
-          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado en Plataforma:</span>
-          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-            ${origStatus.details.map(d => `
-              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
-                ${d.label}: ${d.value}
-              </span>
-            `).join('')}
+    // Columna Dedicada de Picking e Historial
+    let pickingColHtml = '';
+    if (!pStatus) {
+      if (order.estado_wms === 'En preparación') {
+        pickingColHtml = `
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 0.2rem;">
+            <span class="badge" style="background-color: rgba(100, 116, 139, 0.12); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.25); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; transition: all 0.15s;" onclick="window.openPickerOrderHistoryModal('${order.id}'); event.stopPropagation();" title="Sin registro activo en Picker. Clic para ver auditoría.">
+              <i class="ri-inbox-archive-line" style="color: #64748b;"></i> Sin registro
+            </span>
+            <button type="button" onclick="window.openPickerOrderHistoryModal('${order.id}'); event.stopPropagation();" style="background: none; border: none; padding: 0; color: var(--color-primary); font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; text-decoration: underline;" title="Ver historial de picking">
+              <i class="ri-history-line" style="color: var(--color-primary);"></i> Ver historial
+            </button>
           </div>
+        `;
+      } else {
+        pickingColHtml = `
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 0.2rem;">
+            <span style="color: var(--color-text-muted); font-size: 0.85rem; font-weight: 500;">-</span>
+            <button type="button" onclick="window.openPickerOrderHistoryModal('${order.id}'); event.stopPropagation();" style="background: none; border: none; padding: 0; color: var(--color-text-muted); font-size: 0.68rem; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 0.15rem;" title="Consultar historial en Picker">
+              <i class="ri-history-line" style="color: var(--color-text-muted);"></i> Historial
+            </button>
+          </div>
+        `;
+      }
+    } else {
+      const pickerRawStatus = (pStatus.status || '').trim();
+      const rawStatusUpper = pickerRawStatus.toUpperCase();
+      const operatorName = pStatus.operator || '';
+
+      let bg = 'rgba(100, 116, 139, 0.12)';
+      let color = '#475569';
+      let border = 'rgba(100, 116, 139, 0.25)';
+      let icon = '<i class="ri-barcode-box-line" style="color: #475569;"></i>';
+      let labelText = pickerRawStatus;
+
+      if (rawStatusUpper === 'COMPLETADO' || rawStatusUpper.includes('COMPLETADO-ASISTIDO')) {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#059669';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-checkbox-circle-line" style="color: #059669;"></i>';
+        labelText = 'Completado';
+      } else if (rawStatusUpper === 'LISTO PARA RETIRO') {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#059669';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-store-2-line" style="color: #059669;"></i>';
+        labelText = 'Listo para Retiro';
+      } else if (rawStatusUpper === 'EN PREPARACIÓN' || rawStatusUpper === 'EN PREPARACION') {
+        bg = 'rgba(245, 158, 11, 0.14)';
+        color = '#d97706';
+        border = 'rgba(245, 158, 11, 0.3)';
+        icon = '<i class="ri-loader-4-line" style="color: #d97706;"></i>';
+        labelText = 'En preparación';
+      } else if (rawStatusUpper === 'PARCIAL') {
+        bg = 'rgba(14, 165, 233, 0.14)';
+        color = '#0284c7';
+        border = 'rgba(14, 165, 233, 0.3)';
+        icon = '<i class="ri-qr-scan-2-line" style="color: #0284c7;"></i>';
+        labelText = 'Parcial';
+      } else if (rawStatusUpper.includes('PENDIENTE (OBS)') || rawStatusUpper.includes('OBSERVACION') || rawStatusUpper.includes('INCIDENCIA')) {
+        bg = 'rgba(239, 68, 68, 0.14)';
+        color = '#dc2626';
+        border = 'rgba(239, 68, 68, 0.3)';
+        icon = '<i class="ri-alert-line" style="color: #dc2626;"></i>';
+        labelText = 'Con Obs';
+      } else if (rawStatusUpper.includes('DERIVADO')) {
+        bg = 'rgba(139, 92, 246, 0.14)';
+        color = '#7c3aed';
+        border = 'rgba(139, 92, 246, 0.3)';
+        icon = '<i class="ri-share-forward-line" style="color: #7c3aed;"></i>';
+        labelText = pickerRawStatus;
+      } else if (rawStatusUpper === 'RETIRADO') {
+        bg = 'rgba(16, 185, 129, 0.14)';
+        color = '#047857';
+        border = 'rgba(16, 185, 129, 0.3)';
+        icon = '<i class="ri-user-received-line" style="color: #047857;"></i>';
+        labelText = 'Retirado';
+      }
+
+      pickingColHtml = `
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 0.2rem;">
+          <span class="badge" style="background-color: ${bg}; color: ${color}; border: 1px solid ${border}; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; transition: transform 0.15s ease;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" onclick="window.openPickerOrderHistoryModal('${order.id}'); event.stopPropagation();" title="Operario: ${operatorName || 'Sin asignar'}. Clic para ver historial completo de picking.">
+            ${icon} ${labelText}
+          </span>
+          <button type="button" onclick="window.openPickerOrderHistoryModal('${order.id}'); event.stopPropagation();" style="background: none; border: none; padding: 0; color: var(--color-primary); font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; text-decoration: underline;" title="Ver historial de picking">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Ver historial
+          </button>
         </div>
       `;
     }
 
-    let customPlatformTagsHtml = '';
-    const rawStoreTags = new Set();
-    if (order.raw_shopify_data?.tags) {
-      String(order.raw_shopify_data.tags).split(',').map(t => t.trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
-    }
-    if (order.tags) {
-      (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => rawStoreTags.add(t));
-    }
-    if (rawStoreTags.size > 0) {
-      customPlatformTagsHtml = Array.from(rawStoreTags).map(t => {
-        const escapedTag = t.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-        return `<span class="badge" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-size: 0.65rem; font-weight: 600; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content;" title="Etiqueta de tienda: ${escapedTag}"><i class="ri-price-tag-3-line"></i> ${escapedTag}</span>`;
-      }).join('');
-    }
+    // Formateo de Fecha y Hora (sin emojis, iconos vectoriales de 1 solo color)
+    const rowDateObj = new Date(order.created_at || dateSource);
+    const day = String(rowDateObj.getDate()).padStart(2, '0');
+    const month = String(rowDateObj.getMonth() + 1).padStart(2, '0');
+    const year = rowDateObj.getFullYear();
+    const datePart = `${day}-${month}-${year}`;
 
-    const orderNote = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
+    let hours = rowDateObj.getHours();
+    const minutes = String(rowDateObj.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'p. m.' : 'a. m.';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const hoursStr = String(hours).padStart(2, '0');
+    const timePart = `${hoursStr}:${minutes} ${ampm}`;
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -7936,8 +9089,11 @@ window.applyClientWmsFiltersAndRender = function() {
           </div>
         </td>
         <td style="padding: 0.45rem 0.75rem;">${originHtml}</td>
-        <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem; padding: 0.45rem 0.75rem;">
-          <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
+        <td style="padding: 0.45rem 0.75rem;">
+          <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; white-space: nowrap; font-weight: 500;">
+            <span style="display: flex; align-items: center; gap: 0.25rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${datePart}</span>
+            <span style="display: flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);"><i class="ri-time-line" style="color: var(--color-text-muted); font-size: 0.85rem;"></i> ${timePart}</span>
+          </div>
         </td>
         <td style="text-align:center; padding: 0.45rem 0.75rem;">
           <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
@@ -7947,8 +9103,7 @@ window.applyClientWmsFiltersAndRender = function() {
           ${window.formatCLP(order.total_value)}
         </td>
         <td style="padding: 0.45rem 0.75rem;">${tipoHtml}</td>
-        <td style="padding: 0.45rem 0.75rem;">${slaHtml}</td>
-        <td style="padding: 0.45rem 0.75rem;">${labelHtml}</td>
+        <td style="text-align:center; padding: 0.45rem 0.75rem;">${pickingColHtml}</td>
         <td style="padding: 0.45rem 0.75rem;">
           <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
@@ -7957,36 +9112,58 @@ window.applyClientWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
-        <td colspan="12" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
+        <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}
           </div>
         </td>
       </tr>
       
       <!-- Fila Desplegable de Detalles -->
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
-          <div class="order-detail-grid order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+        <td colspan="11" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          <div class="order-detail-grid order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
-            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+            <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
               <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-user-line"></i> Datos de Despacho
               </h4>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
-                <strong>Dirección:</strong> <span>${order.shipping_address || 'No registrada'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}</span>${window.renderCopyFieldBtn(shippingFullAddress, 'Dirección')}
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-user-line" title="Nombre Cliente" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}
               </p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-mail-line" title="Email" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}
+              </p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-phone-line" title="Teléfono" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}
+              </p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4; display: flex; align-items: flex-start; gap: 0.4rem;">
+                <i class="ri-map-pin-line" title="Dirección" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0; margin-top: 0.15rem;"></i>
+                <span>${order.shipping_address || 'No registrada'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}</span>${window.renderCopyFieldBtn(shippingFullAddress, 'Dirección')}
+              </p>
+              <p style="margin-bottom: 0.65rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
                 <strong>Ciudad/Comuna:</strong> 
                 <span>${order.shipping_city || '-'}</span>
                 ${window.renderCopyFieldBtn(order.shipping_city, 'Comuna')}
               </p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;"><strong>Pago:</strong> ${window.getOrderPaymentBadgeHtml(order)}</p>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.4rem; margin-bottom: 0.65rem; background: var(--color-bg); padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                <div>
+                  <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Método Envío</span>
+                  <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.shipping_method || 'Por definir'}</span>
+                </div>
+                <div>
+                  <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Categoría</span>
+                  <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span>
+                </div>
+                <div>
+                  <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Pago</span>
+                  <div style="margin-top: 0.1rem;">${window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(order) : (order.payment_status || '-')}</div>
+                </div>
+              </div>
 
               <!-- Notas del Pedido -->
               <div style="margin-top: 0.65rem; margin-bottom: 0.5rem; background: ${orderNote ? 'rgba(245, 158, 11, 0.08)' : 'var(--color-bg)'}; border: 1px solid ${orderNote ? 'rgba(245, 158, 11, 0.3)' : 'var(--color-border)'}; border-left: 3px solid ${orderNote ? '#f59e0b' : 'var(--color-text-muted)'}; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm);">
@@ -8007,11 +9184,16 @@ window.applyClientWmsFiltersAndRender = function() {
                 <span><strong>Agenda Picking:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
                 <span><strong>Fecha Procesamiento:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.fecha_procesamiento || 'No definida'}</span></span>
                 <span><strong>Operador Courier:</strong> <span style="font-weight: 600; color: var(--color-success);">${order.operador || 'No asignado'}</span></span>
+                <div style="margin-top: 0.35rem;">
+                  <button type="button" onclick="window.openPickerOrderHistoryModal('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.75rem; font-weight: 700; color: var(--color-primary); border-color: var(--color-primary); background: rgba(79, 70, 229, 0.05); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                    <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial Picker
+                  </button>
+                </div>
               </div>
             </div>
 
             <!-- Col 2: Desglose de Productos -->
-            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+            <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
               <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
               </h4>
@@ -8022,7 +9204,6 @@ window.applyClientWmsFiltersAndRender = function() {
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
-                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Estado</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
@@ -8033,7 +9214,7 @@ window.applyClientWmsFiltersAndRender = function() {
                   </tbody>
                   <tfoot>
                     <tr style="border-top: 2px solid var(--color-border); font-weight: 700;">
-                      <td colspan="6" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
+                      <td colspan="5" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
                       <td style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(order.total_value)}</td>
                     </tr>
                   </tfoot>
@@ -8043,7 +9224,7 @@ window.applyClientWmsFiltersAndRender = function() {
             </div>
 
             <!-- Col 3: Integración y Despacho (Diseño Premium Dinámico) -->
-            <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.2rem;">
+            <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.9rem;">
               <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
                 <i class="ri-git-repository-commits-line" style="font-size: 1.1rem;"></i> Integración y Despacho
               </h4>

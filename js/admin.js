@@ -1695,16 +1695,16 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
       }, 0);
 
       if (totalActive <= 0) {
-        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
+        return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-close-circle-line"></i> Eliminado</span>`;
       }
 
       const activeLines = matchingLines.filter(li => (li.current_quantity !== undefined ? Number(li.current_quantity) > 0 : Number(li.quantity || 0) > 0));
       if (activeLines.length > 0) {
         if (activeLines.every(li => li.fulfillment_status === 'fulfilled')) {
-          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
+          return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-checkbox-circle-line"></i> Preparado</span>`;
         }
         if (activeLines.some(li => li.fulfillment_status === 'fulfilled' || li.fulfillment_status === 'partial')) {
-          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
+          return `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-pie-chart-line"></i> Parcial</span>`;
         }
       }
     }
@@ -1713,18 +1713,18 @@ window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   // Estado basado en el ciclo WMS
   const wms = (order.estado_wms || '').toLowerCase().trim();
   if (wms === 'despachado' || wms === 'entregado' || wms === 'retirado') {
-    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-truck-line"></i> Despachado</span>`;
+    return `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-truck-line"></i> Despachado</span>`;
   }
   if (wms === 'pickeado') {
-    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Pickeado</span>`;
+    return `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-check-line"></i> Pickeado</span>`;
   }
   if (wms === 'en preparación') {
-    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> En preparación</span>`;
+    return `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-time-line"></i> En preparación</span>`;
   }
   if (wms === 'cancelado') {
-    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
+    return `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-close-circle-line"></i> Cancelado</span>`;
   }
-  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-hourglass-line"></i> No preparado</span>`;
+  return `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.35rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.2;"><i class="ri-hourglass-line"></i> No preparado</span>`;
 };
 
 // Función para actualizar y conciliar un pedido individual directamente desde Shopify
@@ -4618,64 +4618,64 @@ async function renderAdminOrders() {
 
       <!-- Tabla de Pedidos -->
       <div class="card" style="margin-top: 0.5rem;">
-        <div class="card-body" style="overflow-x: auto;">
-          <table class="data-table">
+        <div class="card-body" style="padding: 0; overflow-x: auto;">
+          <table class="data-table wms-admin-orders-table">
             <thead>
-              <tr>
-                <th style="width: 40px; text-align: center;">
-                  <input type="checkbox" id="wms-select-all" onclick="window.toggleWmsSelectAll(this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+              <tr style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); border-bottom: 2px solid var(--color-border);">
+                <th style="width: 32px; min-width: 32px; max-width: 32px; text-align: center; padding: 0.55rem 0.25rem;">
+                  <input type="checkbox" id="wms-select-all" onclick="window.toggleWmsSelectAll(this)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
-                <th style="width: 40px; text-align: center;"></th>
-                <th>ID</th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="width: 28px; min-width: 28px; max-width: 28px; text-align: center; padding: 0.55rem 0.2rem;"></th>
+                <th style="min-width: 110px; max-width: 140px; padding: 0.55rem 0.4rem;">ID</th>
+                <th style="min-width: 100px; padding: 0.55rem 0.4rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
                     <span>Comercio</span>
-                    <i id="wms-filter-icon-comercio" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'comercio', 'Comercio')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-comercio" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'comercio', 'Comercio')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="width: 75px; min-width: 70px; text-align: center; padding: 0.55rem 0.35rem;">
+                  <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem;">
                     <span>Origen</span>
-                    <i id="wms-filter-icon-origen" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'origen', 'Origen')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-origen" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'origen', 'Origen')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>Fecha</th>
-                <th>Fecha proc.</th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="width: 95px; min-width: 85px; padding: 0.55rem 0.35rem;">Fecha</th>
+                <th style="width: 58px; min-width: 55px; text-align: center; padding: 0.55rem 0.25rem;">Proc.</th>
+                <th style="width: 80px; min-width: 72px; text-align: center; padding: 0.55rem 0.3rem;">
+                  <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem;">
                     <span>Agenda</span>
-                    <i id="wms-filter-icon-agenda" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'agenda', 'Agenda')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-agenda" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'agenda', 'Agenda')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="width: 85px; min-width: 78px; text-align: center; padding: 0.55rem 0.3rem;">
+                  <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem;">
                     <span>Operador</span>
-                    <i id="wms-filter-icon-operador" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'operador', 'Operador')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-operador" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'operador', 'Operador')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="min-width: 115px; max-width: 140px; padding: 0.55rem 0.4rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
                     <span>Envío</span>
-                    <i id="wms-filter-icon-shipping_method" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'shipping_method', 'Envío')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-shipping_method" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'shipping_method', 'Envío')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th style="width: 50px; text-align: center;" title="Total Unidades">Uds.</th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <span>Estado Origen</span>
-                    <i id="wms-filter-icon-status" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'status', 'Estado Origen')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                <th style="width: 38px; min-width: 36px; text-align: center; padding: 0.55rem 0.25rem;" title="Total Unidades">Uds.</th>
+                <th style="width: 95px; min-width: 85px; padding: 0.55rem 0.35rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
+                    <span>Estado</span>
+                    <i id="wms-filter-icon-status" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'status', 'Estado Origen')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <th style="width: 125px; min-width: 115px; padding: 0.55rem 0.35rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
                     <span>Estado WMS</span>
-                    <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                    <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th>
-                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <span>Facturación</span>
-                    <i id="wms-filter-icon-periodo_facturacion" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'periodo_facturacion', 'Facturación')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                <th style="width: 85px; min-width: 78px; text-align: center; padding: 0.55rem 0.35rem;">
+                  <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem;">
+                    <span>Factura</span>
+                    <i id="wms-filter-icon-periodo_facturacion" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'periodo_facturacion', 'Facturación')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
               </tr>
@@ -4721,7 +4721,7 @@ async function renderAdminOrders() {
         if (tbody) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="13" style="text-align: center; padding: 3rem;">
+              <td colspan="14" style="text-align: center; padding: 3rem;">
                 <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
                   <style>
                     @keyframes wms-spin {
@@ -4751,7 +4751,7 @@ async function renderAdminOrders() {
           if (tbody) {
             tbody.innerHTML = `
               <tr>
-                <td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">
+                <td colspan="14" style="text-align: center; padding: 2rem; color: var(--color-red);">
                   Error al buscar pedidos: ${err.message}
                 </td>
               </tr>
@@ -5276,7 +5276,7 @@ window.applyWmsFiltersAndRender = function() {
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Logística Inversa' ? '#0284c7' : (platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))))));
     const platformLower = (platform.toLowerCase() === 'manual' || platform.toLowerCase() === 'logística inversa') ? 'stocka.cap' : platform.toLowerCase();
-    const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; white-space: nowrap;\\'>${platform}</span>';" />`;
+    const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 24px; max-width: 75px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; white-space: nowrap;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
@@ -5482,8 +5482,8 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.external_order_number}">${order.external_order_number}</span> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.id}">${order.id.split('-')[0]}</span></div>`;
 
     // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
     const orderCourierUpper = (order.courier || '').toUpperCase().trim();
@@ -5789,12 +5789,14 @@ window.applyWmsFiltersAndRender = function() {
               ${item.sku}
               ${campaignBadgeHtml}
             </td>
-            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
-              ${item.name}<br>
-              <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+              <span style="font-weight: 500;">${item.name}</span><br>
+              <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
+                <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+                ${window.getItemProcessingStatusBadge(order, item.sku, item.name)}
+              </div>
             </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
-            <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, item.sku, item.name)}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
@@ -5807,9 +5809,14 @@ window.applyWmsFiltersAndRender = function() {
       itemsRowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
-          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">${order.item || 'Sin Nombre'}</td>
+          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
+            <span style="font-weight: 500;">${order.item || 'Sin Nombre'}</span><br>
+            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.2rem; flex-wrap: wrap;">
+              <small style="color: var(--color-text-muted); font-size: 0.725rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-store-2-line"></i> Bodega Central</small>
+              ${window.getItemProcessingStatusBadge(order, order.sku, order.item)}
+            </div>
+          </td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
-          <td style="padding: 0.5rem; text-align: center;">${window.getItemProcessingStatusBadge(order, order.sku, order.item)}</td>
           <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
@@ -5871,7 +5878,7 @@ window.applyWmsFiltersAndRender = function() {
 
     const agendaSelectHtml = `
       <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" 
-              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 85px; max-width: 110px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 65px; max-width: 82px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
               title="Cambiar agenda de este pedido">
         <option value="">-</option>
         ${tempAgendas.map(opt => `<option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>`).join('')}
@@ -5880,7 +5887,7 @@ window.applyWmsFiltersAndRender = function() {
 
     const operadorSelectHtml = `
       <select onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" 
-              style="padding: 0.25rem 0.35rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; max-width: 120px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
+              style="padding: 0.18rem 0.25rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 70px; max-width: 88px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main); font-family: Outfit, sans-serif; text-align: center;"
               title="Cambiar operador de este pedido">
         <option value="">-</option>
         ${tempOperadores.map(opt => `<option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>`).join('')}
@@ -5892,14 +5899,14 @@ window.applyWmsFiltersAndRender = function() {
              placeholder="DD-MM" 
              value="${order.fecha_procesamiento || ''}" 
              onchange="window.updateWmsOrderField('${order.id}', 'fecha_procesamiento', this.value)" 
-             style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 60px; text-align: center; background: var(--color-surface); color: var(--color-text-main);" 
+             style="padding: 0.18rem 0.2rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 50px; text-align: center; background: var(--color-surface); color: var(--color-text-main);" 
              maxlength="5" />
     `;
 
     const pColor = window.getPeriodColor(order.periodo_facturacion);
     const periodHtml = order.periodo_facturacion 
-      ? `<span onclick="window.changeOrderBillingPeriod('${order.id}', '${order.periodo_facturacion}')" style="background-color: ${pColor.bg}; color: ${pColor.text}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; cursor: pointer; border: 1px solid ${pColor.text}33; display: inline-block; transition: all 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" title="Editar periodo de facturación">${order.periodo_facturacion}</span>`
-      : `<button onclick="window.changeOrderBillingPeriod('${order.id}', '')" style="background: transparent; border: 1px dashed var(--color-border); color: var(--color-text-muted); padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 500; cursor: pointer; transition: all 0.2s; outline: none;" onmouseover="this.style.borderColor='var(--color-primary)'; this.style.color='var(--color-primary)';" onmouseout="this.style.borderColor='var(--color-border)'; this.style.color='var(--color-text-muted)';">+ Asignar</button>`;
+      ? `<span onclick="window.changeOrderBillingPeriod('${order.id}', '${order.periodo_facturacion}')" style="background-color: ${pColor.bg}; color: ${pColor.text}; padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); font-size: 0.72rem; font-weight: 700; cursor: pointer; border: 1px solid ${pColor.text}33; display: inline-block; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" title="Editar periodo de facturación">${order.periodo_facturacion}</span>`
+      : `<button onclick="window.changeOrderBillingPeriod('${order.id}', '')" style="background: transparent; border: 1px dashed var(--color-border); color: var(--color-text-muted); padding: 0.12rem 0.3rem; border-radius: var(--radius-sm); font-size: 0.68rem; font-weight: 500; cursor: pointer; white-space: nowrap; transition: all 0.2s; outline: none;" onmouseover="this.style.borderColor='var(--color-primary)'; this.style.color='var(--color-primary)';" onmouseout="this.style.borderColor='var(--color-border)'; this.style.color='var(--color-text-muted)';">+ Asignar</button>`;
 
     // Obtener estado original de la plataforma
     let originalPlatformStatusHtml = '';
@@ -5949,49 +5956,49 @@ window.applyWmsFiltersAndRender = function() {
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row ${isInitiallyExpanded ? 'expanded' : ''}" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
-          <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+          <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
         </td>
-        <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
+        <td style="cursor: pointer; text-align: center; font-size: 1.1rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
           <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block; transform: ${isInitiallyExpanded ? 'rotate(90deg)' : 'rotate(0deg)'};"></i>
         </td>
         <td>${orderDisplayId}</td>
-        <td>
-          <div style="display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-start;">
-            <span><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></span>
-            <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;" title="Sucursal de Destino / Pickeo">
-              <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
+        <td style="max-width: 120px;">
+          <div style="display: flex; flex-direction: column; gap: 0.15rem; align-items: flex-start; overflow: hidden;">
+            <span style="max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></span>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Sucursal de Destino / Pickeo">
+              <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.8rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
             </span>
           </div>
         </td>
-        <td>${originHtml}</td>
+        <td style="text-align: center;">${originHtml}</td>
         <td>
-          <div style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.8rem; white-space:nowrap; font-weight:500;">
-            <span style="display: flex; align-items: center; gap: 0.25rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> ${datePart}</span>
-            <span style="display: flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);"><i class="ri-alarm-line" style="color: var(--color-danger); font-size: 0.9rem;"></i> ${timePart}</span>
+          <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.75rem; white-space:nowrap; font-weight:500;">
+            <span style="display: flex; align-items: center; gap: 0.2rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${datePart}</span>
+            <span style="display: flex; align-items: center; gap: 0.2rem; color: var(--color-text-muted);"><i class="ri-alarm-line" style="color: var(--color-danger); font-size: 0.85rem;"></i> ${timePart}</span>
           </div>
         </td>
         <td>${fechaProcHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
-        <td>
-          <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.8rem; white-space:nowrap;">
-            <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
-            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
+        <td style="max-width: 135px;">
+          <div style="display:flex; flex-direction:column; gap:0.1rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
+            <span style="font-weight:600; color:var(--color-text-main); max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
+            <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
               ${order.shipping_city || 'Por definir'}
               ${!window.isChileComuna(order.shipping_city) ? `
-                <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.9rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
+                <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
               ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
-                <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
+                <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.85rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
               ` : '')}
             </span>
           </div>
         </td>
-        <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 1rem;">${qtyStr}</strong></td>
+        <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong></td>
         <td>
-          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${isReturned ? 'devolución' : order.status}</span>
+          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.15rem 0.5rem; border-radius:99px; font-size:0.7rem; font-weight:700; white-space:nowrap; display:inline-block;">${isReturned ? 'devolución' : order.status}</span>
         </td>
         <td>
-          <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.825rem; width: auto; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+          <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.2rem 0.35rem; font-size: 0.78rem; width: 100%; min-width: 110px; max-width: 125px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
             <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
             <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
             <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
@@ -6011,27 +6018,37 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
-        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
-          <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <td colspan="14" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.25rem;">
             
             <!-- Fila superior: 3 Columnas de Información -->
-            <div class="order-detail-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+            <div class="order-detail-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
               
               <!-- Col 1: Datos del Cliente y Despacho -->
-              <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
                 <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
                   <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-user-line"></i> Datos de Despacho</span>
                   <button onclick="window.editWmsOrderShippingDetails('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                     <i class="ri-edit-line"></i> Editar
                   </button>
                 </h4>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
-                  <strong>Dirección:</strong> <span>${order.shipping_address || 'No registrada'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}</span>${window.renderCopyFieldBtn(shippingFullAddress, 'Dirección')}
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-user-line" title="Nombre Cliente" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                  <span>${displayName}</span>${window.renderCopyFieldBtn(displayName, 'Nombre')}
                 </p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-mail-line" title="Email" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                  <span>${displayEmail}</span>${window.renderCopyFieldBtn(displayEmail, 'Email')}
+                </p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-phone-line" title="Teléfono" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                  <span>${displayPhone}</span>${window.renderCopyFieldBtn(displayPhone, 'Teléfono')}
+                </p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4; display: flex; align-items: flex-start; gap: 0.4rem;">
+                  <i class="ri-map-pin-line" title="Dirección" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0; margin-top: 0.15rem;"></i>
+                  <span>${order.shipping_address || 'No registrada'}${order.shipping_complement ? `, ${order.shipping_complement}` : ''}</span>${window.renderCopyFieldBtn(shippingFullAddress, 'Dirección')}
+                </p>
+                <p style="margin-bottom: 0.65rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
                   <strong>Ciudad/Comuna:</strong> 
                   <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
                   ${window.renderCopyFieldBtn(order.shipping_city || comuna_destino, 'Comuna')}
@@ -6040,9 +6057,20 @@ window.applyWmsFiltersAndRender = function() {
                     <i class="ri-edit-line"></i> Editar
                   </button>
                 </p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Categoría:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span></p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;"><strong>Pago:</strong> ${window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(order) : order.payment_status}</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.4rem; margin-bottom: 0.65rem; background: var(--color-bg); padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                  <div>
+                    <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Método Envío</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.shipping_method || 'Por definir'}</span>
+                  </div>
+                  <div>
+                    <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Categoría</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span>
+                  </div>
+                  <div>
+                    <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Pago</span>
+                    <div style="margin-top: 0.1rem;">${window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(order) : order.payment_status}</div>
+                  </div>
+                </div>
 
                 <!-- Notas del Pedido -->
                 <div style="margin-top: 0.65rem; margin-bottom: 0.5rem; background: ${orderNote ? 'rgba(245, 158, 11, 0.08)' : 'var(--color-bg)'}; border: 1px solid ${orderNote ? 'rgba(245, 158, 11, 0.3)' : 'var(--color-border)'}; border-left: 3px solid ${orderNote ? '#f59e0b' : 'var(--color-text-muted)'}; padding: 0.5rem 0.65rem; border-radius: var(--radius-sm);">
@@ -6099,7 +6127,7 @@ window.applyWmsFiltersAndRender = function() {
               </div>
 
               <!-- Col 2: Desglose de Productos -->
-              <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
                 <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
                   <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-basket-2-line"></i> Ítems del Pedido</span>
                   <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
@@ -6122,7 +6150,6 @@ window.applyWmsFiltersAndRender = function() {
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
-                        <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Estado</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
@@ -6133,7 +6160,7 @@ window.applyWmsFiltersAndRender = function() {
                     </tbody>
                     <tfoot>
                       <tr style="border-top: 2px solid var(--color-border); font-weight: 700;">
-                        <td colspan="6" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
+                        <td colspan="5" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
                         <td style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(order.total_value)}</td>
                       </tr>
                     </tfoot>
@@ -6151,7 +6178,7 @@ window.applyWmsFiltersAndRender = function() {
               </div>
 
               <!-- Col 3: Integración y Logística (Diseño Premium Dinámico) -->
-              <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.2rem;">
+              <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.9rem;">
                 <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
                   <i class="ri-git-repository-commits-line" style="font-size: 1.1rem;"></i> Integración y Despacho
                 </h4>
