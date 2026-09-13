@@ -2934,6 +2934,9 @@ async function init() {
           } else if (view === 'inventory_admin') {
             viewTitle.textContent = 'Inventario';
             renderAdminInventory();
+          } else if (view === 'movements_admin') {
+            viewTitle.textContent = 'Trazabilidad y Movimientos de Stock';
+            renderAdminMovements();
           } else if (view === 'consolidated_shipments') {
             viewTitle.textContent = 'Envíos Consolidados';
             renderConsolidatedShipments();
@@ -3052,7 +3055,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'tickets_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'tickets_admin' || view === 'movements_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -6613,14 +6616,50 @@ window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
     const orderNo = order.external_order_number || (`#${order.id.split('-')[0]}`);
     const comercio = order.comercio || 'Comercio';
     const customer = order.customer_name || 'Sin cliente registrado';
-    const city = order.shipping_city || '';
+    const shippingMethod = order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || 'Por definir';
+    const shippingCity = order.shipping_city || order.raw_shopify_data?.shipping_address?.city || 'Por definir';
+    const city = shippingCity;
     const currentAgenda = order.agenda 
       ? `<span style="background: rgba(255,152,0,0.12); color: #b45309; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Agenda actual"><i class="ri-calendar-line"></i> ${window.escapeHtml(order.agenda)}</span>` 
       : '<span style="color: var(--color-text-muted, #94a3b8); font-size: 0.68rem;"><i class="ri-calendar-line"></i> Sin agenda</span>';
     const currentOp = order.operador 
       ? `<span style="background: rgba(0,188,212,0.12); color: #0e7490; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Operador actual"><i class="ri-truck-line"></i> ${window.escapeHtml(order.operador)}</span>` 
       : '<span style="color: var(--color-text-muted, #94a3b8); font-size: 0.68rem;"><i class="ri-truck-line"></i> Sin operador</span>';
+    const currentSucursal = order.sucursal_pickeo
+      ? `<span style="background: rgba(147,51,234,0.12); color: #7e22ce; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Sucursal actual"><i class="ri-store-2-line"></i> ${window.escapeHtml(order.sucursal_pickeo)}</span>`
+      : '';
+    const currentFecha = order.fecha_procesamiento
+      ? `<span style="background: rgba(16,185,129,0.12); color: #047857; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Fecha de procesamiento"><i class="ri-time-line"></i> ${window.escapeHtml(order.fecha_procesamiento)}</span>`
+      : '';
     const qty = Number(order.cantidad) || (order.order_items ? order.order_items.reduce((s, it) => s + (Number(it.quantity) || 1), 0) : 1);
+
+    let itemsDetailHtml = '';
+    if (selectedOrders.length === 1 && order.order_items && order.order_items.length > 0) {
+      itemsDetailHtml = `
+        <div style="margin-top: 0.45rem; padding-top: 0.4rem; border-top: 1px dashed var(--color-border, #e2e8f0); display: flex; flex-direction: column; gap: 0.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.68rem; font-weight: 700; color: var(--color-text-muted, #64748b); text-transform: uppercase; letter-spacing: 0.3px;">Ítems del Pedido (${order.order_items.length}):</span>
+            <span style="font-size: 0.68rem; color: var(--color-text-muted, #64748b); font-weight: 600;">Total: ${qty} un.</span>
+          </div>
+          <div style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.25rem; padding-right: 2px;">
+            ${order.order_items.map(item => {
+              const pName = item.products?.name || item.name || 'Producto';
+              const pSku = item.products?.sku || item.sku || 'Sin SKU';
+              const iQty = item.quantity || 1;
+              return `
+                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 0.25rem 0.45rem; border-radius: 4px; font-size: 0.72rem; gap: 0.5rem; border: 1px solid rgba(0,0,0,0.04);">
+                  <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px;" title="${window.escapeHtml(pName)}">
+                    <span style="font-family: monospace; font-weight: 700; color: var(--color-primary, #4f46e5);">${window.escapeHtml(pSku)}</span>
+                    <span style="color: var(--color-text-muted, #64748b); margin-left: 4px;">${window.escapeHtml(pName)}</span>
+                  </div>
+                  <span style="font-weight: 700; color: var(--color-text-main, #1e293b); white-space: nowrap;">x${iQty}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
 
     return `
       <div class="bulk-order-summary-item" style="background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03); display: flex; flex-direction: column; gap: 0.2rem;">
@@ -6633,22 +6672,35 @@ window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
           </span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted, #64748b); font-size: 0.72rem; gap: 0.5rem;">
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;" title="${window.escapeHtml(customer)}">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;" title="Cliente: ${window.escapeHtml(customer)}">
             <i class="ri-user-3-line" style="font-size: 0.72rem;"></i> ${window.escapeHtml(customer)}
           </span>
-          <span style="white-space: nowrap; font-size: 0.7rem; color: var(--color-text-muted, #64748b);">
-            ${city ? `<i class="ri-map-pin-line"></i> ${window.escapeHtml(city)}` : ''}
+          ${order.shipping_address ? `
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; font-size: 0.68rem;" title="Dirección: ${window.escapeHtml(order.shipping_address)}">
+              ${window.escapeHtml(order.shipping_address)}
+            </span>
+          ` : ''}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.15); border-radius: 4px; padding: 0.22rem 0.45rem; font-size: 0.72rem; margin: 1px 0;">
+          <span style="font-weight: 600; color: #4338ca; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 175px; display: inline-flex; align-items: center; gap: 0.25rem;" title="Método de Envío: ${window.escapeHtml(shippingMethod)}">
+            <i class="ri-truck-line" style="font-size: 0.75rem;"></i> ${window.escapeHtml(shippingMethod)}
+          </span>
+          <span style="font-weight: 700; color: #0f172a; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.25rem;" title="Comuna: ${window.escapeHtml(shippingCity)}">
+            <i class="ri-map-pin-line" style="color: #ef4444; font-size: 0.75rem;"></i> ${window.escapeHtml(shippingCity)}
           </span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; margin-top: 1px; border-top: 1px dashed var(--color-border, #e2e8f0); padding-top: 3px;">
           <div style="display: flex; gap: 0.25rem; align-items: center; flex-wrap: wrap;">
             ${currentAgenda}
             ${currentOp}
+            ${currentSucursal}
+            ${currentFecha}
           </div>
           <span style="font-weight: 700; color: var(--color-text-main, #334155); font-size: 0.7rem; white-space: nowrap;">
             ${qty} un.
           </span>
         </div>
+        ${itemsDetailHtml}
       </div>
     `;
   }).join('');
@@ -6658,7 +6710,7 @@ window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--color-border, #e2e8f0);">
         <div style="display: flex; align-items: center; gap: 0.35rem; font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">
           <i class="ri-file-list-3-line" style="color: var(--color-primary, #6366f1);"></i>
-          <span>Pedidos a asignar (${selectedOrders.length})</span>
+          <span>${selectedOrders.length === 1 ? 'Resumen del pedido' : `Pedidos a asignar (${selectedOrders.length})`}</span>
         </div>
         <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">
           ${totalUnits} unidades
@@ -6679,6 +6731,82 @@ window.filterBulkModalSummary = function(term) {
     const text = el.textContent.toLowerCase();
     el.style.display = !q || text.includes(q) ? '' : 'none';
   });
+};
+
+window.toggleBulkDispKeepPicking = function(checked) {
+  const fields = ['swal-bulk-disp-operador', 'swal-bulk-disp-agenda', 'swal-bulk-disp-fecha-proc'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = checked;
+      el.style.opacity = checked ? '0.45' : '1';
+      el.style.pointerEvents = checked ? 'none' : 'auto';
+      el.style.backgroundColor = checked ? 'rgba(0, 0, 0, 0.05)' : '';
+    }
+  });
+  const opWarn = document.getElementById('swal-bulk-disp-operador-warning');
+  const agWarn = document.getElementById('swal-bulk-disp-agenda-warning');
+  if (checked) {
+    if (opWarn) opWarn.style.display = 'none';
+    if (agWarn) agWarn.style.display = 'none';
+  }
+};
+
+window.toggleBulkPrepKeepPicking = function(checked) {
+  const fields = ['swal-bulk-agenda', 'swal-bulk-operador', 'swal-bulk-fecha-proc'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = checked;
+      el.style.opacity = checked ? '0.45' : '1';
+      el.style.pointerEvents = checked ? 'none' : 'auto';
+      el.style.backgroundColor = checked ? 'rgba(0, 0, 0, 0.05)' : '';
+    }
+  });
+  const agWarn = document.getElementById('swal-bulk-agenda-warning');
+  const opWarn = document.getElementById('swal-bulk-operador-warning');
+  if (checked) {
+    if (agWarn) agWarn.style.display = 'none';
+    if (opWarn) opWarn.style.display = 'none';
+  }
+};
+
+window.toggleSingleDispKeepPicking = function(checked) {
+  const fields = ['swal-single-disp-operador', 'swal-single-disp-agenda', 'swal-single-disp-fecha-proc'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = checked;
+      el.style.opacity = checked ? '0.45' : '1';
+      el.style.pointerEvents = checked ? 'none' : 'auto';
+      el.style.backgroundColor = checked ? 'rgba(0, 0, 0, 0.05)' : '';
+    }
+  });
+  const opWarn = document.getElementById('swal-single-disp-operador-warning');
+  const agWarn = document.getElementById('swal-single-disp-agenda-warning');
+  if (checked) {
+    if (opWarn) opWarn.style.display = 'none';
+    if (agWarn) agWarn.style.display = 'none';
+  }
+};
+
+window.toggleSinglePrepKeepPicking = function(checked) {
+  const fields = ['swal-agenda', 'swal-operador', 'swal-fecha-proc'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = checked;
+      el.style.opacity = checked ? '0.45' : '1';
+      el.style.pointerEvents = checked ? 'none' : 'auto';
+      el.style.backgroundColor = checked ? 'rgba(0, 0, 0, 0.05)' : '';
+    }
+  });
+  const agWarn = document.getElementById('swal-agenda-warning');
+  const opWarn = document.getElementById('swal-operador-warning');
+  if (checked) {
+    if (agWarn) agWarn.style.display = 'none';
+    if (opWarn) opWarn.style.display = 'none';
+  }
 };
 
 window.applyBulkWmsStatus = async function() {
@@ -6715,8 +6843,20 @@ window.applyBulkWmsStatus = async function() {
         <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
           <!-- Columna Izquierda: Formulario de Asignación -->
           <div style="flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column;">
-            <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Los <strong>${ids.length}</strong> pedidos seleccionados se enviarán al Picker.</p>
+            <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">Los <strong>${ids.length}</strong> pedidos seleccionados se enviarán al Picker.</p>
             
+            <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+                <input type="checkbox" id="swal-bulk-prep-keep-picking" style="margin-top: 0.15rem; width: 17px; height: 17px; accent-color: var(--color-primary, #6366f1); cursor: pointer;" onchange="window.toggleBulkPrepKeepPicking(this.checked)">
+                <div>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
+                    No sobreescribir Agenda, Operador ni Fecha de cada pedido al enviar a preparación.
+                  </span>
+                </div>
+              </label>
+            </div>
+
             <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
             <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
               <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
@@ -6754,6 +6894,8 @@ window.applyBulkWmsStatus = async function() {
         if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
         const opInput = document.getElementById('swal-bulk-operador');
         if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+        const keepCb = document.getElementById('swal-bulk-prep-keep-picking');
+        if (keepCb && keepCb.checked) window.toggleBulkPrepKeepPicking(true);
       },
       focusConfirm: false,
       showCancelButton: true,
@@ -6761,6 +6903,12 @@ window.applyBulkWmsStatus = async function() {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-bulk-sucursal').value;
+        const keepPicking = document.getElementById('swal-bulk-prep-keep-picking')?.checked;
+
+        if (keepPicking) {
+          return { keepPicking: true, sucursal };
+        }
+
         const agendaInput = document.getElementById('swal-bulk-agenda').value;
         const operadorInput = document.getElementById('swal-bulk-operador').value;
         const fechaProcInput = document.getElementById('swal-bulk-fecha-proc').value.trim();
@@ -6802,7 +6950,7 @@ window.applyBulkWmsStatus = async function() {
           }
         }
 
-        return { sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc: fechaProcInput };
+        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc: fechaProcInput };
       }
     });
 
@@ -6819,6 +6967,9 @@ window.applyBulkWmsStatus = async function() {
       const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
       if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
+      const effectiveSucursal = (formValues.keepPicking && order.sucursal_pickeo) ? order.sucursal_pickeo : formValues.sucursal;
+      const orderWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
+
       (order.order_items || []).forEach(item => {
         if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
           allItemsToCheck.push({
@@ -6827,7 +6978,7 @@ window.applyBulkWmsStatus = async function() {
             comercio: order.comercio,
             merchant_id: order.merchant_id,
             product_id: item.product_id,
-            warehouse_id: targetWarehouseId,
+            warehouse_id: orderWarehouseId,
             quantity: item.quantity,
             sku: item.products?.sku || 'Sin SKU',
             name: item.products?.name || 'Producto'
@@ -6957,53 +7108,100 @@ window.applyBulkWmsStatus = async function() {
         didOpen: () => { Swal.showLoading(); }
       });
 
-      // 1. Actualizar en WMS
-      const updatePayload = {
-        estado_wms: 'En preparación',
-        sucursal_pickeo: formValues.sucursal,
-        agenda: formValues.agenda
-      };
-      if (formValues.operador) {
-        updatePayload.operador = formValues.operador;
-      }
-      if (formValues.fechaProc) {
-        updatePayload.fecha_procesamiento = formValues.fechaProc;
-      }
-
-      // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos PRIMERO
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .update({ warehouse_id: targetWarehouseId })
-        .in('order_id', ids);
-
-      if (itemsErr) {
-        console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
-      }
-
-      // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
-      const { error: wmsErr } = await supabase
-        .from('orders')
-        .update(updatePayload)
-        .in('id', ids);
-
-      if (wmsErr) throw wmsErr;
-
-      // 2. Enviar a Picker de forma masiva
       const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
-      for (const order of successOrders) {
-        order.estado_wms = 'En preparación';
-        order.sucursal_pickeo = formValues.sucursal;
-        order.agenda = formValues.agenda;
+
+      if (formValues.keepPicking) {
+        // 1. Modo: Conservar datos de picking existentes de cada pedido
+        for (const order of successOrders) {
+          order.estado_wms = 'En preparación';
+          if (!order.sucursal_pickeo) {
+            order.sucursal_pickeo = formValues.sucursal;
+          }
+          if (!order.agenda) {
+            order.agenda = 'STK';
+          }
+          if (!order.fecha_procesamiento) {
+            order.fecha_procesamiento = todayDDMM;
+          }
+
+          const effWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+          (order.order_items || []).forEach(item => {
+            item.warehouse_id = effWarehouseId;
+          });
+
+          // Actualizar bodega de items en base de datos
+          const { error: itemErr } = await supabase
+            .from('order_items')
+            .update({ warehouse_id: effWarehouseId })
+            .eq('order_id', order.id);
+          if (itemErr) {
+            console.error('Error al actualizar bodega de items para orden:', order.id, itemErr);
+          }
+
+          // Actualizar orden en WMS conservando sus datos individuales
+          const { error: wmsErr } = await supabase
+            .from('orders')
+            .update({
+              estado_wms: 'En preparación',
+              sucursal_pickeo: order.sucursal_pickeo,
+              agenda: order.agenda,
+              fecha_procesamiento: order.fecha_procesamiento
+            })
+            .eq('id', order.id);
+
+          if (wmsErr) throw wmsErr;
+
+          // Enviar a Picker con sus datos intactos
+          await window.sendSingleOrderToPicker(order);
+        }
+      } else {
+        // 1. Actualizar en WMS con valores del formulario
+        const updatePayload = {
+          estado_wms: 'En preparación',
+          sucursal_pickeo: formValues.sucursal,
+          agenda: formValues.agenda
+        };
         if (formValues.operador) {
-          order.operador = formValues.operador;
+          updatePayload.operador = formValues.operador;
         }
         if (formValues.fechaProc) {
-          order.fecha_procesamiento = formValues.fechaProc;
+          updatePayload.fecha_procesamiento = formValues.fechaProc;
         }
-        (order.order_items || []).forEach(item => {
-          item.warehouse_id = targetWarehouseId;
-        });
-        await window.sendSingleOrderToPicker(order);
+
+        // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos PRIMERO
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .update({ warehouse_id: targetWarehouseId })
+          .in('order_id', ids);
+
+        if (itemsErr) {
+          console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
+        }
+
+        // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update(updatePayload)
+          .in('id', ids);
+
+        if (wmsErr) throw wmsErr;
+
+        // 2. Enviar a Picker de forma masiva
+        for (const order of successOrders) {
+          order.estado_wms = 'En preparación';
+          order.sucursal_pickeo = formValues.sucursal;
+          order.agenda = formValues.agenda;
+          if (formValues.operador) {
+            order.operador = formValues.operador;
+          }
+          if (formValues.fechaProc) {
+            order.fecha_procesamiento = formValues.fechaProc;
+          }
+          (order.order_items || []).forEach(item => {
+            item.warehouse_id = targetWarehouseId;
+          });
+          await window.sendSingleOrderToPicker(order);
+        }
       }
 
       if (failedOrders.size > 0) {
@@ -7053,8 +7251,20 @@ window.applyBulkWmsStatus = async function() {
           <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
             <!-- Columna Izquierda: Formulario -->
             <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
-              <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Se marcarán como <strong>Despachado</strong> los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+              <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">Se marcarán como <strong>Despachado</strong> los <strong>${ids.length}</strong> pedidos seleccionados.</p>
               
+              <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
+                <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+                  <input type="checkbox" id="swal-bulk-disp-keep-picking" style="margin-top: 0.15rem; width: 17px; height: 17px; accent-color: var(--color-primary, #6366f1); cursor: pointer;" onchange="window.toggleBulkDispKeepPicking(this.checked)">
+                  <div>
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
+                      No sobreescribir Agenda, Operador ni Fecha de Procesamiento de cada pedido. Solo cambiar estado a Despachado.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
               <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
               <input id="swal-bulk-disp-operador" list="swal-bulk-disp-operador-list" class="swal2-input" type="text" value="${defaultOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
               <datalist id="swal-bulk-disp-operador-list">
@@ -7084,6 +7294,8 @@ window.applyBulkWmsStatus = async function() {
           if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
           const agInput = document.getElementById('swal-bulk-disp-agenda');
           if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+          const keepCb = document.getElementById('swal-bulk-disp-keep-picking');
+          if (keepCb && keepCb.checked) window.toggleBulkDispKeepPicking(true);
         },
         focusConfirm: false,
         showCancelButton: true,
@@ -7091,6 +7303,11 @@ window.applyBulkWmsStatus = async function() {
         confirmButtonColor: '#059669',
         cancelButtonText: 'Cancelar',
         preConfirm: () => {
+          const keepPicking = document.getElementById('swal-bulk-disp-keep-picking')?.checked;
+          if (keepPicking) {
+            return { keepPicking: true };
+          }
+
           const operadorInput = document.getElementById('swal-bulk-disp-operador').value;
           const agendaInput = document.getElementById('swal-bulk-disp-agenda').value;
           const fechaProcInput = document.getElementById('swal-bulk-disp-fecha-proc').value.trim();
@@ -7120,7 +7337,7 @@ window.applyBulkWmsStatus = async function() {
               return false;
             }
           }
-          return { operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
+          return { keepPicking: false, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
         }
       });
 
@@ -7148,9 +7365,11 @@ window.applyBulkWmsStatus = async function() {
           estado_wms: 'Despachado',
           status: 'despachado'
         };
-        if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
-        if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
-        if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+        if (!dispatchFormValues.keepPicking) {
+          if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
+          if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
+          if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+        }
 
         const { error } = await supabase
           .from('orders')
@@ -7165,9 +7384,11 @@ window.applyBulkWmsStatus = async function() {
             if (order) {
               order.estado_wms = 'Despachado';
               order.status = 'despachado';
-              if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
-              if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
-              if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+              if (!dispatchFormValues.keepPicking) {
+                if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
+                if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
+                if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+              }
             }
           });
         }
@@ -7885,34 +8106,66 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
     const { value: formValues } = await Swal.fire({
       title: 'Preparación de Pedido: Datos requeridos',
+      width: '820px',
       html: `
-        <div style="text-align: left; font-size: 0.9rem;">
-          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">El pedido se enviará al sistema Picker para su preparación. Se requiere especificar la agenda y la fecha de procesamiento.</p>
-          
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
-          <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
-            <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
-            <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
-            <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
-          </select>
-          
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-          <datalist id="swal-agenda-list">
-            ${agendaDatalistHtml}
-          </datalist>
-          <div id="swal-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+        <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+          <!-- Columna Izquierda: Formulario de Asignación -->
+          <div style="flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column;">
+            <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">El pedido se enviará al sistema Picker para su preparación.</p>
+            
+            <div style="background: rgba(241, 245, 249, 0.85); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.45rem 0.65rem; margin-bottom: 0.65rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.2rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: var(--color-text-muted, #64748b); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-truck-line" style="color: var(--color-primary, #6366f1);"></i> Método de Envío:</span>
+                <span style="font-weight: 700; color: var(--color-text-main, #0f172a); font-size: 0.8rem;">${window.escapeHtml(order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || 'Por definir')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: var(--color-text-muted, #64748b); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-map-pin-line" style="color: #ef4444;"></i> Comuna:</span>
+                <span style="font-weight: 700; color: var(--color-text-main, #0f172a); font-size: 0.8rem;">${window.escapeHtml(order.shipping_city || order.raw_shopify_data?.shipping_address?.city || 'Por definir')}</span>
+              </div>
+            </div>
 
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-          <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-          <datalist id="swal-operador-list">
-            ${operadorDatalistHtml}
-          </datalist>
-          <div id="swal-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+            <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+                <input type="checkbox" id="swal-single-prep-keep-picking" style="margin-top: 0.15rem; width: 17px; height: 17px; accent-color: var(--color-primary, #6366f1); cursor: pointer;" onchange="window.toggleSinglePrepKeepPicking(this.checked)">
+                <div>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
+                    No sobreescribir Agenda, Operador ni Fecha del pedido al enviar a preparación.
+                  </span>
+                </div>
+              </label>
+            </div>
 
-          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
-          <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+            <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+              <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+              <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+              <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+            </select>
+            
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
+            <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <datalist id="swal-agenda-list">
+              ${agendaDatalistHtml}
+            </datalist>
+            <div id="swal-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
+            <input id="swal-operador" list="swal-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <datalist id="swal-operador-list">
+              ${operadorDatalistHtml}
+            </datalist>
+            <div id="swal-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Fecha de Procesamiento (DD-MM)</label>
+            <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;" maxlength="5">
+          </div>
+
+          <!-- Columna Derecha: Listado Resumen de Pedidos -->
+          <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+            ${window.renderBulkOrdersSummaryListHtml([order])}
+          </div>
         </div>
       `,
       didOpen: () => {
@@ -7920,6 +8173,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
         const opInput = document.getElementById('swal-operador');
         if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
+        const keepCb = document.getElementById('swal-single-prep-keep-picking');
+        if (keepCb && keepCb.checked) window.toggleSinglePrepKeepPicking(true);
       },
       focusConfirm: false,
       showCancelButton: true,
@@ -7927,6 +8182,12 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-sucursal').value;
+        const keepPicking = document.getElementById('swal-single-prep-keep-picking')?.checked;
+
+        if (keepPicking) {
+          return { keepPicking: true, sucursal };
+        }
+
         const agendaInput = document.getElementById('swal-agenda').value;
         const operadorInput = document.getElementById('swal-operador').value;
         const fechaProc = document.getElementById('swal-fecha-proc').value.trim();
@@ -7960,7 +8221,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return false;
         }
 
-        return { sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc };
+        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc };
       }
     });
 
@@ -7969,7 +8230,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       return;
     }
 
-    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const effectiveSucursal = (formValues.keepPicking && order.sucursal_pickeo) ? order.sucursal_pickeo : formValues.sucursal;
+    const targetWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
 
     // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
@@ -8067,51 +8329,89 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         didOpen: () => { Swal.showLoading(); }
       });
 
-      // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos PRIMERO
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .update({ warehouse_id: targetWarehouseId })
-        .eq('order_id', orderId);
+      if (formValues.keepPicking) {
+        order.estado_wms = 'En preparación';
+        if (!order.sucursal_pickeo) order.sucursal_pickeo = formValues.sucursal;
+        if (!order.agenda) order.agenda = 'STK';
+        if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
 
-      if (itemsErr) {
-        console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
+        const effWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+        (order.order_items || []).forEach(item => {
+          item.warehouse_id = effWarehouseId;
+        });
+
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .update({ warehouse_id: effWarehouseId })
+          .eq('order_id', orderId);
+
+        if (itemsErr) {
+          console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
+        }
+
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update({
+            estado_wms: 'En preparación',
+            sucursal_pickeo: order.sucursal_pickeo,
+            agenda: order.agenda,
+            fecha_procesamiento: order.fecha_procesamiento
+          })
+          .eq('id', orderId);
+
+        if (wmsErr) throw wmsErr;
+
+        await window.sendSingleOrderToPicker(order);
+
+        Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente conservando sus datos.', 'success');
+        applyWmsFiltersAndRender();
+      } else {
+        // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos PRIMERO
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .update({ warehouse_id: targetWarehouseId })
+          .eq('order_id', orderId);
+
+        if (itemsErr) {
+          console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
+        }
+
+        // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
+        const updateData = {
+          estado_wms: 'En preparación',
+          sucursal_pickeo: formValues.sucursal,
+          agenda: formValues.agenda,
+          fecha_procesamiento: formValues.fechaProc
+        };
+        if (formValues.operador) {
+          updateData.operador = formValues.operador;
+        }
+
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update(updateData)
+          .eq('id', orderId);
+
+        if (wmsErr) throw wmsErr;
+
+        // Actualizar memoria local
+        order.estado_wms = 'En preparación';
+        order.sucursal_pickeo = formValues.sucursal;
+        order.agenda = formValues.agenda;
+        if (formValues.operador) {
+          order.operador = formValues.operador;
+        }
+        order.fecha_procesamiento = formValues.fechaProc;
+        (order.order_items || []).forEach(item => {
+          item.warehouse_id = targetWarehouseId;
+        });
+
+        // 2. Insertar en Picker active_orders
+        await window.sendSingleOrderToPicker(order);
+
+        Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente.', 'success');
+        applyWmsFiltersAndRender();
       }
-
-      // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
-      const updateData = {
-        estado_wms: 'En preparación',
-        sucursal_pickeo: formValues.sucursal,
-        agenda: formValues.agenda,
-        fecha_procesamiento: formValues.fechaProc
-      };
-      if (formValues.operador) {
-        updateData.operador = formValues.operador;
-      }
-
-      const { error: wmsErr } = await supabase
-        .from('orders')
-        .update(updateData)
-        .eq('id', orderId);
-
-      if (wmsErr) throw wmsErr;
-
-      // Actualizar memoria local
-      order.estado_wms = 'En preparación';
-      order.sucursal_pickeo = formValues.sucursal;
-      order.agenda = formValues.agenda;
-      if (formValues.operador) {
-        order.operador = formValues.operador;
-      }
-      order.fecha_procesamiento = formValues.fechaProc;
-      (order.order_items || []).forEach(item => {
-        item.warehouse_id = targetWarehouseId;
-      });
-
-      // 2. Insertar en Picker active_orders
-      await window.sendSingleOrderToPicker(order);
-
-      Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente.', 'success');
-      applyWmsFiltersAndRender();
     } catch (err) {
       console.error(err);
       Swal.fire('Error', 'No se pudo enviar el pedido al Picker: ' + err.message, 'error');
@@ -8131,26 +8431,58 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         const { value: dispatchFormValues } = await Swal.fire({
           title: 'Marcar Pedido como Despachado',
+          width: '780px',
           html: `
-            <div style="text-align: left; font-size: 0.9rem;">
-              <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
-              
-              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador / Courier</label>
-              <input id="swal-single-disp-operador" list="swal-single-disp-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-              <datalist id="swal-single-disp-operador-list">
-                ${operadorDatalistHtml}
-              </datalist>
-              <div id="swal-single-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+            <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+              <!-- Columna Izquierda: Formulario -->
+              <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
+                <p style="margin-bottom: 0.65rem; color: var(--color-text-muted); font-size: 0.85rem;">Confirmar despacho para el pedido <strong>${order.external_order_number || order.id}</strong>.</p>
+                
+                <div style="background: rgba(241, 245, 249, 0.85); border: 1px solid var(--color-border, #e2e8f0); border-radius: 6px; padding: 0.45rem 0.65rem; margin-bottom: 0.65rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.2rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: var(--color-text-muted, #64748b); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-truck-line" style="color: var(--color-primary, #6366f1);"></i> Método de Envío:</span>
+                    <span style="font-weight: 700; color: var(--color-text-main, #0f172a); font-size: 0.8rem;">${window.escapeHtml(order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || 'Por definir')}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: var(--color-text-muted, #64748b); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-map-pin-line" style="color: #ef4444;"></i> Comuna:</span>
+                    <span style="font-weight: 700; color: var(--color-text-main, #0f172a); font-size: 0.8rem;">${window.escapeHtml(order.shipping_city || order.raw_shopify_data?.shipping_address?.city || 'Por definir')}</span>
+                  </div>
+                </div>
 
-              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda</label>
-              <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
-              <datalist id="swal-single-disp-agenda-list">
-                ${agendaDatalistHtml}
-              </datalist>
-              <div id="swal-single-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.75rem; text-align: left; align-items: center; gap: 4px;"></div>
+                <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem;">
+                  <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+                    <input type="checkbox" id="swal-single-disp-keep-picking" style="margin-top: 0.15rem; width: 17px; height: 17px; accent-color: var(--color-primary, #6366f1); cursor: pointer;" onchange="window.toggleSingleDispKeepPicking(this.checked)">
+                    <div>
+                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-primary, #4f46e5); display: block;">Conservar datos de picking existentes</span>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted, #64748b); line-height: 1.3; display: block; margin-top: 0.15rem;">
+                        No sobreescribir Agenda, Operador ni Fecha de Procesamiento. Solo cambiar estado a Despachado.
+                      </span>
+                    </div>
+                  </label>
+                </div>
 
-              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
-              <input id="swal-single-disp-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Operador / Courier</label>
+                <input id="swal-single-disp-operador" list="swal-single-disp-operador-list" class="swal2-input" type="text" value="${currentOperador}" placeholder="Escribe o selecciona Operador..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'operador')" onblur="window.validateOptionLiveInput(this, 'operador')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+                <datalist id="swal-single-disp-operador-list">
+                  ${operadorDatalistHtml}
+                </datalist>
+                <div id="swal-single-disp-operador-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
+
+                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda</label>
+                <input id="swal-single-disp-agenda" list="swal-single-disp-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+                <datalist id="swal-single-disp-agenda-list">
+                  ${agendaDatalistHtml}
+                </datalist>
+                <div id="swal-single-disp-agenda-warning" class="wms-input-warning" style="display: none; color: #ef4444; font-size: 0.78rem; font-weight: 600; margin-top: -0.1rem; margin-bottom: 0.65rem; text-align: left; align-items: center; gap: 4px;"></div>
+
+                <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Fecha de Procesamiento (DD-MM)</label>
+                <input id="swal-single-disp-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;" maxlength="5">
+              </div>
+
+              <!-- Columna Derecha: Listado Resumen de Pedidos -->
+              <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+                ${window.renderBulkOrdersSummaryListHtml([order])}
+              </div>
             </div>
           `,
           didOpen: () => {
@@ -8158,6 +8490,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
             if (opInput && opInput.value) window.validateOptionLiveInput(opInput, 'operador');
             const agInput = document.getElementById('swal-single-disp-agenda');
             if (agInput && agInput.value) window.validateOptionLiveInput(agInput, 'agenda');
+            const keepCb = document.getElementById('swal-single-disp-keep-picking');
+            if (keepCb && keepCb.checked) window.toggleSingleDispKeepPicking(true);
           },
           focusConfirm: false,
           showCancelButton: true,
@@ -8165,6 +8499,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           confirmButtonColor: '#059669',
           cancelButtonText: 'Cancelar',
           preConfirm: () => {
+            const keepPicking = document.getElementById('swal-single-disp-keep-picking')?.checked;
+            if (keepPicking) {
+              return { keepPicking: true };
+            }
+
             const operadorInput = document.getElementById('swal-single-disp-operador').value;
             const agendaInput = document.getElementById('swal-single-disp-agenda').value;
             const fechaProcInput = document.getElementById('swal-single-disp-fecha-proc').value.trim();
@@ -8194,7 +8533,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 return false;
               }
             }
-            return { operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
+            return { keepPicking: false, operador: matchOperador, agenda: matchAgenda, fechaProc: fechaProcInput };
           }
         });
 
@@ -8213,9 +8552,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           estado_wms: 'Despachado', 
           status: 'despachado' 
         };
-        if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
-        if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
-        if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+        if (!dispatchFormValues.keepPicking) {
+          if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
+          if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
+          if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+        }
 
         const { error } = await supabase
           .from('orders')
@@ -8226,9 +8567,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         
         order.estado_wms = 'Despachado';
         order.status = 'despachado';
-        if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
-        if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
-        if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+        if (!dispatchFormValues.keepPicking) {
+          if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
+          if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
+          if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
+        }
         
         applyWmsFiltersAndRender();
         return;
@@ -16570,6 +16913,1449 @@ function getMovementCategoryInfo(referenceDoc, type) {
   };
 }
 
+// ============================================================================
+// MÓDULO ADMINISTRADOR: TRAZABILIDAD Y MOVIMIENTOS DE STOCK (KARDEX 2.0)
+// ============================================================================
+
+window.adminMovementsState = {
+  allMovements: [],
+  filteredMovements: [],
+  orderInfoMap: {},
+  activeTab: 'general', // 'general' | 'warehouse'
+  selectedCommerce: window.activeAdminMovementsCommerce || '',
+  filterWarehouse: '',
+  filterCategory: '',
+  filterFlow: '',
+  filterPlatform: '',
+  filterProductId: window.adminMovementsFilterProductId || '',
+  searchQuery: '',
+  datePreset: '7d', // Default '7d' for ultra-fast instant rendering
+  startDate: '',
+  endDate: '',
+  currentPage: 1,
+  pageSize: 50, // 25, 50, 100, 250, 'all'
+  sortColumn: 'date',
+  sortAsc: false,
+  selectedWhAudit: '',
+  availableWarehouses: [],
+  allProducts: []
+};
+
+async function renderAdminMovements() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  appContent.innerHTML = `
+    <div style="padding: 3rem 1rem; text-align: center; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2.5rem; color: var(--color-primary); display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem;"></i>
+      <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); font-weight: 600;">Cargando Trazabilidad y Movimientos de Stock...</h3>
+      <p style="margin: 0.35rem 0 0 0; font-size: 0.85rem;">Consultando transacciones, saldos por bodega y catálogo de productos...</p>
+    </div>
+  `;
+
+  try {
+    const state = window.adminMovementsState;
+
+    // 1. Configurar fechas según el preset si no es custom
+    const now = new Date();
+    if (state.datePreset === 'today') {
+      const todayStr = now.toISOString().split('T')[0];
+      state.startDate = todayStr;
+      state.endDate = todayStr;
+    } else if (state.datePreset === '7d') {
+      const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      state.startDate = d7.toISOString().split('T')[0];
+      state.endDate = now.toISOString().split('T')[0];
+    } else if (state.datePreset === '30d') {
+      const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      state.startDate = d30.toISOString().split('T')[0];
+      state.endDate = now.toISOString().split('T')[0];
+    } else if (state.datePreset === 'month') {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      state.startDate = firstDay.toISOString().split('T')[0];
+      state.endDate = now.toISOString().split('T')[0];
+    } else if (state.datePreset === 'all') {
+      state.startDate = '';
+      state.endDate = '';
+    }
+
+    // 2. Obtener lista de comercios para el selector
+    const { data: configComercios } = await supabase
+      .from('v_comercios_config')
+      .select('sigla, nombre')
+      .order('nombre');
+
+    const uniqueComercios = [];
+    const seenComercios = new Set();
+    if (configComercios) {
+      configComercios.forEach(c => {
+        if (c.nombre && !seenComercios.has(c.nombre)) {
+          seenComercios.add(c.nombre);
+          uniqueComercios.push(c);
+        }
+      });
+    }
+
+    // 3. Consultar movimientos (vía RPC de alta velocidad o consulta directa con auto-paginación de chunks)
+    let rawMovements = [];
+    let useRpc = true;
+    let from = 0;
+    const step = 1000;
+    const maxCap = 25000;
+
+    // A. Intento vía RPC de alto rendimiento con auto-paginación para superar el límite de 1000 de PostgREST
+    while (from < maxCap) {
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase
+          .rpc('get_kardex_movements', {
+            p_commerce: state.selectedCommerce || null,
+            p_product_id: state.filterProductId || null,
+            p_warehouse_id: state.filterWarehouse || null,
+            p_start_date: state.startDate ? new Date(state.startDate + 'T00:00:00').toISOString() : null,
+            p_end_date: state.endDate ? new Date(state.endDate + 'T23:59:59').toISOString() : null,
+            p_limit: 25000
+          })
+          .range(from, from + step - 1);
+
+        if (!rpcErr && Array.isArray(rpcData)) {
+          if (rpcData.length === 0) break;
+          const mapped = rpcData.map(r => ({
+            id: r.id,
+            date: r.date,
+            type: r.type,
+            quantity: r.quantity,
+            reference_doc: r.reference_doc,
+            warehouse_id: r.warehouse_id,
+            products: { id: r.product_id, sku: r.product_sku, name: r.product_name, comercio: r.product_comercio },
+            warehouses: { id: r.warehouse_id, name: r.warehouse_name }
+          }));
+          rawMovements = rawMovements.concat(mapped);
+          if (rpcData.length < step) break; // Fin de datos
+          from += step;
+          continue;
+        } else {
+          useRpc = false;
+          break;
+        }
+      } catch (e) {
+        useRpc = false;
+        break;
+      }
+    }
+
+    // B. Consulta directa optimizada con auto-paginación si el RPC no está disponible
+    if (!useRpc) {
+      rawMovements = [];
+      from = 0;
+      let targetProductIds = null;
+      if (state.filterProductId) {
+        targetProductIds = [state.filterProductId];
+      } else if (state.selectedCommerce) {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, sku, name, comercio')
+          .eq('comercio', state.selectedCommerce);
+        targetProductIds = (prods || []).map(p => p.id);
+      }
+
+      if (targetProductIds === null || targetProductIds.length > 0) {
+        while (from < maxCap) {
+          let query = supabase
+            .from('movements')
+            .select(`
+              id,
+              date,
+              type,
+              quantity,
+              reference_doc,
+              warehouse_id,
+              product_id,
+              products (id, sku, name, comercio),
+              warehouses (id, name)
+            `);
+
+          if (targetProductIds !== null) {
+            query = query.in('product_id', targetProductIds.slice(0, 300));
+          }
+          if (state.startDate) {
+            query = query.gte('date', new Date(state.startDate + 'T00:00:00').toISOString());
+          }
+          if (state.endDate) {
+            query = query.lte('date', new Date(state.endDate + 'T23:59:59').toISOString());
+          }
+          if (state.filterWarehouse) {
+            query = query.eq('warehouse_id', state.filterWarehouse);
+          }
+
+          const { data: movsChunk, error: movsErr } = await query
+            .order('date', { ascending: false })
+            .range(from, from + step - 1);
+
+          if (movsErr) throw movsErr;
+          if (!movsChunk || movsChunk.length === 0) break;
+          rawMovements = rawMovements.concat(movsChunk);
+          if (movsChunk.length < step) break;
+          from += step;
+        }
+      }
+    }
+
+    // Ordenar cronológicamente para el cálculo acumulativo de saldos (Kardex)
+    rawMovements.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // 4. Extraer IDs de pedidos para enriquecer con números amigables y plataforma
+    const extractUuid = (ref) => {
+      if (!ref) return null;
+      const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      return match ? match[0] : null;
+    };
+
+    const orderIds = [...new Set((rawMovements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
+    const orderInfoMap = {};
+    
+    if (orderIds.length > 0) {
+      // Consultar en batches de 150
+      for (let i = 0; i < orderIds.length; i += 150) {
+        const batch = orderIds.slice(i, i + 150);
+        const { data: ordersBatch } = await supabase
+          .from('orders')
+          .select('id, origen, external_platform, external_order_number')
+          .in('id', batch);
+        
+        if (ordersBatch) {
+          ordersBatch.forEach(o => {
+            orderInfoMap[o.id] = {
+              platform: o.origen || o.external_platform || 'Manual',
+              orderNumber: o.external_order_number || o.id.split('-')[0]
+            };
+          });
+        }
+      }
+    }
+    state.orderInfoMap = orderInfoMap;
+
+    // 5. Procesar saldos cronológicamente (Kardex running balances)
+    const productWarehouseStock = {};
+    const productTotalStock = {};
+
+    const processedMovements = (rawMovements || []).map(m => {
+      const pId = m.products?.id || 'unknown';
+      const whName = m.warehouses?.name || 'Bodega Principal';
+      const qty = Number(m.quantity) || 0;
+      const isIngreso = m.type === 'in';
+      const delta = isIngreso ? qty : -qty;
+
+      if (!productWarehouseStock[pId]) productWarehouseStock[pId] = {};
+      productWarehouseStock[pId][whName] = (productWarehouseStock[pId][whName] || 0) + delta;
+      productTotalStock[pId] = (productTotalStock[pId] || 0) + delta;
+
+      const uuid = extractUuid(m.reference_doc);
+      let originPlat = 'Manual';
+      let friendlyRef = m.reference_doc || '-';
+
+      if (uuid && orderInfoMap[uuid]) {
+        originPlat = orderInfoMap[uuid].platform || 'Manual';
+        friendlyRef = m.reference_doc.replace(uuid, `#${orderInfoMap[uuid].orderNumber}`);
+      } else if (m.reference_doc) {
+        const refLower = m.reference_doc.toLowerCase();
+        if (refLower.includes('shopify')) originPlat = 'Shopify';
+        else if (refLower.includes('mercadolibre')) originPlat = 'MercadoLibre';
+        else if (refLower.includes('falabella')) originPlat = 'Falabella';
+        else if (refLower.includes('paris')) originPlat = 'Paris';
+        else if (refLower.includes('ripley')) originPlat = 'Ripley';
+        else if (refLower.includes('woocommerce')) originPlat = 'WooCommerce';
+        else if (refLower.includes('jumpseller')) originPlat = 'Jumpseller';
+      }
+
+      const cat = getMovementCategoryInfo(m.reference_doc, m.type);
+
+      return {
+        id: m.id,
+        date: m.date ? new Date(m.date) : new Date(0),
+        dateStr: m.date || '',
+        type: m.type,
+        quantity: qty,
+        delta: delta,
+        productId: pId,
+        sku: m.products?.sku || 'N/A',
+        name: m.products?.name || 'N/A',
+        comercio: m.products?.comercio || 'N/A',
+        warehouseId: m.warehouse_id,
+        warehouseName: whName,
+        stockTotalAfter: productTotalStock[pId],
+        warehouseStockAfter: productWarehouseStock[pId][whName],
+        referenceDoc: m.reference_doc || '',
+        friendlyRef: friendlyRef,
+        platform: originPlat,
+        category: cat
+      };
+    });
+
+    state.allMovements = processedMovements;
+
+    // 6. Obtener lista de bodegas disponibles
+    const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName).filter(Boolean))].sort();
+    state.availableWarehouses = availableWarehouses;
+
+    // 7. Obtener productos para el autocomplete
+    let prodsQuery = supabase.from('products').select('id, sku, name, comercio');
+    if (state.selectedCommerce) {
+      prodsQuery = prodsQuery.eq('comercio', state.selectedCommerce);
+    }
+    const { data: prodsData } = await prodsQuery.limit(2000);
+    state.allProducts = prodsData || [];
+
+    // 8. Renderizar esqueleto de la vista completa
+    buildAdminMovementsWorkspace(uniqueComercios);
+
+  } catch (err) {
+    console.error('Error al renderizar movimientos de stock admin:', err);
+    const isTimeout = err.code === '57014' || err.message?.includes('timeout') || err.message?.includes('canceling statement');
+    appContent.innerHTML = `
+      <div class="card" style="padding: 2.75rem 2rem; text-align: center; margin: 2rem auto; max-width: 720px; box-shadow: var(--shadow-md); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface);">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: ${isTimeout ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)'}; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem auto;">
+          <i class="${isTimeout ? 'ri-speed-line' : 'ri-error-warning-line'}" style="font-size: 2.2rem; color: ${isTimeout ? '#d97706' : 'var(--color-danger)'};"></i>
+        </div>
+        <h3 style="margin: 0; font-size: 1.3rem; font-weight: 800; color: var(--color-text-main);">
+          ${isTimeout ? 'Aceleración de Kardex Requerida (Statement Timeout)' : 'Error al cargar el módulo de movimientos'}
+        </h3>
+        <p style="margin: 0.75rem 0 1.75rem 0; color: var(--color-text-muted); font-size: 0.92rem; line-height: 1.6;">
+          ${isTimeout 
+            ? 'El servidor de Supabase canceló la consulta (tiempo límite de 8s) debido al volumen de registros sin índices de aceleración. Puedes cargar un rango reciente (últimos 7 días) o ejecutar el script de optimización SQL en Supabase para obtener respuestas instantáneas.' 
+            : err.message}
+        </p>
+        <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="window.adminMovementsState.datePreset='7d'; window.adminMovementsState.startDate=''; window.adminMovementsState.endDate=''; renderAdminMovements();" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.25rem; font-weight: 600;">
+            <i class="ri-history-line"></i> Cargar Últimos 7 Días
+          </button>
+          <button class="btn btn-outline" onclick="window.showKardexSqlHelpModal()" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.25rem; font-weight: 600; border-color: #3b82f6; color: #3b82f6;">
+            <i class="ri-database-2-line"></i> Ver Optimización SQL Supabase
+          </button>
+        </div>
+      </div>
+    `;
+  }
+}
+
+window.showKardexSqlHelpModal = function() {
+  const modalId = 'modal-kardex-sql-help';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 780px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; max-height: 88vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-database-2-line" style="color: #3b82f6;"></i> Script de Optimización de Kardex en Supabase
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+            Copia y ejecuta este script en el Supabase SQL Editor para habilitar consultas instantáneas en menos de 50ms.
+          </p>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('${modalId}').remove()" style="border: none; font-size: 1.25rem; cursor: pointer; color: var(--color-text-muted); padding: 0.25rem 0.5rem;">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1;">
+        <div style="background: rgba(59, 130, 246, 0.08); border-left: 4px solid #3b82f6; padding: 0.85rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <strong>Archivo creado en tu proyecto:</strong> <code>supabase_schema_kardex_speed_indexes.sql</code><br>
+          Crea índices sobre <code>date</code>, <code>product_id</code>, optimiza las políticas RLS y añade el RPC <code>get_kardex_movements</code>.
+        </div>
+        <div style="position: relative;">
+          <pre style="background: #1e293b; color: #f8fafc; padding: 1rem; border-radius: var(--radius-md); font-family: monospace; font-size: 0.8rem; overflow-x: auto; max-height: 320px; line-height: 1.45;" id="sql-kardex-code-block">-- 1. ÍNDICES DE ALTO RENDIMIENTO
+CREATE INDEX IF NOT EXISTS idx_movements_date_desc ON public.movements (date DESC);
+CREATE INDEX IF NOT EXISTS idx_movements_product_id ON public.movements (product_id);
+CREATE INDEX IF NOT EXISTS idx_movements_warehouse_id ON public.movements (warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_movements_prod_date ON public.movements (product_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_products_comercio ON public.products (comercio);
+
+-- 2. HELPER STABLE PARA ADMIN
+CREATE OR REPLACE FUNCTION public.is_admin_or_all()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND (role = 'admin' OR LOWER(comercio) = 'all'));
+$$;
+
+-- 3. RLS OPTIMIZADA
+ALTER TABLE public.movements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "movements_select_policy" ON public.movements;
+CREATE POLICY "movements_select_policy" ON public.movements FOR SELECT USING (
+  (SELECT public.is_admin_or_all()) OR
+  EXISTS (SELECT 1 FROM public.products JOIN public.profiles ON profiles.id = auth.uid() WHERE products.id = movements.product_id AND LOWER(products.comercio) = ANY (SELECT TRIM(LOWER(token)) FROM unnest(string_to_array(profiles.comercio, ',')) AS token))
+);
+
+-- 4. RPC DE ALTA VELOCIDAD
+CREATE OR REPLACE FUNCTION public.get_kardex_movements(
+  p_commerce text DEFAULT NULL, p_product_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL,
+  p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL, p_limit int DEFAULT 2500
+) RETURNS TABLE (
+  id uuid, date timestamptz, type text, quantity numeric, reference_doc text, warehouse_id uuid,
+  warehouse_name text, product_id uuid, product_sku text, product_name text, product_comercio text
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY SELECT m.id, m.date, m.type, m.quantity::numeric, m.reference_doc, m.warehouse_id,
+    COALESCE(w.name, 'Bodega Principal'), p.id, COALESCE(p.sku, 'SIN-SKU'), COALESCE(p.name, 'Producto'), COALESCE(p.comercio, 'Sin Comercio')
+  FROM movements m LEFT JOIN products p ON p.id = m.product_id LEFT JOIN warehouses w ON w.id = m.warehouse_id
+  WHERE (p_commerce IS NULL OR p_commerce = '' OR p.comercio = p_commerce)
+    AND (p_product_id IS NULL OR m.product_id = p_product_id)
+    AND (p_warehouse_id IS NULL OR m.warehouse_id = p_warehouse_id)
+    AND (p_start_date IS NULL OR m.date >= p_start_date)
+    AND (p_end_date IS NULL OR m.date <= p_end_date)
+  ORDER BY m.date DESC LIMIT p_limit;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_kardex_movements TO authenticated, anon, service_role;</pre>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: rgba(0,0,0,0.02);">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btn-copy-kardex-sql" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-file-copy-line"></i> Copiar Código SQL
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('btn-copy-kardex-sql')?.addEventListener('click', (e) => {
+    const code = document.getElementById('sql-kardex-code-block').innerText;
+    navigator.clipboard.writeText(code).then(() => {
+      e.target.innerHTML = '<i class="ri-check-line"></i> ¡Copiado!';
+      setTimeout(() => {
+        e.target.innerHTML = '<i class="ri-file-copy-line"></i> Copiar Código SQL';
+      }, 2000);
+    });
+  });
+};
+
+function buildAdminMovementsWorkspace(uniqueComercios) {
+  const appContent = document.getElementById('app-content');
+  const state = window.adminMovementsState;
+
+  // Opciones de comercios
+  const commerceOptions = [
+    '<option value="" ' + (!state.selectedCommerce ? 'selected' : '') + '>🌐 Todos los Comercios</option>',
+    ...uniqueComercios.map(c => `<option value="${c.nombre}" ${c.nombre === state.selectedCommerce ? 'selected' : ''}>${c.nombre} (${c.sigla})</option>`)
+  ].join('');
+
+  appContent.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 2rem;">
+      
+      <!-- Encabezado y Acciones Globales -->
+      <div class="card" style="padding: 1.25rem 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 style="margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-history-line" style="color: var(--color-primary);"></i> Trazabilidad y Movimientos de Stock (Kardex 2.0)
+            </h2>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.88rem; color: var(--color-text-muted);">
+              Auditoría integral de operaciones de inventario, balances por bodega y trazabilidad histórica.
+            </p>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button id="btn-admin-movs-excel" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer; border-radius: var(--radius-md); font-weight: 600;">
+              <i class="ri-file-excel-2-line" style="font-size: 1.1rem;"></i> Exportar Excel (.xlsx)
+            </button>
+            <button id="btn-admin-movs-csv" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md); font-weight: 600;">
+              <i class="ri-download-2-line" style="font-size: 1.1rem;"></i> Exportar CSV
+            </button>
+            <button id="btn-admin-movs-refresh" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+          </div>
+        </div>
+
+        <!-- Selector de Comercio Multi-Tenant -->
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
+            <label style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main);">Comercio Activo:</label>
+          </div>
+          <select id="admin-movs-commerce-select" style="min-width: 280px; max-width: 400px; height: 38px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); padding: 0 0.85rem; font-size: 0.9rem; font-weight: 500; cursor: pointer;">
+            ${commerceOptions}
+          </select>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted);">
+            Puedes consultar todos los movimientos globales o aislar un cliente específico.
+          </span>
+        </div>
+      </div>
+
+      <!-- Tarjetas KPI de Período -->
+      <div id="admin-movs-kpis-container">
+        <!-- Renderizado dinámico de KPIs -->
+      </div>
+
+      <!-- Pestañas de Vista (Kardex General vs Balance por Bodega) -->
+      <div style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--color-border); padding-bottom: 0;">
+        <button id="tab-admin-movs-general" class="btn" style="border: none; background: transparent; font-weight: 700; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; border-bottom: 3px solid ${state.activeTab === 'general' ? 'var(--color-primary)' : 'transparent'}; color: ${state.activeTab === 'general' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 0;">
+          <i class="ri-list-check"></i> Kardex General
+        </button>
+        <button id="tab-admin-movs-warehouse" class="btn" style="border: none; background: transparent; font-weight: 700; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; border-bottom: 3px solid ${state.activeTab === 'warehouse' ? 'var(--color-primary)' : 'transparent'}; color: ${state.activeTab === 'warehouse' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 0;">
+          <i class="ri-building-2-line"></i> Balance por Bodega
+        </button>
+      </div>
+
+      <!-- Contenedor Principal según Pestaña Activa -->
+      <div id="admin-movs-tab-content">
+        <!-- Renderizado dinámico -->
+      </div>
+
+    </div>
+  `;
+
+  // Attach event listeners de cabecera
+  document.getElementById('admin-movs-commerce-select')?.addEventListener('change', async (e) => {
+    state.selectedCommerce = e.target.value;
+    window.activeAdminMovementsCommerce = e.target.value;
+    state.filterProductId = '';
+    window.adminMovementsFilterProductId = '';
+    state.currentPage = 1;
+    await renderAdminMovements();
+  });
+
+  document.getElementById('btn-admin-movs-refresh')?.addEventListener('click', () => {
+    renderAdminMovements();
+  });
+
+  document.getElementById('btn-admin-movs-excel')?.addEventListener('click', () => {
+    exportAdminMovementsToExcel();
+  });
+
+  document.getElementById('btn-admin-movs-csv')?.addEventListener('click', () => {
+    exportAdminMovementsToCsv();
+  });
+
+  document.getElementById('tab-admin-movs-general')?.addEventListener('click', () => {
+    if (state.activeTab !== 'general') {
+      state.activeTab = 'general';
+      buildAdminMovementsWorkspace(uniqueComercios);
+    }
+  });
+
+  document.getElementById('tab-admin-movs-warehouse')?.addEventListener('click', () => {
+    if (state.activeTab !== 'warehouse') {
+      state.activeTab = 'warehouse';
+      buildAdminMovementsWorkspace(uniqueComercios);
+    }
+  });
+
+  // Renderizar contenido activo
+  updateAdminMovementsKpis();
+
+  if (state.activeTab === 'general') {
+    renderAdminMovementsGeneralTab();
+  } else {
+    renderAdminMovementsWarehouseTab();
+  }
+}
+
+function updateAdminMovementsKpis() {
+  const container = document.getElementById('admin-movs-kpis-container');
+  if (!container) return;
+
+  const state = window.adminMovementsState;
+  const filtered = applyAdminMovementsFilters();
+
+  let totalEntradas = 0;
+  let totalSalidas = 0;
+  let despachosCount = 0;
+  let ingresosCount = 0;
+  let ajustesCount = 0;
+  let trasladosCount = 0;
+
+  filtered.forEach(m => {
+    if (m.type === 'in') {
+      totalEntradas += m.quantity;
+      if (m.category?.key === 'ingreso') ingresosCount += m.quantity;
+      if (m.category?.key === 'traslado') trasladosCount += m.quantity;
+      if (m.category?.key === 'ajuste') ajustesCount += m.quantity;
+    } else {
+      totalSalidas += m.quantity;
+      if (m.category?.key === 'pedido') despachosCount += m.quantity;
+      if (m.category?.key === 'merma' || m.category?.key === 'ajuste') ajustesCount += m.quantity;
+      if (m.category?.key === 'traslado') trasladosCount += m.quantity;
+    }
+  });
+
+  const saldoNeto = totalEntradas - totalSalidas;
+  const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+  const saldoSign = saldoNeto > 0 ? '+' : '';
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem;">
+      
+      <!-- Total Movimientos -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Movimientos</span>
+          <i class="ri-exchange-line" style="font-size: 1.1rem; color: var(--color-primary);"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.35rem;">
+          ${filtered.length.toLocaleString('es-CL')}
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Operaciones en período</div>
+      </div>
+
+      <!-- Entradas -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm); border-left: 3px solid var(--color-success);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Entradas (+)</span>
+          <i class="ri-arrow-left-down-line" style="font-size: 1.1rem; color: var(--color-success);"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: var(--color-success); margin-top: 0.35rem;">
+          +${totalEntradas.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Stock ingresado</div>
+      </div>
+
+      <!-- Salidas -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm); border-left: 3px solid var(--color-danger);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Salidas (-)</span>
+          <i class="ri-arrow-right-up-line" style="font-size: 1.1rem; color: var(--color-danger);"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: var(--color-danger); margin-top: 0.35rem;">
+          -${totalSalidas.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Stock despachado / retirado</div>
+      </div>
+
+      <!-- Saldo Neto -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Flujo Neto</span>
+          <i class="ri-scales-3-line" style="font-size: 1.1rem; color: ${saldoColor};"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: ${saldoColor}; margin-top: 0.35rem;">
+          ${saldoSign}${saldoNeto.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Variación neta en almacén</div>
+      </div>
+
+      <!-- Despachos por Pedidos -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Despachos Pedidos</span>
+          <i class="ri-shopping-cart-2-line" style="font-size: 1.1rem; color: #2563eb;"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: #2563eb; margin-top: 0.35rem;">
+          ${despachosCount.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Salidas por ventas</div>
+      </div>
+
+      <!-- Recepciones / Inbound -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Recepciones</span>
+          <i class="ri-inbox-archive-line" style="font-size: 1.1rem; color: #059669;"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: #059669; margin-top: 0.35rem;">
+          ${ingresosCount.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Ingresos por recepción</div>
+      </div>
+
+      <!-- Ajustes y Mermas -->
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
+          <span>Ajustes / Mermas</span>
+          <i class="ri-equalizer-line" style="font-size: 1.1rem; color: #d97706;"></i>
+        </div>
+        <div style="font-size: 1.6rem; font-weight: 800; color: #d97706; margin-top: 0.35rem;">
+          ${ajustesCount.toLocaleString('es-CL')} <span style="font-size: 0.8rem; font-weight: 500;">uds</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">Cuadraturas y bajas</div>
+      </div>
+
+    </div>
+  `;
+}
+
+function renderAdminMovementsGeneralTab() {
+  const container = document.getElementById('admin-movs-tab-content');
+  if (!container) return;
+
+  const state = window.adminMovementsState;
+
+  // Renderizar barra de filtros y tabla
+  container.innerHTML = `
+    <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm);">
+      
+      <!-- Barra de Filtros y Presets de Fecha -->
+      <div style="padding: 1.25rem 1.5rem; background: rgba(0,0,0,0.02); border-bottom: 1px solid var(--color-border);">
+        
+        <!-- Presets de fecha rápidos -->
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+          <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-muted); margin-right: 0.25rem;">
+            <i class="ri-calendar-event-line" style="vertical-align: middle;"></i> Período Rápido:
+          </span>
+          <button class="btn btn-sm btn-date-preset ${state.datePreset === 'today' ? 'btn-primary' : 'btn-outline'}" data-preset="today" style="height: 28px; padding: 0 0.65rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600;">Hoy</button>
+          <button class="btn btn-sm btn-date-preset ${state.datePreset === '7d' ? 'btn-primary' : 'btn-outline'}" data-preset="7d" style="height: 28px; padding: 0 0.65rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600;">Últimos 7 Días</button>
+          <button class="btn btn-sm btn-date-preset ${state.datePreset === '30d' ? 'btn-primary' : 'btn-outline'}" data-preset="30d" style="height: 28px; padding: 0 0.65rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600;">Últimos 30 Días</button>
+          <button class="btn btn-sm btn-date-preset ${state.datePreset === 'month' ? 'btn-primary' : 'btn-outline'}" data-preset="month" style="height: 28px; padding: 0 0.65rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600;">Este Mes</button>
+          <button class="btn btn-sm btn-date-preset ${state.datePreset === 'all' ? 'btn-primary' : 'btn-outline'}" data-preset="all" style="height: 28px; padding: 0 0.65rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600;">Histórico Completo</button>
+        </div>
+
+        <!-- Filtros en Grid -->
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+          
+          <!-- SKU / Nombre con Autocomplete -->
+          <div style="flex: 1.3; min-width: 200px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Filtrar Producto (SKU o Nombre)</label>
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input list="admin-movs-products-list" id="admin-movs-filter-product" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${state.filterProductId ? (state.allProducts.find(p => p.id === state.filterProductId) ? `${state.allProducts.find(p => p.id === state.filterProductId).sku} - ${state.allProducts.find(p => p.id === state.filterProductId).name}` : '') : ''}">
+              <datalist id="admin-movs-products-list">
+                ${state.allProducts.map(p => `<option value="${p.sku} - ${p.name}">${p.comercio ? `(${p.comercio})` : ''}</option>`).join('')}
+              </datalist>
+            </div>
+          </div>
+
+          <!-- Buscador libre -->
+          <div style="flex: 1; min-width: 170px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Buscar Referencia / Pedido / Doc</label>
+            <div style="position: relative;">
+              <i class="ri-file-text-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="admin-movs-search-query" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${state.searchQuery || ''}">
+            </div>
+          </div>
+
+          <!-- Bodega -->
+          <div style="width: 140px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-building-line"></i> Bodega</label>
+            <select id="admin-movs-filter-wh" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todas</option>
+              ${state.availableWarehouses.map(w => `<option value="${w}" ${state.filterWarehouse === w ? 'selected' : ''}>${w}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Tipo Movimiento -->
+          <div style="width: 140px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-filter-3-line"></i> Tipo</label>
+            <select id="admin-movs-filter-cat" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todos los tipos</option>
+              <option value="pedido" ${state.filterCategory === 'pedido' ? 'selected' : ''}>Pedido</option>
+              <option value="ingreso" ${state.filterCategory === 'ingreso' ? 'selected' : ''}>Ingreso / Inicial</option>
+              <option value="traslado" ${state.filterCategory === 'traslado' ? 'selected' : ''}>Traslado</option>
+              <option value="ajuste" ${state.filterCategory === 'ajuste' ? 'selected' : ''}>Ajuste</option>
+              <option value="cambio" ${state.filterCategory === 'cambio' ? 'selected' : ''}>Cambio</option>
+              <option value="devolucion" ${state.filterCategory === 'devolucion' ? 'selected' : ''}>Devolución</option>
+              <option value="merma" ${state.filterCategory === 'merma' ? 'selected' : ''}>Merma / Baja</option>
+              <option value="otro" ${state.filterCategory === 'otro' ? 'selected' : ''}>Otro</option>
+            </select>
+          </div>
+
+          <!-- Sentido -->
+          <div style="width: 110px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Sentido</label>
+            <select id="admin-movs-filter-flow" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todos</option>
+              <option value="in" ${state.filterFlow === 'in' ? 'selected' : ''}>Ingreso (+)</option>
+              <option value="out" ${state.filterFlow === 'out' ? 'selected' : ''}>Salida (-)</option>
+            </select>
+          </div>
+
+          <!-- Plataforma -->
+          <div style="width: 120px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Plataforma</label>
+            <select id="admin-movs-filter-platform" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todas</option>
+              <option value="Shopify" ${state.filterPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
+              <option value="MercadoLibre" ${state.filterPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
+              <option value="Falabella" ${state.filterPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
+              <option value="Paris" ${state.filterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
+              <option value="Ripley" ${state.filterPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
+              <option value="WooCommerce" ${state.filterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+              <option value="Manual" ${state.filterPlatform === 'Manual' ? 'selected' : ''}>Manual</option>
+            </select>
+          </div>
+
+          <!-- Desde -->
+          <div style="width: 135px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Desde</label>
+            <input type="date" id="admin-movs-filter-start" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${state.startDate || ''}">
+          </div>
+
+          <!-- Hasta -->
+          <div style="width: 135px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Hasta</label>
+            <input type="date" id="admin-movs-filter-end" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${state.endDate || ''}">
+          </div>
+
+          <!-- Botón Limpiar -->
+          <button id="btn-admin-movs-clear-filters" class="btn btn-outline" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+            <i class="ri-refresh-line" style="margin-right: 0.25rem;"></i> Limpiar
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Tabla de Movimientos Kardex General -->
+      <div style="overflow-x: auto; width: 100%;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); background: rgba(0,0,0,0.02);">
+              <th class="admin-movs-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Fecha / Hora <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="comercio" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Comercio <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="warehouseName" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Bodega <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="category" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Tipo <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Sentido <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                SKU <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Producto <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Origen <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; text-align: center; white-space: nowrap;">
+                Cantidad <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="stockTotalAfter" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; text-align: center; white-space: nowrap;">
+                Stock Resultante <span class="sort-indicator"></span>
+              </th>
+              <th class="admin-movs-sortable" data-sort="friendlyRef" style="cursor: pointer; user-select: none; padding: 0.85rem 0.8rem; white-space: nowrap;">
+                Referencia / Detalle <span class="sort-indicator"></span>
+              </th>
+              <th style="padding: 0.85rem 0.8rem; text-align: center; white-space: nowrap;">
+                Acciones
+              </th>
+            </tr>
+          </thead>
+          <tbody id="admin-movs-tbody" style="font-size: 0.86rem; color: var(--color-text-main);">
+            <!-- Dinámico -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Contenedor de Paginación y Selector de Densidad -->
+      <div id="admin-movs-pagination-container">
+        <!-- Dinámico -->
+      </div>
+
+    </div>
+  `;
+
+  // Attach event listeners de filtros
+  attachAdminMovementsFilterListeners();
+  updateAdminMovementsSortIndicators();
+  renderAdminMovementsTableBody();
+}
+
+function attachAdminMovementsFilterListeners() {
+  const state = window.adminMovementsState;
+
+  // Presets de fecha
+  document.querySelectorAll('.btn-date-preset').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const preset = e.currentTarget.getAttribute('data-preset');
+      state.datePreset = preset;
+      state.currentPage = 1;
+      await renderAdminMovements();
+    });
+  });
+
+  // Autocomplete Producto
+  document.getElementById('admin-movs-filter-product')?.addEventListener('input', (e) => {
+    const inputVal = e.target.value.trim();
+    const matched = state.allProducts.find(p => 
+      `${p.sku} - ${p.name}` === inputVal || 
+      p.sku === inputVal ||
+      p.name === inputVal
+    );
+    state.filterProductId = matched ? matched.id : '';
+    window.adminMovementsFilterProductId = state.filterProductId;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Buscador de texto
+  document.getElementById('admin-movs-search-query')?.addEventListener('input', (e) => {
+    state.searchQuery = e.target.value;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Bodega
+  document.getElementById('admin-movs-filter-wh')?.addEventListener('change', (e) => {
+    state.filterWarehouse = e.target.value;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Tipo Movimiento
+  document.getElementById('admin-movs-filter-cat')?.addEventListener('change', (e) => {
+    state.filterCategory = e.target.value;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Sentido
+  document.getElementById('admin-movs-filter-flow')?.addEventListener('change', (e) => {
+    state.filterFlow = e.target.value;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Plataforma
+  document.getElementById('admin-movs-filter-platform')?.addEventListener('change', (e) => {
+    state.filterPlatform = e.target.value;
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Fechas manuales
+  document.getElementById('admin-movs-filter-start')?.addEventListener('change', async (e) => {
+    state.startDate = e.target.value;
+    state.datePreset = 'custom';
+    state.currentPage = 1;
+    await renderAdminMovements();
+  });
+
+  document.getElementById('admin-movs-filter-end')?.addEventListener('change', async (e) => {
+    state.endDate = e.target.value;
+    state.datePreset = 'custom';
+    state.currentPage = 1;
+    await renderAdminMovements();
+  });
+
+  // Limpiar filtros
+  document.getElementById('btn-admin-movs-clear-filters')?.addEventListener('click', () => {
+    state.filterProductId = '';
+    window.adminMovementsFilterProductId = '';
+    state.searchQuery = '';
+    state.filterWarehouse = '';
+    state.filterCategory = '';
+    state.filterFlow = '';
+    state.filterPlatform = '';
+    
+    const pInput = document.getElementById('admin-movs-filter-product');
+    if (pInput) pInput.value = '';
+    const sInput = document.getElementById('admin-movs-search-query');
+    if (sInput) sInput.value = '';
+    const whInput = document.getElementById('admin-movs-filter-wh');
+    if (whInput) whInput.value = '';
+    const catInput = document.getElementById('admin-movs-filter-cat');
+    if (catInput) catInput.value = '';
+    const flowInput = document.getElementById('admin-movs-filter-flow');
+    if (flowInput) flowInput.value = '';
+    const platInput = document.getElementById('admin-movs-filter-platform');
+    if (platInput) platInput.value = '';
+
+    state.currentPage = 1;
+    updateAdminMovementsKpis();
+    renderAdminMovementsTableBody();
+  });
+
+  // Ordenamiento en encabezados
+  document.querySelectorAll('.admin-movs-sortable').forEach(th => {
+    th.addEventListener('click', (e) => {
+      const col = e.currentTarget.getAttribute('data-sort');
+      if (state.sortColumn === col) {
+        state.sortAsc = !state.sortAsc;
+      } else {
+        state.sortColumn = col;
+        state.sortAsc = true;
+      }
+      updateAdminMovementsSortIndicators();
+      renderAdminMovementsTableBody();
+    });
+  });
+}
+
+function updateAdminMovementsSortIndicators() {
+  const state = window.adminMovementsState;
+  document.querySelectorAll('.admin-movs-sortable').forEach(th => {
+    const col = th.getAttribute('data-sort');
+    const indicator = th.querySelector('.sort-indicator');
+    if (!indicator) return;
+
+    if (state.sortColumn === col) {
+      indicator.innerHTML = state.sortAsc
+        ? '<i class="ri-arrow-up-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>'
+        : '<i class="ri-arrow-down-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>';
+      th.style.color = 'var(--color-primary)';
+      th.style.fontWeight = '700';
+    } else {
+      indicator.innerHTML = '<i class="ri-arrow-up-down-line" style="color: var(--color-text-muted); opacity: 0.35; font-size: 0.85rem; vertical-align: middle;"></i>';
+      th.style.color = '';
+      th.style.fontWeight = '';
+    }
+  });
+}
+
+function applyAdminMovementsFilters() {
+  const state = window.adminMovementsState;
+  let rows = state.allMovements || [];
+
+  if (state.filterProductId) {
+    rows = rows.filter(r => r.productId === state.filterProductId);
+  }
+
+  if (state.searchQuery) {
+    const q = state.searchQuery.toLowerCase().trim();
+    rows = rows.filter(r => 
+      (r.sku || '').toLowerCase().includes(q) ||
+      (r.name || '').toLowerCase().includes(q) ||
+      (r.comercio || '').toLowerCase().includes(q) ||
+      (r.friendlyRef || '').toLowerCase().includes(q) ||
+      (r.referenceDoc || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (state.filterWarehouse) {
+    rows = rows.filter(r => r.warehouseName === state.filterWarehouse);
+  }
+
+  if (state.filterCategory) {
+    rows = rows.filter(r => r.category?.key === state.filterCategory);
+  }
+
+  if (state.filterFlow) {
+    rows = rows.filter(r => r.type === state.filterFlow);
+  }
+
+  if (state.filterPlatform) {
+    rows = rows.filter(r => r.platform === state.filterPlatform);
+  }
+
+  // Ordenamiento
+  const col = state.sortColumn || 'date';
+  const asc = state.sortAsc !== false;
+
+  rows = [...rows].sort((a, b) => {
+    let valA = a[col];
+    let valB = b[col];
+
+    if (col === 'category') {
+      valA = a.category?.label || '';
+      valB = b.category?.label || '';
+    }
+
+    if (typeof valA === 'string') {
+      valA = valA.toLowerCase();
+      valB = (valB || '').toLowerCase();
+    }
+
+    if (valA < valB) return asc ? -1 : 1;
+    if (valA > valB) return asc ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
+}
+
+function renderAdminMovementsTableBody() {
+  const tbody = document.getElementById('admin-movs-tbody');
+  const pagContainer = document.getElementById('admin-movs-pagination-container');
+  if (!tbody) return;
+
+  const state = window.adminMovementsState;
+  const filtered = applyAdminMovementsFilters();
+  const totalRows = filtered.length;
+
+  if (totalRows === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="12" class="text-center" style="padding: 3.5rem 1rem; color: var(--color-text-muted);">
+          <i class="ri-exchange-line" style="font-size: 3rem; display: block; margin-bottom: 0.75rem; opacity: 0.4;"></i>
+          <p style="margin: 0; font-size: 1rem; font-weight: 600;">No se encontraron movimientos con los filtros aplicados.</p>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">Prueba ampliando el rango de fechas o limpiando los filtros.</p>
+        </td>
+      </tr>
+    `;
+    if (pagContainer) pagContainer.innerHTML = '';
+    return;
+  }
+
+  // Resolver paginación ("all" o numérico)
+  const isShowAll = state.pageSize === 'all' || state.pageSize >= 999999;
+  const pageSize = isShowAll ? totalRows : Number(state.pageSize);
+  const totalPages = Math.ceil(totalRows / pageSize) || 1;
+
+  if (state.currentPage > totalPages) state.currentPage = totalPages;
+  const currentPage = state.currentPage || 1;
+
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, totalRows);
+  const pageRows = isShowAll ? filtered : filtered.slice(startIdx, endIdx);
+
+  tbody.innerHTML = pageRows.map(m => {
+    const isIngreso = m.type === 'in';
+    const flowBadge = isIngreso
+      ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+      : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.12); color: var(--color-danger); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+
+    const catBadge = `<span class="badge" style="background-color: ${m.category?.bg || 'rgba(107,114,128,0.1)'}; color: ${m.category?.color || '#4b5563'}; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category?.icon || 'ri-more-line'}"></i> ${m.category?.label || 'Otro'}</span>`;
+
+    const formattedDate = m.dateStr 
+      ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+      : '-';
+
+    const qtyStyle = isIngreso 
+      ? 'color: var(--color-success); font-weight: 800;' 
+      : 'color: var(--color-danger); font-weight: 800;';
+
+    const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+
+    const platformColor = m.platform === 'Ripley' ? '#7c3aed' : (m.platform === 'Paris' ? '#e11d48' : (m.platform === 'Shopify' ? '#96bf48' : (m.platform === 'Falabella' ? '#84cc16' : (m.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
+    const platformHtml = `<span style="background-color: ${platformColor}18; color: ${platformColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; white-space: nowrap;">${m.platform}</span>`;
+
+    const resultingStockHtml = `
+      <div style="text-align: center;">
+        <span style="font-weight: 800; color: var(--color-text-main); font-size: 0.92rem;">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></span>
+        <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
+      </div>
+    `;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+        <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main); font-size: 0.82rem; white-space: nowrap;">
+          <span style="background: rgba(0,0,0,0.04); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${m.comercio}</span>
+        </td>
+        <td style="padding: 0.75rem 0.8rem; color: var(--color-text-muted); font-weight: 500; font-size: 0.82rem;">${m.warehouseName}</td>
+        <td style="padding: 0.75rem 0.8rem;">${catBadge}</td>
+        <td style="padding: 0.75rem 0.8rem;">${flowBadge}</td>
+        <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; font-weight: 700;">${m.sku}</td>
+        <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${m.name}">${m.name}</td>
+        <td style="padding: 0.75rem 0.8rem;">${platformHtml}</td>
+        <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
+        <td style="padding: 0.75rem 0.8rem; text-align: center;">${resultingStockHtml}</td>
+        <td style="padding: 0.75rem 0.8rem; font-weight: 500; color: var(--color-text-main); font-size: 0.82rem;" title="${m.referenceDoc}">${m.friendlyRef}</td>
+        <td style="padding: 0.75rem 0.8rem; text-align: center; white-space: nowrap;">
+          <button class="btn btn-outline btn-sm btn-quick-inspect-sku" data-prod-id="${m.productId}" data-prod-sku="${m.sku}" data-prod-name="${escapeHtmlAttr(m.name)}" title="Ver Kardex Express de este producto" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;">
+            <i class="ri-history-line"></i> Kardex
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Attach quick inspect click
+  tbody.querySelectorAll('.btn-quick-inspect-sku').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const pId = e.currentTarget.getAttribute('data-prod-id');
+      const pSku = e.currentTarget.getAttribute('data-prod-sku');
+      const pName = e.currentTarget.getAttribute('data-prod-name');
+      openAdminProductMovementsModal(pId, pSku, pName);
+    });
+  });
+
+  // Renderizar footer de paginación y selector de densidad
+  if (pagContainer) {
+    const fromRow = isShowAll ? 1 : startIdx + 1;
+    const toRow = isShowAll ? totalRows : endIdx;
+
+    pagContainer.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.5rem; background-color: var(--color-bg); border-top: 1px solid var(--color-border); flex-wrap: wrap; gap: 1rem;">
+        
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <span style="font-size: 0.85rem; color: var(--color-text-muted);">
+            Mostrando <strong style="color: var(--color-text-main);">${fromRow}</strong> a 
+            <strong style="color: var(--color-text-main);">${toRow}</strong> de 
+            <strong style="color: var(--color-text-main);">${totalRows}</strong> movimientos
+          </span>
+
+          <!-- Selector de Registros por Página (Solución al reclamo de ver todo en una página) -->
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--color-text-muted);">
+            <label>Filas:</label>
+            <select id="admin-movs-page-size-select" style="height: 32px; padding: 0 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+              <option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option>
+              <option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option>
+              <option value="100" ${state.pageSize === 100 ? 'selected' : ''}>100</option>
+              <option value="250" ${state.pageSize === 250 ? 'selected' : ''}>250</option>
+              <option value="all" ${isShowAll ? 'selected' : ''}>Mostrar Todos (Sin Paginación)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Controles de navegación de página (ocultos si se muestran todos) -->
+        <div style="display: ${isShowAll ? 'none' : 'flex'}; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button id="admin-movs-btn-prev" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; height: 32px; cursor: pointer; border-radius: var(--radius-sm);" ${currentPage === 1 ? 'disabled' : ''}>
+            <i class="ri-arrow-left-s-line"></i> Anterior
+          </button>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+            Pág. 
+            <input type="number" id="admin-movs-goto-page" class="form-input" min="1" max="${totalPages}" value="${currentPage}" style="width: 55px; height: 32px; text-align: center; padding: 0; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);"> 
+            de <strong>${totalPages}</strong>
+          </div>
+
+          <button id="admin-movs-btn-next" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem; height: 32px; cursor: pointer; border-radius: var(--radius-sm);" ${currentPage >= totalPages ? 'disabled' : ''}>
+            Siguiente <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+
+      </div>
+    `;
+
+    // Event listeners de paginación
+    document.getElementById('admin-movs-page-size-select')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      state.pageSize = val === 'all' ? 'all' : parseInt(val, 10);
+      state.currentPage = 1;
+      renderAdminMovementsTableBody();
+    });
+
+    document.getElementById('admin-movs-btn-prev')?.addEventListener('click', () => {
+      if (state.currentPage > 1) {
+        state.currentPage--;
+        renderAdminMovementsTableBody();
+      }
+    });
+
+    document.getElementById('admin-movs-btn-next')?.addEventListener('click', () => {
+      if (state.currentPage < totalPages) {
+        state.currentPage++;
+        renderAdminMovementsTableBody();
+      }
+    });
+
+    const gotoInput = document.getElementById('admin-movs-goto-page');
+    if (gotoInput) {
+      const handleGoto = () => {
+        let val = parseInt(gotoInput.value, 10);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > totalPages) val = totalPages;
+        if (val !== state.currentPage) {
+          state.currentPage = val;
+          renderAdminMovementsTableBody();
+        }
+      };
+      gotoInput.addEventListener('change', handleGoto);
+      gotoInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleGoto();
+      });
+    }
+  }
+}
+
+function renderAdminMovementsWarehouseTab() {
+  const container = document.getElementById('admin-movs-tab-content');
+  if (!container) return;
+
+  const state = window.adminMovementsState;
+  const filtered = applyAdminMovementsFilters();
+
+  // Agrupar movimientos por bodega
+  const whStats = {};
+  state.availableWarehouses.forEach(w => {
+    whStats[w] = {
+      warehouseName: w,
+      totalMovements: 0,
+      totalIn: 0,
+      totalOut: 0,
+      netFlow: 0,
+      skusSet: new Set()
+    };
+  });
+
+  filtered.forEach(m => {
+    const w = m.warehouseName;
+    if (!whStats[w]) {
+      whStats[w] = {
+        warehouseName: w,
+        totalMovements: 0,
+        totalIn: 0,
+        totalOut: 0,
+        netFlow: 0,
+        skusSet: new Set()
+      };
+    }
+    whStats[w].totalMovements++;
+    whStats[w].skusSet.add(m.sku);
+    if (m.type === 'in') {
+      whStats[w].totalIn += m.quantity;
+    } else {
+      whStats[w].totalOut += m.quantity;
+    }
+    whStats[w].netFlow += (m.type === 'in' ? m.quantity : -m.quantity);
+  });
+
+  const whCardsHtml = Object.values(whStats).map(ws => {
+    const netSign = ws.netFlow > 0 ? '+' : '';
+    const netColor = ws.netFlow >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+
+    return `
+      <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-building-line" style="color: var(--color-primary);"></i> ${ws.warehouseName}
+              </h3>
+              <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                ${ws.skusSet.size} SKUs con movimientos en este período
+              </p>
+            </div>
+            <span class="badge" style="background: rgba(0,0,0,0.04); border: 1px solid var(--color-border); font-weight: 600; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px;">
+              ${ws.totalMovements} transacciones
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+            <div style="background: rgba(16, 185, 129, 0.08); padding: 0.75rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-success);">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Entradas (+)</span>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-success); margin-top: 0.2rem;">+${ws.totalIn.toLocaleString('es-CL')}</div>
+            </div>
+            <div style="background: rgba(239, 68, 68, 0.08); padding: 0.75rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-danger);">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Salidas (-)</span>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-danger); margin-top: 0.2rem;">-${ws.totalOut.toLocaleString('es-CL')}</div>
+            </div>
+          </div>
+
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted);">Saldo Neto en Bodega:</span>
+            <span style="font-size: 1.1rem; font-weight: 800; color: ${netColor};">${netSign}${ws.netFlow.toLocaleString('es-CL')} uds</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end;">
+          <button class="btn btn-outline btn-sm btn-filter-this-warehouse" data-wh="${ws.warehouseName}" style="font-size: 0.8rem; height: 30px; display: inline-flex; align-items: center; gap: 0.3rem; border-radius: var(--radius-sm); cursor: pointer;">
+            <i class="ri-eye-line"></i> Ver Kardex de esta Bodega
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+      ${whCardsHtml || '<p style="color: var(--color-text-muted); padding: 2rem;">No hay bodegas registradas.</p>'}
+    </div>
+  `;
+
+  container.querySelectorAll('.btn-filter-this-warehouse').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const wh = e.currentTarget.getAttribute('data-wh');
+      state.filterWarehouse = wh;
+      state.activeTab = 'general';
+      const uniqueComercios = []; // se recargará desde workspace
+      renderAdminMovements();
+    });
+  });
+}
+
+function exportAdminMovementsToExcel() {
+  const rows = applyAdminMovementsFilters();
+  if (rows.length === 0) {
+    alert('No hay movimientos que coincidan con los filtros para exportar.');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    alert('Error: La librería SheetJS (XLSX) no está cargada.');
+    return;
+  }
+
+  const exportData = rows.map(r => ({
+    'Fecha': r.dateStr ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+    'Comercio': r.comercio,
+    'Bodega': r.warehouseName,
+    'Tipo Movimiento': r.category?.label || 'Otro',
+    'Sentido': r.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+    'SKU': r.sku,
+    'Producto': r.name,
+    'Origen / Plataforma': r.platform,
+    'Cantidad': r.type === 'in' ? r.quantity : -r.quantity,
+    'Stock Total Resultante': r.stockTotalAfter,
+    'Stock en Bodega Resultante': r.warehouseStockAfter,
+    'Referencia / Detalle': r.friendlyRef,
+    'ID Movimiento': r.id
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Kardex Movimientos');
+
+  const nowStr = new Date().toISOString().split('T')[0];
+  const filename = `Kardex_Movimientos_Stocka_${nowStr}.xlsx`;
+  XLSX.writeFile(workbook, filename);
+}
+
+function exportAdminMovementsToCsv() {
+  const rows = applyAdminMovementsFilters();
+  if (rows.length === 0) {
+    alert('No hay movimientos que coincidan con los filtros para exportar.');
+    return;
+  }
+
+  const headers = [
+    'Fecha',
+    'Comercio',
+    'Bodega',
+    'Tipo Movimiento',
+    'Sentido',
+    'SKU',
+    'Producto',
+    'Origen',
+    'Cantidad',
+    'Stock Total Resultante',
+    'Stock en Bodega Resultante',
+    'Referencia'
+  ];
+
+  const escapeCsv = (str) => {
+    if (str === null || str === undefined) return '""';
+    const s = String(str).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const csvRows = [
+    headers.join(','),
+    ...rows.map(r => [
+      escapeCsv(r.dateStr ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
+      escapeCsv(r.comercio),
+      escapeCsv(r.warehouseName),
+      escapeCsv(r.category?.label || 'Otro'),
+      escapeCsv(r.type === 'in' ? 'Ingreso' : 'Salida'),
+      escapeCsv(r.sku),
+      escapeCsv(r.name),
+      escapeCsv(r.platform),
+      escapeCsv(r.type === 'in' ? r.quantity : -r.quantity),
+      escapeCsv(r.stockTotalAfter),
+      escapeCsv(r.warehouseStockAfter),
+      escapeCsv(r.friendlyRef)
+    ].join(','))
+  ];
+
+  const blob = new Blob(['﻿' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const nowStr = new Date().toISOString().split('T')[0];
+  a.download = `Kardex_Movimientos_${nowStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================================
+// MODAL RÁPIDO DE PRODUCTO ("KARDEX EXPRESS" MEJORADO)
+// ============================================================================
+
 async function openAdminProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements-admin';
   let modal = document.getElementById(modalId);
@@ -16580,31 +18366,52 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 1120px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03);">
+    <div class="modal-content" style="max-width: 1260px; width: 96%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; max-height: 90vh;">
+      
+      <!-- Modal Header con botones de acción -->
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos / Kardex Express
           </h3>
-          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
             ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong>
           </p>
         </div>
-        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" id="admin-modal-export-excel" style="height: 32px; padding: 0 0.75rem; font-size: 0.8rem; border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+            <i class="ri-file-excel-2-line"></i> Excel (.xlsx)
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="admin-modal-export-csv" style="height: 32px; padding: 0 0.75rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm);">
+            <i class="ri-download-2-line"></i> CSV
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" id="admin-modal-btn-open-fullscreen" style="height: 32px; padding: 0 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+            <i class="ri-fullscreen-line"></i> Ver en Pantalla Completa
+          </button>
+          <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted); line-height: 1;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Mini KPIs del Producto -->
+      <div id="admin-modal-sku-kpis" style="padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);"><i class="ri-loader-4-line spin"></i> Calculando métricas...</span>
       </div>
       
       <!-- Filter Bar -->
-      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.85rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
         <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; flex: 1;">
+          
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-building-line" style="vertical-align: middle;"></i> Bodega:</label>
-            <select id="admin-movs-warehouse" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="admin-movs-warehouse" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todas las bodegas</option>
             </select>
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line" style="vertical-align: middle;"></i> Tipo:</label>
-            <select id="admin-movs-category" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="admin-movs-category" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todos los tipos</option>
               <option value="pedido">Pedido</option>
               <option value="traslado">Traslado</option>
@@ -16616,22 +18423,31 @@ async function openAdminProductMovementsModal(productId, sku, name) {
               <option value="otro">Otro</option>
             </select>
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Sentido:</label>
-            <select id="admin-movs-flow" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="admin-movs-flow" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todos</option>
               <option value="in">Ingreso (+)</option>
               <option value="out">Salida (-)</option>
             </select>
           </div>
+
+          <!-- Buscador interno en el modal -->
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <input type="text" id="admin-movs-search-internal" placeholder="Buscar pedido o ref..." style="padding: 0.3rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px; width: 170px;">
+          </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
-            <input type="date" id="admin-movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <input type="date" id="admin-movs-date-from" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
-            <input type="date" id="admin-movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <input type="date" id="admin-movs-date-to" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
           </div>
+
           <div style="display: flex; gap: 0.4rem; align-items: center;">
             <button class="btn btn-primary" id="admin-btn-filter-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
               <i class="ri-filter-line"></i> Filtrar
@@ -16643,19 +18459,19 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         </div>
       </div>
 
-      <div class="modal-body" style="padding: 1.25rem; max-height: 520px; overflow-y: auto;" id="movements-modal-body-admin">
-        <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
-          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
-          <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
+      <div class="modal-body" style="padding: 0; flex: 1; overflow-y: auto;" id="movements-modal-body-admin">
+        <div class="text-center" style="color: var(--color-text-muted); padding: 3.5rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2.5rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
+          <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones y saldos...</p>
         </div>
       </div>
       
-      <!-- Footer with pagination and close -->
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03); flex-wrap: wrap; gap: 1rem;">
-        <div id="admin-movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
-          <!-- Dynamic pagination info and controls -->
+      <!-- Footer con selector de filas ("Mostrar todos") y paginación -->
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); flex-wrap: wrap; gap: 1rem;">
+        <div id="admin-movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 110px); font-size: 0.85rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.75rem;">
+          <!-- Paginación dinámica y selector de densidad -->
         </div>
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 36px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 34px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
       </div>
     </div>
   `;
@@ -16663,7 +18479,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    // 1. Obtener todos los movimientos cronológicamente para calcular el stock acumulado
+    // 1. Obtener todos los movimientos cronológicamente para calcular saldos acumulados
     const { data: rawMovements, error } = await supabase
       .from('movements')
       .select(`
@@ -16680,7 +18496,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
     if (error) throw error;
 
-    // 2. Extraer UUIDs de pedidos para consultar número de orden amigable
+    // 2. Extraer UUIDs de pedidos
     const extractUuid = (ref) => {
       if (!ref) return null;
       const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -16705,6 +18521,8 @@ async function openAdminProductMovementsModal(productId, sku, name) {
     // 3. Procesar saldos cronológicamente
     const warehouseBalances = {};
     let runningTotalStock = 0;
+    let totalEntradas = 0;
+    let totalSalidas = 0;
 
     const processedMovements = (rawMovements || []).map(m => {
       const isIngreso = m.type === 'in';
@@ -16712,17 +18530,27 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       const delta = isIngreso ? qty : -qty;
       const whName = m.warehouses?.name || 'Bodega Principal';
 
+      if (isIngreso) totalEntradas += qty;
+      else totalSalidas += qty;
+
       warehouseBalances[whName] = (warehouseBalances[whName] || 0) + delta;
       runningTotalStock += delta;
 
       const cat = getMovementCategoryInfo(m.reference_doc, m.type);
+      const uuid = extractUuid(m.reference_doc);
+      let displayRef = m.reference_doc || '-';
+      if (uuid && orderMap[uuid]) {
+        displayRef = m.reference_doc.replace(uuid, `#${orderMap[uuid]}`);
+      }
 
       return {
         id: m.id,
-        date: m.date,
+        date: m.date ? new Date(m.date) : new Date(0),
+        dateStr: m.date,
         type: m.type,
         quantity: qty,
         reference_doc: m.reference_doc,
+        displayRef: displayRef,
         warehouse_id: m.warehouse_id,
         warehouseName: whName,
         stockTotalAfter: runningTotalStock,
@@ -16730,6 +18558,38 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         category: cat
       };
     });
+
+    // Actualizar mini-KPIs del producto en la cabecera del modal
+    const miniKpisEl = document.getElementById('admin-modal-sku-kpis');
+    if (miniKpisEl) {
+      const saldoNeto = totalEntradas - totalSalidas;
+      const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+      const saldoSign = saldoNeto > 0 ? '+' : '';
+
+      miniKpisEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
+            <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
+            <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
+            <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
+            <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+          </div>
+        </div>
+      `;
+    }
 
     // 4. Poblar opciones de bodegas en el dropdown
     const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
@@ -16739,30 +18599,36 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         availableWarehouses.map(w => `<option value="${w}">${w}</option>`).join('');
     }
 
-    // 5. Invertir para mostrar los movimientos más recientes primero
+    // 5. Invertir para mostrar más recientes primero por defecto
     processedMovements.reverse();
 
-    // 6. Guardar estado
+    // 6. Guardar estado del modal
     window.activeAdminMovsState = {
       allMovements: processedMovements,
       orderMap: orderMap,
       currentPage: 1,
-      pageSize: 10,
+      pageSize: 25, // 10, 25, 50, 100, 'all'
+      sortColumn: 'date',
+      sortAsc: false,
       filterWarehouse: '',
       filterCategory: '',
       filterFlow: '',
+      filterSearch: '',
       filterFrom: null,
-      filterTo: null
+      filterTo: null,
+      sku: sku,
+      name: name,
+      productId: productId
     };
 
-    const renderTable = () => {
+    const renderModalTable = () => {
       const modalBody = document.getElementById('movements-modal-body-admin');
       const pagContainer = document.getElementById('admin-movements-pagination-container');
       if (!modalBody || !pagContainer) return;
 
       const state = window.activeAdminMovsState;
 
-      // Filtrado multidimensional
+      // Filtrado
       let filtered = state.allMovements;
 
       if (state.filterWarehouse) {
@@ -16774,14 +18640,45 @@ async function openAdminProductMovementsModal(productId, sku, name) {
       if (state.filterFlow) {
         filtered = filtered.filter(m => m.type === state.filterFlow);
       }
+      if (state.filterSearch) {
+        const q = state.filterSearch.toLowerCase().trim();
+        filtered = filtered.filter(m => 
+          (m.displayRef || '').toLowerCase().includes(q) ||
+          (m.reference_doc || '').toLowerCase().includes(q) ||
+          (m.warehouseName || '').toLowerCase().includes(q)
+        );
+      }
       if (state.filterFrom) {
         const fromDate = new Date(state.filterFrom + 'T00:00:00');
-        filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
+        filtered = filtered.filter(m => m.date && m.date >= fromDate);
       }
       if (state.filterTo) {
         const toDate = new Date(state.filterTo + 'T23:59:59');
-        filtered = filtered.filter(m => m.date && new Date(m.date) <= toDate);
+        filtered = filtered.filter(m => m.date && m.date <= toDate);
       }
+
+      // Ordenamiento
+      const col = state.sortColumn || 'date';
+      const asc = state.sortAsc !== false;
+
+      filtered = [...filtered].sort((a, b) => {
+        let valA = a[col];
+        let valB = b[col];
+
+        if (col === 'category') {
+          valA = a.category?.label || '';
+          valB = b.category?.label || '';
+        }
+
+        if (typeof valA === 'string') {
+          valA = valA.toLowerCase();
+          valB = (valB || '').toLowerCase();
+        }
+
+        if (valA < valB) return asc ? -1 : 1;
+        if (valA > valB) return asc ? 1 : -1;
+        return 0;
+      });
 
       if (filtered.length === 0) {
         modalBody.innerHTML = `
@@ -16796,66 +18693,85 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
       // Pagination
       const total = filtered.length;
-      const totalPages = Math.ceil(total / state.pageSize);
+      const isShowAll = state.pageSize === 'all' || state.pageSize >= 999999;
+      const pageSize = isShowAll ? total : Number(state.pageSize);
+      const totalPages = Math.ceil(total / pageSize) || 1;
+
       if (state.currentPage > totalPages) state.currentPage = totalPages || 1;
 
-      const startIdx = (state.currentPage - 1) * state.pageSize;
-      const endIdx = Math.min(startIdx + state.pageSize, total);
-      const paginated = filtered.slice(startIdx, endIdx);
+      const startIdx = (state.currentPage - 1) * pageSize;
+      const endIdx = Math.min(startIdx + pageSize, total);
+      const paginated = isShowAll ? filtered : filtered.slice(startIdx, endIdx);
 
       // Render rows
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
         const flowBadge = isIngreso
-          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.12); color: var(--color-danger); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
         
-        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
+        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
 
-        const formattedDate = m.date 
-          ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+        const formattedDate = m.dateStr 
+          ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
           : '-';
 
         const qtyStyle = isIngreso 
-          ? 'color: var(--color-success); font-weight: 700;' 
-          : 'color: var(--color-danger); font-weight: 700;';
+          ? 'color: var(--color-success); font-weight: 800;' 
+          : 'color: var(--color-danger); font-weight: 800;';
 
         const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
 
-        // Map reference uuid to order number
-        const uuid = extractUuid(m.reference_doc);
-        let displayRef = m.reference_doc || '-';
-        if (uuid && state.orderMap[uuid]) {
-          displayRef = m.reference_doc.replace(uuid, state.orderMap[uuid]);
-        }
-
         return `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-            <td style="padding: 0.75rem 0.6rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
-            <td style="padding: 0.75rem 0.6rem; font-weight: 500;">${m.warehouseName}</td>
-            <td style="padding: 0.75rem 0.6rem;">${catBadge}</td>
-            <td style="padding: 0.75rem 0.6rem;">${flowBadge}</td>
-            <td style="padding: 0.75rem 0.6rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
-            <td style="padding: 0.75rem 0.6rem; text-align: center;">
-              <div style="font-weight: 700; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
+            <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.8rem;">${catBadge}</td>
+            <td style="padding: 0.75rem 0.8rem;">${flowBadge}</td>
+            <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.75rem 0.8rem; text-align: center;">
+              <div style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
               <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
             </td>
-            <td style="padding: 0.75rem 0.6rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
+            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${m.displayRef}</td>
           </tr>
         `;
       }).join('');
 
+      const getSortIcon = (colName) => {
+        if (state.sortColumn !== colName) {
+          return '<i class="ri-arrow-up-down-line" style="color: var(--color-text-muted); opacity: 0.35; font-size: 0.85rem; vertical-align: middle;"></i>';
+        }
+        return state.sortAsc
+          ? '<i class="ri-arrow-up-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>'
+          : '<i class="ri-arrow-down-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>';
+      };
+
       modalBody.innerHTML = `
         <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
           <thead>
-            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-              <th style="padding: 0.65rem 0.6rem; width: 18%;">Fecha / Hora</th>
-              <th style="padding: 0.65rem 0.6rem; width: 14%;">Bodega</th>
-              <th style="padding: 0.65rem 0.6rem; width: 14%;">Tipo Movimiento</th>
-              <th style="padding: 0.65rem 0.6rem; width: 10%;">Sentido</th>
-              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 10%;">Cantidad</th>
-              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 14%;">Stock Resultante</th>
-              <th style="padding: 0.65rem 0.6rem; width: 20%;">Referencia / Detalle</th>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02); user-select: none;">
+              <th class="modal-movs-sortable" data-sort="date" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
+                Fecha / Hora ${getSortIcon('date')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+                Bodega ${getSortIcon('warehouseName')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+                Tipo ${getSortIcon('category')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="type" style="padding: 0.75rem 0.8rem; width: 11%; cursor: pointer;">
+                Sentido ${getSortIcon('type')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 11%; cursor: pointer;">
+                Cantidad ${getSortIcon('quantity')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="stockTotalAfter" style="padding: 0.75rem 0.8rem; text-align: center; width: 15%; cursor: pointer;">
+                Stock Resultante ${getSortIcon('stockTotalAfter')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="displayRef" style="padding: 0.75rem 0.8rem; width: 16%; cursor: pointer;">
+                Referencia / Detalle ${getSortIcon('displayRef')}
+              </th>
             </tr>
           </thead>
           <tbody style="color: var(--color-text-main);">
@@ -16864,72 +18780,188 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         </table>
       `;
 
-      // Pagination controls
+      // Attach header sort click
+      modalBody.querySelectorAll('.modal-movs-sortable').forEach(th => {
+        th.addEventListener('click', (e) => {
+          const colName = e.currentTarget.getAttribute('data-sort');
+          if (state.sortColumn === colName) {
+            state.sortAsc = !state.sortAsc;
+          } else {
+            state.sortColumn = colName;
+            state.sortAsc = true;
+          }
+          renderModalTable();
+        });
+      });
+
+      // Pagination controls & Density Selector
+      const fromRow = isShowAll ? 1 : startIdx + 1;
+      const toRow = isShowAll ? total : endIdx;
+
       pagContainer.innerHTML = `
-        <div style="font-weight: 500;">Mostrando ${startIdx + 1} - ${endIdx} de ${total} movimientos</div>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <span style="font-weight: 500;">
+            Mostrando ${fromRow} - ${toRow} de ${total} movimientos
+          </span>
+
+          <!-- Selector de tamaño de página (incluyendo opción de mostrar todos) -->
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem;">Filas:</label>
+            <select id="admin-modal-page-size-select" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+              <option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option>
+              <option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option>
+              <option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option>
+              <option value="100" ${state.pageSize === 100 ? 'selected' : ''}>100</option>
+              <option value="all" ${isShowAll ? 'selected' : ''}>Mostrar Todos (Sin Paginación)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: ${isShowAll ? 'none' : 'flex'}; gap: 0.5rem; align-items: center;">
           <button class="btn btn-outline btn-sm" id="admin-btn-movs-prev" ${state.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Anterior</button>
           <span style="font-weight: 600; font-size: 0.8rem; min-width: 80px; text-align: center;">Pág. ${state.currentPage} de ${totalPages}</span>
           <button class="btn btn-outline btn-sm" id="admin-btn-movs-next" ${state.currentPage === totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Siguiente</button>
         </div>
       `;
 
-      // Attach page events
+      document.getElementById('admin-modal-page-size-select')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        state.pageSize = val === 'all' ? 'all' : parseInt(val, 10);
+        state.currentPage = 1;
+        renderModalTable();
+      });
+
       document.getElementById('admin-btn-movs-prev')?.addEventListener('click', () => {
         if (state.currentPage > 1) {
           state.currentPage--;
-          renderTable();
+          renderModalTable();
         }
       });
 
       document.getElementById('admin-btn-movs-next')?.addEventListener('click', () => {
         if (state.currentPage < totalPages) {
           state.currentPage++;
-          renderTable();
+          renderModalTable();
         }
       });
     };
 
-    renderTable();
+    renderModalTable();
 
-    // Attach filter event handler
+    // Attach filter event handlers
     const applyFilters = () => {
       window.activeAdminMovsState.filterWarehouse = document.getElementById('admin-movs-warehouse')?.value || '';
       window.activeAdminMovsState.filterCategory = document.getElementById('admin-movs-category')?.value || '';
       window.activeAdminMovsState.filterFlow = document.getElementById('admin-movs-flow')?.value || '';
+      window.activeAdminMovsState.filterSearch = document.getElementById('admin-movs-search-internal')?.value || '';
       window.activeAdminMovsState.filterFrom = document.getElementById('admin-movs-date-from')?.value || null;
       window.activeAdminMovsState.filterTo = document.getElementById('admin-movs-date-to')?.value || null;
       window.activeAdminMovsState.currentPage = 1;
-      renderTable();
+      renderModalTable();
     };
 
     document.getElementById('admin-btn-filter-movs')?.addEventListener('click', applyFilters);
     document.getElementById('admin-movs-warehouse')?.addEventListener('change', applyFilters);
     document.getElementById('admin-movs-category')?.addEventListener('change', applyFilters);
     document.getElementById('admin-movs-flow')?.addEventListener('change', applyFilters);
+    document.getElementById('admin-movs-search-internal')?.addEventListener('input', applyFilters);
 
     document.getElementById('admin-btn-clear-movs')?.addEventListener('click', () => {
       const whEl = document.getElementById('admin-movs-warehouse');
       const catEl = document.getElementById('admin-movs-category');
       const flowEl = document.getElementById('admin-movs-flow');
+      const sEl = document.getElementById('admin-movs-search-internal');
       const fromEl = document.getElementById('admin-movs-date-from');
       const toEl = document.getElementById('admin-movs-date-to');
       if (whEl) whEl.value = '';
       if (catEl) catEl.value = '';
       if (flowEl) flowEl.value = '';
+      if (sEl) sEl.value = '';
       if (fromEl) fromEl.value = '';
       if (toEl) toEl.value = '';
       window.activeAdminMovsState.filterWarehouse = '';
       window.activeAdminMovsState.filterCategory = '';
       window.activeAdminMovsState.filterFlow = '';
+      window.activeAdminMovsState.filterSearch = '';
       window.activeAdminMovsState.filterFrom = null;
       window.activeAdminMovsState.filterTo = null;
       window.activeAdminMovsState.currentPage = 1;
-      renderTable();
+      renderModalTable();
+    });
+
+    // Botón "Ver en Pantalla Completa"
+    document.getElementById('admin-modal-btn-open-fullscreen')?.addEventListener('click', () => {
+      modal.remove();
+      window.adminMovementsFilterProductId = productId;
+      if (window.adminMovementsState) {
+        window.adminMovementsState.filterProductId = productId;
+      }
+      const navItem = document.querySelector('[data-view="movements_admin"]');
+      if (navItem) {
+        navItem.click();
+      } else {
+        renderAdminMovements();
+      }
+    });
+
+    // Exportar Excel individual del producto
+    document.getElementById('admin-modal-export-excel')?.addEventListener('click', () => {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería XLSX no disponible.');
+        return;
+      }
+      const exportRows = window.activeAdminMovsState.allMovements.map(m => ({
+        'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+        'SKU': sku,
+        'Producto': name,
+        'Bodega': m.warehouseName,
+        'Tipo Movimiento': m.category?.label || 'Otro',
+        'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+        'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
+        'Stock Total Resultante': m.stockTotalAfter,
+        'Stock en Bodega': m.warehouseStockAfter,
+        'Referencia / Detalle': m.displayRef
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Kardex SKU');
+      XLSX.writeFile(wb, `Kardex_${sku}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    });
+
+    // Exportar CSV individual del producto
+    document.getElementById('admin-modal-export-csv')?.addEventListener('click', () => {
+      const exportRows = window.activeAdminMovsState.allMovements;
+      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
+      const escapeCsv = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
+      const csvLines = [
+        headers.join(','),
+        ...exportRows.map(m => [
+          escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
+          escapeCsv(sku),
+          escapeCsv(name),
+          escapeCsv(m.warehouseName),
+          escapeCsv(m.category?.label || 'Otro'),
+          escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
+          escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
+          escapeCsv(m.stockTotalAfter),
+          escapeCsv(m.warehouseStockAfter),
+          escapeCsv(m.displayRef)
+        ].join(','))
+      ];
+      const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Kardex_${sku}_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     });
 
   } catch (err) {
-    console.error('Error al cargar movimientos:', err);
+    console.error('Error al cargar movimientos en modal admin:', err);
     const modalBody = document.getElementById('movements-modal-body-admin');
     if (modalBody) {
       modalBody.innerHTML = `

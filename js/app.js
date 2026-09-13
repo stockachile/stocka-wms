@@ -5211,6 +5211,10 @@ function getMovementCategoryInfo(referenceDoc, type) {
   };
 }
 
+// ============================================================================
+// MODAL RÁPIDO DE PRODUCTO ("KARDEX EXPRESS" MEJORADO - CLIENTE)
+// ============================================================================
+
 async function openProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements';
   let modal = document.getElementById(modalId);
@@ -5221,31 +5225,52 @@ async function openProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 1120px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03);">
+    <div class="modal-content" style="max-width: 1260px; width: 96%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; max-height: 90vh;">
+      
+      <!-- Modal Header con botones de acción -->
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos / Kardex Express
           </h3>
-          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
             ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong>
           </p>
         </div>
-        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline btn-sm" id="client-modal-export-excel" style="height: 32px; padding: 0 0.75rem; font-size: 0.8rem; border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+            <i class="ri-file-excel-2-line"></i> Excel (.xlsx)
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="client-modal-export-csv" style="height: 32px; padding: 0 0.75rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm);">
+            <i class="ri-download-2-line"></i> CSV
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" id="client-modal-btn-open-fullscreen" style="height: 32px; padding: 0 0.85rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+            <i class="ri-fullscreen-line"></i> Ver en Pantalla Completa
+          </button>
+          <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted); line-height: 1;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Mini KPIs del Producto -->
+      <div id="client-modal-sku-kpis" style="padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);"><i class="ri-loader-4-line spin"></i> Calculando métricas...</span>
       </div>
       
       <!-- Filter Bar -->
-      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.85rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+      <div style="display: flex; gap: 0.6rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
         <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; flex: 1;">
+          
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-building-line" style="vertical-align: middle;"></i> Bodega:</label>
-            <select id="movs-warehouse" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="movs-warehouse" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todas las bodegas</option>
             </select>
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line" style="vertical-align: middle;"></i> Tipo:</label>
-            <select id="movs-category" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="movs-category" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todos los tipos</option>
               <option value="pedido">Pedido</option>
               <option value="traslado">Traslado</option>
@@ -5257,22 +5282,31 @@ async function openProductMovementsModal(productId, sku, name) {
               <option value="otro">Otro</option>
             </select>
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Sentido:</label>
-            <select id="movs-flow" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <select id="movs-flow" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
               <option value="">Todos</option>
               <option value="in">Ingreso (+)</option>
               <option value="out">Salida (-)</option>
             </select>
           </div>
+
+          <!-- Buscador interno en el modal -->
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <input type="text" id="movs-search-internal" placeholder="Buscar pedido o ref..." style="padding: 0.3rem 0.6rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px; width: 170px;">
+          </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
-            <input type="date" id="movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <input type="date" id="movs-date-from" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
           </div>
+
           <div style="display: flex; align-items: center; gap: 0.35rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
-            <input type="date" id="movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+            <input type="date" id="movs-date-to" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); height: 32px;">
           </div>
+
           <div style="display: flex; gap: 0.4rem; align-items: center;">
             <button class="btn btn-primary" id="btn-filter-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
               <i class="ri-filter-line"></i> Filtrar
@@ -5284,19 +5318,19 @@ async function openProductMovementsModal(productId, sku, name) {
         </div>
       </div>
 
-      <div class="modal-body" style="padding: 1.25rem; max-height: 520px; overflow-y: auto;" id="movements-modal-body">
-        <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
-          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
-          <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
+      <div class="modal-body" style="padding: 0; flex: 1; overflow-y: auto;" id="movements-modal-body">
+        <div class="text-center" style="color: var(--color-text-muted); padding: 3.5rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2.5rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
+          <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones y saldos...</p>
         </div>
       </div>
       
-      <!-- Footer with pagination and close -->
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.03); flex-wrap: wrap; gap: 1rem;">
-        <div id="movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
-          <!-- Dynamic pagination info and controls -->
+      <!-- Footer con selector de filas ("Mostrar todos") y paginación -->
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); flex-wrap: wrap; gap: 1rem;">
+        <div id="movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 110px); font-size: 0.85rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.75rem;">
+          <!-- Paginación dinámica y selector de densidad -->
         </div>
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 36px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 34px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
       </div>
     </div>
   `;
@@ -5304,7 +5338,7 @@ async function openProductMovementsModal(productId, sku, name) {
   document.body.appendChild(modal);
 
   try {
-    // 1. Obtener todos los movimientos cronológicamente para calcular el stock acumulado
+    // 1. Obtener todos los movimientos cronológicamente para calcular saldos acumulados
     const { data: rawMovements, error } = await supabase
       .from('movements')
       .select(`
@@ -5321,7 +5355,7 @@ async function openProductMovementsModal(productId, sku, name) {
 
     if (error) throw error;
 
-    // 2. Extraer UUIDs de pedidos para consultar número de orden amigable
+    // 2. Extraer UUIDs de pedidos
     const extractUuid = (ref) => {
       if (!ref) return null;
       const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -5346,6 +5380,8 @@ async function openProductMovementsModal(productId, sku, name) {
     // 3. Procesar saldos cronológicamente
     const warehouseBalances = {};
     let runningTotalStock = 0;
+    let totalEntradas = 0;
+    let totalSalidas = 0;
 
     const processedMovements = (rawMovements || []).map(m => {
       const isIngreso = m.type === 'in';
@@ -5353,17 +5389,27 @@ async function openProductMovementsModal(productId, sku, name) {
       const delta = isIngreso ? qty : -qty;
       const whName = m.warehouses?.name || 'Bodega Principal';
 
+      if (isIngreso) totalEntradas += qty;
+      else totalSalidas += qty;
+
       warehouseBalances[whName] = (warehouseBalances[whName] || 0) + delta;
       runningTotalStock += delta;
 
       const cat = getMovementCategoryInfo(m.reference_doc, m.type);
+      const uuid = extractUuid(m.reference_doc);
+      let displayRef = m.reference_doc || '-';
+      if (uuid && orderMap[uuid]) {
+        displayRef = m.reference_doc.replace(uuid, `#${orderMap[uuid]}`);
+      }
 
       return {
         id: m.id,
-        date: m.date,
+        date: m.date ? new Date(m.date) : new Date(0),
+        dateStr: m.date,
         type: m.type,
         quantity: qty,
         reference_doc: m.reference_doc,
+        displayRef: displayRef,
         warehouse_id: m.warehouse_id,
         warehouseName: whName,
         stockTotalAfter: runningTotalStock,
@@ -5371,6 +5417,38 @@ async function openProductMovementsModal(productId, sku, name) {
         category: cat
       };
     });
+
+    // Actualizar mini-KPIs del producto en la cabecera del modal
+    const miniKpisEl = document.getElementById('client-modal-sku-kpis');
+    if (miniKpisEl) {
+      const saldoNeto = totalEntradas - totalSalidas;
+      const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+      const saldoSign = saldoNeto > 0 ? '+' : '';
+
+      miniKpisEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Entradas Totales:</span>
+            <strong style="color: var(--color-success);">+${totalEntradas.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Salidas Totales:</span>
+            <strong style="color: var(--color-danger);">-${totalSalidas.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Saldo Calculado:</span>
+            <strong style="color: ${saldoColor};">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</strong>
+          </div>
+          <div style="width: 1px; height: 16px; background: var(--color-border);"></div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem;">
+            <span style="color: var(--color-text-muted); font-weight: 600;">Transacciones:</span>
+            <strong style="color: var(--color-text-main);">${processedMovements.length} movs</strong>
+          </div>
+        </div>
+      `;
+    }
 
     // 4. Poblar opciones de bodegas en el dropdown
     const availableWarehouses = [...new Set(processedMovements.map(m => m.warehouseName))].sort();
@@ -5380,30 +5458,36 @@ async function openProductMovementsModal(productId, sku, name) {
         availableWarehouses.map(w => `<option value="${w}">${w}</option>`).join('');
     }
 
-    // 5. Invertir para mostrar los movimientos más recientes primero
+    // 5. Invertir para mostrar más recientes primero por defecto
     processedMovements.reverse();
 
-    // 6. Guardar estado
+    // 6. Guardar estado del modal
     window.activeMovsState = {
       allMovements: processedMovements,
       orderMap: orderMap,
       currentPage: 1,
-      pageSize: 10,
+      pageSize: 25, // 10, 25, 50, 100, 'all'
+      sortColumn: 'date',
+      sortAsc: false,
       filterWarehouse: '',
       filterCategory: '',
       filterFlow: '',
+      filterSearch: '',
       filterFrom: null,
-      filterTo: null
+      filterTo: null,
+      sku: sku,
+      name: name,
+      productId: productId
     };
 
-    const renderTable = () => {
+    const renderModalTable = () => {
       const modalBody = document.getElementById('movements-modal-body');
       const pagContainer = document.getElementById('movements-pagination-container');
       if (!modalBody || !pagContainer) return;
 
       const state = window.activeMovsState;
 
-      // Filtrado multidimensional
+      // Filtrado
       let filtered = state.allMovements;
 
       if (state.filterWarehouse) {
@@ -5415,14 +5499,45 @@ async function openProductMovementsModal(productId, sku, name) {
       if (state.filterFlow) {
         filtered = filtered.filter(m => m.type === state.filterFlow);
       }
+      if (state.filterSearch) {
+        const q = state.filterSearch.toLowerCase().trim();
+        filtered = filtered.filter(m => 
+          (m.displayRef || '').toLowerCase().includes(q) ||
+          (m.reference_doc || '').toLowerCase().includes(q) ||
+          (m.warehouseName || '').toLowerCase().includes(q)
+        );
+      }
       if (state.filterFrom) {
         const fromDate = new Date(state.filterFrom + 'T00:00:00');
-        filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
+        filtered = filtered.filter(m => m.date && m.date >= fromDate);
       }
       if (state.filterTo) {
         const toDate = new Date(state.filterTo + 'T23:59:59');
-        filtered = filtered.filter(m => m.date && new Date(m.date) <= toDate);
+        filtered = filtered.filter(m => m.date && m.date <= toDate);
       }
+
+      // Ordenamiento
+      const col = state.sortColumn || 'date';
+      const asc = state.sortAsc !== false;
+
+      filtered = [...filtered].sort((a, b) => {
+        let valA = a[col];
+        let valB = b[col];
+
+        if (col === 'category') {
+          valA = a.category?.label || '';
+          valB = b.category?.label || '';
+        }
+
+        if (typeof valA === 'string') {
+          valA = valA.toLowerCase();
+          valB = (valB || '').toLowerCase();
+        }
+
+        if (valA < valB) return asc ? -1 : 1;
+        if (valA > valB) return asc ? 1 : -1;
+        return 0;
+      });
 
       if (filtered.length === 0) {
         modalBody.innerHTML = `
@@ -5437,66 +5552,85 @@ async function openProductMovementsModal(productId, sku, name) {
 
       // Pagination
       const total = filtered.length;
-      const totalPages = Math.ceil(total / state.pageSize);
+      const isShowAll = state.pageSize === 'all' || state.pageSize >= 999999;
+      const pageSize = isShowAll ? total : Number(state.pageSize);
+      const totalPages = Math.ceil(total / pageSize) || 1;
+
       if (state.currentPage > totalPages) state.currentPage = totalPages || 1;
 
-      const startIdx = (state.currentPage - 1) * state.pageSize;
-      const endIdx = Math.min(startIdx + state.pageSize, total);
-      const paginated = filtered.slice(startIdx, endIdx);
+      const startIdx = (state.currentPage - 1) * pageSize;
+      const endIdx = Math.min(startIdx + pageSize, total);
+      const paginated = isShowAll ? filtered : filtered.slice(startIdx, endIdx);
 
       // Render rows
       let rowsHtml = paginated.map(m => {
         const isIngreso = m.type === 'in';
         const flowBadge = isIngreso
-          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.12); color: var(--color-danger); font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.75rem; white-space: nowrap;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
         
-        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 600; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
+        const catBadge = `<span class="badge" style="background-color: ${m.category.bg}; color: ${m.category.color}; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; white-space: nowrap;"><i class="${m.category.icon}"></i> ${m.category.label}</span>`;
 
-        const formattedDate = m.date 
-          ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+        const formattedDate = m.dateStr 
+          ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
           : '-';
 
         const qtyStyle = isIngreso 
-          ? 'color: var(--color-success); font-weight: 700;' 
-          : 'color: var(--color-danger); font-weight: 700;';
+          ? 'color: var(--color-success); font-weight: 800;' 
+          : 'color: var(--color-danger); font-weight: 800;';
 
         const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
 
-        // Map reference uuid to order number
-        const uuid = extractUuid(m.reference_doc);
-        let displayRef = m.reference_doc || '-';
-        if (uuid && state.orderMap[uuid]) {
-          displayRef = m.reference_doc.replace(uuid, state.orderMap[uuid]);
-        }
-
         return `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-            <td style="padding: 0.75rem 0.6rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
-            <td style="padding: 0.75rem 0.6rem; font-weight: 500;">${m.warehouseName}</td>
-            <td style="padding: 0.75rem 0.6rem;">${catBadge}</td>
-            <td style="padding: 0.75rem 0.6rem;">${flowBadge}</td>
-            <td style="padding: 0.75rem 0.6rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
-            <td style="padding: 0.75rem 0.6rem; text-align: center;">
-              <div style="font-weight: 700; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
+            <td style="padding: 0.75rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">${formattedDate}</td>
+            <td style="padding: 0.75rem 0.8rem; font-weight: 600; color: var(--color-text-main);">${m.warehouseName}</td>
+            <td style="padding: 0.75rem 0.8rem;">${catBadge}</td>
+            <td style="padding: 0.75rem 0.8rem;">${flowBadge}</td>
+            <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.75rem 0.8rem; text-align: center;">
+              <div style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
               <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
             </td>
-            <td style="padding: 0.75rem 0.6rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
+            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${m.displayRef}</td>
           </tr>
         `;
       }).join('');
 
+      const getSortIcon = (colName) => {
+        if (state.sortColumn !== colName) {
+          return '<i class="ri-arrow-up-down-line" style="color: var(--color-text-muted); opacity: 0.35; font-size: 0.85rem; vertical-align: middle;"></i>';
+        }
+        return state.sortAsc
+          ? '<i class="ri-arrow-up-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>'
+          : '<i class="ri-arrow-down-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>';
+      };
+
       modalBody.innerHTML = `
         <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
           <thead>
-            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-              <th style="padding: 0.65rem 0.6rem; width: 18%;">Fecha / Hora</th>
-              <th style="padding: 0.65rem 0.6rem; width: 14%;">Bodega</th>
-              <th style="padding: 0.65rem 0.6rem; width: 14%;">Tipo Movimiento</th>
-              <th style="padding: 0.65rem 0.6rem; width: 10%;">Sentido</th>
-              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 10%;">Cantidad</th>
-              <th style="padding: 0.65rem 0.6rem; text-align: center; width: 14%;">Stock Resultante</th>
-              <th style="padding: 0.65rem 0.6rem; width: 20%;">Referencia / Detalle</th>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02); user-select: none;">
+              <th class="modal-movs-sortable" data-sort="date" style="padding: 0.75rem 0.8rem; width: 17%; cursor: pointer;">
+                Fecha / Hora ${getSortIcon('date')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="warehouseName" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+                Bodega ${getSortIcon('warehouseName')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="category" style="padding: 0.75rem 0.8rem; width: 15%; cursor: pointer;">
+                Tipo ${getSortIcon('category')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="type" style="padding: 0.75rem 0.8rem; width: 11%; cursor: pointer;">
+                Sentido ${getSortIcon('type')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="quantity" style="padding: 0.75rem 0.8rem; text-align: center; width: 11%; cursor: pointer;">
+                Cantidad ${getSortIcon('quantity')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="stockTotalAfter" style="padding: 0.75rem 0.8rem; text-align: center; width: 15%; cursor: pointer;">
+                Stock Resultante ${getSortIcon('stockTotalAfter')}
+              </th>
+              <th class="modal-movs-sortable" data-sort="displayRef" style="padding: 0.75rem 0.8rem; width: 16%; cursor: pointer;">
+                Referencia / Detalle ${getSortIcon('displayRef')}
+              </th>
             </tr>
           </thead>
           <tbody style="color: var(--color-text-main);">
@@ -5505,72 +5639,184 @@ async function openProductMovementsModal(productId, sku, name) {
         </table>
       `;
 
-      // Pagination controls
+      modalBody.querySelectorAll('.modal-movs-sortable').forEach(th => {
+        th.addEventListener('click', (e) => {
+          const colName = e.currentTarget.getAttribute('data-sort');
+          if (state.sortColumn === colName) {
+            state.sortAsc = !state.sortAsc;
+          } else {
+            state.sortColumn = colName;
+            state.sortAsc = true;
+          }
+          renderModalTable();
+        });
+      });
+
+      // Pagination controls & Density Selector
+      const fromRow = isShowAll ? 1 : startIdx + 1;
+      const toRow = isShowAll ? total : endIdx;
+
       pagContainer.innerHTML = `
-        <div style="font-weight: 500;">Mostrando ${startIdx + 1} - ${endIdx} de ${total} movimientos</div>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <span style="font-weight: 500;">
+            Mostrando ${fromRow} - ${toRow} de ${total} movimientos
+          </span>
+
+          <!-- Selector de tamaño de página -->
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem;">Filas:</label>
+            <select id="client-modal-page-size-select" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+              <option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option>
+              <option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option>
+              <option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option>
+              <option value="100" ${state.pageSize === 100 ? 'selected' : ''}>100</option>
+              <option value="all" ${isShowAll ? 'selected' : ''}>Mostrar Todos (Sin Paginación)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: ${isShowAll ? 'none' : 'flex'}; gap: 0.5rem; align-items: center;">
           <button class="btn btn-outline btn-sm" id="btn-movs-prev" ${state.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Anterior</button>
           <span style="font-weight: 600; font-size: 0.8rem; min-width: 80px; text-align: center;">Pág. ${state.currentPage} de ${totalPages}</span>
           <button class="btn btn-outline btn-sm" id="btn-movs-next" ${state.currentPage === totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Siguiente</button>
         </div>
       `;
 
-      // Attach page events
+      document.getElementById('client-modal-page-size-select')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        state.pageSize = val === 'all' ? 'all' : parseInt(val, 10);
+        state.currentPage = 1;
+        renderModalTable();
+      });
+
       document.getElementById('btn-movs-prev')?.addEventListener('click', () => {
         if (state.currentPage > 1) {
           state.currentPage--;
-          renderTable();
+          renderModalTable();
         }
       });
 
       document.getElementById('btn-movs-next')?.addEventListener('click', () => {
         if (state.currentPage < totalPages) {
           state.currentPage++;
-          renderTable();
+          renderModalTable();
         }
       });
     };
 
-    renderTable();
+    renderModalTable();
 
-    // Attach filter event handler
+    // Attach filter event handlers
     const applyFilters = () => {
       window.activeMovsState.filterWarehouse = document.getElementById('movs-warehouse')?.value || '';
       window.activeMovsState.filterCategory = document.getElementById('movs-category')?.value || '';
       window.activeMovsState.filterFlow = document.getElementById('movs-flow')?.value || '';
+      window.activeMovsState.filterSearch = document.getElementById('movs-search-internal')?.value || '';
       window.activeMovsState.filterFrom = document.getElementById('movs-date-from')?.value || null;
       window.activeMovsState.filterTo = document.getElementById('movs-date-to')?.value || null;
       window.activeMovsState.currentPage = 1;
-      renderTable();
+      renderModalTable();
     };
 
     document.getElementById('btn-filter-movs')?.addEventListener('click', applyFilters);
     document.getElementById('movs-warehouse')?.addEventListener('change', applyFilters);
     document.getElementById('movs-category')?.addEventListener('change', applyFilters);
     document.getElementById('movs-flow')?.addEventListener('change', applyFilters);
+    document.getElementById('movs-search-internal')?.addEventListener('input', applyFilters);
 
     document.getElementById('btn-clear-movs')?.addEventListener('click', () => {
       const whEl = document.getElementById('movs-warehouse');
       const catEl = document.getElementById('movs-category');
       const flowEl = document.getElementById('movs-flow');
+      const sEl = document.getElementById('movs-search-internal');
       const fromEl = document.getElementById('movs-date-from');
       const toEl = document.getElementById('movs-date-to');
       if (whEl) whEl.value = '';
       if (catEl) catEl.value = '';
       if (flowEl) flowEl.value = '';
+      if (sEl) sEl.value = '';
       if (fromEl) fromEl.value = '';
       if (toEl) toEl.value = '';
       window.activeMovsState.filterWarehouse = '';
       window.activeMovsState.filterCategory = '';
       window.activeMovsState.filterFlow = '';
+      window.activeMovsState.filterSearch = '';
       window.activeMovsState.filterFrom = null;
       window.activeMovsState.filterTo = null;
       window.activeMovsState.currentPage = 1;
-      renderTable();
+      renderModalTable();
+    });
+
+    // Botón "Ver en Pantalla Completa"
+    document.getElementById('client-modal-btn-open-fullscreen')?.addEventListener('click', () => {
+      modal.remove();
+      window.movementsFilterProductId = productId;
+      const navItem = document.querySelector('[data-view="movements"]');
+      if (navItem) {
+        navItem.click();
+      } else {
+        renderMovements();
+      }
+    });
+
+    // Exportar Excel individual del producto
+    document.getElementById('client-modal-export-excel')?.addEventListener('click', () => {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería XLSX no disponible.');
+        return;
+      }
+      const exportRows = window.activeMovsState.allMovements.map(m => ({
+        'Fecha': m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+        'SKU': sku,
+        'Producto': name,
+        'Bodega': m.warehouseName,
+        'Tipo Movimiento': m.category?.label || 'Otro',
+        'Sentido': m.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+        'Cantidad': m.type === 'in' ? m.quantity : -m.quantity,
+        'Stock Total Resultante': m.stockTotalAfter,
+        'Stock en Bodega': m.warehouseStockAfter,
+        'Referencia / Detalle': m.displayRef
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Kardex SKU');
+      XLSX.writeFile(wb, `Kardex_${sku}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    });
+
+    // Exportar CSV individual del producto
+    document.getElementById('client-modal-export-csv')?.addEventListener('click', () => {
+      const exportRows = window.activeMovsState.allMovements;
+      const headers = ['Fecha', 'SKU', 'Producto', 'Bodega', 'Tipo', 'Sentido', 'Cantidad', 'Stock Total', 'Stock Bodega', 'Referencia'];
+      const escapeCsv = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
+      const csvLines = [
+        headers.join(','),
+        ...exportRows.map(m => [
+          escapeCsv(m.dateStr ? new Date(m.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-'),
+          escapeCsv(sku),
+          escapeCsv(name),
+          escapeCsv(m.warehouseName),
+          escapeCsv(m.category?.label || 'Otro'),
+          escapeCsv(m.type === 'in' ? 'Ingreso' : 'Salida'),
+          escapeCsv(m.type === 'in' ? m.quantity : -m.quantity),
+          escapeCsv(m.stockTotalAfter),
+          escapeCsv(m.warehouseStockAfter),
+          escapeCsv(m.displayRef)
+        ].join(','))
+      ];
+      const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Kardex_${sku}_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     });
 
   } catch (err) {
-    console.error('Error al cargar movimientos:', err);
+    console.error('Error al cargar movimientos en modal cliente:', err);
     const modalBody = document.getElementById('movements-modal-body');
     if (modalBody) {
       modalBody.innerHTML = `
@@ -5584,9 +5830,22 @@ async function openProductMovementsModal(productId, sku, name) {
   }
 }
 
+// ============================================================================
+// VISTA COMPLETA DE MOVIMIENTOS Y TRAZABILIDAD (CLIENTE)
+// ============================================================================
+
+window.clientMovementsTab = 'general'; // 'general' | 'warehouse'
+
 async function renderMovements() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando historial de movimientos...</p>`;
+  if (!appContent) return;
+  appContent.innerHTML = getObserverBanner() + `
+    <div style="padding: 3rem 1rem; text-align: center; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2.5rem; color: var(--color-primary); display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem;"></i>
+      <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); font-weight: 600;">Cargando Historial de Movimientos...</h3>
+      <p style="margin: 0.35rem 0 0 0; font-size: 0.85rem;">Consultando transacciones de inventario y balances...</p>
+    </div>
+  `;
 
   try {
     const assignedComercios = (currentCompany || '')
@@ -5596,36 +5855,103 @@ async function renderMovements() {
 
     const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
-    // 1. Obtener la lista de movimientos para el comercio activo cronológicamente para calcular saldos
-    let query = supabase
-      .from('movements')
-      .select(`
-        id,
-        date,
-        type,
-        quantity,
-        reference_doc,
-        warehouse_id,
-        products!inner (id, sku, name, comercio),
-        warehouses (id, name)
-      `);
+    // 1. Obtener la lista de movimientos (vía RPC de alta velocidad o consulta directa con auto-paginación)
+    let movements = [];
+    let useRpc = true;
+    let from = 0;
+    const step = 1000;
+    const maxCap = 25000;
 
-    if (commerce) {
-      query = query.eq('products.comercio', commerce);
-    } else {
-      query = query.eq('products.comercio', 'no asignado');
+    // A. Intento vía RPC de alto rendimiento con auto-paginación
+    while (from < maxCap) {
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase
+          .rpc('get_kardex_movements', {
+            p_commerce: commerce || null,
+            p_product_id: null,
+            p_warehouse_id: null,
+            p_start_date: null,
+            p_end_date: null,
+            p_limit: 25000
+          })
+          .range(from, from + step - 1);
+
+        if (!rpcErr && Array.isArray(rpcData)) {
+          if (rpcData.length === 0) break;
+          const mapped = rpcData.map(r => ({
+            id: r.id,
+            date: r.date,
+            type: r.type,
+            quantity: r.quantity,
+            reference_doc: r.reference_doc,
+            warehouse_id: r.warehouse_id,
+            products: { id: r.product_id, sku: r.product_sku, name: r.product_name, comercio: r.product_comercio },
+            warehouses: { id: r.warehouse_id, name: r.warehouse_name }
+          }));
+          movements = movements.concat(mapped);
+          if (rpcData.length < step) break;
+          from += step;
+          continue;
+        } else {
+          useRpc = false;
+          break;
+        }
+      } catch (e) {
+        useRpc = false;
+        break;
+      }
     }
 
-    query = query.order('date', { ascending: true });
+    // B. Consulta directa optimizada mediante product_id IN (...) si el RPC no está disponible
+    if (!useRpc) {
+      movements = [];
+      from = 0;
+      let targetProductIds = [];
+      if (commerce) {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id, sku, name, comercio')
+          .eq('comercio', commerce);
+        targetProductIds = (prods || []).map(p => p.id);
+      }
 
-    const { data: movements, error } = await query;
-    if (error) throw error;
+      if (targetProductIds.length > 0) {
+        while (from < maxCap) {
+          const { data: movsChunk, error: movsErr } = await supabase
+            .from('movements')
+            .select(`
+              id,
+              date,
+              type,
+              quantity,
+              reference_doc,
+              warehouse_id,
+              product_id,
+              products (id, sku, name, comercio),
+              warehouses (id, name)
+            `)
+            .in('product_id', targetProductIds.slice(0, 300))
+            .order('date', { ascending: false })
+            .range(from, from + step - 1);
+
+          if (movsErr) throw movsErr;
+          if (!movsChunk || movsChunk.length === 0) break;
+          movements = movements.concat(movsChunk);
+          if (movsChunk.length < step) break;
+          from += step;
+        }
+      }
+    }
+
+    // Ordenar cronológicamente para el cálculo acumulativo de saldos (Kardex)
+    movements.sort((a, b) => new Date(a.date) - new Date(b.date));
 
     // 2. Obtener órdenes del comercio para mapear plataforma de origen y números amigables de pedido
     const { data: orders } = await supabase
       .from('orders')
       .select('id, origen, external_platform, external_order_number')
-      .eq('comercio', commerce);
+      .eq('comercio', commerce)
+      .limit(2000);
 
     const orderInfoMap = {};
     if (orders) {
@@ -5665,22 +5991,24 @@ async function renderMovements() {
     const { data: activeProducts } = await supabase
       .from('products')
       .select('id, sku, name')
-      .eq('comercio', commerce);
+      .eq('comercio', commerce)
+      .limit(2000);
 
     window.cachedActiveProducts = activeProducts || [];
 
     // Extraer lista única de bodegas
     const availableWarehouses = [...new Set(rawMovements.map(m => m.warehouses?.name).filter(Boolean))].sort();
+    window.cachedMovementsWarehouses = availableWarehouses;
 
     // Selector de comercio si el usuario tiene más de uno
     let commerceSelectorHtml = '';
     if (assignedComercios.length > 1) {
       commerceSelectorHtml = `
-        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
-            <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
+        <div style="margin-bottom: 1.25rem; background: var(--color-surface); padding: 1.25rem 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 700; display: block; margin-bottom: 0.5rem; color: var(--color-text-main); font-size: 0.95rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.4rem;"></i>Seleccionar Comercio Activo
           </label>
-          <select id="movements-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+          <select id="movements-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.85rem; font-weight: 500;">
             ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
           </select>
         </div>
@@ -5689,149 +6017,50 @@ async function renderMovements() {
 
     // Renderizado del contenedor principal y los filtros
     appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + `
-      <div class="card">
-        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Historial de Movimientos 2.0</h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Registro completo de movimientos, trazabilidad, saldos y operaciones de stock.</p>
-          </div>
-          <div>
-            <button id="btn-export-movements" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-download-2-line"></i> Exportar CSV
-            </button>
+      <div style="display: flex; flex-direction: column; gap: 1.25rem; margin-bottom: 2rem;">
+        
+        <!-- Tarjeta de Cabecera -->
+        <div class="card" style="padding: 1.25rem 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos 2.0
+              </h3>
+              <p style="margin: 0.2rem 0 0 0; font-size: 0.88rem; color: var(--color-text-muted);">
+                Registro completo de movimientos, trazabilidad, saldos y operaciones de stock.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <button id="btn-export-movements-excel" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer; border-radius: var(--radius-md); font-weight: 600;">
+                <i class="ri-file-excel-2-line" style="font-size: 1.1rem;"></i> Exportar Excel (.xlsx)
+              </button>
+              <button id="btn-export-movements" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md); font-weight: 600;">
+                <i class="ri-download-2-line" style="font-size: 1.1rem;"></i> Exportar CSV
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- Filtros del Historial -->
-        <div class="card-body" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: rgba(0,0,0,0.02); display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
-          <div style="flex: 1.2; min-width: 200px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Filtrar por Producto</label>
-            <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
-              <datalist id="movements-products-list">
-                ${window.cachedActiveProducts.map(p => `<option value="${p.sku} - ${p.name}"></option>`).join('')}
-              </datalist>
-            </div>
-          </div>
+        <!-- Tarjetas KPI de Período -->
+        <div id="client-movs-kpis-container">
+          <!-- Dinámico -->
+        </div>
 
-          <div style="flex: 0.9; min-width: 150px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Buscar SKU/Referencia</label>
-            <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="text" id="movs-search" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
-            </div>
-          </div>
-
-          <div style="width: 140px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-building-line"></i> Bodega</label>
-            <select id="movs-filter-warehouse" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
-              <option value="">Todas</option>
-              ${availableWarehouses.map(w => `<option value="${w}" ${window.movementsFilterWarehouse === w ? 'selected' : ''}>${w}</option>`).join('')}
-            </select>
-          </div>
-
-          <div style="width: 140px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-filter-3-line"></i> Tipo Mov.</label>
-            <select id="movs-filter-category" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
-              <option value="">Todos los tipos</option>
-              <option value="pedido" ${window.movementsFilterCategory === 'pedido' ? 'selected' : ''}>Pedido</option>
-              <option value="traslado" ${window.movementsFilterCategory === 'traslado' ? 'selected' : ''}>Traslado</option>
-              <option value="ingreso" ${window.movementsFilterCategory === 'ingreso' ? 'selected' : ''}>Ingreso / Inicial</option>
-              <option value="ajuste" ${window.movementsFilterCategory === 'ajuste' ? 'selected' : ''}>Ajuste</option>
-              <option value="cambio" ${window.movementsFilterCategory === 'cambio' ? 'selected' : ''}>Cambio</option>
-              <option value="devolucion" ${window.movementsFilterCategory === 'devolucion' ? 'selected' : ''}>Devolución</option>
-              <option value="merma" ${window.movementsFilterCategory === 'merma' ? 'selected' : ''}>Merma / Baja</option>
-              <option value="otro" ${window.movementsFilterCategory === 'otro' ? 'selected' : ''}>Otro</option>
-            </select>
-          </div>
-
-          <div style="width: 110px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Sentido</label>
-            <select id="movs-filter-flow" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
-              <option value="">Todos</option>
-              <option value="in" ${window.movementsFilterFlow === 'in' ? 'selected' : ''}>Ingreso (+)</option>
-              <option value="out" ${window.movementsFilterFlow === 'out' ? 'selected' : ''}>Salida (-)</option>
-            </select>
-          </div>
-          
-          <div style="width: 120px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Plataforma</label>
-            <select id="movs-filter-platform" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
-              <option value="">Todas</option>
-              <option value="Manual" ${window.movementsFilterPlatform === 'Manual' ? 'selected' : ''}>Manual</option>
-              <option value="Shopify" ${window.movementsFilterPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
-              <option value="MercadoLibre" ${window.movementsFilterPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
-              <option value="Falabella" ${window.movementsFilterPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
-              <option value="Paris" ${window.movementsFilterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
-              <option value="Ripley" ${window.movementsFilterPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
-              <option value="WooCommerce" ${window.movementsFilterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
-              <option value="Jumpseller" ${window.movementsFilterPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
-              <option value="Tiendanube" ${window.movementsFilterPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
-            </select>
-          </div>
-
-          <div style="width: 135px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Desde</label>
-            <input type="date" id="movs-filter-start" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterStartDate || ''}">
-          </div>
-
-          <div style="width: 135px;">
-            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Hasta</label>
-            <input type="date" id="movs-filter-end" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterEndDate || ''}">
-          </div>
-
-          <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-            <i class="ri-refresh-line" style="margin-right: 0.25rem;"></i> Limpiar
+        <!-- Pestañas de Vista -->
+        <div style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--color-border); padding-bottom: 0;">
+          <button id="tab-client-movs-general" class="btn" style="border: none; background: transparent; font-weight: 700; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; border-bottom: 3px solid ${window.clientMovementsTab === 'general' ? 'var(--color-primary)' : 'transparent'}; color: ${window.clientMovementsTab === 'general' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 0;">
+            <i class="ri-list-check"></i> Kardex General
+          </button>
+          <button id="tab-client-movs-warehouse" class="btn" style="border: none; background: transparent; font-weight: 700; font-size: 0.92rem; padding: 0.65rem 1.25rem; cursor: pointer; border-bottom: 3px solid ${window.clientMovementsTab === 'warehouse' ? 'var(--color-primary)' : 'transparent'}; color: ${window.clientMovementsTab === 'warehouse' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 0;">
+            <i class="ri-building-2-line"></i> Balance por Bodega
           </button>
         </div>
 
-        <div class="card-body" style="padding: 0;">
-          <div class="table-responsive" style="overflow-x: auto; width: 100%;">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
-              <thead>
-                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th class="movements-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Fecha / Hora <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="category" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo Movimiento <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Sentido <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Origen <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Cantidad <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="stockTotalAfter" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Resultante <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="movements-sortable" data-sort="reference_doc" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Referencia / Detalle <span class="sort-indicator"></span></span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody id="movements-tbody" style="font-size: 0.88rem; color: var(--color-text);">
-                <!-- Carga dinámica -->
-              </tbody>
-            </table>
-          </div>
-          <div id="movements-pagination-container">
-            <!-- Controles de paginación -->
-          </div>
+        <!-- Contenedor Principal de la Pestaña Activa -->
+        <div id="client-movs-tab-content">
+          <!-- Renderizado dinámico -->
         </div>
+
       </div>
     `;
 
@@ -5845,123 +6074,408 @@ async function renderMovements() {
       });
     }
 
-    // Inicializar listeners de filtros
-    document.getElementById('movs-product-filter')?.addEventListener('input', (e) => {
-      const inputVal = e.target.value.trim();
-      const matched = window.cachedActiveProducts?.find(p => 
-        `${p.sku} - ${p.name}` === inputVal || 
-        p.sku === inputVal ||
-        p.name === inputVal
-      );
-      window.movementsFilterProductId = matched ? matched.id : '';
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-search')?.addEventListener('input', (e) => {
-      window.movementsSearchQuery = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-warehouse')?.addEventListener('change', (e) => {
-      window.movementsFilterWarehouse = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-category')?.addEventListener('change', (e) => {
-      window.movementsFilterCategory = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-flow')?.addEventListener('change', (e) => {
-      window.movementsFilterFlow = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-platform')?.addEventListener('change', (e) => {
-      window.movementsFilterPlatform = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-start')?.addEventListener('change', (e) => {
-      window.movementsFilterStartDate = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('movs-filter-end')?.addEventListener('change', (e) => {
-      window.movementsFilterEndDate = e.target.value;
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
-    document.getElementById('btn-clear-movs-filters')?.addEventListener('click', () => {
-      window.movementsSearchQuery = '';
-      window.movementsFilterPlatform = '';
-      window.movementsFilterWarehouse = '';
-      window.movementsFilterCategory = '';
-      window.movementsFilterFlow = '';
-      window.movementsFilterStartDate = '';
-      window.movementsFilterEndDate = '';
-      window.movementsFilterProductId = '';
-      
-      const search = document.getElementById('movs-search');
-      if (search) search.value = '';
-      const wh = document.getElementById('movs-filter-warehouse');
-      if (wh) wh.value = '';
-      const cat = document.getElementById('movs-filter-category');
-      if (cat) cat.value = '';
-      const flow = document.getElementById('movs-filter-flow');
-      if (flow) flow.value = '';
-      const platform = document.getElementById('movs-filter-platform');
-      if (platform) platform.value = '';
-      const start = document.getElementById('movs-filter-start');
-      if (start) start.value = '';
-      const end = document.getElementById('movs-filter-end');
-      if (end) end.value = '';
-      const prodFilter = document.getElementById('movs-product-filter');
-      if (prodFilter) prodFilter.value = '';
-
-      window.movementsCurrentPage = 1;
-      renderMovementsTableBody();
-    });
-
+    document.getElementById('btn-export-movements-excel')?.addEventListener('click', exportMovementsToExcel);
     document.getElementById('btn-export-movements')?.addEventListener('click', exportMovementsToCsv);
 
-    // Inicializar ordenamiento en headers
-    document.querySelectorAll('.movements-sortable').forEach(th => {
-      th.addEventListener('click', (e) => {
-        const col = e.currentTarget.getAttribute('data-sort');
-        if (window.movementsSortColumn === col) {
-          window.movementsSortAsc = !window.movementsSortAsc;
-        } else {
-          window.movementsSortColumn = col;
-          window.movementsSortAsc = true;
-        }
-        
-        updateMovementsSortingIndicators();
-        renderMovementsTableBody();
-      });
+    document.getElementById('tab-client-movs-general')?.addEventListener('click', () => {
+      if (window.clientMovementsTab !== 'general') {
+        window.clientMovementsTab = 'general';
+        buildClientMovementsTabContent();
+      }
     });
 
-    // Valores por defecto
-    if (!window.movementsSortColumn) {
-      window.movementsSortColumn = 'date';
-      window.movementsSortAsc = false; // Descendente por defecto
-    }
-    
-    updateMovementsSortingIndicators();
-    renderMovementsTableBody();
+    document.getElementById('tab-client-movs-warehouse')?.addEventListener('click', () => {
+      if (window.clientMovementsTab !== 'warehouse') {
+        window.clientMovementsTab = 'warehouse';
+        buildClientMovementsTabContent();
+      }
+    });
+
+    buildClientMovementsTabContent();
 
   } catch (error) {
     console.error('Error fetching movements:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los movimientos: ${error.message}</p>`;
   }
+}
+
+function updateClientMovementsKpis() {
+  const container = document.getElementById('client-movs-kpis-container');
+  if (!container) return;
+
+  const rows = applyMovementsFiltersAndSort();
+  let totalEntradas = 0;
+  let totalSalidas = 0;
+  let despachos = 0;
+  let ingresos = 0;
+  let ajustes = 0;
+
+  rows.forEach(r => {
+    if (r.type === 'in') {
+      totalEntradas += r.quantity;
+      if (r.category?.key === 'ingreso') ingresos += r.quantity;
+      if (r.category?.key === 'ajuste') ajustes += r.quantity;
+    } else {
+      totalSalidas += r.quantity;
+      if (r.category?.key === 'pedido') despachos += r.quantity;
+      if (r.category?.key === 'merma' || r.category?.key === 'ajuste') ajustes += r.quantity;
+    }
+  });
+
+  const saldoNeto = totalEntradas - totalSalidas;
+  const saldoColor = saldoNeto >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+  const saldoSign = saldoNeto > 0 ? '+' : '';
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem;">
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Movimientos</div>
+        <div style="font-size: 1.5rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.25rem;">${rows.length.toLocaleString('es-CL')}</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Filtrados en período</div>
+      </div>
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm); border-left: 3px solid var(--color-success);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Entradas (+)</div>
+        <div style="font-size: 1.5rem; font-weight: 800; color: var(--color-success); margin-top: 0.25rem;">+${totalEntradas.toLocaleString('es-CL')} uds</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Stock recibido</div>
+      </div>
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm); border-left: 3px solid var(--color-danger);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Salidas (-)</div>
+        <div style="font-size: 1.5rem; font-weight: 800; color: var(--color-danger); margin-top: 0.25rem;">-${totalSalidas.toLocaleString('es-CL')} uds</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Stock despachado</div>
+      </div>
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Saldo Neto</div>
+        <div style="font-size: 1.5rem; font-weight: 800; color: ${saldoColor}; margin-top: 0.25rem;">${saldoSign}${saldoNeto.toLocaleString('es-CL')} uds</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Flujo neto de existencias</div>
+      </div>
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);">
+        <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Despachos Pedidos</div>
+        <div style="font-size: 1.5rem; font-weight: 800; color: #2563eb; margin-top: 0.25rem;">${despachos.toLocaleString('es-CL')} uds</div>
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Ventas despachadas</div>
+      </div>
+    </div>
+  `;
+}
+
+function buildClientMovementsTabContent() {
+  const container = document.getElementById('client-movs-tab-content');
+  if (!container) return;
+
+  const availableWarehouses = window.cachedMovementsWarehouses || [];
+
+  updateClientMovementsKpis();
+
+  if (window.clientMovementsTab === 'warehouse') {
+    // Tab de Bodegas
+    const rows = applyMovementsFiltersAndSort();
+    const whStats = {};
+    availableWarehouses.forEach(w => {
+      whStats[w] = { warehouseName: w, totalIn: 0, totalOut: 0, netFlow: 0, movsCount: 0 };
+    });
+
+    rows.forEach(m => {
+      const w = m.warehouse || 'Bodega Principal';
+      if (!whStats[w]) whStats[w] = { warehouseName: w, totalIn: 0, totalOut: 0, netFlow: 0, movsCount: 0 };
+      whStats[w].movsCount++;
+      if (m.type === 'in') whStats[w].totalIn += m.quantity;
+      else whStats[w].totalOut += m.quantity;
+      whStats[w].netFlow += (m.type === 'in' ? m.quantity : -m.quantity);
+    });
+
+    const cardsHtml = Object.values(whStats).map(ws => {
+      const netSign = ws.netFlow > 0 ? '+' : '';
+      const netColor = ws.netFlow >= 0 ? 'var(--color-success)' : 'var(--color-danger)';
+      return `
+        <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-building-line" style="color: var(--color-primary);"></i> ${ws.warehouseName}
+            </h3>
+            <span class="badge" style="background: rgba(0,0,0,0.04); border: 1px solid var(--color-border); font-size: 0.75rem; font-weight: 600;">${ws.movsCount} transacciones</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+            <div style="background: rgba(16, 185, 129, 0.08); padding: 0.75rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-success);">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Entradas (+)</span>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-success); margin-top: 0.2rem;">+${ws.totalIn.toLocaleString('es-CL')}</div>
+            </div>
+            <div style="background: rgba(239, 68, 68, 0.08); padding: 0.75rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-danger);">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Salidas (-)</span>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-danger); margin-top: 0.2rem;">-${ws.totalOut.toLocaleString('es-CL')}</div>
+            </div>
+          </div>
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted);">Saldo Neto en Bodega:</span>
+            <span style="font-size: 1.1rem; font-weight: 800; color: ${netColor};">${netSign}${ws.netFlow.toLocaleString('es-CL')} uds</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+        ${cardsHtml}
+      </div>
+    `;
+    return;
+  }
+
+  // Tab General
+  container.innerHTML = `
+    <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm);">
+      
+      <!-- Filtros del Historial -->
+      <div class="card-body" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: rgba(0,0,0,0.02); display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+        <div style="flex: 1.2; min-width: 200px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Filtrar por Producto</label>
+          <div style="position: relative;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
+            <datalist id="movements-products-list">
+              ${(window.cachedActiveProducts || []).map(p => `<option value="${p.sku} - ${p.name}"></option>`).join('')}
+            </datalist>
+          </div>
+        </div>
+
+        <div style="flex: 0.9; min-width: 150px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Buscar SKU/Referencia</label>
+          <div style="position: relative;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            <input type="text" id="movs-search" class="form-input" placeholder="Texto libre..." style="width: 100%; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
+          </div>
+        </div>
+
+        <div style="width: 140px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-building-line"></i> Bodega</label>
+          <select id="movs-filter-warehouse" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+            <option value="">Todas</option>
+            ${availableWarehouses.map(w => `<option value="${w}" ${window.movementsFilterWarehouse === w ? 'selected' : ''}>${w}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="width: 140px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;"><i class="ri-filter-3-line"></i> Tipo Mov.</label>
+          <select id="movs-filter-category" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+            <option value="">Todos los tipos</option>
+            <option value="pedido" ${window.movementsFilterCategory === 'pedido' ? 'selected' : ''}>Pedido</option>
+            <option value="traslado" ${window.movementsFilterCategory === 'traslado' ? 'selected' : ''}>Traslado</option>
+            <option value="ingreso" ${window.movementsFilterCategory === 'ingreso' ? 'selected' : ''}>Ingreso / Inicial</option>
+            <option value="ajuste" ${window.movementsFilterCategory === 'ajuste' ? 'selected' : ''}>Ajuste</option>
+            <option value="cambio" ${window.movementsFilterCategory === 'cambio' ? 'selected' : ''}>Cambio</option>
+            <option value="devolucion" ${window.movementsFilterCategory === 'devolucion' ? 'selected' : ''}>Devolución</option>
+            <option value="merma" ${window.movementsFilterCategory === 'merma' ? 'selected' : ''}>Merma / Baja</option>
+            <option value="otro" ${window.movementsFilterCategory === 'otro' ? 'selected' : ''}>Otro</option>
+          </select>
+        </div>
+
+        <div style="width: 110px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Sentido</label>
+          <select id="movs-filter-flow" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+            <option value="">Todos</option>
+            <option value="in" ${window.movementsFilterFlow === 'in' ? 'selected' : ''}>Ingreso (+)</option>
+            <option value="out" ${window.movementsFilterFlow === 'out' ? 'selected' : ''}>Salida (-)</option>
+          </select>
+        </div>
+        
+        <div style="width: 120px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Plataforma</label>
+          <select id="movs-filter-platform" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+            <option value="">Todas</option>
+            <option value="Manual" ${window.movementsFilterPlatform === 'Manual' ? 'selected' : ''}>Manual</option>
+            <option value="Shopify" ${window.movementsFilterPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
+            <option value="MercadoLibre" ${window.movementsFilterPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
+            <option value="Falabella" ${window.movementsFilterPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
+            <option value="Paris" ${window.movementsFilterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
+            <option value="Ripley" ${window.movementsFilterPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
+            <option value="WooCommerce" ${window.movementsFilterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+            <option value="Jumpseller" ${window.movementsFilterPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+            <option value="Tiendanube" ${window.movementsFilterPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
+          </select>
+        </div>
+
+        <div style="width: 135px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Desde</label>
+          <input type="date" id="movs-filter-start" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterStartDate || ''}">
+        </div>
+
+        <div style="width: 135px;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">Hasta</label>
+          <input type="date" id="movs-filter-end" class="form-input" style="width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterEndDate || ''}">
+        </div>
+
+        <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0 0.85rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+          <i class="ri-refresh-line" style="margin-right: 0.25rem;"></i> Limpiar
+        </button>
+      </div>
+
+      <div class="card-body" style="padding: 0;">
+        <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                <th class="movements-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Fecha / Hora <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="category" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo Movimiento <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Sentido <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Origen <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Cantidad <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="stockTotalAfter" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Resultante <span class="sort-indicator"></span></span>
+                </th>
+                <th class="movements-sortable" data-sort="reference_doc" style="cursor: pointer; user-select: none; padding: 0.85rem 1rem; white-space: nowrap;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Referencia / Detalle <span class="sort-indicator"></span></span>
+                </th>
+                <th style="padding: 0.85rem 1rem; text-align: center; white-space: nowrap;">
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody id="movements-tbody" style="font-size: 0.88rem; color: var(--color-text);">
+              <!-- Carga dinámica -->
+            </tbody>
+          </table>
+        </div>
+        <div id="movements-pagination-container">
+          <!-- Controles de paginación -->
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Inicializar listeners de filtros
+  document.getElementById('movs-product-filter')?.addEventListener('input', (e) => {
+    const inputVal = e.target.value.trim();
+    const matched = window.cachedActiveProducts?.find(p => 
+      `${p.sku} - ${p.name}` === inputVal || 
+      p.sku === inputVal ||
+      p.name === inputVal
+    );
+    window.movementsFilterProductId = matched ? matched.id : '';
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-search')?.addEventListener('input', (e) => {
+    window.movementsSearchQuery = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-warehouse')?.addEventListener('change', (e) => {
+    window.movementsFilterWarehouse = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-category')?.addEventListener('change', (e) => {
+    window.movementsFilterCategory = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-flow')?.addEventListener('change', (e) => {
+    window.movementsFilterFlow = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-platform')?.addEventListener('change', (e) => {
+    window.movementsFilterPlatform = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-start')?.addEventListener('change', (e) => {
+    window.movementsFilterStartDate = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('movs-filter-end')?.addEventListener('change', (e) => {
+    window.movementsFilterEndDate = e.target.value;
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.getElementById('btn-clear-movs-filters')?.addEventListener('click', () => {
+    window.movementsSearchQuery = '';
+    window.movementsFilterPlatform = '';
+    window.movementsFilterWarehouse = '';
+    window.movementsFilterCategory = '';
+    window.movementsFilterFlow = '';
+    window.movementsFilterStartDate = '';
+    window.movementsFilterEndDate = '';
+    window.movementsFilterProductId = '';
+    
+    const search = document.getElementById('movs-search');
+    if (search) search.value = '';
+    const wh = document.getElementById('movs-filter-warehouse');
+    if (wh) wh.value = '';
+    const cat = document.getElementById('movs-filter-category');
+    if (cat) cat.value = '';
+    const flow = document.getElementById('movs-filter-flow');
+    if (flow) flow.value = '';
+    const platform = document.getElementById('movs-filter-platform');
+    if (platform) platform.value = '';
+    const start = document.getElementById('movs-filter-start');
+    if (start) start.value = '';
+    const end = document.getElementById('movs-filter-end');
+    if (end) end.value = '';
+    const prodFilter = document.getElementById('movs-product-filter');
+    if (prodFilter) prodFilter.value = '';
+
+    window.movementsCurrentPage = 1;
+    updateClientMovementsKpis();
+    renderMovementsTableBody();
+  });
+
+  document.querySelectorAll('.movements-sortable').forEach(th => {
+    th.addEventListener('click', (e) => {
+      const col = e.currentTarget.getAttribute('data-sort');
+      if (window.movementsSortColumn === col) {
+        window.movementsSortAsc = !window.movementsSortAsc;
+      } else {
+        window.movementsSortColumn = col;
+        window.movementsSortAsc = true;
+      }
+      
+      updateMovementsSortingIndicators();
+      renderMovementsTableBody();
+    });
+  });
+
+  if (!window.movementsSortColumn) {
+    window.movementsSortColumn = 'date';
+    window.movementsSortAsc = false;
+  }
+  
+  updateMovementsSortingIndicators();
+  renderMovementsTableBody();
 }
 
 // ----------------------------------------------------
@@ -6048,12 +6562,12 @@ function applyMovementsFiltersAndSort() {
     rows = rows.filter(r => r.type === flow);
   }
 
-  // 6. Filtro de Plataforma
+  // 6. Filtro por Plataforma
   if (platform) {
-    rows = rows.filter(r => (r.platform || '').toLowerCase() === platform.toLowerCase());
+    rows = rows.filter(r => r.platform === platform);
   }
 
-  // 7. Filtro de Fechas
+  // 7. Filtro por Fechas
   if (start) {
     const startDate = new Date(start);
     startDate.setHours(0, 0, 0, 0);
@@ -6098,19 +6612,11 @@ function renderMovementsTableBody() {
 
   const rows = applyMovementsFiltersAndSort();
   const totalRows = rows.length;
-  const pageSize = window.movementsPageSize || 20;
-  const totalPages = Math.ceil(totalRows / pageSize);
-
-  // Validar página actual
-  if (window.movementsCurrentPage > totalPages) {
-    window.movementsCurrentPage = Math.max(totalPages, 1);
-  }
-  const currentPage = window.movementsCurrentPage || 1;
 
   if (totalRows === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="11" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-exchange-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; opacity: 0.5;"></i>
           No se encontraron movimientos con los filtros aplicados.
         </td>
@@ -6120,10 +6626,18 @@ function renderMovementsTableBody() {
     return;
   }
 
-  // Paginación
+  const isShowAll = window.movementsPageSize === 'all' || window.movementsPageSize >= 999999;
+  const pageSize = isShowAll ? totalRows : (window.movementsPageSize || 25);
+  const totalPages = Math.ceil(totalRows / pageSize) || 1;
+
+  if (window.movementsCurrentPage > totalPages) {
+    window.movementsCurrentPage = Math.max(totalPages, 1);
+  }
+  const currentPage = window.movementsCurrentPage || 1;
+
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, totalRows);
-  const pageRows = rows.slice(startIndex, endIndex);
+  const pageRows = isShowAll ? rows : rows.slice(startIndex, endIndex);
 
   tbody.innerHTML = pageRows.map(r => {
     const isIngreso = r.type === 'in';
@@ -6146,7 +6660,6 @@ function renderMovementsTableBody() {
     const platformColor = r.platform === 'Ripley' ? '#7c3aed' : (r.platform === 'Paris' ? '#e11d48' : (r.platform === 'Shopify' ? '#96bf48' : (r.platform === 'Falabella' ? '#84cc16' : (r.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
     const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.2rem 0.45rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${r.platform}</span>`;
 
-    // Obtener número de pedido amigable en lugar de UUID
     let operationDoc = r.reference_doc || '-';
     if (r.reference_doc && r.reference_doc.startsWith('Pedido ')) {
       const orderId = r.reference_doc.replace('Pedido ', '').trim();
@@ -6170,33 +6683,58 @@ function renderMovementsTableBody() {
         <td style="padding: 0.75rem 1rem;">${catBadge}</td>
         <td style="padding: 0.75rem 1rem;">${flowBadge}</td>
         <td style="padding: 0.75rem 1rem;"><strong>${r.sku}</strong></td>
-        <td style="padding: 0.75rem 1rem;">${r.name}</td>
+        <td style="padding: 0.75rem 1rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.name}">${r.name}</td>
         <td style="padding: 0.75rem 1rem;">${platformHtml}</td>
         <td style="padding: 0.75rem 1rem; text-align: center; ${qtyStyle}">${qtyText}</td>
         <td style="padding: 0.75rem 1rem; text-align: center;">${resultingStockHtml}</td>
         <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${operationDoc}</td>
+        <td style="padding: 0.75rem 1rem; text-align: center; white-space: nowrap;">
+          <button class="btn btn-outline btn-sm btn-view-movements" data-prod-id="${r.productId}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
+            <i class="ri-history-line"></i> Kardex
+          </button>
+        </td>
       </tr>
     `;
   }).join('');
 
-  // Renderizar controles de paginación
-  if (pagContainer) {
-    if (totalPages <= 1) {
-      pagContainer.innerHTML = '';
-      return;
-    }
+  // Attach quick inspect in client
+  tbody.querySelectorAll('.btn-view-movements').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-prod-id');
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      openProductMovementsModal(prodId, sku, name);
+    });
+  });
 
-    const fromRow = startIndex + 1;
-    const toRow = endIndex;
+  // Renderizar controles de paginación y selector de densidad
+  if (pagContainer) {
+    const fromRow = isShowAll ? 1 : startIndex + 1;
+    const toRow = isShowAll ? totalRows : endIndex;
 
     pagContainer.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background-color: var(--color-bg-card); border-top: 1px solid var(--color-border); border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); flex-wrap: wrap; gap: 1rem;">
-        <span style="font-size: 0.875rem; color: var(--color-text-muted);">
-          Mostrando <strong style="color: var(--color-text-main);">${fromRow}</strong> a 
-          <strong style="color: var(--color-text-main);">${toRow}</strong> de 
-          <strong style="color: var(--color-text-main);">${totalRows}</strong> movimientos
-        </span>
-        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background-color: var(--color-bg); border-top: 1px solid var(--color-border); flex-wrap: wrap; gap: 1rem;">
+        
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <span style="font-size: 0.875rem; color: var(--color-text-muted);">
+            Mostrando <strong style="color: var(--color-text-main);">${fromRow}</strong> a 
+            <strong style="color: var(--color-text-main);">${toRow}</strong> de 
+            <strong style="color: var(--color-text-main);">${totalRows}</strong> movimientos
+          </span>
+
+          <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+            <label>Filas:</label>
+            <select id="client-movs-page-size-select" style="height: 32px; padding: 0 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+              <option value="25" ${window.movementsPageSize === 25 ? 'selected' : ''}>25</option>
+              <option value="50" ${window.movementsPageSize === 50 ? 'selected' : ''}>50</option>
+              <option value="100" ${window.movementsPageSize === 100 ? 'selected' : ''}>100</option>
+              <option value="250" ${window.movementsPageSize === 250 ? 'selected' : ''}>250</option>
+              <option value="all" ${isShowAll ? 'selected' : ''}>Mostrar Todos (Sin Paginación)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: ${isShowAll ? 'none' : 'flex'}; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
           <button id="movs-prev-page" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem; height: 34px; cursor: pointer; border-radius: var(--radius-md);" ${currentPage === 1 ? 'disabled' : ''}>
             <i class="ri-arrow-left-s-line"></i> Anterior
           </button>
@@ -6211,34 +6749,38 @@ function renderMovementsTableBody() {
             Siguiente <i class="ri-arrow-right-s-line"></i>
           </button>
         </div>
+
       </div>
     `;
 
-    // Event listeners
-    const btnPrev = document.getElementById('movs-prev-page');
-    const btnNext = document.getElementById('movs-next-page');
-    const gotoInput = document.getElementById('movs-goto-page');
+    document.getElementById('client-movs-page-size-select')?.addEventListener('change', (e) => {
+      const val = e.target.value;
+      window.movementsPageSize = val === 'all' ? 'all' : parseInt(val, 10);
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
 
-    if (btnPrev && currentPage > 1) {
-      btnPrev.addEventListener('click', () => {
+    document.getElementById('movs-prev-page')?.addEventListener('click', () => {
+      if (window.movementsCurrentPage > 1) {
         window.movementsCurrentPage--;
         renderMovementsTableBody();
-      });
-    }
+      }
+    });
 
-    if (btnNext && currentPage < totalPages) {
-      btnNext.addEventListener('click', () => {
+    document.getElementById('movs-next-page')?.addEventListener('click', () => {
+      if (window.movementsCurrentPage < totalPages) {
         window.movementsCurrentPage++;
         renderMovementsTableBody();
-      });
-    }
+      }
+    });
 
+    const gotoInput = document.getElementById('movs-goto-page');
     if (gotoInput) {
       const handleGoto = () => {
         let val = parseInt(gotoInput.value, 10);
         if (isNaN(val) || val < 1) val = 1;
         if (val > totalPages) val = totalPages;
-        if (val !== currentPage) {
+        if (val !== window.movementsCurrentPage) {
           window.movementsCurrentPage = val;
           renderMovementsTableBody();
         }
@@ -6246,9 +6788,7 @@ function renderMovementsTableBody() {
 
       gotoInput.addEventListener('change', handleGoto);
       gotoInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          handleGoto();
-        }
+        if (e.key === 'Enter') handleGoto();
       });
     }
   }
@@ -6270,6 +6810,52 @@ function updateMovementsSortingIndicators() {
       th.style.color = '';
     }
   });
+}
+
+function exportMovementsToExcel() {
+  const rows = applyMovementsFiltersAndSort();
+  if (rows.length === 0) {
+    alert('No hay movimientos para exportar.');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    alert('Librería XLSX no disponible.');
+    return;
+  }
+
+  const exportData = rows.map(r => {
+    let operationDoc = r.reference_doc || '-';
+    if (r.reference_doc && r.reference_doc.startsWith('Pedido ')) {
+      const orderId = r.reference_doc.replace('Pedido ', '').trim();
+      const orderInfo = window.movementOrderInfoMap?.[orderId];
+      if (orderInfo && orderInfo.orderNumber) {
+        operationDoc = `Pedido #${orderInfo.orderNumber}`;
+      }
+    }
+
+    return {
+      'Fecha': r.dateStr ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' }) : '-',
+      'Bodega': r.warehouse,
+      'Tipo Movimiento': r.category?.label || 'Otro',
+      'Sentido': r.type === 'in' ? 'Ingreso (+)' : 'Salida (-)',
+      'SKU': r.sku,
+      'Producto': r.name,
+      'Origen / Plataforma': r.platform,
+      'Cantidad': r.type === 'in' ? r.quantity : -r.quantity,
+      'Stock Total Resultante': r.stockTotalAfter,
+      'Stock Bodega Resultante': r.warehouseStockAfter,
+      'Referencia': operationDoc
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Movimientos');
+
+  const commerce = window.activeIntegrationCommerce || 'comercio';
+  const filename = `Kardex_Movimientos_${commerce.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(workbook, filename);
 }
 
 function exportMovementsToCsv() {
@@ -6317,7 +6903,7 @@ function exportMovementsToCsv() {
       r.sku,
       r.name,
       r.platform,
-      r.quantity,
+      r.type === 'in' ? r.quantity : -r.quantity,
       r.stockTotalAfter !== '-' ? r.stockTotalAfter : '',
       r.warehouseStockAfter !== '-' ? r.warehouseStockAfter : '',
       operationDoc
@@ -6345,6 +6931,7 @@ function exportMovementsToCsv() {
   link.click();
   document.body.removeChild(link);
 }
+
 
 async function renderWarehouses() {
   const appContent = document.getElementById('app-content');
