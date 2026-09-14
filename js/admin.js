@@ -3652,8 +3652,8 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
 // Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas y sobrecarga de conexiones
 async function fetchEnviosUnificadosByRefs(allRefs) {
   if (!allRefs || allRefs.length === 0) return [];
-  const uniqueRefs = [...new Set(allRefs)];
-  const CHUNK_SIZE = 150;
+  const uniqueRefs = [...new Set(allRefs.map(r => String(r || '').trim()).filter(Boolean))];
+  const CHUNK_SIZE = 100;
   const chunks = [];
   for (let i = 0; i < uniqueRefs.length; i += CHUNK_SIZE) {
     chunks.push(uniqueRefs.slice(i, i + CHUNK_SIZE));
@@ -3663,24 +3663,38 @@ async function fetchEnviosUnificadosByRefs(allRefs) {
   const CONCURRENCY = 4;
   for (let i = 0; i < chunks.length; i += CONCURRENCY) {
     const batch = chunks.slice(i, i + CONCURRENCY);
-    const batchPromises = batch.map(chunk =>
-      supabase
+    const batchPromises = batch.map(chunk => {
+      const cleanChunk = chunk.map(c => c.replace(/["(),]/g, '').trim()).filter(Boolean);
+      if (cleanChunk.length === 0) return Promise.resolve([]);
+      const chunkCsv = `(${cleanChunk.map(c => `"${c}"`).join(',')})`;
+      
+      return supabase
         .from('envios_unificados')
         .select('*')
-        .in('pedido_referencia', chunk)
+        .or(`pedido_referencia.in.${chunkCsv},tracking.in.${chunkCsv},source_id.in.${chunkCsv}`)
         .then(({ data, error }) => {
           if (error) {
-            console.error('Error fetching envios_unificados chunk:', error);
-            return [];
+            console.warn('Fallback en fetchEnviosUnificadosByRefs por error en .or:', error.message);
+            return supabase
+              .from('envios_unificados')
+              .select('*')
+              .in('pedido_referencia', cleanChunk)
+              .then(({ data: fbData }) => fbData || []);
           }
           return data || [];
-        })
-    );
+        });
+    });
     const batchResults = await Promise.all(batchPromises);
     batchResults.forEach(res => allResults.push(...res));
   }
 
-  return allResults;
+  const map = new Map();
+  allResults.forEach(item => {
+    if (item && item.id) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
 }
 
 let _currentFetchWmsOrdersPromise = null;
@@ -3814,11 +3828,34 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
       }
 
       if (orders && orders.length > 0) {
-        const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
-        const cleanOrderRefs = orders.map(o => (o.external_order_number || '').replace(/^#/, '').trim()).filter(Boolean);
-        const orderIds = orders.map(o => o.id);
-        const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
-        const allRefs = [...orderRefs, ...cleanOrderRefs, ...orderIds, ...orderTrackings];
+        const orderRefs = [];
+        orders.forEach(o => {
+          if (o.external_order_number) {
+            const ext = String(o.external_order_number).trim();
+            orderRefs.push(ext);
+            orderRefs.push(ext.replace(/^#/, '').trim());
+            orderRefs.push(ext.replace(/#/g, '').trim());
+            const cleanAlpha = ext.replace(/[^a-zA-Z0-9]/g, '').trim();
+            if (cleanAlpha) orderRefs.push(cleanAlpha);
+          }
+          if (o.id) {
+            orderRefs.push(o.id);
+            orderRefs.push(String(o.id).replace(/^#/, '').trim());
+          }
+          if (o.tracking_number) {
+            const tr = String(o.tracking_number).trim();
+            orderRefs.push(tr);
+            const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
+            if (cleanAlphaTrack) orderRefs.push(cleanAlphaTrack);
+          }
+          if (o.raw_lightdata_data) {
+            const ld = o.raw_lightdata_data;
+            if (ld.id) orderRefs.push(String(ld.id).trim());
+            if (ld.did) orderRefs.push(String(ld.did).trim());
+            if (ld.tracking) orderRefs.push(String(ld.tracking).trim());
+          }
+        });
+        const allRefs = [...new Set(orderRefs.filter(Boolean))];
 
         const shipData = await fetchEnviosUnificadosByRefs(allRefs);
         window.loadedShipments = shipData || [];
@@ -4034,19 +4071,37 @@ async function renderAdminOrders() {
           return false;
         }
 
+        const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
         const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
         const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
         const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
+
+        const alphaOrderExt = alpha(order.external_order_number);
+        const alphaOrderId = alpha(order.id);
+        const alphaOrderTrack = alpha(order.tracking_number);
+        const alphaShipRef = alpha(s.pedido_referencia);
+        const alphaShipTrack = alpha(s.tracking);
+        const alphaShipSourceId = alpha(s.source_id);
+        const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
+        const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
+
         const refMatches = s.pedido_referencia === order.id || 
                            (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                           (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number)) ||
-                           (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId));
+                           (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
+                           (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
+                           (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
+                           (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
+                           (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
+                           (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
         if (!refMatches) return false;
 
         let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
         if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
+        if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
+        if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
+        if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
         if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
@@ -4057,6 +4112,35 @@ async function renderAdminOrders() {
 
         return shipCommerce === orderCommerce;
       });
+
+      if (orderShipments.length === 0 && order.raw_lightdata_data && order.raw_lightdata_data.status) {
+        const ldRaw = order.raw_lightdata_data;
+        let globStatus = 'SIN MOVIMIENTO';
+        let statusText = ldRaw.status || '';
+        if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
+          statusText = ldRaw.raw_data[23];
+        }
+        const rawStatusLower = statusText.toLowerCase().trim();
+        if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+          globStatus = 'DESPACHADO';
+        } else if (rawStatusLower === 'cancelado') {
+          globStatus = 'ALERTA';
+        } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
+          globStatus = 'SIN MOVIMIENTO';
+        }
+        orderShipments = [{
+          id: `lightdata_envios:${ldRaw.id || order.tracking_number}`,
+          source_table: 'lightdata_envios',
+          source_id: String(ldRaw.id || order.tracking_number || ''),
+          tracking: ldRaw.tracking || order.tracking_number || 'N/A',
+          tracking_url: ldRaw.tracking_url || order.tracking_url || null,
+          courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
+          status: statusText,
+          global_status: globStatus,
+          created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
+          updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
+        }];
+      }
 
       if (orderShipments.length === 0) {
         return isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
@@ -5076,13 +5160,28 @@ window.applyWmsFiltersAndRender = function() {
         return false;
       }
 
+      const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
       const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
       const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
       const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
+
+      const alphaOrderExt = alpha(order.external_order_number);
+      const alphaOrderId = alpha(order.id);
+      const alphaOrderTrack = alpha(order.tracking_number);
+      const alphaShipRef = alpha(s.pedido_referencia);
+      const alphaShipTrack = alpha(s.tracking);
+      const alphaShipSourceId = alpha(s.source_id);
+      const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
+      const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
+
       const refMatches = s.pedido_referencia === order.id || 
                          (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                         (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number)) ||
-                         (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId));
+                         (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
+                         (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
+                         (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
+                         (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
+                         (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
+                         (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
       if (!refMatches) return false;
 
       // Validar coincidencia de comercio para evitar colisiones cruzadas
@@ -5090,6 +5189,9 @@ window.applyWmsFiltersAndRender = function() {
       const orderCommerce = (order.comercio || '').trim().toUpperCase();
       if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
       if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
+      if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
+      if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
+      if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
       if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
 
       let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
@@ -5100,6 +5202,36 @@ window.applyWmsFiltersAndRender = function() {
 
       return shipCommerce === orderCommerce;
     });
+
+    // Fallback a raw_lightdata_data si no hay envío unificado vinculado pero el pedido tiene datos de LightData
+    if (orderShipments.length === 0 && order.raw_lightdata_data && order.raw_lightdata_data.status) {
+      const ldRaw = order.raw_lightdata_data;
+      let globStatus = 'SIN MOVIMIENTO';
+      let statusText = ldRaw.status || '';
+      if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
+        statusText = ldRaw.raw_data[23];
+      }
+      const rawStatusLower = statusText.toLowerCase().trim();
+      if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+        globStatus = 'DESPACHADO';
+      } else if (rawStatusLower === 'cancelado') {
+        globStatus = 'ALERTA';
+      } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
+        globStatus = 'SIN MOVIMIENTO';
+      }
+      orderShipments = [{
+        id: `lightdata_envios:${ldRaw.id || order.tracking_number}`,
+        source_table: 'lightdata_envios',
+        source_id: String(ldRaw.id || order.tracking_number || ''),
+        tracking: ldRaw.tracking || order.tracking_number || 'N/A',
+        tracking_url: ldRaw.tracking_url || order.tracking_url || (order.raw_lightdata_data?.raw_data?.[31]) || null,
+        courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
+        status: statusText,
+        global_status: globStatus,
+        created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
+        updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
+      }];
+    }
 
     // Priorizar los envíos según:
     // 1. Si tiene movimiento (global_status = 'DESPACHADO' o 'ALERTA', evaluado dinámicamente)
@@ -5525,7 +5657,8 @@ window.applyWmsFiltersAndRender = function() {
     // Recuperación retroactiva de URL de seguimiento de LightData si se guardó mal y corresponde a lo mostrado
     if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
       const ldTracking = String(order.raw_lightdata_data.tracking || order.raw_lightdata_data.raw_data[1] || '');
-      if (trackingNum === ldTracking) {
+      const ldId = String(order.raw_lightdata_data.id || order.raw_lightdata_data.did || order.raw_lightdata_data.raw_data[0] || '');
+      if (trackingNum === ldTracking || trackingNum === ldId || (order.tracking_number && (order.tracking_number === ldTracking || order.tracking_number === ldId))) {
         const ldUrl = order.raw_lightdata_data.raw_data[31];
         if (ldUrl && ldUrl.startsWith('http')) {
           trackingUrl = ldUrl;
@@ -46196,12 +46329,42 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     }
 
     // 2. Buscar envíos en envios_unificados usando todas las referencias posibles
-    const cleanExt = (order.external_order_number || '').replace(/^#/, '').trim();
-    const refs = [order.id, order.external_order_number, cleanExt, order.tracking_number].filter(Boolean);
-    const { data: shipData, error: shipErr } = await supabase
-      .from('envios_unificados')
-      .select('*')
-      .in('pedido_referencia', refs);
+    const ext = String(order.external_order_number || '').trim();
+    const cleanExt = ext.replace(/^#/, '').trim();
+    const noHashExt = ext.replace(/#/g, '').trim();
+    const alphaExt = ext.replace(/[^a-zA-Z0-9]/g, '').trim();
+    const track = String(order.tracking_number || '').trim();
+    const alphaTrack = track.replace(/[^a-zA-Z0-9]/g, '').trim();
+    const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
+    const ldTrack = String(order.raw_lightdata_data?.tracking || '').trim();
+    const alphaLdTrack = ldTrack.replace(/[^a-zA-Z0-9]/g, '').trim();
+
+    const refs = [...new Set([
+      order.id, ext, cleanExt, noHashExt, alphaExt,
+      track, alphaTrack, ldDid, ldTrack, alphaLdTrack
+    ].map(r => String(r || '').replace(/["(),]/g, '').trim()).filter(Boolean))];
+
+    const refsCsv = `(${refs.map(r => `"${r}"`).join(',')})`;
+    let shipData = null;
+    let shipErr = null;
+    try {
+      const res = await supabase
+        .from('envios_unificados')
+        .select('*')
+        .or(`pedido_referencia.in.${refsCsv},tracking.in.${refsCsv},source_id.in.${refsCsv}`);
+      shipData = res.data;
+      shipErr = res.error;
+    } catch (e) {
+      shipErr = e;
+    }
+
+    if (shipErr || !shipData) {
+      const fbRes = await supabase
+        .from('envios_unificados')
+        .select('*')
+        .in('pedido_referencia', refs);
+      shipData = fbRes.data;
+    }
 
     let orderShipments = (!shipErr && shipData) ? shipData : [];
     if (orderShipments.length > 0) {
