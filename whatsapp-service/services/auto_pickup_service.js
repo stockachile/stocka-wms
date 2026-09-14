@@ -239,7 +239,8 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
         warehouse_id,
         products (
           id, sku, name, price, image_url, options, is_virtual, barcode, 
-          send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker
+          send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker,
+          color, talla, variable_1, variable_2
         )
       )
     `)
@@ -492,6 +493,11 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
   physicalItems.forEach(oi => {
     const prod = oi.products || {};
     const opt = prod.options || {};
+    const colorVal = prod.color || opt.color || null;
+    const tallaVal = prod.talla || opt.talla || opt.size || null;
+    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
     pickerPayloads.push({
       sucursal: 'Sucursal Ñuñoa',
       order_number: orderNo,
@@ -499,10 +505,12 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       quantity: parseInt(oi.quantity, 10) || 1,
       sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
-      color: opt.color || null,
-      talla: opt.talla || opt.size || null,
-      manga: opt.manga || null,
-      cuello: opt.cuello || null,
+      color: colorVal ? String(colorVal).trim() : null,
+      color_bg: opt.color_bg || null,
+      color_text: opt.color_text || null,
+      talla: tallaVal ? String(tallaVal).trim() : null,
+      manga: mangaVal ? String(mangaVal).trim() : null,
+      cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo,
       operator: 'SUCURSAL ÑUÑOA',

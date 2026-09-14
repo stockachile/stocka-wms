@@ -80,17 +80,16 @@
             </div>
         {% when 'logo-left-menu-center' %}
             <div class="{{ container }} relative z-[1]">
-                <div class="sf-menu-logo-bar flex -mx-4 items-center">
-                    {% render 'header-logo', header_settings: section.settings, box_size: 'flex-1', justify: 'justify-start' %}
-                    {% render 'header-main-menu-container', section: section, box_size: 'flex-grow-[2] flex-shrink', justify: 'justify-center' %}
-                    <div class="flex flex-1 justify-end items-center">
+                <div class="sf-menu-logo-bar flex -mx-4 items-center justify-between">
+                    {% render 'header-logo', header_settings: section.settings, box_size: 'w-auto flex-shrink-0', justify: 'justify-start' %}
+                    {% render 'header-main-menu-container', section: section, box_size: 'flex-1 flex justify-center px-2', justify: 'justify-center' %}
+                    <div class="w-auto flex-shrink-0 flex justify-end items-center">
                         {% if show_language_switcher %}
                             {% render 'language-switcher', box_size: 'hidden xl:block' %}
                         {% endif %}
                         {% if show_currency_switcher %}
                             {% render 'currency-switcher', box_size: 'hidden xl:block' %}
                         {% endif %}
-                        {% render 'header-option-item__search', header_settings: section.settings %}
                         {% if show_account_icon %}
                             {% render 'header-option-item__account', display_by: 'icon' %}
                         {% endif %}

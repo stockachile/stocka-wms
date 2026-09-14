@@ -17,6 +17,10 @@
     Contacto Comercial y Sucursal Ñuñoa | Stocka
   {%- elsif template.name == 'search' or request.page_type == 'search' -%}
     Buscador de Servicios y Recursos | Stocka Fulfillment
+  {%- elsif template.suffix == 'picker' or page.handle == 'picker' or page.handle == 'stocka-picker' or page.handle == 'app-picker' -%}
+    Stocka Picker App | Picking con Código de Barras y Cero Errores | Stocka
+  {%- elsif template.suffix == 'wms' or page.handle == 'wms' or page.handle == 'software-wms' or page.handle == 'tecnologia' -%}
+    Software WMS en la Nube para Ecommerce y Bodegas | Stocka
   {%- elsif template.name == 'page' and page.handle == 'almacenaje' -%}
     Almacenamiento y Custodia de Mercadería en Santiago | Stocka
   {%- elsif page_title != blank -%}
@@ -41,6 +45,10 @@
     Agenda una reunión con nuestro equipo o visítanos en nuestra casa matriz en Campos de Deportes 405, Ñuñoa. Atención personalizada y soporte comercial para tu tienda.
   {%- elsif template.name == 'search' or request.page_type == 'search' -%}
     Encuentra rápidamente cotizaciones de fulfillment, seguimiento de compras, integraciones tecnológicas con tiendas online o asistencia directa con Stocka.
+  {%- elsif template.suffix == 'picker' or page.handle == 'picker' or page.handle == 'stocka-picker' or page.handle == 'app-picker' -%}
+    App móvil de bodega y consola de mesón para preparación de pedidos sin errores. Escaneo de código de barras por SKU, fotos en pantalla y sincronización en tiempo real con WMS.
+  {%- elsif template.suffix == 'wms' or page.handle == 'wms' or page.handle == 'software-wms' or page.handle == 'tecnologia' -%}
+    Sistema WMS en la nube de Stocka: control de inventario por SKU, auditoría diaria de m³, picking multi-canal y sincronización con Shopify, MeLi y couriers. Solicita tu demo.
   {%- elsif template.name == 'page' and page.handle == 'almacenaje' -%}
     Bodegaje flexible por metro cúbico real utilizado con seguridad CCTV 24/7 y control de inventario online para tu ecommerce en Santiago de Chile.
   {%- elsif page_description != blank -%}

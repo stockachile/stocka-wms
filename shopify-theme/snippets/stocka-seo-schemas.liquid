@@ -123,8 +123,60 @@
           "name": "Contacto y Sucursal",
           "description": "Oficina central en Campos de Deportes 405, Ñuñoa. Atención comercial y asesoría.",
           "url": "https://stocka.cl/pages/contacto"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 6,
+          "name": "Software WMS en la Nube",
+          "description": "Plataforma integral para gestión de inventario por SKU, control de m3 y sincronización ecommerce.",
+          "url": "https://stocka.cl/pages/wms"
+        },
+        {
+          "@type": "SiteNavigationElement",
+          "position": 7,
+          "name": "Stocka Picker App de Bodega",
+          "description": "App móvil y consola de mesón para picking guiado con código de barras y confirmación visual por foto.",
+          "url": "https://stocka.cl/pages/picker"
         }
       ]
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://stocka.cl/#software-wms",
+      "name": "Stocka WMS",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Cloud SaaS, Web Browser",
+      "url": "https://stocka.cl/pages/wms",
+      "description": "Sistema WMS en la nube de Stocka para control de inventario por SKU, auditoría diaria de m³, pipeline multicanal y conexión directa con tiendas online y couriers.",
+      "image": "https://stocka.cl/cdn/shop/t/3/assets/stocka-wms-pedidos-multicanal.png",
+      "provider": {
+        "@id": "https://stocka.cl/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CLP",
+        "description": "Acceso 100% incluido sin costo en servicios de Fulfillment Stocka o disponible como SaaS para bodegas propias."
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://stocka.cl/#software-picker",
+      "name": "Stocka Picker App",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Android, iOS, Zebra, Honeywell, Web PWA",
+      "url": "https://stocka.cl/pages/picker",
+      "description": "Aplicación móvil y consola de mesón para preparación de pedidos en suelo de bodega con validación estricta de código de barras por SKU, confirmación visual fotográfica y detección en tiempo real de órdenes modificadas.",
+      "image": "https://stocka.cl/cdn/shop/t/3/assets/stocka-picker-estacion-desktop.png",
+      "provider": {
+        "@id": "https://stocka.cl/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "CLP",
+        "description": "Incluido en Fulfillment Stocka o licenciamiento SaaS para operarios de bodega propia."
+      }
     },
     {
       "@type": "Service",
@@ -234,6 +286,108 @@
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "El onboarding es ultra rápido y guiado paso a paso: en solo horas tu cuenta e integraciones con Shopify, Mercado Libre o WooCommerce pueden estar 100% listas y configuradas para despachar."
+      }
+    }
+  ]
+}
+</script>
+{%- endif -%}
+
+{%- if template.suffix != 'picker' and page.handle == 'wms' or template.suffix == 'wms' or page.handle == 'software-wms' -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "¿Puedo contratar el software WMS si tengo mi propia bodega y no requiero fulfillment?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí, totalmente. Ofrecemos el modelo WMS Standalone (SaaS Dedicado) para comercios o empresas que ya cuentan con instalaciones físicas y operarios propios, pero necesitan digitalizar la recepción, inventario en racks, picking con código de barras y conexión con couriers."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Tiene algún costo de software si opero mi fulfillment con Stocka?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. Para todos los clientes que almacenan y preparan sus pedidos con Stocka en nuestras bodegas (La Reina, Recoleta y Ñuñoa), el acceso a la plataforma WMS es 100% gratuito e ilimitado, incluyendo todos los usuarios de tu equipo."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Cuánto demora la integración técnica con mi tienda online (Shopify / Mercado Libre)?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "La integración se realiza en solo minutos autorizando la conexión con tu tienda. La sincronización de catálogo, stock por SKU y pedidos entrantes queda operativa el mismo día."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Qué requerimientos técnicos o de hardware se necesitan para usar el WMS?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Stocka WMS es 100% basado en la nube (Cloud SaaS). Solo requieres conexión a Internet y un navegador moderno (Chrome, Safari, Edge) desde cualquier computador, tablet o smartphone."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Se puede integrar con mi sistema ERP o facturador (Defontana, Bsale, Softland)?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí. Disponemos de una API REST oficial y Webhooks para sincronizar movimientos de stock, emitir documentos tributarios y actualizar estados de facturación automáticamente."
+      }
+    }
+  ]
+}
+</script>
+{%- endif -%}
+
+{%- if template.name == 'page' and page.handle == 'picker' or page.handle == 'stocka-picker' or template.suffix == 'picker' -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "¿Puedo usar smartphones comunes o necesito comprar terminales industriales caros?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Puedes utilizar cualquier smartphone o tablet estándar (Android o iPhone/iPad). La app de Stocka Picker es una Progressive Web App (PWA) ultra ligera. Si deseas mayor velocidad, puedes emparejar un lector de código de barras Bluetooth de bajo costo o conectar pistolas USB en computadores de mesón."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Qué ocurre si un operario escanea un producto con código incorrecto?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "La app opera bajo el modo Strict Match. Si el SKU o código de barras no coincide al 100% con la variante exacta pedida por el cliente (talla, color o modelo), la aplicación bloquea el registro, emite un aviso sonoro de error y no permite dar por finalizado el pedido. Esto garantiza un 99.98% de precisión en los despachos."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Cómo detecta la app si un cliente modificó su compra en Shopify o Mercado Libre?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "El sistema se encuentra conectado en tiempo real bidireccional con el WMS. Cuando entra una actualización desde el ecommerce mientras el pedido está en preparación, la app del operario despliega un banner rojo de advertencia preventiva: ⚠️ [MODIFICADO] Pedido editado en WMS, requiriendo verificar los ítems antes de sellar el paquete."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Se puede usar Stocka Picker con múltiples bodegas o sucursales a la vez?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sí. La consola de estación y la app móvil permiten filtrar por sucursal física (por ejemplo: Casa Matriz Ñuñoa, Bodega Recoleta, Sucursal La Reina o tus propias dependencias), asegurando que cada operario visualice únicamente los pedidos asignados a su ubicación."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "¿Cuánto tiempo toma poner en marcha el sistema con mis operarios?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "La inducción es inmediata: gracias a la confirmación fotográfica y los indicadores de colores (rojo/verde), un operario nuevo aprende a utilizar la app en menos de 15 minutos sin necesidad de capacitaciones complejas ni manuales extensos."
       }
     }
   ]

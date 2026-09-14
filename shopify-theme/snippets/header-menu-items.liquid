@@ -1,152 +1,455 @@
-{% assign menu_id = menu | default: 'main_menu' %}
-{% assign dropdown_container = section.settings.container | default: 'container' %}
+{%- comment -%}
+  Stocka Master Desktop Navigation Menu
+  Clean, minimalist typography with monochrome SVG icons,
+  frosted glass dropdown cards and vibrant, eye-catching badges.
+{%- endcomment -%}
 
-<ul class="sf-nav flex text-base font-medium whitespace-nowrap clearfix sf-no-scroll-bar {{ nav_class }}">
-    {% for link in linklists[section.settings[menu_id]].links %}
-        {% assign current_link_url = link.url %}
-        {% if current_link_url contains 'freshdesk' or link.title == 'Soporte' or link.title == 'Ayuda' %}
-          {% assign current_link_url = '/pages/soporte' %}
-        {% endif %}
-        {%- assign three_level = false -%}
-        {% assign li_class = 'sf-menu-item list-none' %}
-        {% assign box_size = 'block px-4 py-5' %}
-        {% assign is_mega = true %}
-        {% assign stretch_width = false %}
+<style>
+  .stocka-desktop-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  @media (min-width: 1200px) {
+    .stocka-desktop-nav {
+      gap: 0.35rem;
+    }
+  }
 
-        {% if link.links != blank %}
-            {% if link.levels == 2 %}
-                {%- assign three_level = true -%}
-            {% endif %}
-        {% endif %}
+  .stocka-nav-item {
+    position: relative;
+    list-style: none;
+  }
 
-        {% assign title_handle = link.title | handleize %}
-        {%- assign has_mega_item = false -%}
-        {% for block in section.blocks %}
-            {% assign menu_title = block.settings.heading | handleize %}
+  .stocka-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 1.15rem 0.75rem;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #1e293b;
+    text-decoration: none !important;
+    transition: color 0.15s ease;
+    white-space: nowrap;
+  }
+  @media (min-width: 1200px) {
+    .stocka-nav-link {
+      padding: 1.15rem 0.9rem;
+      font-size: 0.95rem;
+    }
+  }
+  .stocka-nav-link:hover,
+  .stocka-nav-item:hover > .stocka-nav-link {
+    color: #5c24ff !important;
+  }
 
-            {% if menu_title == blank or menu_title != title_handle %}
-                {% continue %}
-            {% endif %}
-            {% if menu_title == title_handle %}
-                {%- assign has_mega_item = true -%}
-                {% if block.settings.container != 'inherit' %}
-                    {% assign dropdown_container = block.settings.container %}
-                {% endif %}
+  .stocka-nav-chevron {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s ease;
+    opacity: 0.5;
+  }
+  .stocka-nav-item:hover .stocka-nav-chevron {
+    transform: rotate(180deg);
+    opacity: 1;
+    color: #5c24ff;
+  }
 
-                {% case block.type %}
-                    {% when 'banner' %}
-                        {% capture block_type %}
-                            {% render 'mega-menu-banner', block: block %}
-                        {% endcapture %}
-                    {% when 'bloglist' %}
-                        {% capture block_type %}
-                            {% render 'mega-menu-blog-list' with block as bloglist %}
-                        {% endcapture %}
-                    {% when 'product-list' %}
-                        {% assign stretch_width = block.settings.stretch_width %}
-                        {% assign collection = block.settings.collection %}
-                        {% if collection != blank %}
-                          {% capture block_type %}
-                              {% render 'mega-menu-products' with block as product_list %}
-                          {% endcapture %}
-                        {% endif %}
-                    {% when 'collection-list' %}
-                        {% capture block_type %}
-                            {% assign stretch_width = true %}
-                            {% render 'mega-menu-collections', block: block %}
-                        {% endcapture %}
-                    {% when 'custom_html' %}
-                        {% capture block_type %}
-                            {% if block.settings.html != blank %}
-                                <div class="menu-item__html text-black">
-                                    {{ block.settings.html }}
-                                </div>
-                            {% else %}
-                              {%- assign has_mega_item = false -%}
-                            {% endif %}
-                        {% endcapture %}
-                    {% else %}
-                        {% capture block_type %}{% endcapture %}
-                {% endcase %}
-            {% endif %}
-        {% endfor %}
+  .stocka-nav-badge-new {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #5c24ff 0%, #7c4dff 100%);
+    color: #ffffff;
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-left: 0.25rem;
+    line-height: 1.2;
+    box-shadow: 0 2px 6px rgba(92, 36, 255, 0.3);
+  }
 
-        {% if three_level != true and has_mega_item == false %}
-            {% assign li_class = li_class | append: ' sf-menu-item--no-mega' %}
-            {% assign is_mega = false %}
-        {% endif %}
+  /* Dropdown Floating Card */
+  .stocka-nav-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(8px);
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 0.5rem;
+    box-shadow: 0 15px 35px -8px rgba(15, 23, 42, 0.12), 0 0 1px rgba(15, 23, 42, 0.08);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    z-index: 100;
+    min-width: 320px;
+  }
+  .stocka-nav-dropdown::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 0;
+    right: 0;
+    height: 10px;
+  }
+  .stocka-nav-item:hover > .stocka-nav-dropdown {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+  }
 
-        {% if link.links != blank %}
-            <li class="{{ li_class }} sf__menu-item-level1 sf-menu-item-parent{% if is_mega %} sf-menu-item--mega{% endif %}" data-index="{{ forloop.index0 }}"">
-                <a href="{{ current_link_url }}" class="{{ box_size }} sf__sub-menu-link1 flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">{{ link.title }}
-                    <span class="ml-2 sf-menu__arrow">{% render 'icon', name: 'chevron-down-solid', size: 'custom', class: 'w-2 h-2' %}</span>
-                </a>
-                {% if link.links != blank %}
-                    <div
-                        class="sf-menu__submenu sf-menu__desktop-sub-menu pointer-events-none absolute z-50 inset-x-0{% if is_mega == false %} sf-menu__dropdown min-w-max bg-white{% else %}{% endif %}"
-                        style="--total-columns: {{ link.links.size }}"
-                    >
-                        <div class="sf-menu__inner">
-                            <div class="{%if is_mega %}{{ dropdown_container }}{% endif %} mx-auto{% if dropdown_container == 'w-full' %} px-5{% endif %}">
-                                <div class="sf-menu-submenu__content{% if stretch_width == true %} sf-menu-submenu--stretch-width{% endif %} flex{% if is_mega == false %} p-4 {% else %} py-12{% endif %}">
-                                    <ul class="sf-menu-submenu__items flex {% if is_mega == false %} flex-col w-full{% else %} -mx-2{% if stretch_width == false and block_type != blank %} w-2/3{% else %} w-full{% endif %}{% endif %}">
-                                        {% for childlink in link.links %}
-                                            <li class="list-none sf__menu-item-level2 {% if is_mega %} w-1/2 xl:w-1/3 2xl:w-1/4 mb-4{% else %} w-full leading-9{% endif %}{% if stretch_width == true %} min-w-[200px] pr-2{% endif %}">
-                                                {% assign child_url = childlink.url %}{% if child_url contains 'freshdesk' or childlink.title == 'Soporte' %}{% assign child_url = '/pages/soporte' %}{% endif %}<a href="{{ child_url }}" class="sf__sub-menu-link2 whitespace-normal block{% if is_mega %} sf-menu-submenu__title{% else %} sf-sub-menu__link{% endif %}">{{ childlink.title }}</a>
-                                                {% if childlink.links != blank %}
-                                                    <div class="sf__sub-menu-column mt-4">
-                                                        <ul class="leading-8">
-                                                            {% for grandlink in childlink.links %}
-                                                                <li class="list-none sf__menu-item-level3">
-                                                                    <a href="{{ grandlink.url }}" class="sf-sub-menu__link">
-                                                                        {{ grandlink.title }}
-                                                                    </a>
-                                                                </li>
-                                                            {% endfor %}
-                                                        </ul>
-                                                    </div>
-                                                {% endif %}
-                                            </li>
-                                        {% endfor %}
-                                    </ul>
-                                    {% if has_mega_item == true and block_type != blank %}
-                                        <div class="sf-menu-submenu__addon pl-5{% if stretch_width == false %} w-1/3{% endif %}">
-                                            {{ block_type }}
-                                        </div>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endif %}
-            </li>
-        {% else %}
-            <li class="{{ li_class }} sf-menu-item-parent{% if is_mega %} sf-menu-item--mega{% endif %}" data-index="{{ forloop.index0 }}">
-                <a href="{{ current_link_url }}" class="{{ box_size }} flex items-center sf__parent-item{% if section.settings.uppercase_parent_level %} uppercase{% endif %}">
-                    {{ link.title }}
-                    {% if is_mega %}
-                        <span class="ml-2 sf-menu__arrow">{% render 'icon', name: 'chevron-down-solid', size: 'custom', class: 'w-2 h-2' %}</span>
-                    {% endif %}
-                </a>
-                {% if is_mega and block_type != blank %}
-                    <div class="sf-menu__submenu sf-menu__desktop-sub-menu absolute z-50 inset-x-0">
-                        <div class="sf-menu__inner">
-                            <div class="{{ dropdown_container }} mx-auto">
-                                <div class="sf-menu-submenu__content py-12 flex px-4">
-                                    <div class="w-full">
-                                        {{ block_type }}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endif %}
-            </li>
-        {% endif %}
-        {% if section.settings.header_design == '2l-menu-with-icons' and forloop.last == false %}
-            <div class="px-3 py-4 hidden lg:flex items-center">
-                {% render 'icon', name: 'star', size: 'extra-small', fill: '#b3d2c5', stroke: '#b3d2c5' %}
-            </div>
-        {% endif %}
-    {% endfor %}
+  .stocka-dropdown-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.7rem 0.8rem;
+    border-radius: 10px;
+    text-decoration: none !important;
+    transition: all 0.15s ease;
+    color: #1e293b;
+  }
+  .stocka-dropdown-item:hover {
+    background: #f8fafc;
+  }
+  .stocka-dropdown-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+    transition: all 0.15s ease;
+  }
+  .stocka-dropdown-item:hover .stocka-dropdown-icon {
+    background: #f5f3ff;
+    color: #5c24ff;
+  }
+  .stocka-dropdown-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex-grow: 1;
+  }
+  .stocka-dropdown-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .stocka-dropdown-title {
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.25;
+    transition: color 0.15s ease;
+  }
+  .stocka-dropdown-item:hover .stocka-dropdown-title {
+    color: #5c24ff;
+  }
+  .stocka-dropdown-desc {
+    font-size: 0.75rem;
+    color: #64748b;
+    line-height: 1.4;
+    white-space: normal;
+  }
+
+  /* Color Badges (Eye-Catching & Attractive) */
+  .stocka-badge {
+    font-size: 0.64rem;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+    line-height: 1.25;
+  }
+  .badge-green {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+  .badge-purple {
+    background: #f3f0ff;
+    color: #5c24ff;
+    border: 1px solid #ddd6fe;
+  }
+  .badge-blue {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+  .badge-magenta {
+    background: #fdf4ff;
+    color: #c026d3;
+    border: 1px solid #f5d0fe;
+  }
+  .badge-amber {
+    background: #fffbeb;
+    color: #d97706;
+    border: 1px solid #fde68a;
+  }
+  .badge-dark {
+    background: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+  }
+</style>
+
+<ul class="stocka-desktop-nav">
+
+  <!-- 1. FULFILLMENT -->
+  <li class="stocka-nav-item">
+    <a href="/pages/fulfillment_para_ecommerce" class="stocka-nav-link">
+      <span>Fulfillment</span>
+      <svg class="stocka-nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </a>
+    <div class="stocka-nav-dropdown" style="min-width: 350px;">
+      
+      <a href="/pages/fulfillment_para_ecommerce" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Fulfillment 360 para Ecommerce</span>
+            <span class="stocka-badge badge-green">Integral</span>
+          </div>
+          <span class="stocka-dropdown-desc">Almacenamiento, armado de pedidos y despachos automatizados</span>
+        </div>
+      </a>
+
+      <a href="/pages/fulfillment_para_ecommerce#bodegas" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Red de Bodegas Oficial</span>
+            <span class="stocka-badge badge-blue">3 Sedes</span>
+          </div>
+          <span class="stocka-dropdown-desc">Centros en La Reina, Recoleta y casa matriz Ñuñoa</span>
+        </div>
+      </a>
+
+      <a href="/pages/fulfillment_para_ecommerce#despachos" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Despachos Express & Same Day</span>
+            <span class="stocka-badge badge-green">12:00 hrs</span>
+          </div>
+          <span class="stocka-dropdown-desc">Entregas en el día (12:00 a 21:00 hrs) y envíos a todo Chile</span>
+        </div>
+      </a>
+
+      <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-dropdown-item" style="border-top: 1px solid #f1f5f9; margin-top: 3px; padding-top: 8px;">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Simulador de Costos en Vivo</span>
+            <span class="stocka-badge badge-magenta">Cotizar</span>
+          </div>
+          <span class="stocka-dropdown-desc">Calcula tu presupuesto exacto de almacenaje y pedidos</span>
+        </div>
+      </a>
+
+    </div>
+  </li>
+
+  <!-- 2. SOFTWARE WMS -->
+  <li class="stocka-nav-item">
+    <a href="/pages/wms" class="stocka-nav-link">
+      <span>Software WMS</span>
+      <span class="stocka-nav-badge-new">Nuevo</span>
+      <svg class="stocka-nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </a>
+    <div class="stocka-nav-dropdown" style="min-width: 360px;">
+      
+      <a href="/pages/wms" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Software WMS en la Nube</span>
+            <span class="stocka-badge badge-purple">SaaS Pro</span>
+          </div>
+          <span class="stocka-dropdown-desc">Plataforma integral para stock, órdenes y auditoría de m³</span>
+        </div>
+      </a>
+
+      <a href="/pages/picker" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">App Móvil Stocka Picker</span>
+            <span class="stocka-badge badge-green">Bodega</span>
+          </div>
+          <span class="stocka-dropdown-desc">Preparación sin errores con escaneo de barras y fotos</span>
+        </div>
+      </a>
+
+      <a href="/pages/wms#modulos-wms" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Tour por los 5 Módulos</span>
+            <span class="stocka-badge badge-blue">En Vivo</span>
+          </div>
+          <span class="stocka-dropdown-desc">Volumen diario, arribos, pipeline de pedidos, kardex e inversa</span>
+        </div>
+      </a>
+
+      <a href="/pages/wms#wms-demo-section" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M16 10h.01"></path><path d="M16 14h.01"></path><path d="M8 10h.01"></path><path d="M8 14h.01"></path></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">WMS para Bodega Propia</span>
+            <span class="stocka-badge badge-amber">Dedicado</span>
+          </div>
+          <span class="stocka-dropdown-desc">Digitaliza tu propio centro logístico con nuestro software</span>
+        </div>
+      </a>
+
+      <a href="https://wms.stocka.cl/" target="_blank" rel="noopener" class="stocka-dropdown-item" style="border-top: 1px solid #f1f5f9; margin-top: 3px; padding-top: 8px;">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Ingreso al Portal Clientes</span>
+            <span class="stocka-badge badge-dark">Login ➔</span>
+          </div>
+          <span class="stocka-dropdown-desc">Acceso directo a wms.stocka.cl</span>
+        </div>
+      </a>
+
+    </div>
+  </li>
+
+  <!-- 3. TARIFAS -->
+  <li class="stocka-nav-item">
+    <a href="/pages/tarifas" class="stocka-nav-link">
+      <span>Tarifas</span>
+      <svg class="stocka-nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </a>
+    <div class="stocka-nav-dropdown" style="min-width: 330px;">
+      
+      <a href="/pages/tarifas" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Tabla de Tarifas 360</span>
+            <span class="stocka-badge badge-blue">Precios</span>
+          </div>
+          <span class="stocka-dropdown-desc">Costos claros por m³ diario, armado y despacho</span>
+        </div>
+      </a>
+
+      <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="14" x2="16" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Cotizador Interactivo</span>
+            <span class="stocka-badge badge-magenta">En Vivo</span>
+          </div>
+          <span class="stocka-dropdown-desc">Simula tu operación mensual con desglose automático</span>
+        </div>
+      </a>
+
+    </div>
+  </li>
+
+  <!-- 4. RASTREO -->
+  <li class="stocka-nav-item">
+    <a href="/pages/soporte" class="stocka-nav-link">
+      <span>Rastreo</span>
+    </a>
+  </li>
+
+  <!-- 5. PREGUNTAS FRECUENTES -->
+  <li class="stocka-nav-item">
+    <a href="/pages/preguntas-frecuentes" class="stocka-nav-link">
+      <span>Preguntas Frecuentes</span>
+    </a>
+  </li>
+
+  <!-- 6. CONTACTO -->
+  <li class="stocka-nav-item">
+    <a href="/pages/contacto" class="stocka-nav-link">
+      <span>Contacto</span>
+      <svg class="stocka-nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </a>
+    <div class="stocka-nav-dropdown" style="min-width: 330px; right: 0; left: auto; transform: translateY(8px);">
+      
+      <a href="/pages/contacto" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Casa Matriz y Sucursal</span>
+            <span class="stocka-badge badge-amber">Ñuñoa</span>
+          </div>
+          <span class="stocka-dropdown-desc">Campos de Deportes 405, Ñuñoa (Atención y retiros)</span>
+        </div>
+      </a>
+
+      <a href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" target="_blank" rel="noopener" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">Agendar Reunión 1 a 1</span>
+            <span class="stocka-badge badge-blue">Meet</span>
+          </div>
+          <span class="stocka-dropdown-desc">Videollamada de 15 min con un especialista comercial</span>
+        </div>
+      </a>
+
+      <a href="https://wa.me/56939247487?text=Hola%20Stocka,%20quisiera%20más%20información%20sobre%20sus%20servicios" target="_blank" rel="noopener" class="stocka-dropdown-item">
+        <div class="stocka-dropdown-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+        </div>
+        <div class="stocka-dropdown-info">
+          <div class="stocka-dropdown-title-row">
+            <span class="stocka-dropdown-title">WhatsApp Comercial</span>
+            <span class="stocka-badge badge-green">+56 9</span>
+          </div>
+          <span class="stocka-dropdown-desc">Respuesta inmediata de lunes a viernes</span>
+        </div>
+      </a>
+
+    </div>
+  </li>
+
 </ul>

@@ -209,6 +209,11 @@ async function sendSingleOrderToPicker(order) {
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
+    const colorVal = prod.color || opt.color || null;
+    const tallaVal = prod.talla || opt.talla || opt.size || null;
+    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
       order_number: orderNumber,
@@ -216,10 +221,12 @@ async function sendSingleOrderToPicker(order) {
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
-      color: opt.color || null,
-      talla: opt.talla || opt.size || null,
-      manga: opt.manga || null,
-      cuello: opt.cuello || null,
+      color: colorVal ? String(colorVal).trim() : null,
+      color_bg: opt.color_bg || null,
+      color_text: opt.color_text || null,
+      talla: tallaVal ? String(tallaVal).trim() : null,
+      manga: mangaVal ? String(mangaVal).trim() : null,
+      cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
       operator: order.operador || '',
@@ -313,7 +320,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, alias, send_alias_to_picker))')
+    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -706,7 +713,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);

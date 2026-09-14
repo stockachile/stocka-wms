@@ -4,6 +4,18 @@
   assign og_type = 'website'
   assign og_description = page_description | default: shop.description | default: shop.name
 
+  assign og_custom_image = ''
+
+  if template.suffix == 'picker' or page.handle == 'picker' or page.handle == 'stocka-picker' or page.handle == 'app-picker'
+    assign og_title = 'Stocka Picker App | Cero Errores en Preparación y Despacho'
+    assign og_description = 'Transforma cualquier smartphone, tablet o PDA en una herramienta inteligente de picking con escaneo de código de barras y confirmación visual por foto.'
+    assign og_custom_image = 'stocka-picker-estacion-desktop.png' | asset_url
+  elsif template.suffix == 'wms' or page.handle == 'wms' or page.handle == 'software-wms' or page.handle == 'tecnologia'
+    assign og_title = 'Stocka WMS | Software de Gestión de Bodegas y Control de Inventario'
+    assign og_description = 'Digitaliza tu bodega o accede 100% gratis con nuestro servicio de Fulfillment. Control de stock por SKU, m³ diario en tiempo real y pipeline de pedidos.'
+    assign og_custom_image = 'stocka-wms-pedidos-multicanal.png' | asset_url
+  endif
+
   if request.page_type == 'product'
     assign og_type = 'product'
   elsif request.page_type == 'article'
@@ -19,7 +31,12 @@
 <meta property="og:title" content="{{ og_title | escape }}">
 <meta property="og:type" content="{{ og_type }}">
 <meta property="og:description" content="{{ og_description | escape }}">
-{%- if page_image -%}
+{%- if og_custom_image != blank -%}
+<meta property="og:image" content="https:{{ og_custom_image }}">
+<meta property="og:image:secure_url" content="https:{{ og_custom_image }}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="675">
+{%- elsif page_image -%}
 <meta property="og:image" content="https:{{ page_image | img_url: 'master' }}">
 <meta property="og:image:secure_url" content="https:{{ page_image | img_url: 'master' }}">
 <meta property="og:image:width" content="{{ page_image.width }}">
@@ -35,3 +52,8 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ og_title | escape }}">
 <meta name="twitter:description" content="{{ og_description | escape }}">
+{%- if og_custom_image != blank -%}
+<meta name="twitter:image" content="https:{{ og_custom_image }}">
+{%- elsif page_image -%}
+<meta name="twitter:image" content="https:{{ page_image | img_url: 'master' }}">
+{%- endif -%}

@@ -449,6 +449,33 @@
               Enviar alias al Picker (en lugar del Nombre)
             </label>
           </div>
+          <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem; border: 1px solid var(--color-border); background: rgba(113, 23, 235, 0.03); border-radius: var(--radius-md); padding: 0.85rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem;">
+              <i class="ri-price-tag-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+              <label class="form-label" style="margin: 0; font-weight: 700; color: var(--color-text-main);">Variantes de Producto (para el Picker)</label>
+            </div>
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0;">
+              Declara las variantes para que lleguen desglosadas al operario en el sistema Picker. Si se dejan vacías, se transmitirán como sin variante.
+            </p>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Color</label>
+                <input type="text" id="prod-color" class="form-input" placeholder="Ej. Negro, Blanco, Azul..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Talla / Tamaño</label>
+                <input type="text" id="prod-talla" class="form-input" placeholder="Ej. S, M, L, XL, 40x50 cm..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Var1 (Manga)</label>
+                <input type="text" id="prod-var1" class="form-input" placeholder="Ej. Corta, Larga, Sin Manga..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Var2 (Cuello)</label>
+                <input type="text" id="prod-var2" class="form-input" placeholder="Ej. Redondo, Cuello V..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Stock Inicial (se asignará a Bodega Central temporalmente)</label>
             <input type="number" id="prod-stock" class="form-input" value="0" min="0" required>
@@ -517,6 +544,33 @@
             <label for="edit-prod-send-alias" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
               Enviar alias al Picker (en lugar del Nombre)
             </label>
+          </div>
+          <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem; border: 1px solid var(--color-border); background: rgba(113, 23, 235, 0.03); border-radius: var(--radius-md); padding: 0.85rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem;">
+              <i class="ri-price-tag-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+              <label class="form-label" style="margin: 0; font-weight: 700; color: var(--color-text-main);">Variantes de Producto (para el Picker)</label>
+            </div>
+            <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0;">
+              Declara las variantes para que lleguen desglosadas al operario en el sistema Picker. Si se dejan vacías, se transmitirán como sin variante.
+            </p>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Color</label>
+                <input type="text" id="edit-prod-color" class="form-input" placeholder="Ej. Negro, Blanco, Azul..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Talla / Tamaño</label>
+                <input type="text" id="edit-prod-talla" class="form-input" placeholder="Ej. S, M, L, XL, 40x50 cm..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Var1 (Manga)</label>
+                <input type="text" id="edit-prod-var1" class="form-input" placeholder="Ej. Corta, Larga, Sin Manga..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem;">Var2 (Cuello)</label>
+                <input type="text" id="edit-prod-var2" class="form-input" placeholder="Ej. Redondo, Cuello V..." style="height: 36px; font-size: 0.85rem;">
+              </div>
+            </div>
           </div>
           <div class="form-group" style="margin-bottom: 0.75rem;">
             <label class="form-label">Estado</label>

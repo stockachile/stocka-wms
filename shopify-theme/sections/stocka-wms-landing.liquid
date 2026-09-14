@@ -1,0 +1,2427 @@
+{%- comment -%}
+  Stocka WMS & Logistics SaaS Dedicated Landing Page
+  Showcases proprietary cloud technology, 5 core modules with real screenshot showcases,
+  dual business model (Fulfillment 360 included vs Standalone SaaS for own warehouses),
+  integrations ecosystem and interactive demo request.
+{%- endcomment -%}
+
+<style>
+  :root {
+    --wms-primary: #5c24ff;
+    --wms-primary-light: #7c4dff;
+    --wms-primary-dark: #4314c7;
+    --wms-accent: #06d6a0;
+    --wms-bg-dark: #0a0e1a;
+    --wms-card-dark: #121829;
+    --wms-border-dark: #1e293b;
+    --wms-text-main: #f8fafc;
+    --wms-text-muted: #94a3b8;
+  }
+
+  .stocka-wms-wrapper {
+    font-family: inherit;
+    color: #0f172a;
+    background: #ffffff;
+    overflow-x: hidden;
+  }
+
+  .stocka-wms-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+    box-sizing: border-box;
+  }
+  @media (min-width: 1024px) {
+    .stocka-wms-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* ========================================================
+     1. HERO SECTION (Dark SaaS Glow)
+     ======================================================== */
+  .stocka-wms-hero {
+    background: radial-gradient(circle at 50% -20%, rgba(92, 36, 255, 0.35) 0%, rgba(10, 14, 26, 0.98) 70%, #0a0e1a 100%);
+    color: #ffffff;
+    padding: 5rem 0 4.5rem 0;
+    position: relative;
+    border-bottom: 1px solid #1e293b;
+  }
+  .stocka-wms-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    color: #ffffff;
+    box-shadow: 0 4px 20px rgba(92, 36, 255, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+  }
+  .stocka-wms-hero-badge svg {
+    color: #06d6a0;
+    filter: drop-shadow(0 0 6px rgba(6, 214, 160, 0.7));
+  }
+  .stocka-wms-hero-title {
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    max-width: 900px;
+    margin: 0 auto 1.25rem auto;
+    text-align: center;
+  }
+  @media (min-width: 768px) {
+    .stocka-wms-hero-title {
+      font-size: 3.25rem;
+    }
+  }
+  .stocka-wms-hero-title span {
+    background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stocka-wms-hero-desc {
+    font-size: 1.05rem;
+    color: #94a3b8;
+    max-width: 740px;
+    margin: 0 auto 2.25rem auto;
+    text-align: center;
+    line-height: 1.6;
+  }
+  @media (min-width: 768px) {
+    .stocka-wms-hero-desc {
+      font-size: 1.18rem;
+    }
+  }
+
+  .stocka-wms-hero-ctas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .stocka-wms-btn-primary {
+    background: linear-gradient(135deg, #5c24ff 0%, #4314c7 100%);
+    color: #ffffff !important;
+    padding: 1rem 2rem;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.5);
+    transition: all 0.25s ease;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .stocka-wms-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 35px -5px rgba(92, 36, 255, 0.65);
+    background: linear-gradient(135deg, #6d38ff 0%, #4f1ce0 100%);
+  }
+  .stocka-wms-btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: #f8fafc !important;
+    padding: 1rem 1.75rem;
+    border-radius: 14px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.12);
+    transition: all 0.2s ease;
+  }
+  .stocka-wms-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateY(-2px);
+  }
+
+  .stocka-wms-hero-badges-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .stocka-wms-hero-badge-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  /* ========================================================
+     Hero Showcase Visual Composition (WMS Table + Live Dron Card)
+     ======================================================== */
+  .stocka-wms-hero-visual {
+    margin-top: 3.5rem;
+    position: relative;
+    max-width: 1240px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .stocka-wms-visual-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+    align-items: start;
+  }
+  @media (min-width: 992px) {
+    .stocka-wms-visual-grid {
+      grid-template-columns: 1.14fr 0.86fr;
+      gap: 1.5rem;
+    }
+  }
+  @media (min-width: 1200px) {
+    .stocka-wms-visual-grid {
+      grid-template-columns: 1.18fr 0.82fr;
+      gap: 2rem;
+    }
+  }
+
+  /* Left Column: WMS Dashboard Console Window */
+  .stocka-wms-preview-card {
+    position: relative;
+    border-radius: 24px;
+    background: #101628;
+    border: 1.5px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 40px rgba(92, 36, 255, 0.22);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stocka-wms-preview-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.25rem;
+    background: rgba(15, 23, 42, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .stocka-wms-preview-dots {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .stocka-wms-preview-dots span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .stocka-wms-preview-dots .dot-red { background: #ef4444; }
+  .stocka-wms-preview-dots .dot-yellow { background: #f59e0b; }
+  .stocka-wms-preview-dots .dot-green { background: #10b981; }
+
+  .stocka-wms-preview-title-bar {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-family: monospace;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .stocka-wms-preview-live-tag {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #06d6a0;
+    background: rgba(6, 214, 160, 0.12);
+    border: 1px solid rgba(6, 214, 160, 0.35);
+    padding: 0.2rem 0.6rem;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stocka-wms-live-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #06d6a0;
+    box-shadow: 0 0 8px #06d6a0;
+    animation: wmsDotPulse 1.8s infinite ease-in-out;
+  }
+  .stocka-wms-preview-img-wrap {
+    padding: 8px;
+    background: #0d1222;
+  }
+  .stocka-wms-preview-img-wrap img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 12px;
+  }
+  .stocka-wms-preview-statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: rgba(15, 23, 42, 0.9);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.78rem;
+    color: #94a3b8;
+  }
+  .statusbar-metric {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .statusbar-metric strong {
+    color: #f8fafc;
+  }
+
+  /* Right Column: Live Interactive Order Station Card */
+  .stocka-wms-order-live-card {
+    background: radial-gradient(circle at 30% 20%, rgba(92, 36, 255, 0.18) 0%, rgba(18, 24, 41, 0.92) 60%, #0d1222 100%);
+    border-radius: 26px;
+    padding: 1.5rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 40px rgba(92, 36, 255, 0.25);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+  @media (max-width: 640px) {
+    .stocka-wms-order-live-card {
+      padding: 1.15rem;
+      border-radius: 20px;
+    }
+  }
+  .stocka-wms-order-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.85rem;
+  }
+  .stocka-wms-order-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .stocka-wms-order-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #06d6a0;
+    box-shadow: 0 0 10px #06d6a0;
+    animation: wmsDotPulse 1.8s infinite ease-in-out;
+  }
+  @keyframes wmsDotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.85); }
+  }
+  .stocka-wms-order-badge {
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    background: rgba(92, 36, 255, 0.22);
+    color: #c4b5fd;
+    border: 1px solid rgba(167, 139, 250, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  /* Interactive Order Selector Tabs */
+  .stocka-wms-order-pills-row {
+    display: flex;
+    gap: 0.45rem;
+    background: rgba(15, 23, 42, 0.65);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .stocka-wms-order-pill-btn {
+    flex: 1;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #94a3b8;
+    padding: 0.5rem 0.6rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    outline: none;
+  }
+  .stocka-wms-order-pill-btn:hover {
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .stocka-wms-order-pill-btn.active {
+    background: rgba(92, 36, 255, 0.4);
+    color: #ffffff;
+    box-shadow: 0 2px 10px rgba(92, 36, 255, 0.35);
+    border-color: rgba(167, 139, 250, 0.4);
+  }
+
+  /* Stage (Viewfinder / Packaging & Dispatch Box) */
+  .stocka-wms-pack-stage,
+  .stocka-wms-dron-stage {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 1.25rem 1rem 1rem 1rem;
+    background: radial-gradient(circle at center, rgba(92, 36, 255, 0.22) 0%, rgba(15, 23, 42, 0.75) 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+    min-height: 175px;
+  }
+  .stocka-wms-box-gif,
+  .stocka-wms-dron-gif {
+    max-width: 100%;
+    width: 250px;
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.55));
+  }
+  .stocka-wms-pack-stage .reticle-tl,
+  .stocka-wms-pack-stage .reticle-tr,
+  .stocka-wms-pack-stage .reticle-bl,
+  .stocka-wms-pack-stage .reticle-br,
+  .stocka-wms-dron-stage .reticle-tl,
+  .stocka-wms-dron-stage .reticle-tr,
+  .stocka-wms-dron-stage .reticle-bl,
+  .stocka-wms-dron-stage .reticle-br {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: rgba(167, 139, 250, 0.7);
+    pointer-events: none;
+  }
+  .stocka-wms-pack-stage .reticle-tl, .stocka-wms-dron-stage .reticle-tl { top: 10px; left: 10px; border-top: 2px solid; border-left: 2px solid; }
+  .stocka-wms-pack-stage .reticle-tr, .stocka-wms-dron-stage .reticle-tr { top: 10px; right: 10px; border-top: 2px solid; border-right: 2px solid; }
+  .stocka-wms-pack-stage .reticle-bl, .stocka-wms-dron-stage .reticle-bl { bottom: 10px; left: 10px; border-bottom: 2px solid; border-left: 2px solid; }
+  .stocka-wms-pack-stage .reticle-br, .stocka-wms-dron-stage .reticle-br { bottom: 10px; right: 10px; border-bottom: 2px solid; border-right: 2px solid; }
+
+  .stocka-wms-stage-overlay {
+    position: absolute;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(10, 14, 26, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.72rem;
+    color: #c4b5fd;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    backdrop-filter: blur(8px);
+  }
+
+  /* Order Detail Box */
+  .stocka-wms-order-detail-box {
+    background: rgba(15, 23, 42, 0.88);
+    border-radius: 16px;
+    border: 1.5px solid rgba(6, 214, 160, 0.35);
+    padding: 1rem 1.15rem;
+    box-shadow: 0 4px 15px rgba(6, 214, 160, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    transition: all 0.25s ease;
+  }
+  .stocka-wms-order-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .stocka-wms-platform-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f8fafc;
+  }
+  .stocka-wms-platform-logo-img {
+    height: 18px;
+    width: auto;
+    object-fit: contain;
+    display: inline-block;
+  }
+  .stocka-wms-order-id-tag {
+    font-family: monospace;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+  }
+  .stocka-wms-order-amount {
+    font-size: 0.95rem;
+    font-weight: 800;
+    color: #10b981;
+    font-feature-settings: "tnum";
+  }
+
+  /* Grid of Order Attributes */
+  .stocka-wms-order-meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+  }
+  .stocka-wms-meta-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .stocka-wms-meta-col .meta-title {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+  .stocka-wms-meta-col .meta-value {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Order Items Row */
+  .stocka-wms-order-items-box {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 0.65rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .items-box-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .items-box-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .item-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    gap: 0.5rem;
+  }
+  .item-entry-name {
+    color: #f1f5f9;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-entry-qty {
+    color: #06d6a0;
+    font-weight: 800;
+    font-family: monospace;
+    white-space: nowrap;
+  }
+
+  /* Bottom Metrics Ribbon */
+  .stocka-wms-chips-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.65rem;
+  }
+  .stocka-wms-chip-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 0.65rem 0.5rem;
+    text-align: center;
+  }
+  .stocka-wms-chip-item .chip-val {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #f8fafc;
+    margin-bottom: 0.15rem;
+  }
+  .stocka-wms-chip-item .chip-lbl {
+    display: block;
+    font-size: 0.68rem;
+    color: #94a3b8;
+    line-height: 1.2;
+  }
+
+  /* ========================================================
+     2. DUAL BUSINESS MODEL (Fulfillment vs Bodega Propia)
+     ======================================================== */
+  .stocka-wms-dual-sec {
+    padding: 5.5rem 0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-wms-sec-header {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 3.5rem auto;
+  }
+  .stocka-wms-sec-tag {
+    display: inline-block;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    background: #ede9fe;
+    border: 1px solid #c4b5fd;
+    color: #4314c7;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-wms-sec-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.2;
+    margin: 0 0 1rem 0;
+    letter-spacing: -0.01em;
+  }
+  @media (min-width: 768px) {
+    .stocka-wms-sec-title {
+      font-size: 2.6rem;
+    }
+  }
+  .stocka-wms-sec-desc {
+    font-size: 1rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .stocka-wms-dual-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  @media (min-width: 840px) {
+    .stocka-wms-dual-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .stocka-wms-dual-card {
+    background: #ffffff;
+    border: 2px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 2.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.3s ease;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-wms-dual-card:hover {
+    transform: translateY(-5px);
+    border-color: #5c24ff;
+    box-shadow: 0 20px 45px -12px rgba(92, 36, 255, 0.15);
+  }
+  .stocka-wms-dual-card.featured {
+    border-color: #5c24ff;
+    background: linear-gradient(180deg, #ffffff 0%, #faf8ff 100%);
+  }
+  .stocka-wms-dual-badge {
+    display: inline-block;
+    padding: 0.3rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-bottom: 1.25rem;
+  }
+  .badge-included { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+  .badge-standalone { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+
+  .stocka-wms-dual-title {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 0.75rem 0;
+    line-height: 1.3;
+  }
+  .stocka-wms-dual-subtitle {
+    font-size: 0.92rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin: 0 0 1.75rem 0;
+  }
+  .stocka-wms-feature-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 2rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .stocka-wms-feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    font-size: 0.9rem;
+    color: #334155;
+    line-height: 1.45;
+  }
+  .stocka-wms-check-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    color: #059669;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* ========================================================
+     3. 5 CORE MODULES INTERACTIVE SHOWCASE
+     ======================================================== */
+  .stocka-wms-modules-sec {
+    padding: 5.5rem 0 6rem 0;
+    background: #0a0e1a;
+    color: #f8fafc;
+  }
+  .stocka-wms-modules-sec .stocka-wms-sec-title {
+    color: #ffffff;
+  }
+  .stocka-wms-modules-sec .stocka-wms-sec-desc {
+    color: #94a3b8;
+  }
+
+  /* Module Tabs Navigation */
+  .stocka-wms-mod-tabs {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.75rem;
+    margin-bottom: 2.5rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .stocka-wms-mod-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  @media (min-width: 900px) {
+    .stocka-wms-mod-tabs {
+      justify-content: center;
+    }
+  }
+
+  .stocka-wms-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #94a3b8;
+    background: #121829;
+    border: 1.5px solid #1e293b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  .stocka-wms-tab-btn:hover {
+    color: #ffffff;
+    border-color: #334155;
+    background: #182238;
+  }
+  .stocka-wms-tab-btn.active {
+    color: #ffffff;
+    background: #5c24ff;
+    border-color: #5c24ff;
+    box-shadow: 0 4px 20px rgba(92, 36, 255, 0.4);
+  }
+
+  /* Tab Panel Display */
+  .stocka-wms-panel {
+    display: none;
+    animation: wmsFadeIn 0.35s ease forwards;
+  }
+  .stocka-wms-panel.active {
+    display: block;
+  }
+  @keyframes wmsFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stocka-wms-panel-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 960px) {
+    .stocka-wms-panel-grid {
+      grid-template-columns: 1fr 1.3fr;
+      gap: 3rem;
+    }
+  }
+
+  .stocka-wms-panel-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .stocka-wms-panel-tag {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #a78bfa;
+    letter-spacing: 0.08em;
+  }
+  .stocka-wms-panel-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.25;
+    margin: 0;
+  }
+  @media (min-width: 768px) {
+    .stocka-wms-panel-title {
+      font-size: 2.2rem;
+    }
+  }
+  .stocka-wms-panel-desc {
+    font-size: 0.98rem;
+    color: #94a3b8;
+    line-height: 1.65;
+    margin: 0;
+  }
+
+  .stocka-wms-panel-bullets {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .stocka-wms-panel-bullet {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.88rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+  }
+  .stocka-wms-panel-bullet span.icon {
+    color: #06d6a0;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .stocka-wms-panel-media {
+    border-radius: 18px;
+    padding: 6px;
+    background: linear-gradient(135deg, rgba(92, 36, 255, 0.4) 0%, rgba(30, 41, 59, 0.8) 100%);
+    border: 1px solid #1e293b;
+    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+  }
+  .stocka-wms-panel-media img {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    display: block;
+    background: #121829;
+    transition: transform 0.3s ease;
+  }
+  .stocka-wms-panel-media:hover img {
+    transform: scale(1.015);
+  }
+
+  /* ========================================================
+     4. INTEGRATIONS ECOSYSTEM
+     ======================================================== */
+  .stocka-wms-integ-sec {
+    padding: 5.5rem 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    overflow: hidden;
+  }
+  .stocka-wms-marquee-wrap {
+    position: relative;
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+    overflow: hidden;
+    padding: 2.25rem 0 1rem 0;
+    mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  }
+  .stocka-wms-marquee-track {
+    display: flex;
+    gap: 1.25rem;
+    width: max-content;
+    animation: stockaMarquee 38s linear infinite;
+    will-change: transform;
+  }
+  .stocka-wms-marquee-wrap:hover .stocka-wms-marquee-track {
+    animation-play-state: paused;
+  }
+  @keyframes stockaMarquee {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(calc(-50% - 0.625rem), 0, 0);
+    }
+  }
+
+  .stocka-wms-integ-card {
+    width: 220px;
+    flex: 0 0 220px;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 1.5rem 1.15rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.04);
+    transition: all 0.25s ease;
+    box-sizing: border-box;
+    user-select: none;
+  }
+  .stocka-wms-integ-card:hover {
+    border-color: #5c24ff;
+    transform: translateY(-4px);
+    box-shadow: 0 14px 28px -6px rgba(92, 36, 255, 0.15);
+  }
+  .stocka-wms-integ-logo-wrap {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+  .stocka-wms-integ-logo-img {
+    max-height: 38px;
+    max-width: 120px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    transition: transform 0.25s ease;
+  }
+  .stocka-wms-integ-card:hover .stocka-wms-integ-logo-img {
+    transform: scale(1.06);
+  }
+  .stocka-wms-api-icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #ede9fe;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+  }
+  .stocka-wms-integ-card:hover .stocka-wms-api-icon-wrap {
+    background: #5c24ff;
+    transform: scale(1.08);
+  }
+  .stocka-wms-integ-card:hover .stocka-wms-api-icon-wrap svg {
+    color: #ffffff !important;
+  }
+  .stocka-wms-integ-name {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .stocka-wms-integ-type {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .stocka-wms-integ-hint {
+    text-align: center;
+    font-size: 0.82rem;
+    color: #94a3b8;
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+  }
+
+  /* ========================================================
+     5. COMPARISON TABLE: Legacy vs Stocka WMS
+     ======================================================== */
+  .stocka-wms-comp-sec {
+    padding: 5.5rem 0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-wms-comp-table-wrap {
+    overflow-x: auto;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+    margin-top: 3rem;
+  }
+  .stocka-wms-comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 660px;
+  }
+  .stocka-wms-comp-table th {
+    padding: 1.25rem 1.5rem;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border-bottom: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .stocka-wms-comp-table th.stocka-wms-comp-highlight {
+    background: #f5f3ff;
+    color: #5c24ff;
+    border-bottom: 2px solid #5c24ff;
+    font-weight: 700;
+  }
+  .stocka-wms-comp-table td {
+    padding: 1.15rem 1.5rem;
+    font-size: 0.88rem;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .stocka-wms-comp-table tr:last-child td {
+    border-bottom: none;
+  }
+  .stocka-wms-comp-highlight {
+    background: #faf8ff;
+    color: #5c24ff;
+    font-weight: 600;
+  }
+  .stocka-comp-point {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    line-height: 1.45;
+  }
+  .stocka-comp-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .stocka-comp-badge.neg {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1.5px solid #fca5a5;
+  }
+  .stocka-comp-badge.pos {
+    background: #d1fae5;
+    color: #059669;
+    border: 1.5px solid #6ee7b7;
+  }
+
+  /* ========================================================
+     6. LEAD & DEMO REQUEST FORM
+     ======================================================== */
+  .stocka-wms-form-sec {
+    padding: 5.5rem 0;
+    background: linear-gradient(180deg, #0a0e1a 0%, #0f172a 100%);
+    color: #ffffff;
+    position: relative;
+  }
+  .stocka-wms-form-sec .stocka-wms-sec-title {
+    color: #ffffff !important;
+  }
+  .stocka-wms-form-sec .stocka-wms-sec-desc {
+    color: #94a3b8 !important;
+  }
+  .stocka-wms-form-sec .stocka-wms-sec-tag {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 15px rgba(92, 36, 255, 0.3) !important;
+  }
+  .stocka-wms-form-card {
+    background: #121829;
+    border: 1.5px solid #1e293b;
+    border-radius: 24px;
+    padding: 2.5rem 1.75rem;
+    max-width: 720px;
+    margin: 0 auto;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.5);
+  }
+  @media (min-width: 768px) {
+    .stocka-wms-form-card {
+      padding: 3rem 2.5rem;
+    }
+  }
+
+  .stocka-wms-form-group {
+    margin-bottom: 1.25rem;
+  }
+  .stocka-wms-form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #cbd5e1;
+    margin-bottom: 0.4rem;
+  }
+  .stocka-wms-form-control {
+    width: 100% !important;
+    padding: 0.9rem 1.15rem !important;
+    background: #0a0e1a !important;
+    border: 1.5px solid #1e293b !important;
+    border-radius: 12px !important;
+    color: #ffffff !important;
+    font-size: 0.95rem !important;
+    outline: none !important;
+    box-sizing: border-box !important;
+    font-family: inherit !important;
+    transition: all 0.2s ease !important;
+  }
+  .stocka-wms-form-control:focus {
+    border-color: #5c24ff !important;
+    box-shadow: 0 0 0 3px rgba(92, 36, 255, 0.25) !important;
+  }
+  .stocka-wms-form-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 16px;
+  }
+
+  /* ========================================================
+     7. TECHNICAL FAQ ACCORDION
+     ======================================================== */
+  .stocka-wms-faq-sec {
+    padding: 5.5rem 0;
+    background: #ffffff;
+  }
+  .stocka-wms-faq-accordion {
+    max-width: 860px;
+    margin: 3rem auto 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .stocka-wms-faq-item {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+  .stocka-wms-faq-item.active {
+    border-color: #5c24ff;
+    background: #ffffff;
+    box-shadow: 0 8px 25px -5px rgba(92, 36, 255, 0.08);
+  }
+  .stocka-wms-faq-q {
+    width: 100%;
+    padding: 1.25rem 1.5rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    text-align: left;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: #0f172a;
+    font-family: inherit;
+  }
+  .stocka-wms-faq-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: transform 0.25s ease;
+  }
+  .stocka-wms-faq-item.active .stocka-wms-faq-icon {
+    transform: rotate(45deg);
+    background: #5c24ff;
+    color: #ffffff;
+  }
+  .stocka-wms-faq-a {
+    padding: 0 1.5rem 1.35rem 1.5rem;
+    font-size: 0.92rem;
+    color: #475569;
+    line-height: 1.65;
+    display: none;
+  }
+  .stocka-wms-faq-item.active .stocka-wms-faq-a {
+    display: block;
+  }
+</style>
+
+<div class="stocka-wms-wrapper">
+
+  <!-- ========================================================
+       1. HERO SECTION
+       ======================================================== -->
+  <section class="stocka-wms-hero">
+    <div class="stocka-wms-container">
+      
+      <div style="text-align: center;">
+        <div class="stocka-wms-hero-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span>TECNOLOGÍA WMS EN LA NUBE</span>
+        </div>
+        <h1 class="stocka-wms-hero-title">
+          El Software WMS diseñado para la velocidad del <span>Ecommerce Moderno</span>
+        </h1>
+        <p class="stocka-wms-hero-desc">
+          Monitorea tu inventario por SKU en tiempo real, audita tu consumo diario de metros cúbicos, automatiza el picking multi-canal y sincroniza tus despachos desde una única plataforma inteligente, segura y ultra rápida.
+        </p>
+
+        <div class="stocka-wms-hero-ctas">
+          <a href="#wms-demo-section" class="stocka-wms-btn-primary">
+            <span>Solicitar Demo del Software 🚀</span>
+          </a>
+          <a href="https://wms.stocka.cl/" target="_blank" rel="noopener" class="stocka-wms-btn-secondary">
+            <span>Acceso Clientes (wms.stocka.cl)</span> ➔
+          </a>
+        </div>
+
+        <div class="stocka-wms-hero-badges-row">
+          <div class="stocka-wms-hero-badge-item">
+            <span style="color: #06d6a0;">⚡</span> <span>Sincronización en Tiempo Real</span>
+          </div>
+          <div class="stocka-wms-hero-badge-item">
+            <span style="color: #38bdf8;">🛍️</span> <span>Shopify, Mercado Libre & WooCommerce</span>
+          </div>
+          <div class="stocka-wms-hero-badge-item">
+            <span style="color: #a78bfa;">📦</span> <span>Auditoría Diaria de m³</span>
+          </div>
+          <div class="stocka-wms-hero-badge-item">
+            <span style="color: #f59e0b;">🔒</span> <span>Microservicios en la Nube 24/7</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Visual Showcase Composition (WMS Table + Interactive Live Order & Drone Station) -->
+      <div class="stocka-wms-hero-visual">
+        <div class="stocka-wms-visual-grid">
+          
+          <!-- Col 1: WMS Multi-Channel Orders Dashboard Window -->
+          <div class="stocka-wms-preview-card">
+            <div class="stocka-wms-preview-card-header">
+              <div class="stocka-wms-preview-dots">
+                <span class="dot-red"></span>
+                <span class="dot-yellow"></span>
+                <span class="dot-green"></span>
+              </div>
+              <div class="stocka-wms-preview-title-bar">
+                <span>📦</span>
+                <span>wms.stocka.cl / Mis Pedidos Multi-Canal</span>
+              </div>
+              <div class="stocka-wms-preview-live-tag">
+                <span class="stocka-wms-live-pulse"></span>
+                <span>En Vivo</span>
+              </div>
+            </div>
+
+            <div class="stocka-wms-preview-img-wrap">
+              <img 
+                src="{{ 'stocka-wms-pedidos-multicanal.png' | asset_url }}" 
+                alt="Panel WMS de Stocka - Control de Pedidos y Despachos en Tiempo Real" 
+                loading="eager"
+                width="1024"
+                height="503"
+              >
+            </div>
+
+            <div class="stocka-wms-preview-statusbar">
+              <div class="statusbar-metric">
+                <span>📦 Total Pedidos:</span>
+                <strong>38</strong>
+              </div>
+              <div class="statusbar-metric">
+                <span>⏳ Para Procesar:</span>
+                <strong>15</strong>
+              </div>
+              <div class="statusbar-metric">
+                <span style="color: #06d6a0;">⚡ En Preparación:</span>
+                <strong style="color: #06d6a0;">10</strong>
+              </div>
+              <div class="statusbar-metric">
+                <span>💰 Facturado:</span>
+                <strong>$4.511.364</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Col 2: Live Interactive Order Dispatch Station Card (with Drone GIF) -->
+          <div class="stocka-wms-order-live-card">
+            
+            <div class="stocka-wms-order-header">
+              <div class="stocka-wms-order-status">
+                <span class="stocka-wms-order-dot"></span>
+                <span>Pedido en Preparación</span>
+              </div>
+              <span class="stocka-wms-order-badge">Envío Mismo Día • Prioritario</span>
+            </div>
+
+            <!-- Interactive Order Switcher Tabs -->
+            <div class="stocka-wms-order-pills-row">
+              <button type="button" class="stocka-wms-order-pill-btn active" data-order="8644" id="order-btn-8644">
+                <span>🛍️ #8644</span>
+                <small style="opacity: 0.75;">(Shopify)</small>
+              </button>
+              <button type="button" class="stocka-wms-order-pill-btn" data-order="8640" id="order-btn-8640">
+                <span>💛 #8640</span>
+                <small style="opacity: 0.75;">(MeLi)</small>
+              </button>
+              <button type="button" class="stocka-wms-order-pill-btn" data-order="8642" id="order-btn-8642">
+                <span>📦 #8642</span>
+                <small style="opacity: 0.75;">(Web)</small>
+              </button>
+            </div>
+
+            <!-- Stage with Reticles & Animated Packaging Box GIF -->
+            <div class="stocka-wms-pack-stage">
+              <div class="reticle-tl"></div>
+              <div class="reticle-tr"></div>
+              <div class="reticle-bl"></div>
+              <div class="reticle-br"></div>
+              
+              <img 
+                src="{{ 'stocka-wms-box.gif' | asset_url }}" 
+                alt="Empaque y Preparación Automatizada Stocka WMS"
+                class="stocka-wms-box-gif"
+                loading="eager"
+                width="300"
+                height="200"
+              >
+
+              <div class="stocka-wms-stage-overlay">
+                <span>📦 Courier Auto-Routing:</span>
+                <strong id="wms-stage-courier-tag" style="color: #ffffff;">Chilexpress Express</strong>
+              </div>
+            </div>
+
+            <!-- Live Order Detail Box -->
+            <div class="stocka-wms-order-detail-box" id="wms-order-detail-box">
+              
+              <div class="stocka-wms-order-topbar">
+                <div class="stocka-wms-platform-pill">
+                  <img src="{{ 'stocka-int-shopify.png' | asset_url }}" alt="Shopify" id="wms-platform-logo" class="stocka-wms-platform-logo-img">
+                  <span id="wms-platform-name">Shopify Store</span>
+                  <span class="stocka-wms-order-id-tag" id="wms-order-id-label">#8644</span>
+                </div>
+                <div class="stocka-wms-order-amount" id="wms-order-total-val">$72.990 CLP</div>
+              </div>
+
+              <div class="stocka-wms-order-meta-grid">
+                <div class="stocka-wms-meta-col">
+                  <span class="meta-title">Estado Operativo</span>
+                  <span class="meta-value" style="color: #06d6a0;">
+                    <span>●</span> <strong id="wms-order-status-val">En Preparación</strong>
+                  </span>
+                </div>
+                <div class="stocka-wms-meta-col">
+                  <span class="meta-title">Método Despacho</span>
+                  <span class="meta-value" id="wms-order-shipping-val">Chilexpress Prioritario</span>
+                </div>
+                <div class="stocka-wms-meta-col">
+                  <span class="meta-title">Volumen & Bultos</span>
+                  <span class="meta-value" id="wms-order-units-val">1 Bulto • 1 Artículo</span>
+                </div>
+                <div class="stocka-wms-meta-col">
+                  <span class="meta-title">SLA Despacho</span>
+                  <span class="meta-value" id="wms-order-sla-val" style="color: #38bdf8;">Hoy antes 18:00</span>
+                </div>
+              </div>
+
+              <!-- Items Breakdown -->
+              <div class="stocka-wms-order-items-box">
+                <div class="items-box-header">
+                  <span>Artículos Asignados</span>
+                  <span id="wms-items-count-badge" style="color: #06d6a0; font-family: monospace;">1 SKU VALIDADO</span>
+                </div>
+                <ul class="items-box-list" id="wms-items-list-container">
+                  <li class="item-entry">
+                    <span class="item-entry-name">✓ Máscara Total Restore (pomo) - 200 ml</span>
+                    <span class="item-entry-qty">1 un.</span>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            <!-- Bottom Metrics Ribbon -->
+            <div class="stocka-wms-chips-row">
+              <div class="stocka-wms-chip-item">
+                <span class="chip-val">&lt; 120ms</span>
+                <span class="chip-lbl">Sync Plataforma</span>
+              </div>
+              <div class="stocka-wms-chip-item">
+                <span class="chip-val">0% Error</span>
+                <span class="chip-lbl">Validación SKU</span>
+              </div>
+              <div class="stocka-wms-chip-item">
+                <span class="chip-val">Auto-Label</span>
+                <span class="chip-lbl">Etiqueta Courier</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       2. DUAL BUSINESS PROPOSITION
+       ======================================================== -->
+  <section class="stocka-wms-dual-sec">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag">MODELOS DE ACCESO</span>
+        <h2 class="stocka-wms-sec-title">Una solución tecnológica para cada etapa de tu negocio</h2>
+        <p class="stocka-wms-sec-desc">
+          Tanto si almacenas con Stocka como si operas en tu propia bodega interna, nuestro WMS se adapta a tu flujo operativo.
+        </p>
+      </div>
+
+      <div class="stocka-wms-dual-grid">
+        
+        <!-- Option 1: Fulfillment Clients -->
+        <div class="stocka-wms-dual-card featured">
+          <div>
+            <span class="stocka-wms-dual-badge badge-included">⭐ 100% INCLUIDO Y GRATUITO</span>
+            <h3 class="stocka-wms-dual-title">Clientes de Fulfillment Stocka 360</h3>
+            <p class="stocka-wms-dual-subtitle">
+              Si almacenas tu mercadería en nuestra red de bodegas (La Reina, Recoleta y Ñuñoa), tienes acceso completo e ilimitado al WMS sin costos de software mensuales.
+            </p>
+
+            <ul class="stocka-wms-feature-list">
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Auditoría de m³ en vivo:</strong> Visualiza día a día el volumen exacto consumido y la base de cobro sin sorpresas.</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Trazabilidad de preparación:</strong> Monitorea en vivo cuando tus pedidos pasan a picking, empaque y entrega a couriers.</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Declaración de arribos ágil:</strong> Avisa de nuevos ingresos de stock por bultos o contenedores y carga masiva por Excel.</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Gestión de logística inversa:</strong> Control de cambios y devoluciones con reingreso automático a stock.</span>
+              </li>
+            </ul>
+          </div>
+
+          <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-wms-btn-primary" style="text-align: center; justify-content: center;">
+            <span>Cotizar Fulfillment 360 + WMS</span> ➔
+          </a>
+        </div>
+
+        <!-- Option 2: Standalone WMS for Own Warehouses -->
+        <div class="stocka-wms-dual-card">
+          <div>
+            <span class="stocka-wms-dual-badge badge-standalone">🏢 SOFTWARE DEDICADO SAAS</span>
+            <h3 class="stocka-wms-dual-title">Comercios con Bodega Propia (WMS Standalone)</h3>
+            <p class="stocka-wms-dual-subtitle">
+              ¿Tienes tu propia bodega o centro de distribución? Licencia nuestro software WMS o solicita un desarrollo dedicado para digitalizar la logística de tu empresa.
+            </p>
+
+            <ul class="stocka-wms-feature-list">
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Control total de operarios y bodegas:</strong> Asigna ubicaciones en racks, pasillos, inventario y picking guiado por código de barras.</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Sincronización multi-tienda:</strong> Conecta todos tus canales de venta (Shopify, Mercado Libre Flex, etc.) a tu propio almacén.</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Generación de etiquetas courier:</strong> Impresión masiva de etiquetas de transporte (Starken, Blue Express, Chilexpress).</span>
+              </li>
+              <li class="stocka-wms-feature-item">
+                <div class="stocka-wms-check-icon">✓</div>
+                <span><strong>Desarrollo a medida & API REST:</strong> Integración personalizada con tu ERP (Defontana, Bsale, Softland, SAP).</span>
+              </li>
+            </ul>
+          </div>
+
+          <a href="#wms-demo-section" class="stocka-wms-btn-secondary" style="color: #0f172a !important; border-color: #cbd5e1; background: #f8fafc; text-align: center; justify-content: center;">
+            <span>Solicitar Cotización de Software WMS</span> ➔
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       3. 5 CORE MODULES INTERACTIVE SHOWCASE
+       ======================================================== -->
+  <section class="stocka-wms-modules-sec" id="modulos-wms">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag" style="background: rgba(92, 36, 255, 0.2); color: #c4b5fd;">TOUR DE LA PLATAFORMA</span>
+        <h2 class="stocka-wms-sec-title">5 Módulos clave diseñados para el máximo control</h2>
+        <p class="stocka-wms-sec-desc">
+          Explora la potencia de nuestras herramientas operativas con capturas reales de la interfaz de Stocka WMS.
+        </p>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="stocka-wms-mod-tabs" id="stocka-wms-tabs-nav">
+        <button type="button" class="stocka-wms-tab-btn active" data-target="mod-volumen">
+          <span>📊</span> <span>Volumen Diario (m³)</span>
+        </button>
+        <button type="button" class="stocka-wms-tab-btn" data-target="mod-ingresos">
+          <span>📥</span> <span>Declaración de Arribos</span>
+        </button>
+        <button type="button" class="stocka-wms-tab-btn" data-target="mod-pedidos">
+          <span>🛒</span> <span>Control de Pedidos</span>
+        </button>
+        <button type="button" class="stocka-wms-tab-btn" data-target="mod-kardex">
+          <span>🔄</span> <span>Kardex 2.0 y Trazabilidad</span>
+        </button>
+        <button type="button" class="stocka-wms-tab-btn" data-target="mod-inversa">
+          <span>↩️</span> <span>Logística Inversa</span>
+        </button>
+      </div>
+
+      <!-- Panel 1: Volumen Diario -->
+      <div class="stocka-wms-panel active" id="mod-volumen">
+        <div class="stocka-wms-panel-grid">
+          <div class="stocka-wms-panel-info">
+            <span class="stocka-wms-panel-tag">MÓDULO 01 · GESTIÓN DE ESPACIO</span>
+            <h3 class="stocka-wms-panel-title">Evolución de Volumen Diario y Consumo de m³</h3>
+            <p class="stocka-wms-panel-desc">
+              Di adiós a los cobros arbitrarios de almacenamiento. Nuestro WMS calcula con precisión volumétrica milimétrica el espacio que ocupan tus productos en bodega cada día del mes.
+            </p>
+            <div class="stocka-wms-panel-bullets">
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Gráfico histórico en tiempo real:</strong> Monitorea picos de ocupación, recepción de stock y rotación de productos.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Métricas clave de facturación:</strong> Visualiza tu promedio diario ponderado (base cobro), m³-día acumulados y rango min/max.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Exportación de gráficos (1:1 / 4:3):</strong> Descarga informes visuales para conciliación financiera y reuniones de directorio.</span>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-wms-panel-media">
+            <img 
+              src="{{ 'stocka-wms-volumen-diario.png' | asset_url }}" 
+              alt="Módulo de Volumen Diario - Stocka WMS"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: Declaración de Ingresos -->
+      <div class="stocka-wms-panel" id="mod-ingresos">
+        <div class="stocka-wms-panel-grid">
+          <div class="stocka-wms-panel-info">
+            <span class="stocka-wms-panel-tag">MÓDULO 02 · RECEPCIÓN Y ARRIBOS</span>
+            <h3 class="stocka-wms-panel-title">Declaración de Ingreso y Control de Arribos</h3>
+            <p class="stocka-wms-panel-desc">
+              Coordina el ingreso de nueva mercadería sin fricciones. Registra los SKU entrantes, las cantidades declaradas y el tipo de transporte antes de que llegue a nuestras bodegas.
+            </p>
+            <div class="stocka-wms-panel-bullets">
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Carga masiva o por catálogo:</strong> Sube tu planilla Excel de ingreso o selecciona productos sincronizados desde tu tienda online.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Detalle de bultos:</strong> Declara con exactitud si tu carga llega en contenedores, pallets o cajas individuales.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Reglas de Arribo (ETA):</strong> Calendario de recepción y avisos con 48h de anticipación para descarga programada.</span>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-wms-panel-media">
+            <img 
+              src="{{ 'stocka-wms-declarar-ingreso.png' | asset_url }}" 
+              alt="Módulo de Declaración de Ingreso de Stock - Stocka WMS"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 3: Control de Pedidos -->
+      <div class="stocka-wms-panel" id="mod-pedidos">
+        <div class="stocka-wms-panel-grid">
+          <div class="stocka-wms-panel-info">
+            <span class="stocka-wms-panel-tag">MÓDULO 03 · PIPELINE DE VENTAS</span>
+            <h3 class="stocka-wms-panel-title">Gestión de Pedidos Multi-Canal en Tiempo Real</h3>
+            <p class="stocka-wms-panel-desc">
+              Controla cada venta que entra desde Shopify, Mercado Libre o cualquier canal en una pantalla unificada con estados automatizados de preparación.
+            </p>
+            <div class="stocka-wms-panel-bullets">
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Pipeline visual por estados:</strong> <em>En procesamiento ➔ En preparación ➔ Pickeado ➔ Despachado ➔ Incidencias</em>.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Detalle de transporte integrado:</strong> Asignación automática de Starken, Blue Express, Chilexpress o Same Day RM.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Filtros avanzados por SKU, origen o fecha:</strong> Encuentra cualquier pedido en milisegundos y genera etiquetas con 1 clic.</span>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-wms-panel-media">
+            <img 
+              src="{{ 'stocka-wms-pedidos-multicanal.png' | asset_url }}" 
+              alt="Módulo de Pedidos y Despachos - Stocka WMS"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 4: Kardex 2.0 y Trazabilidad -->
+      <div class="stocka-wms-panel" id="mod-kardex">
+        <div class="stocka-wms-panel-grid">
+          <div class="stocka-wms-panel-info">
+            <span class="stocka-wms-panel-tag">MÓDULO 04 · TRAZABILIDAD INMUTABLE</span>
+            <h3 class="stocka-wms-panel-title">Historial de Movimientos 2.0 (Kardex por Segundo)</h3>
+            <p class="stocka-wms-panel-desc">
+              Auditoría total de existencias. Cada unidad que entra, se prepara, se ajusta o se despacha queda registrada con timestamp exacto, usuario y motivo del movimiento.
+            </p>
+            <div class="stocka-wms-panel-bullets">
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Kardex General y Balance por Bodega:</strong> Supervisa existencias separadas por bodega (Matriz Ñuñoa, La Reina, Recoleta).</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Métricas de flujo neto:</strong> Monitorea Entradas (+), Salidas (-) y Saldo Neto consolidado por período.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Exportación directa a Excel y CSV:</strong> Reportes contables y de auditoría listos para importar a tu ERP.</span>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-wms-panel-media">
+            <img 
+              src="{{ 'stocka-wms-kardex-movimientos.png' | asset_url }}" 
+              alt="Historial de Movimientos 2.0 y Kardex - Stocka WMS"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 5: Logística Inversa -->
+      <div class="stocka-wms-panel" id="mod-inversa">
+        <div class="stocka-wms-panel-grid">
+          <div class="stocka-wms-panel-info">
+            <span class="stocka-wms-panel-tag">MÓDULO 05 · POSTVENTA Y DEVOLUCIONES</span>
+            <h3 class="stocka-wms-panel-title">Logística Inversa y Devoluciones Simplificadas</h3>
+            <p class="stocka-wms-panel-desc">
+              Convierte las devoluciones en una ventaja competitiva. Registra cambios y retornos de producto con trazabilidad por transporte y sucursal.
+            </p>
+            <div class="stocka-wms-panel-bullets">
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Registro ágil de devoluciones y cambios:</strong> Vincula cada retorno al número de orden original y courier asignado.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Inspección y reingreso a stock:</strong> Revisa el estado del producto y reincorpóralo automáticamente a tu inventario disponible.</span>
+              </div>
+              <div class="stocka-wms-panel-bullet">
+                <span class="icon">✓</span>
+                <span><strong>Resolución de reclamos rápida:</strong> Entrega a tus clientes respuestas claras sobre el estado de su cambio.</span>
+              </div>
+            </div>
+          </div>
+          <div class="stocka-wms-panel-media">
+            <img 
+              src="{{ 'stocka-wms-logistica-inversa.png' | asset_url }}" 
+              alt="Módulo de Logística Inversa y Devoluciones - Stocka WMS"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       4. INTEGRATIONS ECOSYSTEM
+       ======================================================== -->
+  <section class="stocka-wms-integ-sec">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag">ECOSISTEMA CONECTADO</span>
+        <h2 class="stocka-wms-sec-title">Integrado con las plataformas líderes del mercado</h2>
+        <p class="stocka-wms-sec-desc">
+          Conecta tus tiendas online, marketplaces y sistemas contables en minutos mediante integraciones nativas y API REST oficial.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Infinite Auto-Sliding Marquee -->
+    <div class="stocka-wms-marquee-wrap">
+      <div class="stocka-wms-marquee-track">
+        
+        <!-- Track 1: 10 Platforms -->
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-shopify.png' | asset_url }}" alt="Shopify" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Shopify</span>
+          <span class="stocka-wms-integ-type">App Oficial & Webhooks</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-mercadolibre.png' | asset_url }}" alt="Mercado Libre" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Mercado Libre</span>
+          <span class="stocka-wms-integ-type">Flex & Colecta</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-falabella.png' | asset_url }}" alt="Falabella" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Falabella.com</span>
+          <span class="stocka-wms-integ-type">Seller Center API</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-ripley.png' | asset_url }}" alt="Ripley" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Ripley</span>
+          <span class="stocka-wms-integ-type">Mirakl Marketplace</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-paris.png' | asset_url }}" alt="Paris" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Paris / Cencosud</span>
+          <span class="stocka-wms-integ-type">Portal Proveedores B2B</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-walmart.png' | asset_url }}" alt="Walmart" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Walmart Chile</span>
+          <span class="stocka-wms-integ-type">Marketplace API</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-woocommerce.png' | asset_url }}" alt="WooCommerce" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">WooCommerce</span>
+          <span class="stocka-wms-integ-type">Plugin WordPress</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-tiendanube.png' | asset_url }}" alt="Tiendanube" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Tiendanube</span>
+          <span class="stocka-wms-integ-type">Conexión Directa</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-jumpseller.png' | asset_url }}" alt="Jumpseller" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Jumpseller</span>
+          <span class="stocka-wms-integ-type">Integración Nativa</span>
+        </div>
+
+        <div class="stocka-wms-integ-card">
+          <div class="stocka-wms-integ-logo-wrap">
+            <div class="stocka-wms-api-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px; color: #5c24ff;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            </div>
+          </div>
+          <span class="stocka-wms-integ-name">API REST & Webhooks</span>
+          <span class="stocka-wms-integ-type">ERPs / Bsale / Softland</span>
+        </div>
+
+        <!-- Track 2: Clone for Seamless Infinite Loop -->
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-shopify.png' | asset_url }}" alt="Shopify" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Shopify</span>
+          <span class="stocka-wms-integ-type">App Oficial & Webhooks</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-mercadolibre.png' | asset_url }}" alt="Mercado Libre" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Mercado Libre</span>
+          <span class="stocka-wms-integ-type">Flex & Colecta</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-falabella.png' | asset_url }}" alt="Falabella" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Falabella.com</span>
+          <span class="stocka-wms-integ-type">Seller Center API</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-ripley.png' | asset_url }}" alt="Ripley" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Ripley</span>
+          <span class="stocka-wms-integ-type">Mirakl Marketplace</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-paris.png' | asset_url }}" alt="Paris" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Paris / Cencosud</span>
+          <span class="stocka-wms-integ-type">Portal Proveedores B2B</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-walmart.png' | asset_url }}" alt="Walmart" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Walmart Chile</span>
+          <span class="stocka-wms-integ-type">Marketplace API</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-woocommerce.png' | asset_url }}" alt="WooCommerce" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">WooCommerce</span>
+          <span class="stocka-wms-integ-type">Plugin WordPress</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-tiendanube.png' | asset_url }}" alt="Tiendanube" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Tiendanube</span>
+          <span class="stocka-wms-integ-type">Conexión Directa</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <img src="{{ 'stocka-int-jumpseller.png' | asset_url }}" alt="Jumpseller" class="stocka-wms-integ-logo-img" loading="lazy">
+          </div>
+          <span class="stocka-wms-integ-name">Jumpseller</span>
+          <span class="stocka-wms-integ-type">Integración Nativa</span>
+        </div>
+
+        <div class="stocka-wms-integ-card" aria-hidden="true">
+          <div class="stocka-wms-integ-logo-wrap">
+            <div class="stocka-wms-api-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px; color: #5c24ff;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            </div>
+          </div>
+          <span class="stocka-wms-integ-name">API REST & Webhooks</span>
+          <span class="stocka-wms-integ-type">ERPs / Bsale / Softland</span>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="stocka-wms-container">
+      <div class="stocka-wms-integ-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <span>Pasa el cursor por encima para pausar el movimiento y explorar cada plataforma</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================
+       5. COMPARISON TABLE: Legacy vs Stocka WMS
+       ======================================================== -->
+  <section class="stocka-wms-comp-sec">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag">COMPARATIVA TECNOLÓGICA</span>
+        <h2 class="stocka-wms-sec-title">¿Por qué Stocka WMS supera a los sistemas tradicionales?</h2>
+        <p class="stocka-wms-sec-desc">
+          Comparamos los WMS antiguos y rígidos con la flexibilidad del software moderno en la nube de Stocka.
+        </p>
+      </div>
+
+      <div class="stocka-wms-comp-table-wrap">
+        <table class="stocka-wms-comp-table">
+          <thead>
+            <tr>
+              <th>Característica</th>
+              <th style="color: #64748b;">Sistemas WMS Tradicionales</th>
+              <th class="stocka-wms-comp-highlight">⚡ Stocka Cloud WMS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Tiempo de Onboarding e Integración</strong></td>
+              <td>
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge neg">✕</span>
+                  <span>Meses de implementación y consultoría costosa</span>
+                </div>
+              </td>
+              <td class="stocka-wms-comp-highlight">
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge pos">✓</span>
+                  <span><strong>En solo horas:</strong> 100% configurado y listo</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Cálculo de Almacenamiento</strong></td>
+              <td>
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge neg">✕</span>
+                  <span>Tarifas fijas por pallet o metros cuadrados ciegos</span>
+                </div>
+              </td>
+              <td class="stocka-wms-comp-highlight">
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge pos">✓</span>
+                  <span><strong>Volumen dinámico:</strong> On demand por m³ diario real</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Sincronización Multi-Tienda</strong></td>
+              <td>
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge neg">✕</span>
+                  <span>Requiere módulos intermedios y cobros extra</span>
+                </div>
+              </td>
+              <td class="stocka-wms-comp-highlight">
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge pos">✓</span>
+                  <span><strong>Nativa en tiempo real:</strong> Shopify, MeLi, Woo, etc.</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Costo por Licencias / Usuarios</strong></td>
+              <td>
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge neg">✕</span>
+                  <span>Cobro por cada usuario o terminal conectado</span>
+                </div>
+              </td>
+              <td class="stocka-wms-comp-highlight">
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge pos">✓</span>
+                  <span><strong>Usuarios ilimitados:</strong> Incluidos sin sobrecostos</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Interfaz de Usuario (UX)</strong></td>
+              <td>
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge neg">✕</span>
+                  <span>Pantallas anticuadas, lentas y difíciles de usar</span>
+                </div>
+              </td>
+              <td class="stocka-wms-comp-highlight">
+                <div class="stocka-comp-point">
+                  <span class="stocka-comp-badge pos">✓</span>
+                  <span><strong>Diseño Dark Mode:</strong> Moderno, ágil y responsive</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       6. LEAD & DEMO REQUEST FORM
+       ======================================================== -->
+  <section class="stocka-wms-form-sec" id="wms-demo-section">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag" style="background: rgba(255, 255, 255, 0.15); border: 1.5px solid rgba(255, 255, 255, 0.35); color: #ffffff; box-shadow: 0 4px 15px rgba(92, 36, 255, 0.3);">DEMOSTRACIÓN INTERACTIVA</span>
+        <h2 class="stocka-wms-sec-title" style="color: #ffffff !important;">Descubre cómo Stocka WMS transforma tu logística</h2>
+        <p class="stocka-wms-sec-desc" style="color: #cbd5e1 !important;">
+          Agenda una videollamada de 15 minutos con un especialista en software para ver el sistema en vivo adaptado a tu operación.
+        </p>
+      </div>
+
+      <div class="stocka-wms-form-card">
+        <form id="stocka-wms-lead-form">
+          
+          <div class="stocka-wms-form-group">
+            <label for="wms-form-need">¿Qué solución estás buscando? *</label>
+            <select id="wms-form-need" class="stocka-wms-form-control stocka-wms-form-select" required>
+              <option value="Fulfillment + WMS Incluido">Quiero externalizar mi Fulfillment con Stocka (WMS Incluido)</option>
+              <option value="WMS SaaS Dedicado Bodega Propia">Tengo mi propia bodega y quiero licenciar el WMS como software SaaS</option>
+              <option value="Desarrollo a Medida / Integracion API">Necesito un desarrollo a medida o integración API personalizada</option>
+            </select>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="stocka-wms-form-group">
+              <label for="wms-form-name">Nombre y Apellido *</label>
+              <input type="text" id="wms-form-name" class="stocka-wms-form-control" placeholder="Ej: Felipe Torres" required>
+            </div>
+            <div class="stocka-wms-form-group">
+              <label for="wms-form-phone">Teléfono / WhatsApp *</label>
+              <input type="tel" id="wms-form-phone" class="stocka-wms-form-control" placeholder="+56 9 1234 5678" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="stocka-wms-form-group">
+              <label for="wms-form-email">Correo Electrónico *</label>
+              <input type="email" id="wms-form-email" class="stocka-wms-form-control" placeholder="nombre@empresa.cl" required>
+            </div>
+            <div class="stocka-wms-form-group">
+              <label for="wms-form-company">Empresa / Marca *</label>
+              <input type="text" id="wms-form-company" class="stocka-wms-form-control" placeholder="Nombre de tu tienda o marca" required>
+            </div>
+          </div>
+
+          <div class="stocka-wms-form-group">
+            <label for="wms-form-volume">Volumen estimado de pedidos mensuales</label>
+            <select id="wms-form-volume" class="stocka-wms-form-control stocka-wms-form-select">
+              <option value="1 a 100 pedidos/mes">1 a 100 pedidos/mes (Inicio)</option>
+              <option value="101 a 500 pedidos/mes">101 a 500 pedidos/mes (Crecimiento)</option>
+              <option value="501 a 2.000 pedidos/mes">501 a 2.000 pedidos/mes (Escala)</option>
+              <option value="+2.000 pedidos/mes">+2.000 pedidos/mes (Enterprise)</option>
+            </select>
+          </div>
+
+          <div class="stocka-wms-form-group">
+            <label for="wms-form-notes">¿Cuéntanos brevemente sobre tu operación?</label>
+            <textarea id="wms-form-notes" rows="3" class="stocka-wms-form-control" placeholder="Ej: Vendemos vestuario en Shopify y Mercado Libre y tenemos bodega en Santiago..."></textarea>
+          </div>
+
+          <div id="wms-form-msg" style="display: none; padding: 1rem; border-radius: 12px; margin-bottom: 1.25rem; font-size: 0.9rem; font-weight: 700; text-align: center;"></div>
+
+          <button type="submit" id="wms-form-submit-btn" class="stocka-wms-btn-primary" style="width: 100%; justify-content: center; font-size: 1.05rem;">
+            <span>Solicitar Demostración y Asesoría Técnica 🚀</span>
+          </button>
+
+          <p style="font-size: 0.78rem; color: #64748b; text-align: center; margin: 1rem 0 0 0;">
+            🔒 Tus datos están protegidos. Respuesta garantizada en menos de 2 horas hábiles.
+          </p>
+
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       7. TECHNICAL FAQ ACCORDION
+       ======================================================== -->
+  <section class="stocka-wms-faq-sec">
+    <div class="stocka-wms-container">
+      
+      <div class="stocka-wms-sec-header">
+        <span class="stocka-wms-sec-tag">PREGUNTAS FRECUENTES</span>
+        <h2 class="stocka-wms-sec-title">Dudas comunes sobre el Software WMS</h2>
+        <p class="stocka-wms-sec-desc">
+          Todo lo que necesitas saber sobre compatibilidad, requerimientos técnicos e implementación.
+        </p>
+      </div>
+
+      <div class="stocka-wms-faq-accordion" id="stocka-wms-faq">
+        
+        <div class="stocka-wms-faq-item active">
+          <button type="button" class="stocka-wms-faq-q">
+            <span>¿Puedo contratar el software WMS si tengo mi propia bodega y no requiero fulfillment?</span>
+            <div class="stocka-wms-faq-icon">+</div>
+          </button>
+          <div class="stocka-wms-faq-a">
+            Sí, totalmente. Ofrecemos el modelo <strong>WMS Standalone (SaaS Dedicado)</strong> para comercios o empresas que ya cuentan con instalaciones físicas y operarios propios, pero necesitan digitalizar la recepción, inventario en racks, picking con código de barras y conexión con couriers.
+          </div>
+        </div>
+
+        <div class="stocka-wms-faq-item">
+          <button type="button" class="stocka-wms-faq-q">
+            <span>¿Tiene algún costo de software si opero mi fulfillment con Stocka?</span>
+            <div class="stocka-wms-faq-icon">+</div>
+          </button>
+          <div class="stocka-wms-faq-a">
+            No. Para todos los clientes que almacenan y preparan sus pedidos con Stocka en nuestras bodegas (La Reina, Recoleta y Ñuñoa), el acceso a la plataforma WMS es <strong>100% gratuito e ilimitado</strong>, incluyendo todos los usuarios de tu equipo.
+          </div>
+        </div>
+
+        <div class="stocka-wms-faq-item">
+          <button type="button" class="stocka-wms-faq-q">
+            <span>¿Cuánto demora la integración técnica con mi tienda online (Shopify / Mercado Libre)?</span>
+            <div class="stocka-wms-faq-icon">+</div>
+          </button>
+          <div class="stocka-wms-faq-a">
+            La integración se realiza en <strong>solo minutos</strong> autorizando la conexión con tu tienda. La sincronización de catálogo, stock por SKU y pedidos entrantes queda operativa el mismo día.
+          </div>
+        </div>
+
+        <div class="stocka-wms-faq-item">
+          <button type="button" class="stocka-wms-faq-q">
+            <span>¿Qué requerimientos técnicos o de hardware se necesitan para usar el WMS?</span>
+            <div class="stocka-wms-faq-icon">+</div>
+          </button>
+          <div class="stocka-wms-faq-a">
+            Stocka WMS es 100% basado en la nube (Cloud SaaS). Solo requieres conexión a Internet y un navegador moderno (Chrome, Safari, Edge) desde cualquier computador, tablet o smartphone. Para bodegas, es compatible con lectores de código de barras USB/Bluetooth e impresoras térmicas de etiquetas (Zebra, Brother, etc.).
+          </div>
+        </div>
+
+        <div class="stocka-wms-faq-item">
+          <button type="button" class="stocka-wms-faq-q">
+            <span>¿Se puede integrar con mi sistema ERP o facturador (Defontana, Bsale, Softland)?</span>
+            <div class="stocka-wms-faq-icon">+</div>
+          </button>
+          <div class="stocka-wms-faq-a">
+            Sí. Disponemos de una <strong>API REST oficial y Webhooks</strong> para sincronizar movimientos de stock, emitir documentos tributarios y actualizar estados de facturación automáticamente.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+</div>
+
+<script>
+  (function() {
+    function initWmsPage() {
+      // 0. Hero Live Order Switcher Logic
+      const orderPills = document.querySelectorAll('.stocka-wms-order-pill-btn');
+      const orderData = {
+        '8644': {
+          platformLogo: "{{ 'stocka-int-shopify.png' | asset_url }}",
+          platform: 'Shopify Store',
+          id: '#8644',
+          total: '$72.990 CLP',
+          status: 'En Preparación',
+          shipping: 'Chilexpress Prioritario',
+          units: '1 Bulto • 1 Artículo',
+          sla: 'Hoy antes 18:00',
+          courierTag: 'Chilexpress Express',
+          itemsCount: '1 SKU VALIDADO',
+          items: [
+            { name: '✓ Máscara Total Restore (pomo) - 200 ml', qty: '1 un.' }
+          ]
+        },
+        '8640': {
+          platformLogo: "{{ 'stocka-int-mercadolibre.png' | asset_url }}",
+          platform: 'Mercado Libre Flex',
+          id: '#8640',
+          total: '$31.560 CLP',
+          status: 'En Preparación',
+          shipping: 'Blue Express Prioritario',
+          units: '1 Bulto • 4 Artículos',
+          sla: 'Mismo Día (Flex)',
+          courierTag: 'Blue Express Flex',
+          itemsCount: '2 SKUs VALIDADOS (4 UN.)',
+          items: [
+            { name: '✓ Serum Hidratante Reparador 50ml', qty: '2 un.' },
+            { name: '✓ Shampoo Detox Purificante 250ml', qty: '2 un.' }
+          ]
+        },
+        '8642': {
+          platformLogo: "{{ 'stocka-int-shopify.png' | asset_url }}",
+          platform: 'Shopify / Web Directa',
+          id: '#8642',
+          total: '$16.990 CLP',
+          status: 'En Preparación',
+          shipping: 'Starken Envío a Domicilio',
+          units: '1 Bulto • 1 Artículo',
+          sla: 'En Tránsito 24h',
+          courierTag: 'Starken Domicilio',
+          itemsCount: '1 SKU VALIDADO',
+          items: [
+            { name: '✓ Acondicionador Reparador Profundo', qty: '1 un.' }
+          ]
+        }
+      };
+
+      orderPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          const orderId = pill.getAttribute('data-order');
+          const data = orderData[orderId];
+          if (!data) return;
+
+          orderPills.forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+
+          const detailBox = document.getElementById('wms-order-detail-box');
+          if (detailBox) {
+            detailBox.style.opacity = '0.35';
+            detailBox.style.transform = 'translateY(3px)';
+          }
+
+          setTimeout(() => {
+            const logoEl = document.getElementById('wms-platform-logo');
+            if (logoEl) logoEl.src = data.platformLogo;
+            const platName = document.getElementById('wms-platform-name');
+            if (platName) platName.textContent = data.platform;
+            const orderIdEl = document.getElementById('wms-order-id-label');
+            if (orderIdEl) orderIdEl.textContent = data.id;
+            const totalVal = document.getElementById('wms-order-total-val');
+            if (totalVal) totalVal.textContent = data.total;
+            const statusVal = document.getElementById('wms-order-status-val');
+            if (statusVal) statusVal.textContent = data.status;
+            const shipVal = document.getElementById('wms-order-shipping-val');
+            if (shipVal) shipVal.textContent = data.shipping;
+            const unitsVal = document.getElementById('wms-order-units-val');
+            if (unitsVal) unitsVal.textContent = data.units;
+            const slaVal = document.getElementById('wms-order-sla-val');
+            if (slaVal) slaVal.textContent = data.sla;
+            const courierTag = document.getElementById('wms-stage-courier-tag');
+            if (courierTag) courierTag.textContent = data.courierTag;
+            const countBadge = document.getElementById('wms-items-count-badge');
+            if (countBadge) countBadge.textContent = data.itemsCount;
+
+            const listContainer = document.getElementById('wms-items-list-container');
+            if (listContainer) {
+              listContainer.innerHTML = data.items.map(it => `
+                <li class="item-entry">
+                  <span class="item-entry-name">${it.name}</span>
+                  <span class="item-entry-qty">${it.qty}</span>
+                </li>
+              `).join('');
+            }
+
+            if (detailBox) {
+              detailBox.style.opacity = '1';
+              detailBox.style.transform = 'translateY(0)';
+            }
+          }, 140);
+        });
+      });
+
+      // 1. Modules Tabs Logic
+      const tabs = document.querySelectorAll('#stocka-wms-tabs-nav .stocka-wms-tab-btn');
+      const panels = document.querySelectorAll('.stocka-wms-panel');
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const targetId = tab.dataset.target;
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => p.classList.remove('active'));
+
+          tab.classList.add('active');
+          const activePanel = document.getElementById(targetId);
+          if (activePanel) activePanel.classList.add('active');
+        });
+      });
+
+      // 2. FAQ Accordion Logic
+      const faqItems = document.querySelectorAll('#stocka-wms-faq .stocka-wms-faq-item');
+      faqItems.forEach(item => {
+        const qBtn = item.querySelector('.stocka-wms-faq-q');
+        if (qBtn) {
+          qBtn.addEventListener('click', () => {
+            const wasActive = item.classList.contains('active');
+            item.classList.toggle('active', !wasActive);
+          });
+        }
+      });
+
+      // 3. Lead Form Submission
+      const leadForm = document.getElementById('stocka-wms-lead-form');
+      const msgDiv = document.getElementById('wms-form-msg');
+      const submitBtn = document.getElementById('wms-form-submit-btn');
+
+      if (leadForm) {
+        leadForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '<span>Enviando solicitud... ⏳</span>';
+
+          const need = document.getElementById('wms-form-need')?.value || '';
+          const name = document.getElementById('wms-form-name')?.value || '';
+          const phone = document.getElementById('wms-form-phone')?.value || '';
+          const email = document.getElementById('wms-form-email')?.value || '';
+          const company = document.getElementById('wms-form-company')?.value || '';
+          const volume = document.getElementById('wms-form-volume')?.value || '';
+          const notes = document.getElementById('wms-form-notes')?.value || '';
+
+          const payload = {
+            contactName: name,
+            email: email,
+            phone: phone,
+            companyName: company,
+            services: ['WMS Software', need],
+            monthlyVolume: volume,
+            notes: `Tipo de Solicitud: ${need} | Detalle: ${notes || 'Sin comentarios'}`
+          };
+
+          try {
+            const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/submit-lead', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error('Error al enviar');
+
+            msgDiv.style.background = '#ecfdf5';
+            msgDiv.style.color = '#059669';
+            msgDiv.style.border = '1.5px solid #a7f3d0';
+            msgDiv.innerHTML = '🎉 ¡Solicitud recibida con éxito! Un asesor técnico se contactará contigo a la brevedad.';
+            msgDiv.style.display = 'block';
+            leadForm.reset();
+            submitBtn.innerHTML = '<span>Solicitud Enviada ✓</span>';
+
+          } catch (err) {
+            // Fallback to WhatsApp direct link if API fails
+            msgDiv.style.background = '#fef2f2';
+            msgDiv.style.color = '#991b1b';
+            msgDiv.style.border = '1.5px solid #fecaca';
+            msgDiv.innerHTML = 'Nota enviada. Puedes hablarnos directamente por <a href="https://wa.me/56939247487?text=' + encodeURIComponent('Hola! Quiero una demo de Stocka WMS para ' + company) + '" target="_blank" style="color: #5c24ff; text-decoration: underline;">WhatsApp aquí</a>.';
+            msgDiv.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<span>Reintentar Enviar</span>';
+          }
+        });
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initWmsPage);
+    } else {
+      initWmsPage();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Stocka WMS Landing",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Stocka WMS Landing"
+    }
+  ]
+}
+{% endschema %}

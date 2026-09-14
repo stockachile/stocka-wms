@@ -1806,7 +1806,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -3769,7 +3769,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -10665,9 +10665,26 @@ function renderMasterCatalogRows(products) {
       ? ` <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 600; margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Picker: ${escapeHtml(item.alias)}</div>`
       : (item.alias && item.alias.trim() ? ` <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Alias: ${escapeHtml(item.alias)}</div>` : '');
 
+    const opt = item.options || {};
+    const itemColor = item.color || opt.color || null;
+    const itemTalla = item.talla || opt.talla || opt.size || null;
+    const itemVar1 = item.variable_1 || opt.var1 || opt.manga || null;
+    const itemVar2 = item.variable_2 || opt.var2 || opt.cuello || null;
+
+    let variantsBadge = '';
+    if (itemColor || itemTalla || itemVar1 || itemVar2) {
+      const parts = [];
+      if (itemColor) parts.push(`<span class="badge" style="background: rgba(113, 23, 235, 0.08); color: var(--color-primary); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600;">Color: ${escapeHtml(itemColor)}</span>`);
+      if (itemTalla) parts.push(`<span class="badge" style="background: rgba(0,0,0,0.06); color: var(--color-text-main); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600;">Talla: ${escapeHtml(itemTalla)}</span>`);
+      if (itemVar1) parts.push(`<span class="badge" style="background: rgba(249, 115, 22, 0.1); color: #ea580c; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600;">Var1: ${escapeHtml(itemVar1)}</span>`);
+      if (itemVar2) parts.push(`<span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #ca8a04; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.7rem; font-weight: 600;">Var2: ${escapeHtml(itemVar2)}</span>`);
+      variantsBadge = `<div style="display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.25rem;">${parts.join('')}</div>`;
+    }
+
     const nameCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.45rem 0.75rem;">
            <div>${escapeHtml(item.name)}</div>
+           ${variantsBadge}
            <div style="margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.25rem;">
              <input type="text" class="quick-edit-alias form-input" data-id="${item.id}" data-old="${escapeHtml(item.alias || '')}" value="${escapeHtml(item.alias || '')}" placeholder="Alias Picker" style="width: 140px; padding: 0.25rem; height: 28px; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
              <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--color-text-muted);">
@@ -10676,7 +10693,7 @@ function renderMasterCatalogRows(products) {
              </div>
            </div>
          </td>`
-      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.name)}${aliasBadge}</td>`;
+      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.name)}${aliasBadge}${variantsBadge}</td>`;
 
     const statusCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.5rem 1rem; text-align: center;">
@@ -11345,6 +11362,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
         renderPacksTab();
       } else if (tabId === 'tab-catalog-campaigns') {
         renderCampaignsTab(commerce);
+      } else if (tabId === 'tab-catalog-variants') {
+        renderVariantsTab(commerce);
       }
     });
   });
@@ -11575,6 +11594,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
               alias: existing?.alias || null,
               send_barcode_to_picker: existing?.send_barcode_to_picker ?? false,
               send_alias_to_picker: existing?.send_alias_to_picker ?? false,
+              color: existing?.color || null,
+              talla: existing?.talla || null,
+              variable_1: existing?.variable_1 || null,
+              variable_2: existing?.variable_2 || null,
+              options: existing?.options || null,
               is_pack: existing?.is_pack ?? false,
               is_virtual: existing?.is_virtual ?? false,
               status: existing?.status || 'active'
@@ -18452,9 +18476,6 @@ async function openAdminProductMovementsModal(productId, sku, name) {
             <button class="btn btn-primary" id="admin-btn-filter-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
               <i class="ri-filter-line"></i> Filtrar
             </button>
-            <button class="btn btn-outline" id="admin-btn-clear-movs" style="padding: 0 0.85rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;">
-              <i class="ri-refresh-line"></i> Limpiar
-            </button>
           </div>
         </div>
       </div>
@@ -19401,6 +19422,7 @@ async function renderAdminCatalogWorkspace(commerce) {
     window.catalogInitialStockMap = initialStockMap;
 
     const masterProducts = products || [];
+    window.adminMasterProducts = masterProducts;
 
     const syncedProducts = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).order('name'));
 
@@ -19668,6 +19690,9 @@ async function renderAdminCatalogWorkspace(commerce) {
         <button class="integration-tab catalog-tab" data-tab="tab-catalog-campaigns" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-gift-line"></i> Campañas
         </button>
+        <button class="integration-tab catalog-tab" data-tab="tab-catalog-variants" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-price-tag-3-line"></i> Definir Variantes
+        </button>
       </div>
 
       <div class="integration-content">
@@ -19861,6 +19886,128 @@ async function renderAdminCatalogWorkspace(commerce) {
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pestaña 5: Definición Masiva de Variantes -->
+        <div id="tab-catalog-variants" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-price-tag-3-line" style="color: var(--color-primary);"></i> Definición Masiva de Variantes (${commerce})
+                </h3>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+                  Estandariza colores, tallas, variables personalizadas y define nombres independientes por producto para este comercio.
+                </p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn btn-outline" id="btn-export-variants-excel" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer;" title="Descargar planilla Excel con los productos de este comercio para completar variantes">
+                  <i class="ri-file-excel-2-line" style="color: #10b981;"></i> Descargar Planilla
+                </button>
+                <button class="btn btn-outline" id="btn-import-variants-excel" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer;" title="Cargar planilla Excel completada para actualizar variantes masivamente">
+                  <i class="ri-upload-2-line" style="color: #6366f1;"></i> Cargar Planilla
+                </button>
+                <input type="file" id="variants-import-excel-file" accept=".xlsx, .xls, .csv" style="display: none;">
+                <button class="btn btn-outline" id="btn-config-variant-names" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer;" title="Personalizar los nombres de las columnas para este comercio">
+                  <i class="ri-settings-3-line" style="color: var(--color-primary);"></i> Nombres de Variantes
+                </button>
+                <button class="btn btn-outline" id="btn-manage-variant-options" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer;" title="Gestionar opciones predefinidas de cada variante">
+                  <i class="ri-list-settings-line" style="color: #0284c7;"></i> Gestionar Opciones
+                </button>
+                <button class="btn btn-primary" id="btn-save-all-variants" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; border-radius: var(--radius-md); cursor: pointer;" title="Guardar todos los cambios pendientes">
+                  <i class="ri-save-line"></i> <span>Guardar Cambios</span>
+                  <span id="variants-pending-badge" style="display: none; background: #ef4444; color: white; border-radius: 9999px; padding: 0.1rem 0.45rem; font-size: 0.72rem; margin-left: 0.25rem; font-weight: 700;">0</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Barra de Filtros y Búsqueda -->
+            <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; flex: 1;">
+                <div style="position: relative; min-width: 240px; flex: 1; max-width: 350px;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="catalog-variants-search" class="form-input" placeholder="Buscar por SKU, producto o alias..." style="width: 100%; padding-left: 2.25rem; padding-right: 0.75rem; height: 36px; font-size: 0.85rem;">
+                </div>
+                <select id="catalog-variants-filter-platform" class="form-input" style="height: 36px; font-size: 0.85rem; min-width: 140px;">
+                  <option value="">Todas las Plataformas</option>
+                  <option value="Shopify">Shopify</option>
+                  <option value="MercadoLibre">MercadoLibre</option>
+                  <option value="Falabella">Falabella</option>
+                  <option value="Paris">París</option>
+                  <option value="Ripley">Ripley</option>
+                  <option value="WooCommerce">WooCommerce</option>
+                  <option value="Tiendanube">Tiendanube</option>
+                  <option value="Manual">Manual</option>
+                </select>
+                <select id="catalog-variants-filter-status" class="form-input" style="height: 36px; font-size: 0.85rem; min-width: 160px;">
+                  <option value="">Todos los Estados</option>
+                  <option value="without_variants">Sin Variantes asignadas</option>
+                  <option value="incomplete">Variantes Incompletas</option>
+                  <option value="complete">Variantes Completas</option>
+                  <option value="without_alias">Sin Nombre Comercio / Alias</option>
+                </select>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--color-text-muted);" id="catalog-variants-counter">
+                Mostrando 0 productos
+              </div>
+            </div>
+
+            <!-- Tabla de Variantes Masivas -->
+            <div style="overflow-x: auto; max-height: 70vh;">
+              <table id="table-mass-variants" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                <thead style="position: sticky; top: 0; z-index: 10; background: var(--color-surface); border-bottom: 2px solid var(--color-border); box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                  <tr>
+                    <th style="padding: 0.75rem 0.5rem; text-align: center; width: 40px;">
+                      <input type="checkbox" id="variants-select-all" style="cursor: pointer; transform: scale(1.15);">
+                    </th>
+                    <th style="padding: 0.75rem 0.75rem; text-align: center; width: 50px;">Img</th>
+                    <th style="padding: 0.75rem 0.75rem; min-width: 130px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU</th>
+                    <th style="padding: 0.75rem 0.75rem; min-width: 260px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto</th>
+                    <th style="padding: 0.75rem 0.75rem; width: 100px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
+                    <th style="padding: 0.75rem 0.75rem; width: 85px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Estado</th>
+                    <th style="padding: 0.75rem 0.75rem; min-width: 180px; font-weight: 600; color: var(--color-primary); text-transform: uppercase;" title="Nombre personalizado independiente para este comercio (enviado al Picker)">
+                      <i class="ri-edit-line"></i> Nombre Comercio (Alias Picker)
+                    </th>
+                    <th id="th-variant-color" style="padding: 0.75rem 0.75rem; min-width: 140px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Color</th>
+                    <th id="th-variant-talla" style="padding: 0.75rem 0.75rem; min-width: 130px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Talla</th>
+                    <th id="th-variant-var1" style="padding: 0.75rem 0.75rem; min-width: 130px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Variable 1</th>
+                    <th id="th-variant-var2" style="padding: 0.75rem 0.75rem; min-width: 130px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Variable 2</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-variants-tbody">
+                  <tr>
+                    <td colspan="11" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+                      <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem;"></i>
+                      Cargando variantes del catálogo...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Barra flotante de acciones masivas -->
+            <div id="variants-bulk-bar" style="display: none; position: sticky; bottom: 0; left: 0; right: 0; background: var(--color-surface); border-top: 2px solid var(--color-primary); padding: 0.85rem 1.5rem; box-shadow: 0 -4px 12px rgba(0,0,0,0.12); z-index: 20; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span id="variants-bulk-count" style="font-weight: 700; color: var(--color-primary); font-size: 0.95rem;">0 productos seleccionados</span>
+                <button type="button" id="btn-variants-clear-selection" class="btn btn-sm btn-outline" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; border: 1px solid var(--color-border); background: var(--color-bg); border-radius: 4px; cursor: pointer;">Deseleccionar</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Asignar a seleccionados:</span>
+                <select id="bulk-apply-field" class="form-input" style="height: 32px; font-size: 0.8rem; min-width: 120px;">
+                  <option value="color">Color</option>
+                  <option value="talla">Talla</option>
+                  <option value="variable_1">Variable 1</option>
+                  <option value="variable_2">Variable 2</option>
+                </select>
+                <select id="bulk-apply-value" class="form-input" style="height: 32px; font-size: 0.8rem; min-width: 140px;">
+                  <option value="">-- Seleccionar valor --</option>
+                </select>
+                <button type="button" id="btn-bulk-apply-action" class="btn btn-primary btn-sm" style="height: 32px; padding: 0 0.85rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; cursor: pointer;">
+                  <i class="ri-check-line"></i> Aplicar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -24577,12 +24724,14 @@ function handleFileSelection(file) {
 }
 
 let existingMerchantSkus = new Set();
+let existingMerchantProductsMap = new Map();
 
 async function loadExistingMerchantSkus() {
   const merchantSelect = document.getElementById('upload-merchant-select');
   const selectedMerchantSigla = merchantSelect ? merchantSelect.value : '';
   
   existingMerchantSkus.clear();
+  existingMerchantProductsMap.clear();
   if (!selectedMerchantSigla) return;
 
   try {
@@ -24602,12 +24751,16 @@ async function loadExistingMerchantSkus() {
     if (matchedProfile) {
       const { data: existingProducts } = await supabase
         .from('products')
-        .select('sku')
+        .select('sku, barcode, color, talla, variable_1, variable_2, options, length, width, height, volumen')
         .eq('comercio', selectedMerchantSigla);
 
       if (existingProducts) {
         existingProducts.forEach(p => {
-          if (p.sku) existingMerchantSkus.add(p.sku.trim().toLowerCase());
+          if (p.sku) {
+            const key = p.sku.trim().toLowerCase();
+            existingMerchantSkus.add(key);
+            existingMerchantProductsMap.set(key, p);
+          }
         });
       }
     }
@@ -24875,25 +25028,43 @@ async function saveProductsToSupabase() {
   }
 
   try {
-    const productsToInsert = validProducts.map(p => ({
-      merchant_id: selectedMerchantId,
-      comercio: selectedSigla,
-      sku: p.sku,
-      name: p.name,
-      barcode: p.barcode,
-      type: p.type,
-      color: p.color,
-      variable_1: p.variable_1,
-      variable_2: p.variable_2,
-      talla: p.talla,
-      largo: p.largo,
-      ancho: p.ancho,
-      alto: p.alto,
-      volumen: p.volumen,
-      length: p.largo,
-      width: p.ancho,
-      height: p.alto
-    }));
+    const productsToInsert = validProducts.map(p => {
+      const cleanSku = p.sku ? p.sku.trim().toLowerCase() : '';
+      const existing = existingMerchantProductsMap.get(cleanSku);
+      const finalColor = p.color || existing?.color || null;
+      const finalTalla = p.talla || existing?.talla || null;
+      const finalVar1 = p.variable_1 || existing?.variable_1 || null;
+      const finalVar2 = p.variable_2 || existing?.variable_2 || null;
+
+      const mergedOptions = {
+        ...(existing?.options || {}),
+        ...(finalColor ? { color: finalColor } : {}),
+        ...(finalTalla ? { talla: finalTalla, size: finalTalla } : {}),
+        ...(finalVar1 ? { var1: finalVar1, manga: finalVar1 } : {}),
+        ...(finalVar2 ? { var2: finalVar2, cuello: finalVar2 } : {})
+      };
+
+      return {
+        merchant_id: selectedMerchantId,
+        comercio: selectedSigla,
+        sku: p.sku,
+        name: p.name,
+        barcode: p.barcode || existing?.barcode || null,
+        type: p.type,
+        color: finalColor,
+        variable_1: finalVar1,
+        variable_2: finalVar2,
+        talla: finalTalla,
+        options: Object.keys(mergedOptions).length > 0 ? mergedOptions : (existing?.options || null),
+        largo: p.largo !== null && p.largo !== undefined ? p.largo : (existing?.length || null),
+        ancho: p.ancho !== null && p.ancho !== undefined ? p.ancho : (existing?.width || null),
+        alto: p.alto !== null && p.alto !== undefined ? p.alto : (existing?.height || null),
+        volumen: p.volumen !== null && p.volumen !== undefined ? p.volumen : (existing?.volumen || null),
+        length: p.largo !== null && p.largo !== undefined ? p.largo : (existing?.length || null),
+        width: p.ancho !== null && p.ancho !== undefined ? p.ancho : (existing?.width || null),
+        height: p.alto !== null && p.alto !== undefined ? p.alto : (existing?.height || null)
+      };
+    });
 
     const BATCH_SIZE = 100;
     let insertedCount = 0;
@@ -44904,6 +45075,18 @@ async function openEditProductModal(prodId) {
     if (sendAliasInput) {
       sendAliasInput.checked = product.send_alias_to_picker || false;
     }
+
+    // Cargar variantes declaradas
+    const opt = product.options || {};
+    const colorInput = document.getElementById('edit-prod-color');
+    if (colorInput) colorInput.value = product.color || opt.color || '';
+    const tallaInput = document.getElementById('edit-prod-talla');
+    if (tallaInput) tallaInput.value = product.talla || opt.talla || opt.size || '';
+    const var1Input = document.getElementById('edit-prod-var1');
+    if (var1Input) var1Input.value = product.variable_1 || opt.var1 || opt.manga || '';
+    const var2Input = document.getElementById('edit-prod-var2');
+    if (var2Input) var2Input.value = product.variable_2 || opt.var2 || opt.cuello || '';
+
     const statusInput = document.getElementById('edit-prod-status');
     if (statusInput) {
       statusInput.value = product.status || 'active';
@@ -45078,6 +45261,20 @@ function initProductFormListeners() {
         const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
         const pickingMatchStrict = document.getElementById('prod-picking-strict')?.checked || false;
 
+        const colorVal = document.getElementById('prod-color')?.value?.trim() || null;
+        const tallaVal = document.getElementById('prod-talla')?.value?.trim() || null;
+        const var1Val = document.getElementById('prod-var1')?.value?.trim() || null;
+        const var2Val = document.getElementById('prod-var2')?.value?.trim() || null;
+        const optionsVal = (colorVal || tallaVal || var1Val || var2Val) ? {
+          color: colorVal,
+          talla: tallaVal,
+          size: tallaVal,
+          var1: var1Val,
+          manga: var1Val,
+          var2: var2Val,
+          cuello: var2Val
+        } : null;
+
         const { data: newProd, error: errProd } = await supabase
           .from('products')
           .insert([{
@@ -45090,7 +45287,12 @@ function initProductFormListeners() {
             is_virtual: isVirtual,
             picking_match_strict: pickingMatchStrict,
             alias: alias,
-            send_alias_to_picker: sendAlias
+            send_alias_to_picker: sendAlias,
+            color: colorVal,
+            talla: tallaVal,
+            variable_1: var1Val,
+            variable_2: var2Val,
+            options: optionsVal
           }])
           .select()
           .single();
@@ -45164,6 +45366,11 @@ function initProductFormListeners() {
       const alias = document.getElementById('edit-prod-alias').value.trim() || null;
       const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
 
+      const colorVal = document.getElementById('edit-prod-color')?.value?.trim() || null;
+      const tallaVal = document.getElementById('edit-prod-talla')?.value?.trim() || null;
+      const var1Val = document.getElementById('edit-prod-var1')?.value?.trim() || null;
+      const var2Val = document.getElementById('edit-prod-var2')?.value?.trim() || null;
+
       const volMethod = document.querySelector('input[name="edit-prod-vol-method"]:checked')?.value || 'dims';
       let length = null;
       let width = null;
@@ -45201,6 +45408,17 @@ function initProductFormListeners() {
           return;
         }
 
+        const currentOptions = (window.currentEditingProduct && window.currentEditingProduct.options) || {};
+        const updatedOptions = {
+          ...currentOptions,
+          color: colorVal,
+          talla: tallaVal,
+          var1: var1Val,
+          var2: var2Val,
+          manga: var1Val,
+          cuello: var2Val
+        };
+
         const { error } = await supabase
           .from('products')
           .update({
@@ -45209,6 +45427,11 @@ function initProductFormListeners() {
             barcode,
             alias,
             send_alias_to_picker: sendAlias,
+            color: colorVal,
+            talla: tallaVal,
+            variable_1: var1Val,
+            variable_2: var2Val,
+            options: updatedOptions,
             length,
             width,
             height,
@@ -46303,7 +46526,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))')
+        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -46448,14 +46671,18 @@ window.propagateOrderUpdateToPicker = async function(order) {
   const orderNumber = String(order.external_order_number || order.id);
 
   let commerceStrict = false;
+  let commerceVariantConfig = null;
   if (order.comercio) {
     const { data: commConfig } = await supabase
       .from('comercios_adicional_config')
-      .select('picking_match_strict')
+      .select('picking_match_strict, plat_siglas_config')
       .eq('comercio', order.comercio)
       .maybeSingle();
     if (commConfig && commConfig.picking_match_strict) {
       commerceStrict = true;
+    }
+    if (commConfig && commConfig.plat_siglas_config && commConfig.plat_siglas_config.variant_config) {
+      commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
     }
   }
 
@@ -46494,6 +46721,21 @@ window.propagateOrderUpdateToPicker = async function(order) {
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
+    const colorVal = prod.color || opt.color || null;
+    const tallaVal = prod.talla || opt.talla || opt.size || null;
+    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+    let colorBg = opt.color_bg || null;
+    let colorText = opt.color_text || null;
+    if (colorVal && (!colorBg || !colorText)) {
+      const cStyle = window.getVariantColorStyle ? window.getVariantColorStyle(colorVal, commerceVariantConfig, opt) : null;
+      if (cStyle) {
+        if (!colorBg) colorBg = cStyle.bg;
+        if (!colorText) colorText = cStyle.text;
+      }
+    }
+
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
       order_number: orderNumber,
@@ -46501,10 +46743,12 @@ window.propagateOrderUpdateToPicker = async function(order) {
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
-      color: opt.color || null,
-      talla: opt.talla || opt.size || null,
-      manga: opt.manga || null,
-      cuello: opt.cuello || null,
+      color: colorVal ? String(colorVal).trim() : null,
+      color_bg: colorBg || null,
+      color_text: colorText || null,
+      talla: tallaVal ? String(tallaVal).trim() : null,
+      manga: mangaVal ? String(mangaVal).trim() : null,
+      cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
       operator: order.operador || '',
@@ -46561,7 +46805,7 @@ window.sendSingleOrderToPicker = async function(order) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker)')
+        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', order.id);
       if (freshItems && freshItems.length > 0) {
         items = freshItems;
@@ -46593,6 +46837,20 @@ window.sendSingleOrderToPicker = async function(order) {
   for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
+    const colorVal = prod.color || opt.color || null;
+    const tallaVal = prod.talla || opt.talla || opt.size || null;
+    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+    let colorBg = opt.color_bg || null;
+    let colorText = opt.color_text || null;
+    if (colorVal && (!colorBg || !colorText)) {
+      const cStyle = window.getVariantColorStyle ? window.getVariantColorStyle(colorVal, commerceVariantConfig, opt) : null;
+      if (cStyle) {
+        if (!colorBg) colorBg = cStyle.bg;
+        if (!colorText) colorText = cStyle.text;
+      }
+    }
 
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
@@ -46601,10 +46859,12 @@ window.sendSingleOrderToPicker = async function(order) {
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
-      color: opt.color || null,
-      talla: opt.talla || opt.size || null,
-      manga: opt.manga || null,
-      cuello: opt.cuello || null,
+      color: colorVal ? String(colorVal).trim() : null,
+      color_bg: colorBg || null,
+      color_text: colorText || null,
+      talla: tallaVal ? String(tallaVal).trim() : null,
+      manga: mangaVal ? String(mangaVal).trim() : null,
+      cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: cleanTracking,
       operator: cleanOperator,
@@ -46633,6 +46893,8 @@ window.sendSingleOrderToPicker = async function(order) {
       sku: order.sku || 'SKU-TEMP',
       name: order.item || 'Producto WMS',
       color: null,
+      color_bg: null,
+      color_text: null,
       talla: null,
       manga: null,
       cuello: null,
@@ -46798,7 +47060,7 @@ window.sendIntakeToPicker = async function(id) {
     if (skus.length > 0) {
       const { data: dbProds } = await supabase
         .from('products')
-        .select('sku, picking_match_strict, alias, send_alias_to_picker')
+        .select('sku, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, options')
         .eq('comercio', dec.comercio)
         .in('sku', skus);
       if (dbProds) {
@@ -46807,6 +47069,19 @@ window.sendIntakeToPicker = async function(id) {
     }
     const strictSkusMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p.picking_match_strict]));
     const aliasProdsMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), { alias: p.alias, send_alias_to_picker: p.send_alias_to_picker }]));
+    const prodVariantMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p]));
+
+    let commerceVariantConfig = null;
+    if (dec.comercio) {
+      const { data: commConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('plat_siglas_config')
+        .eq('comercio', dec.comercio)
+        .maybeSingle();
+      if (commConfig && commConfig.plat_siglas_config && commConfig.plat_siglas_config.variant_config) {
+        commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
+      }
+    }
 
     for (const item of products) {
       // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
@@ -46817,6 +47092,23 @@ window.sendIntakeToPicker = async function(id) {
 
       const isStrict = strictSkusMap.get(cleanSku.toLowerCase()) || false;
       const aliasData = aliasProdsMap.get(cleanSku.toLowerCase()) || {};
+      const prodData = prodVariantMap.get(cleanSku.toLowerCase()) || {};
+      const prodOpt = prodData.options || {};
+      const colorVal = prodData.color || prodOpt.color || null;
+      const tallaVal = prodData.talla || prodOpt.talla || prodOpt.size || null;
+      const mangaVal = prodData.variable_1 || prodOpt.var1 || prodOpt.manga || null;
+      const cuelloVal = prodData.variable_2 || prodOpt.var2 || prodOpt.cuello || null;
+
+      let colorBg = prodOpt.color_bg || null;
+      let colorText = prodOpt.color_text || null;
+      if (colorVal && (!colorBg || !colorText)) {
+        const cStyle = window.getVariantColorStyle ? window.getVariantColorStyle(colorVal, commerceVariantConfig, prodOpt) : null;
+        if (cStyle) {
+          if (!colorBg) colorBg = cStyle.bg;
+          if (!colorText) colorText = cStyle.text;
+        }
+      }
+
       const prodName = (aliasData.send_alias_to_picker && aliasData.alias && aliasData.alias.trim())
         ? aliasData.alias.trim()
         : (item.name || 'Producto Ingreso WMS');
@@ -46828,10 +47120,12 @@ window.sendIntakeToPicker = async function(id) {
         quantity: parseInt(item.qty, 10) || 1,
         sku: pickingSku,
         name: prodName,
-        color: '-',
-        talla: '-',
-        manga: '-',
-        cuello: '-',
+        color: colorVal ? String(colorVal).trim() : '-',
+        color_bg: colorBg || null,
+        color_text: colorText || null,
+        talla: tallaVal ? String(tallaVal).trim() : '-',
+        manga: mangaVal ? String(mangaVal).trim() : '-',
+        cuello: cuelloVal ? String(cuelloVal).trim() : '-',
         client_name: `Ingreso: ${dec.comercio || 'Comercio'}`,
         tracking: dec.delivery_method || 'Particular',
         operator: '',
@@ -49837,7 +50131,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker)')
+        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {
@@ -55443,6 +55737,2165 @@ function openCampaignModal(commerce, campaign = null) {
       submitBtn.disabled = false;
       submitBtn.innerHTML = isEdit ? 'Guardar Cambios' : 'Crear Campaña';
     }
+  });
+}
+
+/* ==========================================================================
+   MÓDULO DE DEFINICIÓN MASIVA DE VARIANTES Y NOMBRES POR COMERCIO
+   ========================================================================== */
+
+window.variantsTabState = {
+  commerce: null,
+  products: [],
+  config: null,
+  pendingChanges: new Map(), // productId -> { color, talla, variable_1, variable_2, alias }
+  selectedProductIds: new Set(),
+  filterText: '',
+  filterPlatform: '',
+  filterStatus: ''
+};
+
+async function getCommerceVariantConfig(commerce) {
+  const defaultCfg = {
+    naming: {
+      color: 'Color',
+      talla: 'Talla',
+      var1: 'Variable 1',
+      var2: 'Variable 2'
+    },
+    options: {
+      color: [],
+      talla: [],
+      var1: [],
+      var2: []
+    },
+    colors: {}
+  };
+
+  let localCfg = null;
+  try {
+    const raw = localStorage.getItem('wms_variant_config_' + commerce);
+    if (raw) localCfg = JSON.parse(raw);
+  } catch (e) {}
+
+  try {
+    const { data, error } = await supabase
+      .from('comercios_adicional_config')
+      .select('plat_siglas_config')
+      .eq('comercio', commerce)
+      .maybeSingle();
+
+    if (!error && data && data.plat_siglas_config && data.plat_siglas_config.variant_config) {
+      const dbCfg = data.plat_siglas_config.variant_config;
+      const merged = {
+        naming: { ...defaultCfg.naming, ...(dbCfg.naming || {}) },
+        options: { ...defaultCfg.options, ...(dbCfg.options || {}) },
+        colors: { ...(dbCfg.colors || {}) }
+      };
+      try {
+        localStorage.setItem('wms_variant_config_' + commerce, JSON.stringify(merged));
+      } catch (e) {}
+      return merged;
+    }
+  } catch (e) {
+    console.warn('Error fetching variant config from Supabase:', e);
+  }
+
+  if (localCfg) {
+    return {
+      naming: { ...defaultCfg.naming, ...(localCfg.naming || {}) },
+      options: { ...defaultCfg.options, ...(localCfg.options || {}) },
+      colors: { ...(localCfg.colors || {}) }
+    };
+  }
+
+  return defaultCfg;
+}
+
+function getVariantColorStyle(colorName, commerceConfig, productOptions) {
+  if (!colorName) return null;
+  const upper = String(colorName).toUpperCase().trim();
+
+  // 1. Opciones del producto si vienen definidas
+  if (productOptions && productOptions.color_bg) {
+    return {
+      bg: String(productOptions.color_bg).trim(),
+      text: (productOptions.color_text && String(productOptions.color_text).trim()) ? String(productOptions.color_text).trim() : '#ffffff'
+    };
+  }
+
+  // 2. Configuración específica del comercio
+  if (commerceConfig && commerceConfig.colors) {
+    if (commerceConfig.colors[upper]) return commerceConfig.colors[upper];
+    if (commerceConfig.colors[colorName]) return commerceConfig.colors[colorName];
+  }
+
+  // 3. Paleta estándar de respaldo
+  const defaultPalette = {
+    "VERDE": { bg: "#10b981", text: "#ffffff" },
+    "NEGRO": { bg: "#09090b", text: "#ffffff" },
+    "BLANCO": { bg: "#ffffff", text: "#000000" },
+    "AZUL": { bg: "#004aad", text: "#ffffff" },
+    "CAJA AZUL": { bg: "#004aad", text: "#ffffff" },
+    "ROJO": { bg: "#dc2626", text: "#ffffff" },
+    "MAGENTA": { bg: "#bd2665", text: "#ffffff" },
+    "GRIS": { bg: "#64748b", text: "#ffffff" },
+    "ROSADO": { bg: "#f472b6", text: "#000000" },
+    "LILA": { bg: "#c084fc", text: "#000000" },
+    "CAFE": { bg: "#78350f", text: "#ffffff" },
+    "PETROLEO": { bg: "#0e7490", text: "#ffffff" },
+    "CELESTE": { bg: "#38bdf8", text: "#000000" },
+    "AMARILLO": { bg: "#facc15", text: "#000000" },
+    "BEIGE": { bg: "#fef3c7", text: "#78350f" }
+  };
+
+  if (defaultPalette[upper]) return defaultPalette[upper];
+  for (const k in defaultPalette) {
+    if (upper.includes(k)) return defaultPalette[k];
+  }
+
+  return { bg: "#3b82f6", text: "#ffffff" };
+}
+window.getVariantColorStyle = getVariantColorStyle;
+
+async function saveCommerceVariantConfig(commerce, config) {
+  try {
+    localStorage.setItem('wms_variant_config_' + commerce, JSON.stringify(config));
+  } catch (e) {}
+
+  try {
+    const { data } = await supabase
+      .from('comercios_adicional_config')
+      .select('plat_siglas_config')
+      .eq('comercio', commerce)
+      .maybeSingle();
+
+    const currentPlat = (data && data.plat_siglas_config) || {};
+    currentPlat.variant_config = config;
+
+    await supabase
+      .from('comercios_adicional_config')
+      .upsert({
+        comercio: commerce,
+        plat_siglas_config: currentPlat
+      }, { onConflict: 'comercio' });
+  } catch (err) {
+    console.warn('Could not save variant config to Supabase:', err);
+  }
+}
+
+function getVariantProductPlatform(p) {
+  if (p.shopify_product_id || p.raw_shopify_data) return 'Shopify';
+  if (p.meli_item_id || p.raw_meli_data) return 'MercadoLibre';
+  if (p.raw_falabella_data) return 'Falabella';
+  if (p.raw_paris_data) return 'Paris';
+  if (p.raw_ripley_data) return 'Ripley';
+  if (p.woocommerce_product_id || p.raw_woocommerce_data) return 'WooCommerce';
+  if (p.jumpseller_product_id || p.raw_jumpseller_data) return 'Jumpseller';
+  if (p.tiendanube_product_id || p.raw_tiendanube_data) return 'Tiendanube';
+  if (p.raw_walmart_data) return 'Walmart';
+  return 'Manual';
+}
+
+function getVariantPlatformBadge(platform) {
+  const styles = {
+    'Shopify': 'background: rgba(150, 191, 72, 0.15); color: #5e8e3e; border: 1px solid rgba(150, 191, 72, 0.35);',
+    'MercadoLibre': 'background: rgba(255, 230, 0, 0.18); color: #b45309; border: 1px solid rgba(255, 217, 0, 0.4);',
+    'Falabella': 'background: rgba(67, 176, 42, 0.15); color: #2e7d32; border: 1px solid rgba(67, 176, 42, 0.35);',
+    'Paris': 'background: rgba(0, 114, 206, 0.15); color: #0072ce; border: 1px solid rgba(0, 114, 206, 0.35);',
+    'Ripley': 'background: rgba(120, 34, 123, 0.15); color: #78227b; border: 1px solid rgba(120, 34, 123, 0.35);',
+    'WooCommerce': 'background: rgba(150, 88, 138, 0.15); color: #96588a; border: 1px solid rgba(150, 88, 138, 0.35);',
+    'Jumpseller': 'background: rgba(26, 115, 232, 0.15); color: #1a73e8; border: 1px solid rgba(26, 115, 232, 0.35);',
+    'Tiendanube': 'background: rgba(41, 67, 232, 0.15); color: #2943e8; border: 1px solid rgba(41, 67, 232, 0.35);',
+    'Walmart': 'background: rgba(0, 113, 206, 0.15); color: #0071ce; border: 1px solid rgba(0, 113, 206, 0.35);',
+    'Manual': 'background: rgba(108, 117, 125, 0.12); color: var(--color-text-muted); border: 1px solid rgba(108, 117, 125, 0.25);'
+  };
+  const style = styles[platform] || styles['Manual'];
+  return `<span style="display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; ${style}">${platform}</span>`;
+}
+
+function getAllVariantOptionsForField(products, config, field) {
+  const dbColMap = {
+    color: 'color',
+    talla: 'talla',
+    var1: 'variable_1',
+    var2: 'variable_2'
+  };
+  const dbCol = dbColMap[field] || field;
+  const set = new Set();
+
+  // 1. Opciones predefinidas del config
+  if (config.options && Array.isArray(config.options[field])) {
+    config.options[field].forEach(opt => {
+      if (opt && String(opt).trim()) set.add(String(opt).trim());
+    });
+  }
+
+  // 2. Valores ya presentes en productos
+  products.forEach(p => {
+    let val = p[dbCol];
+    if (!val && p.options && p.options[dbCol]) val = p.options[dbCol];
+    if (val && String(val).trim()) set.add(String(val).trim());
+  });
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function updateVariantTableHeaders(config) {
+  const naming = (config && config.naming) || {};
+  const thColor = document.getElementById('th-variant-color');
+  const thTalla = document.getElementById('th-variant-talla');
+  const thVar1 = document.getElementById('th-variant-var1');
+  const thVar2 = document.getElementById('th-variant-var2');
+
+  if (thColor) thColor.textContent = naming.color || 'Color';
+  if (thTalla) thTalla.textContent = naming.talla || 'Talla';
+  if (thVar1) thVar1.textContent = naming.var1 || 'Variable 1';
+  if (thVar2) thVar2.textContent = naming.var2 || 'Variable 2';
+
+  const bulkField = document.getElementById('bulk-apply-field');
+  if (bulkField && bulkField.options.length >= 4) {
+    bulkField.options[0].text = naming.color || 'Color';
+    bulkField.options[1].text = naming.talla || 'Talla';
+    bulkField.options[2].text = naming.var1 || 'Variable 1';
+    bulkField.options[3].text = naming.var2 || 'Variable 2';
+  }
+}
+
+function updatePendingVariantBadge() {
+  const state = window.variantsTabState;
+  const badge = document.getElementById('variants-pending-badge');
+  if (!badge) return;
+  const count = state.pendingChanges.size;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function updateBulkApplyValuesDropdown() {
+  const state = window.variantsTabState;
+  const fieldSelect = document.getElementById('bulk-apply-field');
+  const valSelect = document.getElementById('bulk-apply-value');
+  if (!fieldSelect || !valSelect || !state.config) return;
+
+  const fieldKey = fieldSelect.value; // 'color', 'talla', 'variable_1', 'variable_2'
+  const configKeyMap = {
+    color: 'color',
+    talla: 'talla',
+    variable_1: 'var1',
+    variable_2: 'var2'
+  };
+  const cfgKey = configKeyMap[fieldKey] || fieldKey;
+  const options = getAllVariantOptionsForField(state.products, state.config, cfgKey);
+
+  valSelect.innerHTML = `<option value="">-- Seleccionar valor --</option>` +
+    options.map(o => `<option value="${window.escapeHtmlAttr(o)}">${window.escapeHtml(o)}</option>`).join('') +
+    `<option value="__CLEAR__" style="color: #ef4444;">❌ Dejar vacío (limpiar)</option>`;
+}
+
+async function renderVariantsTab(commerce) {
+  const state = window.variantsTabState;
+  state.commerce = commerce;
+  state.pendingChanges.clear();
+  state.selectedProductIds.clear();
+  updatePendingVariantBadge();
+
+  const tbody = document.getElementById('catalog-variants-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="11" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem; color: var(--color-primary);"></i>
+        Cargando productos y configuración de variantes...
+      </td>
+    </tr>
+  `;
+
+  // 1. Cargar Configuración de comercio
+  state.config = await getCommerceVariantConfig(commerce);
+  updateVariantTableHeaders(state.config);
+
+  // 2. Cargar Productos
+  if (window.adminMasterProducts && window.adminMasterProducts.length > 0) {
+    state.products = window.adminMasterProducts;
+  } else {
+    try {
+      state.products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
+      window.adminMasterProducts = state.products;
+    } catch (err) {
+      console.error('Error fetching products for variants:', err);
+      state.products = [];
+    }
+  }
+
+  // 3. Configurar listeners de botones superiores
+  const btnExportExcel = document.getElementById('btn-export-variants-excel');
+  if (btnExportExcel) {
+    const newBtn = btnExportExcel.cloneNode(true);
+    btnExportExcel.parentNode.replaceChild(newBtn, btnExportExcel);
+    newBtn.addEventListener('click', () => exportVariantsTemplate(commerce));
+  }
+
+  const btnImportExcel = document.getElementById('btn-import-variants-excel');
+  const fileInput = document.getElementById('variants-import-excel-file');
+  if (btnImportExcel && fileInput) {
+    const newBtn = btnImportExcel.cloneNode(true);
+    btnImportExcel.parentNode.replaceChild(newBtn, btnImportExcel);
+    newBtn.addEventListener('click', () => {
+      const activeFileInput = document.getElementById('variants-import-excel-file');
+      if (activeFileInput) {
+        activeFileInput.value = '';
+        activeFileInput.click();
+      }
+    });
+
+    const newFileInput = fileInput.cloneNode(true);
+    fileInput.parentNode.replaceChild(newFileInput, fileInput);
+    newFileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        importVariantsFromExcel(file, commerce);
+      }
+    });
+  }
+
+  const btnConfigNames = document.getElementById('btn-config-variant-names');
+  if (btnConfigNames) {
+    const newBtn = btnConfigNames.cloneNode(true);
+    btnConfigNames.parentNode.replaceChild(newBtn, btnConfigNames);
+    newBtn.addEventListener('click', () => openConfigureVariantNamesModal(commerce));
+  }
+
+  const btnManageOptions = document.getElementById('btn-manage-variant-options');
+  if (btnManageOptions) {
+    const newBtn = btnManageOptions.cloneNode(true);
+    btnManageOptions.parentNode.replaceChild(newBtn, btnManageOptions);
+    newBtn.addEventListener('click', () => openManageVariantOptionsModal(commerce));
+  }
+
+  const btnSaveAll = document.getElementById('btn-save-all-variants');
+  if (btnSaveAll) {
+    const newBtn = btnSaveAll.cloneNode(true);
+    btnSaveAll.parentNode.replaceChild(newBtn, btnSaveAll);
+    newBtn.addEventListener('click', () => saveAllPendingVariantChanges(commerce));
+  }
+
+  // 4. Configurar filtros
+  const searchInput = document.getElementById('catalog-variants-search');
+  if (searchInput) {
+    const newSearch = searchInput.cloneNode(true);
+    searchInput.parentNode.replaceChild(newSearch, searchInput);
+    newSearch.addEventListener('input', (e) => {
+      state.filterText = e.target.value.toLowerCase().trim();
+      filterAndRenderVariantRows();
+    });
+  }
+
+  const platformFilter = document.getElementById('catalog-variants-filter-platform');
+  if (platformFilter) {
+    const newPlat = platformFilter.cloneNode(true);
+    platformFilter.parentNode.replaceChild(newPlat, platformFilter);
+    newPlat.addEventListener('change', (e) => {
+      state.filterPlatform = e.target.value;
+      filterAndRenderVariantRows();
+    });
+  }
+
+  const statusFilter = document.getElementById('catalog-variants-filter-status');
+  if (statusFilter) {
+    const newStat = statusFilter.cloneNode(true);
+    statusFilter.parentNode.replaceChild(newStat, statusFilter);
+    newStat.addEventListener('change', (e) => {
+      state.filterStatus = e.target.value;
+      filterAndRenderVariantRows();
+    });
+  }
+
+  // 5. Configurar barra flotante de acciones masivas
+  const selectAllCb = document.getElementById('variants-select-all');
+  if (selectAllCb) {
+    const newCb = selectAllCb.cloneNode(true);
+    selectAllCb.parentNode.replaceChild(newCb, selectAllCb);
+    newCb.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const visibleCbs = document.querySelectorAll('.variant-row-checkbox');
+      visibleCbs.forEach(cb => {
+        cb.checked = isChecked;
+        const pId = cb.getAttribute('data-id');
+        if (pId) {
+          if (isChecked) state.selectedProductIds.add(pId);
+          else state.selectedProductIds.delete(pId);
+        }
+      });
+      updateBulkBarVisibility();
+    });
+  }
+
+  const btnClearSelection = document.getElementById('btn-variants-clear-selection');
+  if (btnClearSelection) {
+    const newBtn = btnClearSelection.cloneNode(true);
+    btnClearSelection.parentNode.replaceChild(newBtn, btnClearSelection);
+    newBtn.addEventListener('click', () => {
+      state.selectedProductIds.clear();
+      const selectAll = document.getElementById('variants-select-all');
+      if (selectAll) selectAll.checked = false;
+      document.querySelectorAll('.variant-row-checkbox').forEach(cb => cb.checked = false);
+      updateBulkBarVisibility();
+    });
+  }
+
+  const bulkFieldSelect = document.getElementById('bulk-apply-field');
+  if (bulkFieldSelect) {
+    const newSelect = bulkFieldSelect.cloneNode(true);
+    bulkFieldSelect.parentNode.replaceChild(newSelect, bulkFieldSelect);
+    newSelect.addEventListener('change', () => {
+      updateBulkApplyValuesDropdown();
+    });
+  }
+
+  const btnBulkApply = document.getElementById('btn-bulk-apply-action');
+  if (btnBulkApply) {
+    const newBtn = btnBulkApply.cloneNode(true);
+    btnBulkApply.parentNode.replaceChild(newBtn, btnBulkApply);
+    newBtn.addEventListener('click', () => {
+      applyBulkVariantChange();
+    });
+  }
+
+  updateBulkApplyValuesDropdown();
+  filterAndRenderVariantRows();
+}
+
+function updateBulkBarVisibility() {
+  const state = window.variantsTabState;
+  const bulkBar = document.getElementById('variants-bulk-bar');
+  const countLabel = document.getElementById('variants-bulk-count');
+  if (!bulkBar || !countLabel) return;
+
+  const count = state.selectedProductIds.size;
+  if (count > 0) {
+    bulkBar.style.display = 'flex';
+    countLabel.textContent = `${count} producto${count > 1 ? 's' : ''} seleccionado${count > 1 ? 's' : ''}`;
+  } else {
+    bulkBar.style.display = 'none';
+  }
+}
+
+function filterAndRenderVariantRows() {
+  const state = window.variantsTabState;
+  const tbody = document.getElementById('catalog-variants-tbody');
+  const counter = document.getElementById('catalog-variants-counter');
+  if (!tbody) return;
+
+  const q = (state.filterText || '').toLowerCase();
+  const plat = state.filterPlatform;
+  const stat = state.filterStatus;
+
+  const filtered = (state.products || []).filter(p => {
+    // 1. Filtro Plataforma
+    const pPlat = getVariantProductPlatform(p);
+    if (plat && pPlat !== plat) return false;
+
+    // 2. Filtro Búsqueda
+    const pending = state.pendingChanges.get(p.id);
+    const sku = (p.sku || '').toLowerCase();
+    const name = (p.name || '').toLowerCase();
+    const alias = ((pending && pending.alias !== undefined ? pending.alias : p.alias) || '').toLowerCase();
+
+    if (q && !sku.includes(q) && !name.includes(q) && !alias.includes(q)) {
+      return false;
+    }
+
+    // 3. Filtro Estado de variantes
+    const col = (pending && pending.color !== undefined ? pending.color : p.color) || '';
+    const tal = (pending && pending.talla !== undefined ? pending.talla : p.talla) || '';
+    const v1 = (pending && pending.variable_1 !== undefined ? pending.variable_1 : p.variable_1) || '';
+    const v2 = (pending && pending.variable_2 !== undefined ? pending.variable_2 : p.variable_2) || '';
+
+    if (stat === 'without_variants') {
+      if (col || tal || v1 || v2) return false;
+    } else if (stat === 'incomplete') {
+      const hasSome = !!(col || tal || v1 || v2);
+      const hasAll = !!(col && tal && v1 && v2);
+      if (!hasSome || hasAll) return false;
+    } else if (stat === 'complete') {
+      if (!col || !tal) return false;
+    } else if (stat === 'without_alias') {
+      if (alias) return false;
+    }
+
+    return true;
+  });
+
+  if (counter) {
+    counter.textContent = `Mostrando ${filtered.length} de ${state.products.length} productos`;
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="11" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+          No se encontraron productos con los filtros aplicados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  // Pre-computar opciones para los dropdowns
+  const colorOpts = getAllVariantOptionsForField(state.products, state.config, 'color');
+  const tallaOpts = getAllVariantOptionsForField(state.products, state.config, 'talla');
+  const var1Opts = getAllVariantOptionsForField(state.products, state.config, 'var1');
+  const var2Opts = getAllVariantOptionsForField(state.products, state.config, 'var2');
+
+  function makeSelectHtml(pId, field, currVal, optionsList) {
+    let optionsHtml = `<option value="">-- Sin asignar --</option>`;
+    optionsList.forEach(opt => {
+      const isSel = String(opt).trim().toLowerCase() === String(currVal || '').trim().toLowerCase();
+      optionsHtml += `<option value="${window.escapeHtmlAttr(opt)}" ${isSel ? 'selected' : ''}>${window.escapeHtml(opt)}</option>`;
+    });
+    // Si el valor actual no está en la lista estándar, agregarlo como seleccionado
+    if (currVal && !optionsList.some(o => o.trim().toLowerCase() === String(currVal).trim().toLowerCase())) {
+      optionsHtml += `<option value="${window.escapeHtmlAttr(currVal)}" selected>${window.escapeHtml(currVal)}</option>`;
+    }
+    optionsHtml += `<option value="__NEW__" style="color: var(--color-primary); font-weight: bold; background: rgba(99,102,241,0.06);">➕ Nueva opción...</option>`;
+
+    return `
+      <select class="form-input variant-select" data-product-id="${pId}" data-field="${field}" style="width: 100%; min-width: 110px; font-size: 0.8rem; height: 32px; padding: 0.2rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);">
+        ${optionsHtml}
+      </select>
+    `;
+  }
+
+  tbody.innerHTML = filtered.map(p => {
+    const pending = state.pendingChanges.get(p.id);
+    const isModified = !!pending;
+    const isSelected = state.selectedProductIds.has(p.id);
+
+    const currAlias = pending && pending.alias !== undefined ? pending.alias : (p.alias || '');
+    const currColor = pending && pending.color !== undefined ? pending.color : (p.color || (p.options && p.options.color) || '');
+    const currTalla = pending && pending.talla !== undefined ? pending.talla : (p.talla || (p.options && p.options.talla) || '');
+    const currVar1 = pending && pending.variable_1 !== undefined ? pending.variable_1 : (p.variable_1 || (p.options && p.options.variable_1) || '');
+    const currVar2 = pending && pending.variable_2 !== undefined ? pending.variable_2 : (p.variable_2 || (p.options && p.options.variable_2) || '');
+
+    const platform = getVariantProductPlatform(p);
+    const platformBadge = getVariantPlatformBadge(platform);
+
+    const statusBadge = (p.status === 'active' || !p.status)
+      ? `<span style="padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3);">Activo</span>`
+      : `<span style="padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.25);">Inactivo</span>`;
+
+    const imgHtml = p.image_url
+      ? `<img src="${window.escapeHtmlAttr(p.image_url)}" alt="" style="width: 34px; height: 34px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); display: block;" onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'color:var(--color-text-muted);font-size:1.3rem;\\'></i>'">`
+      : `<div style="width: 34px; height: 34px; border-radius: 4px; background: rgba(0,0,0,0.04); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted);"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>`;
+
+    const rowBg = isModified ? 'background-color: rgba(99, 102, 241, 0.05);' : '';
+
+    const colorStyle = currColor ? getVariantColorStyle(currColor, state.config, p.options) : null;
+    const colorChipHtml = colorStyle ? `
+      <div class="color-preview-chip" id="color-preview-${p.id}" style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; margin-bottom: 4px; background-color: ${colorStyle.bg}; color: ${colorStyle.text}; border: 1px solid rgba(0,0,0,0.15); box-shadow: var(--shadow-sm); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <span class="color-dot" style="width: 7px; height: 7px; border-radius: 50%; background: ${colorStyle.bg}; border: 1px solid rgba(255,255,255,0.6); flex-shrink: 0;"></span>
+        <span class="color-name-text">${window.escapeHtml(currColor)}</span>
+      </div>
+    ` : `
+      <div class="color-preview-chip" id="color-preview-${p.id}" style="display: none; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; margin-bottom: 4px; box-shadow: var(--shadow-sm); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <span class="color-dot" style="width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.6); flex-shrink: 0;"></span>
+        <span class="color-name-text"></span>
+      </div>
+    `;
+
+    return `
+      <tr data-product-id="${p.id}" class="variant-product-row ${isModified ? 'row-modified' : ''}" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s ease; ${rowBg}">
+        <td style="padding: 0.6rem 0.5rem; text-align: center;">
+          <input type="checkbox" class="variant-row-checkbox" data-id="${p.id}" ${isSelected ? 'checked' : ''} style="cursor: pointer; transform: scale(1.1);">
+        </td>
+        <td style="padding: 0.6rem 0.5rem; text-align: center;">
+          ${imgHtml}
+        </td>
+        <td style="padding: 0.6rem 0.65rem; font-family: monospace; font-size: 0.82rem; font-weight: 600; color: var(--color-text-main);">
+          <span>${window.escapeHtml(p.sku)}</span>
+          <button type="button" class="btn-copy-field" title="Copiar SKU" onclick="navigator.clipboard.writeText('${window.escapeHtmlAttr(p.sku)}');" style="background: transparent; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; padding: 0.1rem 0.25rem;">
+            <i class="ri-file-copy-line"></i>
+          </button>
+        </td>
+        <td style="padding: 0.6rem 0.65rem; min-width: 260px;">
+          <div style="font-weight: 500; color: var(--color-text-main); font-size: 0.83rem; line-height: 1.35; word-break: break-word;" title="${window.escapeHtmlAttr(p.name)}">
+            ${window.escapeHtml(p.name)}
+          </div>
+        </td>
+        <td style="padding: 0.6rem 0.65rem; white-space: nowrap;">
+          ${platformBadge}
+        </td>
+        <td style="padding: 0.6rem 0.65rem; white-space: nowrap;">
+          ${statusBadge}
+        </td>
+        <td style="padding: 0.6rem 0.65rem;">
+          <input type="text" class="form-input variant-alias-input" data-product-id="${p.id}" value="${window.escapeHtmlAttr(currAlias)}" placeholder="Alias para Picker..." title="Nombre del producto específico para este comercio" style="width: 100%; min-width: 140px; font-size: 0.82rem; height: 32px; padding: 0.3rem 0.5rem; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-bg); color: var(--color-text-main);">
+        </td>
+        <td style="padding: 0.6rem 0.5rem;">
+          <div style="display: flex; flex-direction: column; align-items: flex-start;">
+            ${colorChipHtml}
+            ${makeSelectHtml(p.id, 'color', currColor, colorOpts)}
+          </div>
+        </td>
+        <td style="padding: 0.6rem 0.5rem;">
+          ${makeSelectHtml(p.id, 'talla', currTalla, tallaOpts)}
+        </td>
+        <td style="padding: 0.6rem 0.5rem;">
+          ${makeSelectHtml(p.id, 'variable_1', currVar1, var1Opts)}
+        </td>
+        <td style="padding: 0.6rem 0.5rem;">
+          ${makeSelectHtml(p.id, 'variable_2', currVar2, var2Opts)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  bindVariantTableEvents();
+}
+
+function bindVariantTableEvents() {
+  const state = window.variantsTabState;
+  const tbody = document.getElementById('catalog-variants-tbody');
+  if (!tbody) return;
+
+  // 1. Checkboxes de filas
+  tbody.querySelectorAll('.variant-row-checkbox').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const pId = e.target.getAttribute('data-id');
+      if (e.target.checked) state.selectedProductIds.add(pId);
+      else state.selectedProductIds.delete(pId);
+      updateBulkBarVisibility();
+    });
+  });
+
+  // 2. Alias de producto por comercio
+  tbody.querySelectorAll('.variant-alias-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const pId = e.target.getAttribute('data-product-id');
+      const val = e.target.value;
+      recordVariantChange(pId, 'alias', val);
+      markRowModifiedUi(pId);
+    });
+  });
+
+  // 3. Selects de variantes
+  tbody.querySelectorAll('.variant-select').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      const pId = e.target.getAttribute('data-product-id');
+      const field = e.target.getAttribute('data-field'); // color, talla, variable_1, variable_2
+      const val = e.target.value;
+
+      if (val === '__NEW__') {
+        // Restaurar valor previo en select mientras pide input
+        const currentChange = state.pendingChanges.get(pId);
+        const prod = state.products.find(p => p.id === pId);
+        const prevVal = (currentChange && currentChange[field] !== undefined) ? currentChange[field] : (prod ? prod[field] : '');
+        sel.value = prevVal || '';
+
+        await handleAddNewVariantOption(pId, field, sel);
+      } else {
+        recordVariantChange(pId, field, val);
+        markRowModifiedUi(pId);
+
+        if (field === 'color') {
+          const chip = document.getElementById(`color-preview-${pId}`);
+          if (chip) {
+            if (val) {
+              const cStyle = getVariantColorStyle(val, state.config);
+              chip.style.display = 'inline-flex';
+              chip.style.backgroundColor = cStyle.bg;
+              chip.style.color = cStyle.text;
+              chip.style.border = '1px solid rgba(0,0,0,0.15)';
+              const dot = chip.querySelector('.color-dot');
+              if (dot) dot.style.background = cStyle.bg;
+              const textEl = chip.querySelector('.color-name-text');
+              if (textEl) textEl.textContent = val;
+            } else {
+              chip.style.display = 'none';
+            }
+          }
+        }
+      }
+    });
+  });
+}
+
+function recordVariantChange(productId, field, value) {
+  const state = window.variantsTabState;
+  if (!state.pendingChanges.has(productId)) {
+    const prod = state.products.find(p => p.id === productId) || {};
+    state.pendingChanges.set(productId, {
+      color: prod.color || '',
+      talla: prod.talla || '',
+      variable_1: prod.variable_1 || '',
+      variable_2: prod.variable_2 || '',
+      alias: prod.alias || ''
+    });
+  }
+  const entry = state.pendingChanges.get(productId);
+  entry[field] = value;
+  updatePendingVariantBadge();
+}
+
+function markRowModifiedUi(productId) {
+  const row = document.querySelector(`tr[data-product-id="${productId}"]`);
+  if (row) {
+    row.classList.add('row-modified');
+    row.style.backgroundColor = 'rgba(99, 102, 241, 0.06)';
+  }
+}
+
+async function handleAddNewVariantOption(productId, field, selectEl) {
+  const state = window.variantsTabState;
+  const namingKeyMap = {
+    color: 'color',
+    talla: 'talla',
+    variable_1: 'var1',
+    variable_2: 'var2'
+  };
+  const cfgKey = namingKeyMap[field] || field;
+  const label = (state.config && state.config.naming && state.config.naming[cfgKey]) || field;
+
+  let trimmed = '';
+  let colorBg = '#004aad';
+  let colorText = '#ffffff';
+
+  if (field === 'color') {
+    const defaultPaletteQuick = [
+      { name: 'Azul', bg: '#004aad', text: '#ffffff' },
+      { name: 'Rojo', bg: '#dc2626', text: '#ffffff' },
+      { name: 'Verde', bg: '#10b981', text: '#ffffff' },
+      { name: 'Negro', bg: '#09090b', text: '#ffffff' },
+      { name: 'Blanco', bg: '#ffffff', text: '#000000' },
+      { name: 'Amarillo', bg: '#facc15', text: '#000000' },
+      { name: 'Rosado', bg: '#f472b6', text: '#000000' },
+      { name: 'Lila', bg: '#c084fc', text: '#000000' },
+      { name: 'Gris', bg: '#64748b', text: '#ffffff' },
+      { name: 'Café', bg: '#78350f', text: '#ffffff' },
+      { name: 'Petróleo', bg: '#0e7490', text: '#ffffff' },
+      { name: 'Celeste', bg: '#38bdf8', text: '#000000' }
+    ];
+
+    const quickButtonsHtml = defaultPaletteQuick.map(p => `
+      <button type="button" class="swal-quick-color-btn" data-name="${p.name}" data-bg="${p.bg}" data-text="${p.text}" style="background: ${p.bg}; color: ${p.text}; border: 1px solid rgba(0,0,0,0.15); border-radius: 4px; padding: 3px 7px; font-size: 0.72rem; font-weight: 600; cursor: pointer;">
+        ${p.name}
+      </button>
+    `).join('');
+
+    const { value: colorResult } = await Swal.fire({
+      title: `Nuevo Color de Variante`,
+      width: '460px',
+      html: `
+        <div style="display: flex; flex-direction: column; gap: 14px; text-align: left; margin-top: 10px;">
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--color-text-main);">
+              Nombre del Color:
+            </label>
+            <input type="text" id="swal-color-name" class="swal2-input" placeholder="Ej: Azul Marino, Verde Militar, etc." style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem; box-sizing: border-box;">
+          </div>
+
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 6px; color: var(--color-text-muted);">
+              Colores sugeridos:
+            </label>
+            <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+              ${quickButtonsHtml}
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: rgba(0,0,0,0.03); padding: 12px; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div>
+              <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--color-text-main);">
+                🎨 Color de Fondo:
+              </label>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="swal-color-bg-picker" value="#004aad" style="width: 36px; height: 36px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; padding: 1px; background: transparent;">
+                <input type="text" id="swal-color-bg-hex" value="#004aad" style="flex: 1; height: 34px; font-size: 0.8rem; font-family: monospace; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px; text-transform: uppercase;">
+              </div>
+            </div>
+
+            <div>
+              <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--color-text-main);">
+                ✏️ Color de Texto:
+              </label>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="color" id="swal-color-text-picker" value="#ffffff" style="width: 36px; height: 36px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; padding: 1px; background: transparent;">
+                <input type="text" id="swal-color-text-hex" value="#ffffff" style="flex: 1; height: 34px; font-size: 0.8rem; font-family: monospace; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px; text-transform: uppercase;">
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(0,0,0,0.02); border-radius: 6px; border: 1px solid var(--color-border);">
+            <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">
+              Vista Previa Picker / WMS:
+            </span>
+            <div id="swal-color-live-preview" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 14px; border-radius: 9999px; font-size: 0.85rem; font-weight: 700; background-color: #004aad; color: #ffffff; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
+              <span id="swal-preview-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #004aad; border: 1px solid rgba(255,255,255,0.7);"></span>
+              <span id="swal-preview-text">Color de ejemplo</span>
+            </div>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Guardar y Aplicar',
+      cancelButtonText: 'Cancelar',
+      didOpen: () => {
+        const nameInput = document.getElementById('swal-color-name');
+        const bgPicker = document.getElementById('swal-color-bg-picker');
+        const bgHex = document.getElementById('swal-color-bg-hex');
+        const textPicker = document.getElementById('swal-color-text-picker');
+        const textHex = document.getElementById('swal-color-text-hex');
+        const livePreview = document.getElementById('swal-color-live-preview');
+        const previewDot = document.getElementById('swal-preview-dot');
+        const previewText = document.getElementById('swal-preview-text');
+
+        function updatePreview() {
+          const bg = bgHex.value.trim() || '#004aad';
+          const txt = textHex.value.trim() || '#ffffff';
+          const nm = nameInput.value.trim() || 'Color de ejemplo';
+
+          livePreview.style.backgroundColor = bg;
+          livePreview.style.color = txt;
+          previewDot.style.background = bg;
+          previewText.textContent = nm;
+        }
+
+        nameInput.addEventListener('input', updatePreview);
+
+        bgPicker.addEventListener('input', (e) => {
+          bgHex.value = e.target.value.toUpperCase();
+          updatePreview();
+        });
+        bgHex.addEventListener('input', (e) => {
+          if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+            bgPicker.value = e.target.value;
+          }
+          updatePreview();
+        });
+
+        textPicker.addEventListener('input', (e) => {
+          textHex.value = e.target.value.toUpperCase();
+          updatePreview();
+        });
+        textHex.addEventListener('input', (e) => {
+          if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+            textPicker.value = e.target.value;
+          }
+          updatePreview();
+        });
+
+        document.querySelectorAll('.swal-quick-color-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const b = btn.getAttribute('data-bg');
+            const t = btn.getAttribute('data-text');
+            const n = btn.getAttribute('data-name');
+            if (!nameInput.value.trim()) nameInput.value = n;
+            bgPicker.value = b;
+            bgHex.value = b.toUpperCase();
+            textPicker.value = t;
+            textHex.value = t.toUpperCase();
+            updatePreview();
+          });
+        });
+
+        nameInput.focus();
+      },
+      preConfirm: () => {
+        const nameVal = document.getElementById('swal-color-name').value.trim();
+        const bgVal = document.getElementById('swal-color-bg-hex').value.trim();
+        const textVal = document.getElementById('swal-color-text-hex').value.trim();
+        if (!nameVal) {
+          Swal.showValidationMessage('Debes ingresar un nombre para el color');
+          return false;
+        }
+        return { name: nameVal, bg: bgVal || '#004aad', text: textVal || '#ffffff' };
+      }
+    });
+
+    if (!colorResult) return;
+    trimmed = colorResult.name;
+    colorBg = colorResult.bg;
+    colorText = colorResult.text;
+  } else {
+    const { value: newOptionVal } = await Swal.fire({
+      title: `Nueva opción para ${label}`,
+      input: 'text',
+      inputLabel: `Ingresa el nuevo valor para ${label}:`,
+      inputPlaceholder: `Ej: XL, etc.`,
+      showCancelButton: true,
+      confirmButtonText: 'Guardar y Aplicar',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (v) => {
+        if (!v || !v.trim()) return 'Debes ingresar un valor válido';
+      }
+    });
+
+    if (!newOptionVal || !newOptionVal.trim()) return;
+    trimmed = newOptionVal.trim();
+  }
+
+  // 1. Agregar a config.options[cfgKey]
+  if (!state.config.options) state.config.options = {};
+  if (!Array.isArray(state.config.options[cfgKey])) state.config.options[cfgKey] = [];
+  if (!state.config.options[cfgKey].includes(trimmed)) {
+    state.config.options[cfgKey].push(trimmed);
+  }
+
+  if (field === 'color') {
+    if (!state.config.colors) state.config.colors = {};
+    state.config.colors[trimmed.toUpperCase().trim()] = { bg: colorBg, text: colorText };
+    state.config.colors[trimmed.trim()] = { bg: colorBg, text: colorText };
+  }
+
+  await saveCommerceVariantConfig(state.commerce, state.config);
+
+  // 2. Inyectar opción en todos los selects de ese campo en la tabla
+  document.querySelectorAll(`.variant-select[data-field="${field}"]`).forEach(s => {
+    const exists = Array.from(s.options).some(o => o.value.toLowerCase() === trimmed.toLowerCase());
+    if (!exists) {
+      const opt = document.createElement('option');
+      opt.value = trimmed;
+      opt.textContent = trimmed;
+      const newOptionNode = s.querySelector('option[value="__NEW__"]');
+      if (newOptionNode) s.insertBefore(opt, newOptionNode);
+      else s.appendChild(opt);
+    }
+  });
+
+  // 3. Seleccionar en el elemento actual
+  selectEl.value = trimmed;
+  recordVariantChange(productId, field, trimmed);
+  markRowModifiedUi(productId);
+  updateBulkApplyValuesDropdown();
+
+  if (field === 'color') {
+    const chip = document.getElementById(`color-preview-${productId}`);
+    if (chip) {
+      chip.style.display = 'inline-flex';
+      chip.style.backgroundColor = colorBg;
+      chip.style.color = colorText;
+      chip.style.border = '1px solid rgba(0,0,0,0.15)';
+      const dot = chip.querySelector('.color-dot');
+      if (dot) dot.style.background = colorBg;
+      const textEl = chip.querySelector('.color-name-text');
+      if (textEl) textEl.textContent = trimmed;
+    }
+  }
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: `Opción "${trimmed}" creada y seleccionada`,
+    showConfirmButton: false,
+    timer: 2000
+  });
+}
+
+function applyBulkVariantChange() {
+  const state = window.variantsTabState;
+  if (state.selectedProductIds.size === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Sin selección',
+      text: 'Selecciona al menos un producto marcando su casilla.'
+    });
+    return;
+  }
+
+  const fieldSelect = document.getElementById('bulk-apply-field');
+  const valSelect = document.getElementById('bulk-apply-value');
+  if (!fieldSelect || !valSelect) return;
+
+  const field = fieldSelect.value; // 'color', 'talla', 'variable_1', 'variable_2'
+  const rawVal = valSelect.value;
+  if (!rawVal) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Selecciona un valor',
+      text: 'Por favor escoge qué valor deseas aplicar a los productos seleccionados.'
+    });
+    return;
+  }
+
+  const applyVal = rawVal === '__CLEAR__' ? '' : rawVal;
+  let updatedCount = 0;
+
+  state.selectedProductIds.forEach(pId => {
+    recordVariantChange(pId, field, applyVal);
+    markRowModifiedUi(pId);
+
+    // Actualizar select visual en la tabla si está visible
+    const rowSel = document.querySelector(`select.variant-select[data-product-id="${pId}"][data-field="${field}"]`);
+    if (rowSel) {
+      // Verificar si existe la opción, si no, agregarla
+      if (applyVal && !Array.from(rowSel.options).some(o => o.value === applyVal)) {
+        const opt = document.createElement('option');
+        opt.value = applyVal;
+        opt.textContent = applyVal;
+        const newOptionNode = rowSel.querySelector('option[value="__NEW__"]');
+        if (newOptionNode) rowSel.insertBefore(opt, newOptionNode);
+        else rowSel.appendChild(opt);
+      }
+      rowSel.value = applyVal;
+    }
+
+    if (field === 'color') {
+      const chip = document.getElementById(`color-preview-${pId}`);
+      if (chip) {
+        if (applyVal) {
+          const cStyle = getVariantColorStyle(applyVal, state.config);
+          chip.style.display = 'inline-flex';
+          chip.style.backgroundColor = cStyle.bg;
+          chip.style.color = cStyle.text;
+          chip.style.border = '1px solid rgba(0,0,0,0.15)';
+          const dot = chip.querySelector('.color-dot');
+          if (dot) dot.style.background = cStyle.bg;
+          const textEl = chip.querySelector('.color-name-text');
+          if (textEl) textEl.textContent = applyVal;
+        } else {
+          chip.style.display = 'none';
+        }
+      }
+    }
+    updatedCount++;
+  });
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: `Se aplicó a ${updatedCount} productos`,
+    text: `Recuerda hacer clic en "Guardar Cambios" para sincronizar.`,
+    showConfirmButton: false,
+    timer: 2500
+  });
+}
+
+async function saveAllPendingVariantChanges(commerce) {
+  const state = window.variantsTabState;
+  if (!state || state.pendingChanges.size === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Sin cambios',
+      text: 'No tienes modificaciones pendientes por guardar.',
+      timer: 1500,
+      showConfirmButton: false
+    });
+    return;
+  }
+
+  const saveBtn = document.getElementById('btn-save-all-variants');
+  const origHtml = saveBtn ? saveBtn.innerHTML : '';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> <span>Guardando (${state.pendingChanges.size})...</span>`;
+  }
+
+  try {
+    const entries = Array.from(state.pendingChanges.entries());
+    let savedCount = 0;
+    const batchSize = 25;
+
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      await Promise.all(batch.map(async ([productId, changes]) => {
+        const existingProd = state.products.find(p => p.id === productId) || {};
+        const existingOpts = existingProd.options || {};
+
+        const colorVal = changes.color ? String(changes.color).trim() : null;
+        const tallaVal = changes.talla ? String(changes.talla).trim() : null;
+        const var1Val = changes.variable_1 ? String(changes.variable_1).trim() : null;
+        const var2Val = changes.variable_2 ? String(changes.variable_2).trim() : null;
+
+        const cStyle = colorVal ? getVariantColorStyle(colorVal, state.config, existingOpts) : null;
+        const colorBg = cStyle ? cStyle.bg : '';
+        const colorText = cStyle ? cStyle.text : '';
+
+        const payload = {
+          color: colorVal,
+          talla: tallaVal,
+          variable_1: var1Val,
+          variable_2: var2Val,
+          options: {
+            ...existingOpts,
+            color: colorVal || '',
+            talla: tallaVal || '',
+            variable_1: var1Val || '',
+            variable_2: var2Val || '',
+            color_bg: colorBg,
+            color_text: colorText
+          }
+        };
+
+        if (changes.alias !== undefined) {
+          const aliasVal = changes.alias ? String(changes.alias).trim() : null;
+          payload.alias = aliasVal;
+          payload.send_alias_to_picker = !!(aliasVal && aliasVal.length > 0);
+        }
+
+        const { error } = await supabase
+          .from('products')
+          .update(payload)
+          .eq('id', productId);
+
+        if (error) {
+          console.error(`Error guardando producto ${productId}:`, error);
+          throw error;
+        }
+
+        // Reflejar en memoria
+        const inMem = state.products.find(p => p.id === productId);
+        if (inMem) Object.assign(inMem, payload);
+        if (window.adminMasterProducts) {
+          const inMaster = window.adminMasterProducts.find(p => p.id === productId);
+          if (inMaster) Object.assign(inMaster, payload);
+        }
+        savedCount++;
+      }));
+    }
+
+    state.pendingChanges.clear();
+    updatePendingVariantBadge();
+
+    // Limpiar estilos modificados en filas
+    document.querySelectorAll('#catalog-variants-tbody tr.row-modified').forEach(tr => {
+      tr.classList.remove('row-modified');
+      tr.style.backgroundColor = '';
+    });
+
+    Swal.fire({
+      icon: 'success',
+      title: '¡Variantes y Nombres Guardados!',
+      text: `Se actualizaron exitosamente ${savedCount} productos para el comercio ${commerce}. Los cambios ya están activos en el WMS y enviados al Picker.`,
+      timer: 2500,
+      showConfirmButton: false
+    });
+  } catch (err) {
+    console.error('Error al guardar variantes masivas:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al guardar',
+      text: 'Ocurrió un error al sincronizar con la base de datos: ' + err.message
+    });
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = origHtml;
+      updatePendingVariantBadge();
+    }
+  }
+}
+
+async function exportVariantsTemplate(commerce) {
+  const state = window.variantsTabState;
+  if (!state) return;
+
+  if (!state.products || state.products.length === 0) {
+    try {
+      state.products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
+      window.adminMasterProducts = state.products;
+    } catch (e) {
+      console.error('Error cargando productos para exportar:', e);
+    }
+  }
+
+  if (!state.products || state.products.length === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Sin productos',
+      text: 'No hay productos disponibles para exportar en este comercio.'
+    });
+    return;
+  }
+
+  const naming = (state.config && state.config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  const colColor = naming.color || 'Color';
+  const colTalla = naming.talla || 'Talla';
+  const colVar1 = naming.var1 || 'Variable 1';
+  const colVar2 = naming.var2 || 'Variable 2';
+
+  const headers = [
+    'SKU',
+    'Producto',
+    'Plataforma',
+    'Nombre Comercio (Alias Picker)',
+    colColor,
+    colTalla,
+    colVar1,
+    colVar2
+  ];
+
+  const rows = [headers];
+
+  state.products.forEach(p => {
+    const pending = state.pendingChanges ? state.pendingChanges.get(p.id) : null;
+    const sku = p.sku || '';
+    const name = p.name || '';
+    const platform = getVariantProductPlatform(p) || '';
+    const alias = (pending && pending.alias !== undefined ? pending.alias : p.alias) || '';
+    const color = (pending && pending.color !== undefined ? pending.color : (p.color || (p.options && p.options.color) || '')) || '';
+    const talla = (pending && pending.talla !== undefined ? pending.talla : (p.talla || (p.options && p.options.talla) || '')) || '';
+    const var1 = (pending && pending.variable_1 !== undefined ? pending.variable_1 : (p.variable_1 || (p.options && p.options.variable_1) || '')) || '';
+    const var2 = (pending && pending.variable_2 !== undefined ? pending.variable_2 : (p.variable_2 || (p.options && p.options.variable_2) || '')) || '';
+
+    rows.push([
+      sku,
+      name,
+      platform,
+      alias,
+      color,
+      talla,
+      var1,
+      var2
+    ]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Ancho estimado de columnas
+  ws['!cols'] = [
+    { wch: 22 }, // SKU
+    { wch: 45 }, // Producto
+    { wch: 16 }, // Plataforma
+    { wch: 32 }, // Nombre Comercio (Alias Picker)
+    { wch: 20 }, // Color
+    { wch: 16 }, // Talla
+    { wch: 20 }, // Variable 1
+    { wch: 20 }  // Variable 2
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Variantes');
+
+  const cleanCommerce = (commerce || 'Comercio').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const filename = `Plantilla_Variantes_${cleanCommerce}_${dateStr}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: 'Planilla descargada',
+    text: `Se exportaron ${state.products.length} productos listos para editar.`,
+    showConfirmButton: false,
+    timer: 2500
+  });
+}
+window.exportVariantsTemplate = exportVariantsTemplate;
+
+async function importVariantsFromExcel(file, commerce) {
+  if (!file) return;
+
+  const state = window.variantsTabState;
+  if (!state || !state.products) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: 'No se ha inicializado el catálogo de variantes para este comercio.'
+    });
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('El archivo Excel no contiene hojas legibles.');
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+      if (!rows || rows.length === 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Archivo vacío',
+          text: 'No se encontraron filas con datos en la planilla seleccionada.'
+        });
+        return;
+      }
+
+      const firstRow = rows[0];
+      const keys = Object.keys(firstRow);
+
+      const naming = (state.config && state.config.naming) || {
+        color: 'Color',
+        talla: 'Talla',
+        var1: 'Variable 1',
+        var2: 'Variable 2'
+      };
+
+      // Detección flexible de columnas
+      const colSku = keys.find(k => /^sku$/i.test(k.trim())) ||
+                     keys.find(k => /^c[oó]digo/i.test(k.trim())) ||
+                     keys.find(k => /sku/i.test(k));
+
+      if (!colSku) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Columna SKU no encontrada',
+          text: 'El archivo debe contener una columna llamada "SKU" para identificar los productos.'
+        });
+        return;
+      }
+
+      const colAlias = keys.find(k => /alias|nombre\s*comercio|picker/i.test(k));
+
+      const colColor = keys.find(k => k.trim().toLowerCase() === (naming.color || 'color').toLowerCase()) ||
+                       keys.find(k => /color|tonalidad/i.test(k));
+
+      const colTalla = keys.find(k => k.trim().toLowerCase() === (naming.talla || 'talla').toLowerCase()) ||
+                       keys.find(k => /talla|tama[ñn]o|medida|numero|número/i.test(k));
+
+      const colVar1 = keys.find(k => k.trim().toLowerCase() === (naming.var1 || 'variable 1').toLowerCase()) ||
+                      keys.find(k => /variable\s*1|var\s*1/i.test(k));
+
+      const colVar2 = keys.find(k => k.trim().toLowerCase() === (naming.var2 || 'variable 2').toLowerCase()) ||
+                      keys.find(k => /variable\s*2|var\s*2/i.test(k));
+
+      // Mapear productos existentes por SKU
+      const prodMap = new Map();
+      state.products.forEach(p => {
+        if (p.sku) {
+          prodMap.set(String(p.sku).trim().toLowerCase(), p);
+        }
+      });
+
+      // Preparar estructura de opciones
+      if (!state.config) state.config = await getCommerceVariantConfig(commerce);
+      if (!state.config.options) state.config.options = {};
+      if (!Array.isArray(state.config.options.color)) state.config.options.color = [];
+      if (!Array.isArray(state.config.options.talla)) state.config.options.talla = [];
+      if (!Array.isArray(state.config.options.var1)) state.config.options.var1 = [];
+      if (!Array.isArray(state.config.options.var2)) state.config.options.var2 = [];
+      if (!state.config.colors) state.config.colors = {};
+
+      const newOptionsAdded = {
+        color: new Set(),
+        talla: new Set(),
+        var1: new Set(),
+        var2: new Set()
+      };
+
+      function registerNewOption(fieldKey, val) {
+        if (!val) return;
+        const trimmed = String(val).trim();
+        if (!trimmed) return;
+        const exists = state.config.options[fieldKey].some(o => String(o).trim().toLowerCase() === trimmed.toLowerCase());
+        if (!exists) {
+          state.config.options[fieldKey].push(trimmed);
+          newOptionsAdded[fieldKey].add(trimmed);
+          if (fieldKey === 'color') {
+            const cStyle = getVariantColorStyle(trimmed, state.config);
+            state.config.colors[trimmed.toUpperCase().trim()] = cStyle;
+            state.config.colors[trimmed.trim()] = cStyle;
+          }
+        }
+      }
+
+      // Procesar filas de la planilla
+      const updates = [];
+      const notFoundSkus = [];
+      let totalRowsWithSku = 0;
+
+      for (const r of rows) {
+        const rawSku = String(r[colSku] || '').trim();
+        if (!rawSku) continue;
+        totalRowsWithSku++;
+
+        const product = prodMap.get(rawSku.toLowerCase());
+        if (!product) {
+          notFoundSkus.push(rawSku);
+          continue;
+        }
+
+        const colorVal = colColor ? String(r[colColor] || '').trim() : (product.color || '');
+        const tallaVal = colTalla ? String(r[colTalla] || '').trim() : (product.talla || '');
+        const var1Val = colVar1 ? String(r[colVar1] || '').trim() : (product.variable_1 || '');
+        const var2Val = colVar2 ? String(r[colVar2] || '').trim() : (product.variable_2 || '');
+        const aliasVal = colAlias ? String(r[colAlias] || '').trim() : (product.alias || '');
+
+        // Auto-crear opciones que no existan en la configuración del comercio
+        if (colColor && colorVal) registerNewOption('color', colorVal);
+        if (colTalla && tallaVal) registerNewOption('talla', tallaVal);
+        if (colVar1 && var1Val) registerNewOption('var1', var1Val);
+        if (colVar2 && var2Val) registerNewOption('var2', var2Val);
+
+        // Comprobar cambios
+        const currentColor = product.color || (product.options && product.options.color) || '';
+        const currentTalla = product.talla || (product.options && product.options.talla) || '';
+        const currentVar1 = product.variable_1 || (product.options && product.options.variable_1) || '';
+        const currentVar2 = product.variable_2 || (product.options && product.options.variable_2) || '';
+        const currentAlias = product.alias || '';
+
+        const hasChanged = 
+          (colColor && colorVal !== currentColor) ||
+          (colTalla && tallaVal !== currentTalla) ||
+          (colVar1 && var1Val !== currentVar1) ||
+          (colVar2 && var2Val !== currentVar2) ||
+          (colAlias && aliasVal !== currentAlias);
+
+        if (hasChanged) {
+          updates.push({
+            product,
+            colorVal,
+            tallaVal,
+            var1Val,
+            var2Val,
+            aliasVal,
+            hasAliasCol: !!colAlias
+          });
+        }
+      }
+
+      // Si hubo nuevas opciones, persistirlas inmediatamente en comercios_adicional_config
+      const totalNewOpts = 
+        newOptionsAdded.color.size + 
+        newOptionsAdded.talla.size + 
+        newOptionsAdded.var1.size + 
+        newOptionsAdded.var2.size;
+
+      if (totalNewOpts > 0) {
+        await saveCommerceVariantConfig(commerce, state.config);
+      }
+
+      if (updates.length === 0) {
+        let msg = `Se leyeron <b>${totalRowsWithSku}</b> productos de la planilla.<br>No se detectaron modificaciones respecto a los valores actuales.`;
+        if (totalNewOpts > 0) {
+          msg += `<br><br><span style="color: #10b981; font-size: 0.85rem;">✨ Se crearon automáticamente <b>${totalNewOpts} nuevas opciones</b> en la configuración.</span>`;
+        }
+        if (notFoundSkus.length > 0) {
+          msg += `<br><br><span style="color: #ef4444; font-size: 0.82rem;">Nota: ${notFoundSkus.length} SKU(s) no pertenecen a ${commerce}.</span>`;
+        }
+
+        Swal.fire({
+          icon: 'info',
+          title: 'Sin cambios requeridos',
+          html: msg
+        });
+        return;
+      }
+
+      // Confirmar aplicación masiva
+      const confirmRes = await Swal.fire({
+        title: '¿Confirmar carga masiva?',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; display: flex; flex-direction: column; gap: 8px;">
+            <p style="margin: 0;">Se actualizarán <b>${updates.length}</b> productos en el catálogo de <b>${commerce}</b>.</p>
+            ${totalNewOpts > 0 ? `<p style="margin: 0; color: var(--color-primary);">✨ Se crearán automáticamente <b>${totalNewOpts} nuevas opciones</b> para este comercio.</p>` : ''}
+            ${notFoundSkus.length > 0 ? `<p style="margin: 0; color: #eab308;">⚠️ <b>${notFoundSkus.length}</b> SKU(s) no encontrados en este comercio (se omitirán).</p>` : ''}
+          </div>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, aplicar cambios',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (!confirmRes.isConfirmed) return;
+
+      // Loader de progreso
+      Swal.fire({
+        title: 'Actualizando catálogo...',
+        html: `Guardando <b id="swal-variant-import-count">0</b> de <b>${updates.length}</b> productos...`,
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      // Ejecutar en lotes de 25
+      const batchSize = 25;
+      let processedCount = 0;
+
+      for (let i = 0; i < updates.length; i += batchSize) {
+        const batch = updates.slice(i, i + batchSize);
+        await Promise.all(batch.map(async item => {
+          const { product, colorVal, tallaVal, var1Val, var2Val, aliasVal, hasAliasCol } = item;
+          const existingOpts = product.options || {};
+
+          const finalColor = colorVal ? colorVal.trim() : null;
+          const finalTalla = tallaVal ? tallaVal.trim() : null;
+          const finalVar1 = var1Val ? var1Val.trim() : null;
+          const finalVar2 = var2Val ? var2Val.trim() : null;
+
+          const cStyle = finalColor ? getVariantColorStyle(finalColor, state.config, existingOpts) : null;
+          const colorBg = cStyle ? cStyle.bg : '';
+          const colorText = cStyle ? cStyle.text : '';
+
+          const payload = {
+            color: finalColor,
+            talla: finalTalla,
+            variable_1: finalVar1,
+            variable_2: finalVar2,
+            options: {
+              ...existingOpts,
+              color: finalColor || '',
+              talla: finalTalla || '',
+              variable_1: finalVar1 || '',
+              variable_2: finalVar2 || '',
+              color_bg: colorBg,
+              color_text: colorText
+            }
+          };
+
+          if (hasAliasCol) {
+            const finalAlias = aliasVal ? aliasVal.trim() : null;
+            payload.alias = finalAlias;
+            payload.send_alias_to_picker = !!(finalAlias && finalAlias.length > 0);
+          }
+
+          const { error } = await supabase
+            .from('products')
+            .update(payload)
+            .eq('id', product.id);
+
+          if (error) {
+            console.error(`Error actualizando producto ${product.sku}:`, error);
+            throw error;
+          }
+
+          // Actualizar modelos en memoria
+          Object.assign(product, payload);
+          if (window.adminMasterProducts) {
+            const inMaster = window.adminMasterProducts.find(p => p.id === product.id);
+            if (inMaster) Object.assign(inMaster, payload);
+          }
+
+          if (state.pendingChanges) {
+            state.pendingChanges.delete(product.id);
+          }
+
+          processedCount++;
+        }));
+
+        const counterEl = document.getElementById('swal-variant-import-count');
+        if (counterEl) counterEl.textContent = String(processedCount);
+      }
+
+      updatePendingVariantBadge();
+      updateBulkApplyValuesDropdown();
+      filterAndRenderVariantRows();
+
+      // Reporte de resultados
+      let summaryHtml = `<div style="text-align: left; font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px;">`;
+      summaryHtml += `<div>✅ Se actualizaron <b>${processedCount}</b> productos con éxito en el WMS y Picker.</div>`;
+
+      if (totalNewOpts > 0) {
+        summaryHtml += `<div style="background: rgba(99, 102, 241, 0.08); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.2);">`;
+        summaryHtml += `<b style="color: var(--color-primary);">✨ Nuevas opciones creadas automáticamente:</b><br>`;
+        if (newOptionsAdded.color.size > 0) {
+          summaryHtml += `• <b>${naming.color || 'Color'}:</b> ${Array.from(newOptionsAdded.color).join(', ')}<br>`;
+        }
+        if (newOptionsAdded.talla.size > 0) {
+          summaryHtml += `• <b>${naming.talla || 'Talla'}:</b> ${Array.from(newOptionsAdded.talla).join(', ')}<br>`;
+        }
+        if (newOptionsAdded.var1.size > 0) {
+          summaryHtml += `• <b>${naming.var1 || 'Variable 1'}:</b> ${Array.from(newOptionsAdded.var1).join(', ')}<br>`;
+        }
+        if (newOptionsAdded.var2.size > 0) {
+          summaryHtml += `• <b>${naming.var2 || 'Variable 2'}:</b> ${Array.from(newOptionsAdded.var2).join(', ')}<br>`;
+        }
+        summaryHtml += `<span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 4px;">💡 Puedes ir al botón "Gestionar Opciones" para editar los colores RGB y formatos de estas nuevas variables.</span>`;
+        summaryHtml += `</div>`;
+      }
+
+      if (notFoundSkus.length > 0) {
+        summaryHtml += `<div style="color: #dc2626; font-size: 0.8rem;">`;
+        summaryHtml += `⚠️ <b>${notFoundSkus.length} SKU(s) no encontrados en ${commerce}:</b> `;
+        summaryHtml += notFoundSkus.slice(0, 10).join(', ');
+        if (notFoundSkus.length > 10) summaryHtml += ` ... y ${notFoundSkus.length - 10} más`;
+        summaryHtml += `</div>`;
+      }
+      summaryHtml += `</div>`;
+
+      Swal.fire({
+        icon: 'success',
+        title: '¡Carga Masiva Exitosa!',
+        html: summaryHtml,
+        confirmButtonText: 'Entendido'
+      });
+
+    } catch (err) {
+      console.error('Error importVariantsFromExcel:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error al importar',
+        text: err.message || 'Ocurrió un error inesperado al procesar el archivo Excel.'
+      });
+    } finally {
+      const fileInput = document.getElementById('variants-import-excel-file');
+      if (fileInput) fileInput.value = '';
+    }
+  };
+
+  reader.onerror = (err) => {
+    console.error('FileReader error:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error de lectura',
+      text: 'No se pudo leer el archivo Excel seleccionado.'
+    });
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+window.importVariantsFromExcel = importVariantsFromExcel;
+
+function openConfigureVariantNamesModal(commerce) {
+  const state = window.variantsTabState;
+  const currentNaming = (state.config && state.config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  let modal = document.getElementById('modal-config-variant-names');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-config-variant-names';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 520px; padding: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-settings-3-line" style="color: var(--color-primary);"></i> Nombres de Variantes (${commerce})
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Personaliza cómo se llamará cada columna de variantes para este comercio.
+          </p>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-config-variant-names').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+        <div>
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+            Columna 1 (Por defecto: Color)
+          </label>
+          <input type="text" id="cfg-var-name-color" class="form-input" value="${window.escapeHtmlAttr(currentNaming.color || 'Color')}" placeholder="Ej: Color, Tonalidad, Acabado..." style="width: 100%; height: 38px; font-size: 0.85rem;">
+        </div>
+        <div>
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+            Columna 2 (Por defecto: Talla)
+          </label>
+          <input type="text" id="cfg-var-name-talla" class="form-input" value="${window.escapeHtmlAttr(currentNaming.talla || 'Talla')}" placeholder="Ej: Talla, Tamaño, Medida, Número..." style="width: 100%; height: 38px; font-size: 0.85rem;">
+        </div>
+        <div>
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+            Columna 3 (Por defecto: Variable 1)
+          </label>
+          <input type="text" id="cfg-var-name-var1" class="form-input" value="${window.escapeHtmlAttr(currentNaming.var1 || 'Variable 1')}" placeholder="Ej: Manga, Capacidad, Sabor, Material..." style="width: 100%; height: 38px; font-size: 0.85rem;">
+        </div>
+        <div>
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+            Columna 4 (Por defecto: Variable 2)
+          </label>
+          <input type="text" id="cfg-var-name-var2" class="form-input" value="${window.escapeHtmlAttr(currentNaming.var2 || 'Variable 2')}" placeholder="Ej: Cuello, Formato, Tipo, Presentación..." style="width: 100%; height: 38px; font-size: 0.85rem;">
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <button type="button" id="btn-reset-variant-names" class="btn btn-outline btn-sm" style="font-size: 0.8rem; border-radius: var(--radius-md);">
+          <i class="ri-refresh-line"></i> Restablecer por defecto
+        </button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-config-variant-names').remove()" style="font-size: 0.85rem; border-radius: var(--radius-md); padding: 0 1rem; height: 36px;">Cancelar</button>
+          <button type="button" id="btn-save-variant-names" class="btn btn-primary" style="font-size: 0.85rem; border-radius: var(--radius-md); padding: 0 1.25rem; height: 36px; font-weight: 600;">
+            <i class="ri-save-line"></i> Guardar Nombres
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById('btn-reset-variant-names').addEventListener('click', () => {
+    document.getElementById('cfg-var-name-color').value = 'Color';
+    document.getElementById('cfg-var-name-talla').value = 'Talla';
+    document.getElementById('cfg-var-name-var1').value = 'Variable 1';
+    document.getElementById('cfg-var-name-var2').value = 'Variable 2';
+  });
+
+  document.getElementById('btn-save-variant-names').addEventListener('click', async () => {
+    const newNaming = {
+      color: document.getElementById('cfg-var-name-color').value.trim() || 'Color',
+      talla: document.getElementById('cfg-var-name-talla').value.trim() || 'Talla',
+      var1: document.getElementById('cfg-var-name-var1').value.trim() || 'Variable 1',
+      var2: document.getElementById('cfg-var-name-var2').value.trim() || 'Variable 2'
+    };
+
+    state.config.naming = newNaming;
+    await saveCommerceVariantConfig(commerce, state.config);
+    updateVariantTableHeaders(state.config);
+
+    modal.remove();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Nombres de variantes actualizados',
+      showConfirmButton: false,
+      timer: 2000
+    });
+  });
+}
+
+function openManageVariantOptionsModal(commerce) {
+  const state = window.variantsTabState;
+  const naming = (state.config && state.config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  let modal = document.getElementById('modal-manage-variant-options');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-manage-variant-options';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 680px; padding: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-list-settings-line" style="color: #0284c7;"></i> Gestionar Opciones de Variantes (${commerce})
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Define las opciones predeterminadas para los desplegables de cada atributo.
+          </p>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-variant-options').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+
+      <!-- Pestañas internas del modal -->
+      <div style="display: flex; border-bottom: 1px solid var(--color-border); background: var(--color-bg); padding: 0 1rem;">
+        <button type="button" class="manage-opt-tab active" data-opt-key="color" style="padding: 0.75rem 1rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-primary); font-weight: 600; cursor: pointer; font-size: 0.85rem;">
+          ${window.escapeHtml(naming.color || 'Color')}
+        </button>
+        <button type="button" class="manage-opt-tab" data-opt-key="talla" style="padding: 0.75rem 1rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; font-size: 0.85rem;">
+          ${window.escapeHtml(naming.talla || 'Talla')}
+        </button>
+        <button type="button" class="manage-opt-tab" data-opt-key="var1" style="padding: 0.75rem 1rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; font-size: 0.85rem;">
+          ${window.escapeHtml(naming.var1 || 'Variable 1')}
+        </button>
+        <button type="button" class="manage-opt-tab" data-opt-key="var2" style="padding: 0.75rem 1rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; font-size: 0.85rem;">
+          ${window.escapeHtml(naming.var2 || 'Variable 2')}
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem;">
+        <!-- Agregar nueva opción -->
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+          <input type="text" id="manage-new-option-input" class="form-input" placeholder="Escribe una o varias opciones separadas por coma..." style="flex: 1; height: 38px; font-size: 0.85rem;">
+          <button type="button" id="btn-add-variant-option" class="btn btn-primary" style="padding: 0 1rem; height: 38px; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-add-line"></i> Agregar
+          </button>
+        </div>
+
+        <!-- Personalizador de estilo RGB cuando la pestaña es Color -->
+        <div id="manage-color-picker-row" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; padding: 0.6rem 0.85rem; background: rgba(0,0,0,0.03); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">🎨 Estilo del Color:</span>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Fondo:</label>
+            <input type="color" id="manage-new-color-bg" value="#004aad" style="width: 28px; height: 28px; border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; padding: 0; background: transparent;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Texto:</label>
+            <input type="color" id="manage-new-color-text" value="#ffffff" style="width: 28px; height: 28px; border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; padding: 0; background: transparent;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; margin-left: auto;">
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">Previa:</span>
+            <span id="manage-new-color-preview-chip" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background: #004aad; color: #ffffff; border: 1px solid rgba(0,0,0,0.15);">
+              <span id="manage-preview-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #004aad; border: 1px solid rgba(255,255,255,0.7);"></span>
+              <span id="manage-preview-text">Color</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Lista de tags con opciones actuales -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">
+            Opciones configuradas:
+          </span>
+          <span id="manage-color-hint" style="font-size: 0.75rem; color: var(--color-primary); display: inline-flex; align-items: center; gap: 4px;">
+            <i class="ri-palette-line"></i> Haz clic en 🎨 para editar fondo y texto
+          </span>
+        </div>
+        <div id="manage-options-pill-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; min-height: 120px; max-height: 240px; overflow-y: auto; padding: 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+          <!-- Inyectado dinámicamente -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; align-items: center; background: var(--color-bg); gap: 0.5rem;">
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-manage-variant-options').remove()" style="font-size: 0.85rem; border-radius: var(--radius-md); padding: 0 1.25rem; height: 36px; font-weight: 600;">
+          Listo
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  let activeOptKey = 'color';
+
+  function renderPills() {
+    const pillContainer = document.getElementById('manage-options-pill-list');
+    if (!pillContainer) return;
+
+    if (!state.config.options) state.config.options = {};
+    if (!Array.isArray(state.config.options[activeOptKey])) state.config.options[activeOptKey] = [];
+
+    const list = state.config.options[activeOptKey];
+    if (list.length === 0) {
+      pillContainer.innerHTML = `<span style="font-size: 0.82rem; color: var(--color-text-muted); font-style: italic; margin: auto;">No hay opciones predefinidas para este atributo. Agrega las primeras arriba.</span>`;
+      return;
+    }
+
+    pillContainer.innerHTML = list.map((item, idx) => {
+      if (activeOptKey === 'color') {
+        const cStyle = getVariantColorStyle(item, state.config);
+        return `
+          <span style="display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.75rem; background-color: ${cStyle.bg}; color: ${cStyle.text}; border: 1px solid rgba(0,0,0,0.2); border-radius: 9999px; font-size: 0.82rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${cStyle.bg}; border: 1px solid rgba(255,255,255,0.7); flex-shrink: 0;"></span>
+            <span>${window.escapeHtml(item)}</span>
+            <button type="button" class="btn-edit-color-style" data-color="${window.escapeHtmlAttr(item)}" style="background: rgba(0,0,0,0.18); border: none; border-radius: 50%; cursor: pointer; color: ${cStyle.text}; font-size: 0.8rem; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0;" title="Personalizar color RGB de fondo y texto">
+              <i class="ri-palette-line"></i>
+            </button>
+            <button type="button" class="btn-remove-opt" data-idx="${idx}" style="background: none; border: none; cursor: pointer; color: ${cStyle.text}; opacity: 0.85; font-size: 1.1rem; line-height: 1; padding: 0; display: inline-flex; align-items: center;" title="Eliminar">&times;</button>
+          </span>
+        `;
+      } else {
+        return `
+          <span style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.65rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 9999px; font-size: 0.82rem; color: var(--color-text-main); box-shadow: var(--shadow-sm);">
+            <span>${window.escapeHtml(item)}</span>
+            <button type="button" class="btn-remove-opt" data-idx="${idx}" style="background: none; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 0.95rem; line-height: 1; padding: 0; display: flex; align-items: center;" title="Eliminar">&times;</button>
+          </span>
+        `;
+      }
+    }).join('');
+
+    pillContainer.querySelectorAll('.btn-remove-opt').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const idx = parseInt(e.currentTarget.getAttribute('data-idx'), 10);
+        state.config.options[activeOptKey].splice(idx, 1);
+        await saveCommerceVariantConfig(commerce, state.config);
+        renderPills();
+        filterAndRenderVariantRows();
+        updateBulkApplyValuesDropdown();
+      });
+    });
+
+    pillContainer.querySelectorAll('.btn-edit-color-style').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const colorName = e.currentTarget.getAttribute('data-color');
+        openColorStyleEditor(commerce, colorName, () => {
+          renderPills();
+          filterAndRenderVariantRows();
+        });
+      });
+    });
+  }
+
+  // Pestañas
+  modal.querySelectorAll('.manage-opt-tab').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+      modal.querySelectorAll('.manage-opt-tab').forEach(t => {
+        t.classList.remove('active');
+        t.style.borderBottomColor = 'transparent';
+        t.style.color = 'var(--color-text-muted)';
+        t.style.fontWeight = '500';
+      });
+      tab.classList.add('active');
+      tab.style.borderBottomColor = 'var(--color-primary)';
+      tab.style.color = 'var(--color-primary)';
+      tab.style.fontWeight = '600';
+
+      activeOptKey = tab.getAttribute('data-opt-key');
+
+      const colorRow = document.getElementById('manage-color-picker-row');
+      const colorHint = document.getElementById('manage-color-hint');
+      if (colorRow) colorRow.style.display = (activeOptKey === 'color') ? 'flex' : 'none';
+      if (colorHint) colorHint.style.display = (activeOptKey === 'color') ? 'inline-flex' : 'none';
+
+      renderPills();
+    });
+  });
+
+  // Listener para el live preview de los pickers en la barra superior
+  const topBgPicker = document.getElementById('manage-new-color-bg');
+  const topTextPicker = document.getElementById('manage-new-color-text');
+  const topPreviewChip = document.getElementById('manage-new-color-preview-chip');
+  const topPreviewDot = document.getElementById('manage-preview-dot');
+  const topPreviewText = document.getElementById('manage-preview-text');
+  const inputEl = document.getElementById('manage-new-option-input');
+
+  function updateTopColorPreview() {
+    if (!topPreviewChip || !topBgPicker || !topTextPicker) return;
+    const bg = topBgPicker.value;
+    const txt = topTextPicker.value;
+    const nm = (inputEl && inputEl.value.trim()) ? inputEl.value.trim() : 'Color';
+    topPreviewChip.style.backgroundColor = bg;
+    topPreviewChip.style.color = txt;
+    if (topPreviewDot) topPreviewDot.style.background = bg;
+    if (topPreviewText) topPreviewText.textContent = nm;
+  }
+
+  if (topBgPicker) topBgPicker.addEventListener('input', updateTopColorPreview);
+  if (topTextPicker) topTextPicker.addEventListener('input', updateTopColorPreview);
+  if (inputEl) inputEl.addEventListener('input', updateTopColorPreview);
+
+  // Agregar opción
+  const addBtn = document.getElementById('btn-add-variant-option');
+
+  async function handleAdd() {
+    const val = inputEl.value.trim();
+    if (!val) return;
+
+    if (!state.config.options) state.config.options = {};
+    if (!Array.isArray(state.config.options[activeOptKey])) state.config.options[activeOptKey] = [];
+
+    // Permitir separar por coma (ej: S, M, L, XL)
+    const items = val.split(',').map(s => s.trim()).filter(Boolean);
+    items.forEach(item => {
+      if (!state.config.options[activeOptKey].includes(item)) {
+        state.config.options[activeOptKey].push(item);
+      }
+      if (activeOptKey === 'color') {
+        const bgVal = (topBgPicker && topBgPicker.value) ? topBgPicker.value : '#004aad';
+        const textVal = (topTextPicker && topTextPicker.value) ? topTextPicker.value : '#ffffff';
+        if (!state.config.colors) state.config.colors = {};
+        state.config.colors[item.toUpperCase().trim()] = { bg: bgVal, text: textVal };
+        state.config.colors[item.trim()] = { bg: bgVal, text: textVal };
+      }
+    });
+
+    await saveCommerceVariantConfig(commerce, state.config);
+    inputEl.value = '';
+    updateTopColorPreview();
+    renderPills();
+    filterAndRenderVariantRows();
+    updateBulkApplyValuesDropdown();
+  }
+
+  if (addBtn && inputEl) {
+    addBtn.addEventListener('click', handleAdd);
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAdd();
+      }
+    });
+  }
+
+  renderPills();
+}
+
+async function openColorStyleEditor(commerce, colorName, onSaved) {
+  const state = window.variantsTabState;
+  const cStyle = getVariantColorStyle(colorName, state.config);
+  let currentBg = (cStyle && cStyle.bg) ? cStyle.bg : '#004aad';
+  let currentText = (cStyle && cStyle.text) ? cStyle.text : '#ffffff';
+
+  const defaultPaletteQuick = [
+    { name: 'Azul', bg: '#004aad', text: '#ffffff' },
+    { name: 'Rojo', bg: '#dc2626', text: '#ffffff' },
+    { name: 'Verde', bg: '#10b981', text: '#ffffff' },
+    { name: 'Negro', bg: '#09090b', text: '#ffffff' },
+    { name: 'Blanco', bg: '#ffffff', text: '#000000' },
+    { name: 'Amarillo', bg: '#facc15', text: '#000000' },
+    { name: 'Rosado', bg: '#f472b6', text: '#000000' },
+    { name: 'Lila', bg: '#c084fc', text: '#000000' },
+    { name: 'Gris', bg: '#64748b', text: '#ffffff' },
+    { name: 'Café', bg: '#78350f', text: '#ffffff' },
+    { name: 'Petróleo', bg: '#0e7490', text: '#ffffff' },
+    { name: 'Celeste', bg: '#38bdf8', text: '#000000' }
+  ];
+
+  const quickButtonsHtml = defaultPaletteQuick.map(p => `
+    <button type="button" class="swal-quick-edit-color-btn" data-bg="${p.bg}" data-text="${p.text}" style="background: ${p.bg}; color: ${p.text}; border: 1px solid rgba(0,0,0,0.15); border-radius: 4px; padding: 3px 8px; font-size: 0.72rem; font-weight: 600; cursor: pointer;">
+      ${p.name}
+    </button>
+  `).join('');
+
+  const { value: result } = await Swal.fire({
+    title: `Personalizar Color: ${colorName}`,
+    width: '460px',
+    html: `
+      <div style="display: flex; flex-direction: column; gap: 14px; text-align: left; margin-top: 10px;">
+        <p style="margin: 0; font-size: 0.82rem; color: var(--color-text-muted);">
+          Define el color exacto (RGB / HEX) de fondo y texto. Este estilo se mostrará en el WMS y en la etiqueta visual del Picker.
+        </p>
+
+        <div>
+          <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 6px; color: var(--color-text-muted);">
+            Paleta rápida:
+          </label>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+            ${quickButtonsHtml}
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: rgba(0,0,0,0.03); padding: 12px; border-radius: 8px; border: 1px solid var(--color-border);">
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--color-text-main);">
+              🎨 Color de Fondo:
+            </label>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="color" id="edit-color-bg-picker" value="${currentBg}" style="width: 36px; height: 36px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; padding: 1px; background: transparent;">
+              <input type="text" id="edit-color-bg-hex" value="${currentBg}" style="flex: 1; height: 34px; font-size: 0.8rem; font-family: monospace; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px; text-transform: uppercase;">
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px; color: var(--color-text-main);">
+              ✏️ Color de Texto:
+            </label>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="color" id="edit-color-text-picker" value="${currentText}" style="width: 36px; height: 36px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; padding: 1px; background: transparent;">
+              <input type="text" id="edit-color-text-hex" value="${currentText}" style="flex: 1; height: 34px; font-size: 0.8rem; font-family: monospace; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px; text-transform: uppercase;">
+            </div>
+            <div style="display: flex; gap: 4px; margin-top: 6px;">
+              <button type="button" id="btn-quick-white" style="flex: 1; padding: 2px; font-size: 0.7rem; font-weight: 600; background: #ffffff; color: #000000; border: 1px solid #ccc; border-radius: 3px; cursor: pointer;">Blanco</button>
+              <button type="button" id="btn-quick-dark" style="flex: 1; padding: 2px; font-size: 0.7rem; font-weight: 600; background: #09090b; color: #ffffff; border: 1px solid #000; border-radius: 3px; cursor: pointer;">Negro</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(0,0,0,0.02); border-radius: 6px; border: 1px solid var(--color-border);">
+          <span style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted);">
+            Vista Previa Picker / WMS:
+          </span>
+          <div id="edit-color-live-preview" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 16px; border-radius: 9999px; font-size: 0.9rem; font-weight: 700; background-color: ${currentBg}; color: ${currentText}; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,0,0,0.12);">
+            <span id="edit-preview-dot" style="width: 8px; height: 8px; border-radius: 50%; background: ${currentBg}; border: 1px solid rgba(255,255,255,0.7);"></span>
+            <span>${window.escapeHtml(colorName)}</span>
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar Color',
+    cancelButtonText: 'Cancelar',
+    didOpen: () => {
+      const bgPicker = document.getElementById('edit-color-bg-picker');
+      const bgHex = document.getElementById('edit-color-bg-hex');
+      const textPicker = document.getElementById('edit-color-text-picker');
+      const textHex = document.getElementById('edit-color-text-hex');
+      const livePreview = document.getElementById('edit-color-live-preview');
+      const previewDot = document.getElementById('edit-preview-dot');
+
+      function updatePreview() {
+        const bg = bgHex.value.trim() || '#004aad';
+        const txt = textHex.value.trim() || '#ffffff';
+        livePreview.style.backgroundColor = bg;
+        livePreview.style.color = txt;
+        previewDot.style.background = bg;
+      }
+
+      bgPicker.addEventListener('input', (e) => {
+        bgHex.value = e.target.value.toUpperCase();
+        updatePreview();
+      });
+      bgHex.addEventListener('input', (e) => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+          bgPicker.value = e.target.value;
+        }
+        updatePreview();
+      });
+
+      textPicker.addEventListener('input', (e) => {
+        textHex.value = e.target.value.toUpperCase();
+        updatePreview();
+      });
+      textHex.addEventListener('input', (e) => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+          textPicker.value = e.target.value;
+        }
+        updatePreview();
+      });
+
+      document.getElementById('btn-quick-white').addEventListener('click', () => {
+        textPicker.value = '#ffffff';
+        textHex.value = '#FFFFFF';
+        updatePreview();
+      });
+      document.getElementById('btn-quick-dark').addEventListener('click', () => {
+        textPicker.value = '#09090b';
+        textHex.value = '#09090B';
+        updatePreview();
+      });
+
+      document.querySelectorAll('.swal-quick-edit-color-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const b = btn.getAttribute('data-bg');
+          const t = btn.getAttribute('data-text');
+          bgPicker.value = b;
+          bgHex.value = b.toUpperCase();
+          textPicker.value = t;
+          textHex.value = t.toUpperCase();
+          updatePreview();
+        });
+      });
+    },
+    preConfirm: () => {
+      const bgVal = document.getElementById('edit-color-bg-hex').value.trim();
+      const textVal = document.getElementById('edit-color-text-hex').value.trim();
+      return { bg: bgVal || '#004aad', text: textVal || '#ffffff' };
+    }
+  });
+
+  if (!result) return;
+
+  if (!state.config.colors) state.config.colors = {};
+  state.config.colors[colorName.toUpperCase().trim()] = { bg: result.bg, text: result.text };
+  state.config.colors[colorName.trim()] = { bg: result.bg, text: result.text };
+
+  await saveCommerceVariantConfig(commerce, state.config);
+
+  if (typeof onSaved === 'function') onSaved();
+
+  // Actualizar chips de color en la tabla
+  document.querySelectorAll(`.color-preview-chip`).forEach(chip => {
+    const textEl = chip.querySelector('.color-name-text');
+    if (textEl && textEl.textContent.trim().toLowerCase() === colorName.trim().toLowerCase()) {
+      chip.style.backgroundColor = result.bg;
+      chip.style.color = result.text;
+      const dot = chip.querySelector('.color-dot');
+      if (dot) dot.style.background = result.bg;
+    }
+  });
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: `Color "${colorName}" actualizado`,
+    showConfirmButton: false,
+    timer: 2000
   });
 }
 

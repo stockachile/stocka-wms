@@ -4,22 +4,64 @@
   All custom code in this file will be kept when updating the theme
 {%- endcomment -%}
 
-<!-- Google Fonts: Poppins (Optimized Async with display=swap) -->
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap">
-<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<!-- Code Pro Lowercase (Authentic Stocka Logo Typography with Lowercase & Uppercase) -->
+<link rel="preload" as="font" href="{{ 'CodePro-Bold-LC.woff2' | asset_url }}" type="font/woff2" crossorigin>
+
+<!-- Google Fonts: Outfit & Poppins Fallbacks -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <noscript>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 </noscript>
 
 <style>
   /* ==========================================================================
-     POPPINS TYPOGRAPHY FOR TITLES, HEADINGS & HIGHLIGHTED TEXTS
+     AUTHENTIC CODE PRO WITH LOWERCASE SUPPORT (STOCKA LOGO FONT)
+     ========================================================================== */
+  @font-face {
+    font-family: 'Code Pro';
+    src: url("{{ 'CodePro-Light-LC.woff2' | asset_url }}") format('woff2'),
+         url("{{ 'CodePro-Light-LC.woff' | asset_url }}") format('woff');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Code Pro';
+    src: url("{{ 'CodePro-LC.woff2' | asset_url }}") format('woff2'),
+         url("{{ 'CodePro-LC.woff' | asset_url }}") format('woff');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Code Pro';
+    src: url("{{ 'CodePro-Bold-LC.woff2' | asset_url }}") format('woff2'),
+         url("{{ 'CodePro-Bold-LC.woff' | asset_url }}") format('woff');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Code Pro';
+    src: url("{{ 'CodePro-Black-LC.woff2' | asset_url }}") format('woff2'),
+         url("{{ 'CodePro-Black-LC.woff' | asset_url }}") format('woff');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
+
+
+  /* ==========================================================================
+     BALANCED TYPOGRAPHY SYSTEM (PREVENTS VISUAL OVERLOAD)
      ========================================================================== */
   :root {
-    --font-stack-header: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    --font-stack-body: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    --font-family-header: 'Poppins', sans-serif !important;
-    --font-family-base: 'Poppins', sans-serif !important;
+    --font-stack-header: 'Code Pro', 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    --font-stack-body: 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    --font-family-header: 'Code Pro', 'Outfit', sans-serif !important;
+    --font-family-base: 'Outfit', 'Poppins', sans-serif !important;
   }
 
   body,
@@ -31,44 +73,121 @@
   button,
   select,
   textarea {
-    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
-  h1, h2, h3, h4, h5, h6,
-  .h1, .h2, .h3, .h4, .h5, .h6,
-  .sf__parent-item,
-  .sf-menu-item,
-  .sf-footer-title,
-  .stocka-footer-title,
-  .ecom__heading,
-  .ecom-heading,
-  .content__heading,
-  .slide__block-title,
+  /* Textos en negrita: Deben heredar la tipografía del cuerpo y usar peso semi-bold (600), NUNCA Code Pro */
+  strong,
+  b {
+    font-family: inherit !important;
+    font-weight: 600 !important;
+  }
+
+  /* TÍTULOS PRINCIPALES DE IMPACTO (H1 y H2): Code Pro auténtico con proporciones cuidadas */
+  h1,
+  .h1,
+  .stocka-hero h1,
+  .stocka-wms-hero-title,
+  .stocka-picker-hero-title {
+    font-family: 'Code Pro', 'Outfit', sans-serif !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.015em;
+    text-transform: none !important;
+    line-height: 1.18;
+  }
+
+  h2,
+  .h2,
+  .stocka-hero h2,
+  .stocka-wms-sec-title,
+  .stocka-picker-sec-title,
+  .stocka-lead-section h2 {
+    font-family: 'Code Pro', 'Outfit', sans-serif !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.01em;
+    text-transform: none !important;
+    line-height: 1.25;
+  }
+
+  /* SUBTÍTULOS, TARJETAS Y TESTIMONIOS (H3, H4, H5, H6): Outfit limpio, semi-bold (600) no invasivo */
+  h3, h4, h5, h6,
+  .h3, .h4, .h5, .h6,
+  .stocka-wms-dual-title,
+  .stocka-wms-panel-title,
+  .stocka-picker-dual-title,
+  .stocka-picker-panel-title,
+  .stocka-picker-hw-title,
   .stocka-tf-title,
   .stocka-ff-title,
   .stocka-title,
   .stocka-heading,
-  .stocka-lead-section h2,
   .stocka-lead-section h3,
-  .stocka-hero h1,
-  .stocka-hero h2,
   .stocka-cot-title,
   .stocka-cot-step-title,
+  .ecom__heading,
+  .ecom-heading,
+  .content__heading,
+  .slide__block-title,
+  .sf-footer-title,
+  .stocka-footer-title {
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em;
+    text-transform: none !important;
+  }
+
+  /* NAVEGACIÓN Y MENÚ: Outfit Medium (500) elegante, ligero y con espacio */
+  .stocka-nav-link,
+  .sf__parent-item,
+  .sf-menu-item,
+  .sf-nav,
+  .stocka-desktop-nav,
+  .stocka-dropdown-title {
+    font-family: 'Outfit', sans-serif !important;
+    text-transform: none !important;
+  }
+  .sf__parent-item > a,
+  .sf-menu-item > a,
+  .stocka-nav-link {
+    font-weight: 500 !important;
+  }
+
+  /* BOTONES: Outfit Semi-bold (600) en caja natural */
   .stocka-btn,
   .btn-submit-stocka,
   .sf-header-btn-quote,
   .sf-header-btn-wms,
-  .stocka-service-pill,
-  .stocka-pill-btn,
+  .stocka-wms-btn-primary,
+  .stocka-wms-btn-secondary,
+  .stocka-picker-btn-primary,
+  .stocka-picker-btn-secondary,
+  .stocka-picker-tab-btn,
+  .sf__btn,
+  .sf__btn-primary,
+  .sf__btn-secondary,
+  a.sf__btn,
+  button.sf__btn,
+  .btn {
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    letter-spacing: 0.01em;
+  }
+
+  /* MICRO-BADGES / TAGS: Outfit uppercase refinado */
   .stocka-badge,
-  [class*="heading"],
-  [class*="title"],
-  .font-extrabold,
-  .font-bold,
-  .font-semibold,
-  strong,
-  b {
-    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  .stocka-nav-badge-new,
+  .stocka-wms-sec-tag,
+  .stocka-wms-hero-badge,
+  .stocka-picker-sec-tag,
+  .stocka-picker-hero-badge,
+  .stocka-picker-panel-badge,
+  .stocka-picker-dual-tag,
+  .stocka-picker-hw-tag {
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em;
   }
 
   /* ==========================================================================
@@ -102,10 +221,21 @@
   .sf-header.sf-header-scrolled header.sf-header__mobile,
   .sf-header.stuck header.sf-header__desktop,
   .sf-header.stuck header.sf-header__mobile {
-    background: rgba(255, 255, 255, 0.78) !important;
+    background: rgba(255, 255, 255, 0.82) !important;
     backdrop-filter: blur(24px) saturate(200%) !important;
     -webkit-backdrop-filter: blur(24px) saturate(200%) !important;
     border-bottom: 1px solid rgba(203, 213, 225, 0.9) !important;
     box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.04) !important;
+  }
+
+  .sf-header-btn-quote:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(92, 36, 255, 0.4) !important;
+    background: linear-gradient(135deg, #6d3aff 0%, #4f46e5 100%) !important;
+  }
+
+  .sf-header-btn-wms:hover {
+    background: #1e293b !important;
+    transform: translateY(-1px);
   }
 </style>

@@ -3768,6 +3768,17 @@ async function openEditProductModal(prodId) {
       statusInput.value = product.status || 'active';
     }
 
+    const colorInput = document.getElementById('edit-prod-color');
+    if (colorInput) colorInput.value = product.color || product.options?.color || '';
+    const tallaInput = document.getElementById('edit-prod-talla');
+    if (tallaInput) tallaInput.value = product.talla || product.options?.talla || product.options?.size || '';
+    const var1Input = document.getElementById('edit-prod-var1');
+    if (var1Input) var1Input.value = product.variable_1 || product.options?.var1 || product.options?.manga || '';
+    const var2Input = document.getElementById('edit-prod-var2');
+    if (var2Input) var2Input.value = product.variable_2 || product.options?.var2 || product.options?.cuello || '';
+
+    window.currentEditProductOptions = product.options || {};
+
     // Set initial volume mode and value
     const hasVolume = product.volumen !== null && product.volumen !== undefined;
     const hasDims = (product.length !== null && product.length !== undefined && product.length !== '') ||
@@ -13347,6 +13358,20 @@ async function renderIntegrations() {
       const isPack = document.getElementById('prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
 
+      const colorVal = document.getElementById('prod-color')?.value?.trim() || null;
+      const tallaVal = document.getElementById('prod-talla')?.value?.trim() || null;
+      const var1Val = document.getElementById('prod-var1')?.value?.trim() || null;
+      const var2Val = document.getElementById('prod-var2')?.value?.trim() || null;
+      const optionsVal = (colorVal || tallaVal || var1Val || var2Val) ? {
+        color: colorVal,
+        talla: tallaVal,
+        size: tallaVal,
+        var1: var1Val,
+        manga: var1Val,
+        var2: var2Val,
+        cuello: var2Val
+      } : null;
+
       // 1. Crear el producto
       const { data: newProd, error: errProd } = await supabase
         .from('products')
@@ -13360,7 +13385,12 @@ async function renderIntegrations() {
           is_virtual: isVirtual,
           stock_critico: stockCritico,
           alias: alias,
-          send_alias_to_picker: sendAlias
+          send_alias_to_picker: sendAlias,
+          color: colorVal,
+          talla: tallaVal,
+          variable_1: var1Val,
+          variable_2: var2Val,
+          options: optionsVal
         }])
         .select()
         .single();
@@ -13493,6 +13523,22 @@ async function renderIntegrations() {
       const alias = document.getElementById('edit-prod-alias').value.trim() || null;
       const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
       const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
+      const colorVal = document.getElementById('edit-prod-color')?.value?.trim() || null;
+      const tallaVal = document.getElementById('edit-prod-talla')?.value?.trim() || null;
+      const var1Val = document.getElementById('edit-prod-var1')?.value?.trim() || null;
+      const var2Val = document.getElementById('edit-prod-var2')?.value?.trim() || null;
+
+      const currentOptions = window.currentEditProductOptions || {};
+      const updatedOptions = {
+        ...currentOptions,
+        color: colorVal,
+        talla: tallaVal,
+        size: tallaVal,
+        var1: var1Val,
+        manga: var1Val,
+        var2: var2Val,
+        cuello: var2Val
+      };
 
       // Validación para evitar movimientos (actualización de stock inicial) en productos archivados
       if (statusVal === 'archived' && newInitialStock !== oldInitialStock) {
@@ -13511,6 +13557,11 @@ async function renderIntegrations() {
           send_barcode_to_picker: sendBarcode,
           alias,
           send_alias_to_picker: sendAlias,
+          color: colorVal,
+          talla: tallaVal,
+          variable_1: var1Val,
+          variable_2: var2Val,
+          options: updatedOptions,
           status: statusVal,
           length,
           width,

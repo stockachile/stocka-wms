@@ -1,0 +1,11 @@
+{
+  "sections": {
+    "main": {
+      "type": "stocka-picker-landing",
+      "settings": {}
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

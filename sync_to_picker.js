@@ -202,14 +202,23 @@ async function run() {
         // Actualizar el estado y operario en WMS si las columnas existen
         try {
           const firstAct = pickerItemsForOrder[0];
-          await wmsClient
+          const syncPayload = {
+            picker_status: firstAct.sheet_status || 'EN PREPARACIÓN',
+            picker_operator: firstAct.operator || null,
+            picker_last_synced_at: new Date().toISOString()
+          };
+          if (firstAct.scanned_label) {
+            syncPayload.picker_scanned_label = firstAct.scanned_label;
+          }
+          const { error: syncErr } = await wmsClient
             .from('orders')
-            .update({
-              picker_status: firstAct.sheet_status || 'EN PREPARACIÓN',
-              picker_operator: firstAct.operator || null,
-              picker_last_synced_at: new Date().toISOString()
-            })
+            .update(syncPayload)
             .eq('id', wmsOrder.id);
+
+          if (syncErr && syncPayload.picker_scanned_label) {
+            delete syncPayload.picker_scanned_label;
+            await wmsClient.from('orders').update(syncPayload).eq('id', wmsOrder.id);
+          }
         } catch (_) {}
 
         // === CASO A: El pedido ya existe en el Picker, verificar si fue modificado en el WMS ===
@@ -278,8 +287,10 @@ async function run() {
               quantity: parseInt(oi.quantity, 10) || 1,
               sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
-              color: opt.color || null,
-              talla: opt.talla || opt.size || null,
+              color: prod.color || opt.color || null,
+              color_bg: opt.color_bg || null,
+              color_text: opt.color_text || null,
+              talla: opt.talla || opt.size || prod.talla || null,
               manga: opt.manga || null,
               cuello: opt.cuello || null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
@@ -343,7 +354,7 @@ async function run() {
         const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
         const { data: logs, error: logsErr } = await pickerClient
           .from('history_logs')
-          .select('pedido, estado, comentarios, picker')
+          .select('pedido, estado, comentarios, picker, scanned_label')
           .in('pedido', searchLogKeys)
           .in('estado', ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'])
           .order('created_at', { ascending: false })
@@ -360,14 +371,18 @@ async function run() {
           
           let wmsUpdateErr = null;
           try {
+            const completedPayload = { 
+              estado_wms: 'Pickeado',
+              picker_status: logs[0].estado,
+              picker_operator: logs[0].picker || null,
+              picker_last_synced_at: new Date().toISOString()
+            };
+            if (logs[0].scanned_label) {
+              completedPayload.picker_scanned_label = logs[0].scanned_label;
+            }
             const res = await wmsClient
               .from('orders')
-              .update({ 
-                estado_wms: 'Pickeado',
-                picker_status: logs[0].estado,
-                picker_operator: logs[0].picker || null,
-                picker_last_synced_at: new Date().toISOString()
-              })
+              .update(completedPayload)
               .eq('id', wmsOrder.id);
             if (res.error) throw res.error;
           } catch (_) {
@@ -409,8 +424,10 @@ async function run() {
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim())
                 ? prod.alias.trim()
                 : (prod.name || 'Producto WMS'),
-              color: opt.color || null,
-              talla: opt.talla || opt.size || null,
+              color: prod.color || opt.color || null,
+              color_bg: opt.color_bg || null,
+              color_text: opt.color_text || null,
+              talla: opt.talla || opt.size || prod.talla || null,
               manga: opt.manga || null,
               cuello: opt.cuello || null,
               client_name: wmsOrder.customer_name || 'Sin nombre',

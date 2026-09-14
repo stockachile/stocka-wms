@@ -68,6 +68,9 @@ export async function renderTicketsClient(appContent) {
   // Obtener perfil para saber el comercio del usuario
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
   const userComercio = profile?.comercio || 'no asignado';
+  const commerceList = (userComercio && userComercio !== 'no asignado' && userComercio !== 'all')
+    ? userComercio.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
 
   // Obtener datos del KAM asignado al comercio desde comercios_adicional_config
   let kamData = {
@@ -80,7 +83,9 @@ export async function renderTicketsClient(appContent) {
   };
 
   let targetCommerce = window.activeAdminComercio || localStorage.getItem('selectedComercio') || null;
-  if (!targetCommerce && userComercio && userComercio !== 'no asignado' && userComercio !== 'all') {
+  if (!targetCommerce && commerceList.length > 0) {
+    targetCommerce = commerceList[0];
+  } else if (!targetCommerce && userComercio && userComercio !== 'no asignado' && userComercio !== 'all') {
     targetCommerce = userComercio.split(',')[0].trim();
   }
 
@@ -257,7 +262,6 @@ export async function renderTicketsClient(appContent) {
       let query = supabase
         .from('tickets')
         .select('*')
-        .eq('user_id', userId)
         .order('updated_at', { ascending: false });
 
       if (statusFilter !== 'todos') {
@@ -267,13 +271,41 @@ export async function renderTicketsClient(appContent) {
         query = query.eq('category', categoryFilter);
       }
 
-      const { data: tickets, error } = await query;
+      // Filtrar a nivel de base de datos según los comercios asignados al usuario
+      if (userComercio !== 'all') {
+        if (commerceList.length === 1) {
+          query = query.or(`comercio.eq.${commerceList[0]},comercio.ilike.%${commerceList[0]}%`);
+        } else if (commerceList.length > 1) {
+          const orFilter = commerceList.map(c => `comercio.eq.${c},comercio.ilike.%${c}%`).join(',');
+          query = query.or(orFilter);
+        } else {
+          // Usuario sin comercio asignado: solo sus tickets personales sin comercio
+          query = query.eq('user_id', userId).eq('comercio', 'no asignado');
+        }
+      }
+
+      const { data: rawTickets, error } = await query;
       if (error) throw error;
+
+      let tickets = rawTickets || [];
+
+      // Filtro estricto de seguridad en memoria para garantizar aislamiento total
+      if (userComercio !== 'all') {
+        const allowedLower = commerceList.map(c => c.toLowerCase());
+        tickets = tickets.filter(t => {
+          if (!t.comercio || t.comercio === 'no asignado') {
+            return t.user_id === userId && commerceList.length === 0;
+          }
+          const tCommerces = t.comercio.split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+          return tCommerces.some(tc => allowedLower.includes(tc));
+        });
+      }
 
       // Filtrar por texto en frontend si es necesario
       const filteredTickets = tickets.filter(t => 
-        t.subject.toLowerCase().includes(searchTerm) || 
-        t.id.substring(0, 8).toLowerCase().includes(searchTerm)
+        (t.subject && t.subject.toLowerCase().includes(searchTerm)) || 
+        (t.id && t.id.substring(0, 8).toLowerCase().includes(searchTerm)) ||
+        (t.comercio && t.comercio.toLowerCase().includes(searchTerm))
       );
 
       if (filteredTickets.length === 0) {
@@ -355,6 +387,15 @@ export async function renderTicketsClient(appContent) {
               <input type="text" id="ticket-subject" class="form-input" placeholder="Ej. Retraso en despacho pedido #3384 o Dudas en facturación mayo" required>
             </div>
 
+            ${commerceList.length > 1 ? `
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 500;">Comercio Asociado</label>
+              <select id="ticket-commerce" class="form-input" required>
+                ${commerceList.map(c => `<option value="${escapeHtmlAttr(c)}" ${c === targetCommerce ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+              </select>
+            </div>
+            ` : ''}
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
               <div class="form-group">
                 <label class="form-label" style="font-weight: 500;">Categoría</label>
@@ -416,13 +457,23 @@ export async function renderTicketsClient(appContent) {
     const orderId = document.getElementById('ticket-order-ref').value.trim();
     const description = document.getElementById('ticket-desc').value.trim();
 
+    let selectedCommerce = targetCommerce;
+    const selectEl = document.getElementById('ticket-commerce');
+    if (selectEl && selectEl.value) {
+      selectedCommerce = selectEl.value;
+    } else if (commerceList.length > 0) {
+      selectedCommerce = commerceList[0];
+    } else {
+      selectedCommerce = userComercio || 'no asignado';
+    }
+
     try {
       // 1. Insertar el ticket
       const { data: ticket, error: ticketError } = await supabase
         .from('tickets')
         .insert({
           user_id: userId,
-          comercio: userComercio,
+          comercio: selectedCommerce,
           subject: subject,
           category: category,
           priority: priority,
@@ -475,6 +526,33 @@ export async function renderTicketsClient(appContent) {
         .single();
 
       if (ticketError) throw ticketError;
+
+      // Validación de aislamiento multitenant: asegurar que el ticket pertenezca al comercio del usuario
+      if (userComercio !== 'all') {
+        const allowedLower = commerceList.map(c => c.toLowerCase());
+        const tCommerces = (ticket.comercio || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+        const hasAccess = tCommerces.some(tc => allowedLower.includes(tc)) || 
+                          (ticket.user_id === userId && commerceList.length === 0);
+
+        if (!hasAccess) {
+          appContent.innerHTML = `
+            <div class="card" style="max-width: 600px; margin: 3rem auto; padding: 2.5rem; text-align: center;">
+              <div style="width: 64px; height: 64px; background: rgba(239, 68, 68, 0.1); color: var(--color-danger); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem auto; font-size: 2rem;">
+                <i class="ri-lock-2-line"></i>
+              </div>
+              <h3 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--color-text-main);">Acceso no autorizado</h3>
+              <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                Este caso de soporte pertenece a otro comercio (${escapeHtml(ticket.comercio || 'otro')}) y no corresponde a tu cuenta actual.
+              </p>
+              <button id="btn-back-unauthorized" class="btn btn-primary">
+                <i class="ri-arrow-left-line" style="margin-right: 0.25rem;"></i> Volver a Mis Tickets
+              </button>
+            </div>
+          `;
+          document.getElementById('btn-back-unauthorized')?.addEventListener('click', showTicketList);
+          return;
+        }
+      }
 
       const cat = CATEGORIES[ticket.category] || { label: ticket.category, icon: 'ri-question-line', color: 'var(--color-text-muted)' };
       const assignedName = ticket.assigned?.full_name || 'Sin Asignar (Equipo de Operaciones)';

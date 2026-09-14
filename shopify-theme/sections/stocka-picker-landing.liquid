@@ -1,0 +1,2144 @@
+{%- comment -%}
+  Stocka Picker App & Hardware Dedicated Landing Page
+  Showcases smart warehouse picking app, strict SKU barcode verification,
+  real-time modified order alerts, workstation console, hardware compatibility,
+  comparison vs paper picking, and interactive demo request.
+{%- endcomment -%}
+
+<style>
+  :root {
+    --picker-primary: #5c24ff;
+    --picker-primary-light: #7c4dff;
+    --picker-primary-dark: #4314c7;
+    --picker-accent: #06d6a0;
+    --picker-accent-hover: #05b888;
+    --picker-warning: #f59e0b;
+    --picker-danger: #ef4444;
+    --picker-bg-dark: #0a0e1a;
+    --picker-card-dark: #121829;
+    --picker-border-dark: #1e293b;
+    --picker-text-main: #f8fafc;
+    --picker-text-muted: #94a3b8;
+  }
+
+  .stocka-picker-wrapper {
+    font-family: inherit;
+    color: #0f172a;
+    background: #ffffff;
+    overflow-x: hidden;
+  }
+
+  .stocka-picker-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+    box-sizing: border-box;
+  }
+  @media (min-width: 1024px) {
+    .stocka-picker-container {
+      padding: 0 2rem;
+    }
+  }
+
+  /* ========================================================
+     1. HERO SECTION (Dark Tech SaaS Glow)
+     ======================================================== */
+  .stocka-picker-hero {
+    background: radial-gradient(circle at 50% -20%, rgba(92, 36, 255, 0.4) 0%, rgba(10, 14, 26, 0.98) 70%, #0a0e1a 100%);
+    color: #ffffff;
+    padding: 5rem 0 4.5rem 0;
+    position: relative;
+    border-bottom: 1px solid #1e293b;
+  }
+  .stocka-picker-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    color: #ffffff;
+    box-shadow: 0 4px 20px rgba(92, 36, 255, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+  }
+  .stocka-picker-hero-badge svg {
+    color: #06d6a0;
+    filter: drop-shadow(0 0 6px rgba(6, 214, 160, 0.7));
+  }
+  .stocka-picker-hero-title {
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.16;
+    letter-spacing: -0.02em;
+    color: #ffffff;
+    max-width: 950px;
+    margin: 0 auto 1.25rem auto;
+    text-align: center;
+  }
+  @media (min-width: 768px) {
+    .stocka-picker-hero-title {
+      font-size: 3.25rem;
+    }
+  }
+  .stocka-picker-hero-title span {
+    background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stocka-picker-hero-desc {
+    font-size: 1.05rem;
+    color: #cbd5e1;
+    max-width: 780px;
+    margin: 0 auto 2.25rem auto;
+    text-align: center;
+    line-height: 1.65;
+  }
+  @media (min-width: 768px) {
+    .stocka-picker-hero-desc {
+      font-size: 1.18rem;
+    }
+  }
+
+  .stocka-picker-hero-ctas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+  .stocka-picker-btn-primary {
+    background: linear-gradient(135deg, #5c24ff 0%, #4314c7 100%);
+    color: #ffffff !important;
+    padding: 1rem 2rem;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 600;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.5);
+    transition: all 0.25s ease;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .stocka-picker-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 35px -5px rgba(92, 36, 255, 0.65);
+    background: linear-gradient(135deg, #6d38ff 0%, #4f1ce0 100%);
+  }
+  .stocka-picker-btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc !important;
+    padding: 1rem 1.75rem;
+    border-radius: 14px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.18);
+    transition: all 0.2s ease;
+    backdrop-filter: blur(8px);
+  }
+  .stocka-picker-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.35);
+    transform: translateY(-2px);
+  }
+
+  .stocka-picker-hero-badges-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .stocka-picker-hero-badge-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .stocka-picker-hero-badge-item svg {
+    color: #06d6a0;
+  }
+
+  /* Hero Showcase Visual Composition */
+  .stocka-picker-hero-visual {
+    margin-top: 3.5rem;
+    position: relative;
+    max-width: 1100px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .stocka-picker-visual-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    align-items: center;
+  }
+  @media (min-width: 900px) {
+    .stocka-picker-visual-grid {
+      grid-template-columns: 1.15fr 0.85fr;
+    }
+  }
+
+  .stocka-picker-scanner-card {
+    background: radial-gradient(circle at 30% 20%, rgba(92, 36, 255, 0.18) 0%, rgba(18, 24, 41, 0.88) 60%, #0d1222 100%);
+    border-radius: 26px;
+    padding: 1.75rem;
+    border: 1.5px solid rgba(255, 255, 255, 0.14);
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(92, 36, 255, 0.25);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  @media (max-width: 640px) {
+    .stocka-picker-scanner-card {
+      padding: 1.25rem;
+      border-radius: 20px;
+    }
+  }
+  .stocka-picker-scanner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.85rem;
+  }
+  .stocka-picker-scanner-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #f8fafc;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .stocka-picker-scanner-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #06d6a0;
+    box-shadow: 0 0 10px #06d6a0;
+    animation: pickerDotPulse 1.8s infinite ease-in-out;
+  }
+  @keyframes pickerDotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.85); }
+  }
+  .stocka-picker-scanner-badge {
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    background: rgba(92, 36, 255, 0.22);
+    color: #c4b5fd;
+    border: 1px solid rgba(167, 139, 250, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  /* Scanner Stage (Viewfinder / Reticle) */
+  .stocka-picker-scanner-stage {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 1.5rem 1rem;
+    background: radial-gradient(circle at center, rgba(92, 36, 255, 0.15) 0%, rgba(15, 23, 42, 0.65) 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    position: relative;
+    min-height: 190px;
+  }
+  .stocka-picker-scanner-gif {
+    max-width: 100%;
+    width: 290px;
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.5));
+  }
+  .reticle-tl, .reticle-tr, .reticle-bl, .reticle-br {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: rgba(167, 139, 250, 0.7);
+    pointer-events: none;
+  }
+  .reticle-tl { top: 10px; left: 10px; border-top: 2px solid; border-left: 2px solid; }
+  .reticle-tr { top: 10px; right: 10px; border-top: 2px solid; border-right: 2px solid; }
+  .reticle-bl { bottom: 10px; left: 10px; border-bottom: 2px solid; border-left: 2px solid; }
+  .reticle-br { bottom: 10px; right: 10px; border-bottom: 2px solid; border-right: 2px solid; }
+
+  /* Feedback box */
+  .stocka-picker-scanner-feedback {
+    background: rgba(15, 23, 42, 0.88);
+    border-radius: 14px;
+    border: 1.5px solid rgba(6, 214, 160, 0.35);
+    padding: 0.85rem 1.15rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.85rem;
+    box-shadow: 0 4px 15px rgba(6, 214, 160, 0.1);
+  }
+  .stocka-picker-feedback-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    overflow: hidden;
+  }
+  .stocka-picker-feedback-check {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: rgba(6, 214, 160, 0.15);
+    color: #06d6a0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    font-weight: 900;
+    border: 1px solid rgba(6, 214, 160, 0.4);
+    flex-shrink: 0;
+  }
+  .stocka-picker-feedback-text {
+    overflow: hidden;
+  }
+  .stocka-picker-feedback-sku {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    line-height: 1.2;
+    font-family: monospace;
+    font-weight: 600;
+  }
+  .stocka-picker-feedback-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stocka-picker-feedback-match {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #06d6a0;
+    background: rgba(6, 214, 160, 0.12);
+    border: 1px solid rgba(6, 214, 160, 0.4);
+    padding: 0.3rem 0.65rem;
+    border-radius: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  /* Scanner Chips / Metrics */
+  .stocka-picker-scanner-chips {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.65rem;
+  }
+  .stocka-picker-chip-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 0.65rem 0.5rem;
+    text-align: center;
+  }
+  .chip-val {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 800;
+    color: #f8fafc;
+    margin-bottom: 0.15rem;
+  }
+  .chip-lbl {
+    display: block;
+    font-size: 0.68rem;
+    color: #94a3b8;
+    line-height: 1.2;
+  }
+
+  .stocka-picker-card-mobile-wrap {
+    display: flex;
+    justify-content: center;
+    position: relative;
+  }
+  .stocka-picker-card-mobile {
+    max-width: 320px;
+    width: 100%;
+    background: #0f172a;
+    border-radius: 36px;
+    padding: 10px;
+    border: 3px solid #334155;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 35px rgba(6, 214, 160, 0.25);
+    position: relative;
+  }
+  .stocka-picker-card-mobile img {
+    width: 100%;
+    height: auto;
+    border-radius: 28px;
+    display: block;
+  }
+  .stocka-picker-floating-pill {
+    position: absolute;
+    bottom: -15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    border: 1.5px solid #06d6a0;
+    color: #ffffff;
+    padding: 6px 16px;
+    border-radius: 9999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
+  }
+  .stocka-picker-floating-pill span.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #06d6a0;
+    display: inline-block;
+    box-shadow: 0 0 8px #06d6a0;
+  }
+
+  /* ========================================================
+     2. OPERATIONAL KPIS RIBBON
+     ======================================================== */
+  .stocka-picker-kpis-sec {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 3rem 0;
+  }
+  .stocka-picker-kpis-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-picker-kpis-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  .stocka-picker-kpi-item {
+    text-align: center;
+    padding: 1.25rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }
+  .stocka-picker-kpi-item:hover {
+    transform: translateY(-3px);
+    border-color: rgba(92, 36, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .stocka-picker-kpi-val {
+    font-size: 2.25rem;
+    font-weight: 900;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.35rem;
+  }
+  .stocka-picker-kpi-label {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 0.25rem;
+  }
+  .stocka-picker-kpi-sub {
+    font-size: 0.76rem;
+    color: #94a3b8;
+    line-height: 1.35;
+  }
+  .stocka-picker-kpis-disclaimer {
+    margin-top: 1.75rem;
+    display: flex;
+    justify-content: center;
+  }
+  .stocka-picker-disclaimer-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.6rem 1.35rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+    max-width: 950px;
+    box-sizing: border-box;
+    backdrop-filter: blur(8px);
+  }
+  @media (max-width: 640px) {
+    .stocka-picker-disclaimer-inner {
+      border-radius: 14px;
+      padding: 0.75rem 1rem;
+      align-items: flex-start;
+    }
+  }
+  .stocka-picker-disclaimer-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a78bfa;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .stocka-picker-disclaimer-text {
+    margin: 0;
+    font-size: 0.76rem;
+    color: #94a3b8;
+    line-height: 1.45;
+    text-align: center;
+  }
+  @media (max-width: 640px) {
+    .stocka-picker-disclaimer-text {
+      text-align: left;
+    }
+  }
+  .stocka-picker-disclaimer-text span.prefix {
+    color: #c4b5fd;
+    font-weight: 700;
+  }
+  .stocka-picker-disclaimer-text strong {
+    color: #f8fafc;
+    font-weight: 700;
+  }
+
+  /* ========================================================
+     3. 5 CORE MODULES SHOWCASE (INTERACTIVE TABS)
+     ======================================================== */
+  .stocka-picker-modules-sec {
+    padding: 5.5rem 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-picker-sec-header {
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto 3rem auto;
+  }
+  .stocka-picker-sec-tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #5c24ff;
+    text-transform: uppercase;
+    background: #f3f0ff;
+    padding: 0.35rem 0.85rem;
+    border-radius: 9999px;
+    margin-bottom: 0.85rem;
+    border: 1px solid #e9d5ff;
+  }
+  .stocka-picker-sec-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    margin-bottom: 1rem;
+  }
+  @media (min-width: 768px) {
+    .stocka-picker-sec-title {
+      font-size: 2.75rem;
+    }
+  }
+  .stocka-picker-sec-desc {
+    font-size: 1.05rem;
+    color: #475569;
+    line-height: 1.6;
+  }
+
+  /* Tabs Navigation Strip */
+  .stocka-picker-tabs-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0.5rem;
+    background: #f1f5f9;
+    border-radius: 16px;
+    margin-bottom: 2.5rem;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .stocka-picker-tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .stocka-picker-tab-btn {
+    flex: 1 0 auto;
+    text-align: center;
+    padding: 0.85rem 1.25rem;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #475569;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .stocka-picker-tab-btn:hover {
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.6);
+  }
+  .stocka-picker-tab-btn.active {
+    background: #ffffff;
+    color: #5c24ff;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  }
+  .stocka-picker-tab-btn.active .tab-num {
+    background: #5c24ff;
+    color: #ffffff;
+  }
+  .tab-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+
+  /* Tab Panels */
+  .stocka-picker-panel {
+    display: none;
+    animation: pickerFadeIn 0.3s ease;
+  }
+  .stocka-picker-panel.active {
+    display: block;
+  }
+  @keyframes pickerFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stocka-picker-panel-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: 0 15px 35px -10px rgba(15, 23, 42, 0.06);
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 992px) {
+    .stocka-picker-panel-card {
+      grid-template-columns: 1fr 1fr;
+      padding: 3rem;
+    }
+  }
+
+  .stocka-picker-panel-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .stocka-picker-panel-badge {
+    align-self: flex-start;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    text-transform: uppercase;
+  }
+  .badge-strict {
+    background: #ecfdf5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
+  }
+  .badge-alert {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+  }
+  .badge-station {
+    background: #f5f3ff;
+    color: #5c24ff;
+    border: 1px solid #ddd6fe;
+  }
+  .badge-courier {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+  }
+  .badge-sla {
+    background: #fffbeb;
+    color: #d97706;
+    border: 1px solid #fde68a;
+  }
+
+  .stocka-picker-panel-title {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.25;
+    margin: 0;
+  }
+  @media (min-width: 768px) {
+    .stocka-picker-panel-title {
+      font-size: 2rem;
+    }
+  }
+  .stocka-picker-panel-desc {
+    font-size: 0.98rem;
+    color: #475569;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .stocka-picker-panel-features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .stocka-picker-panel-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    font-size: 0.92rem;
+    color: #1e293b;
+    line-height: 1.45;
+  }
+  .stocka-picker-feat-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #f0fdf4;
+    color: #16a34a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+    border: 1px solid #bbf7d0;
+    font-size: 0.75rem;
+    font-weight: 800;
+  }
+
+  .stocka-picker-panel-media {
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0f172a;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 12px 30px -5px rgba(15, 23, 42, 0.12);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+  }
+  .stocka-picker-panel-media img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: contain;
+    max-height: 480px;
+    background: #0f172a;
+  }
+  .stocka-picker-media-mobile {
+    max-width: 320px;
+    margin: 0 auto;
+    border-radius: 28px;
+    border: 3px solid #334155;
+  }
+
+  /* ========================================================
+     4. HARDWARE COMPATIBILITY (Zero Vendor Lock-in)
+     ======================================================== */
+  .stocka-picker-hardware-sec {
+    padding: 5.5rem 0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-picker-hw-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  @media (min-width: 640px) {
+    .stocka-picker-hw-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (min-width: 1024px) {
+    .stocka-picker-hw-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  .stocka-picker-hw-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 1.75rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .stocka-picker-hw-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 15px 30px -5px rgba(15, 23, 42, 0.08);
+    border-color: #cbd5e1;
+  }
+  .stocka-picker-hw-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: #f5f3ff;
+    color: #5c24ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    border: 1px solid #ddd6fe;
+  }
+  .stocka-picker-hw-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+    margin: 0;
+  }
+  .stocka-picker-hw-desc {
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .stocka-picker-hw-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #059669;
+    background: #ecfdf5;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    display: inline-block;
+    align-self: flex-start;
+    border: 1px solid #a7f3d0;
+  }
+
+  /* ========================================================
+     5. COMPARISON: PAPER PICKING VS STOCKA PICKER
+     ======================================================== */
+  .stocka-picker-comp-sec {
+    padding: 5.5rem 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-picker-comp-table-wrap {
+    overflow-x: auto;
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.06);
+  }
+  .stocka-picker-comp-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 680px;
+  }
+  .stocka-picker-comp-table th {
+    padding: 1.25rem 1.5rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .stocka-picker-comp-table th.th-picker {
+    background: #f5f3ff;
+    color: #5c24ff;
+    border-top: 3px solid #5c24ff;
+  }
+  .stocka-picker-comp-table td {
+    padding: 1.15rem 1.5rem;
+    font-size: 0.92rem;
+    color: #334155;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+  }
+  .stocka-picker-comp-table tr:last-child td {
+    border-bottom: none;
+  }
+  .stocka-picker-comp-highlight {
+    background: #faf8ff;
+  }
+  .stocka-picker-comp-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+  .stocka-picker-comp-badge.pos {
+    background: #dcfce7;
+    color: #16a34a;
+    border: 1px solid #86efac;
+  }
+  .stocka-picker-comp-badge.neg {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+  }
+  .stocka-picker-comp-point {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  /* ========================================================
+     6. DUAL BUSINESS MODEL (Fulfillment vs SaaS Bodega Propia)
+     ======================================================== */
+  .stocka-picker-dual-sec {
+    padding: 5.5rem 0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .stocka-picker-dual-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  @media (min-width: 860px) {
+    .stocka-picker-dual-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .stocka-picker-dual-card {
+    background: #ffffff;
+    border-radius: 22px;
+    padding: 2.5rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.05);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .stocka-picker-dual-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.1);
+  }
+  .stocka-picker-dual-card.featured {
+    border: 2px solid #5c24ff;
+    position: relative;
+  }
+  .stocka-picker-dual-tag {
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    padding: 0.3rem 0.75rem;
+    border-radius: 9999px;
+    display: inline-block;
+    align-self: flex-start;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+  }
+  .stocka-picker-dual-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.25;
+    margin-bottom: 0.85rem;
+  }
+  .stocka-picker-dual-desc {
+    font-size: 0.95rem;
+    color: #64748b;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .stocka-picker-dual-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 2rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .stocka-picker-dual-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    font-size: 0.9rem;
+    color: #334155;
+    line-height: 1.4;
+  }
+  .stocka-picker-dual-check {
+    color: #5c24ff;
+    font-weight: 900;
+  }
+
+  /* ========================================================
+     7. LEAD & DEMO FORM (Dark Premium Container)
+     ======================================================== */
+  .stocka-picker-form-sec {
+    padding: 5.5rem 0;
+    background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e1a 100%);
+    color: #ffffff;
+    position: relative;
+    border-bottom: 1px solid #1e293b;
+  }
+  .stocka-picker-form-card {
+    max-width: 680px;
+    margin: 0 auto;
+    background: rgba(18, 24, 41, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    padding: 2.5rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  @media (max-width: 640px) {
+    .stocka-picker-form-card {
+      padding: 1.5rem;
+    }
+  }
+  .stocka-picker-form-group {
+    margin-bottom: 1.25rem;
+  }
+  .stocka-picker-form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 0.4rem;
+  }
+  .stocka-picker-form-control {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+    outline: none;
+    transition: all 0.2s ease;
+  }
+  .stocka-picker-form-control:focus {
+    border-color: #5c24ff;
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 3px rgba(92, 36, 255, 0.3);
+  }
+  .stocka-picker-form-control::placeholder {
+    color: #64748b;
+  }
+  .stocka-picker-form-select {
+    cursor: pointer;
+  }
+  .stocka-picker-form-select option {
+    background: #0f172a;
+    color: #ffffff;
+  }
+
+  /* ========================================================
+     8. FAQ ACCORDION
+     ======================================================== */
+  .stocka-picker-faq-sec {
+    padding: 5.5rem 0;
+    background: #ffffff;
+  }
+  .stocka-picker-faq-accordion {
+    max-width: 820px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .stocka-picker-faq-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    transition: border-color 0.2s ease;
+  }
+  .stocka-picker-faq-item.active {
+    border-color: #cbd5e1;
+    background: #ffffff;
+    box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+  }
+  .stocka-picker-faq-q {
+    width: 100%;
+    text-align: left;
+    padding: 1.25rem 1.5rem;
+    background: transparent;
+    border: none;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #0f172a;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .stocka-picker-faq-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+  }
+  .stocka-picker-faq-item.active .stocka-picker-faq-icon {
+    transform: rotate(45deg);
+    background: #5c24ff;
+    color: #ffffff;
+  }
+  .stocka-picker-faq-a {
+    display: none;
+    padding: 0 1.5rem 1.5rem 1.5rem;
+    font-size: 0.95rem;
+    color: #475569;
+    line-height: 1.65;
+  }
+  .stocka-picker-faq-item.active .stocka-picker-faq-a {
+    display: block;
+  }
+
+  /* ========================================================
+     9. WORKER FAST ACCESS BOTTOM BANNER
+     ======================================================== */
+  .stocka-picker-worker-bar {
+    background: #0f172a;
+    padding: 1.25rem 0;
+    border-top: 1px solid #1e293b;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #94a3b8;
+  }
+  .stocka-picker-worker-bar a {
+    color: #38bdf8;
+    font-weight: 700;
+    text-decoration: underline;
+    margin-left: 0.35rem;
+  }
+  .stocka-picker-worker-bar a:hover {
+    color: #ffffff;
+  }
+</style>
+
+<div class="stocka-picker-wrapper">
+
+  <!-- ========================================================
+       1. HERO SECTION
+       ======================================================== -->
+  <section class="stocka-picker-hero">
+    <div class="stocka-picker-container">
+      
+      <div style="text-align: center;">
+        <div class="stocka-picker-hero-badge">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+          <span>App Móvil & Consola de Bodega</span>
+        </div>
+
+        <h1 class="stocka-picker-hero-title">
+          Stocka Picker: <span>Cero errores</span> en la preparación y despacho de tus pedidos
+        </h1>
+
+        <p class="stocka-picker-hero-desc">
+          Digitaliza la operación en el suelo de tu bodega. Transforma cualquier smartphone, tablet o terminal PDA en una herramienta inteligente de picking con escaneo de código de barras, confirmación visual por foto y sincronización instantánea con el WMS.
+        </p>
+
+        <div class="stocka-picker-hero-ctas">
+          <a href="#picker-demo-section" class="stocka-picker-btn-primary">
+            <span>Solicitar Demo del Picker 🚀</span>
+          </a>
+          <a href="https://picker-stocka.netlify.app/" target="_blank" rel="noopener" class="stocka-picker-btn-secondary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14L21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+            <span>Acceso Operarios (picker-stocka.netlify.app)</span>
+          </a>
+        </div>
+
+        <div class="stocka-picker-hero-badges-row">
+          <div class="stocka-picker-hero-badge-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Escaneo Láser 1D / 2D</span>
+          </div>
+          <div class="stocka-picker-hero-badge-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Sincronización en 120ms con WMS</span>
+          </div>
+          <div class="stocka-picker-hero-badge-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Compatible Android e iOS</span>
+          </div>
+          <div class="stocka-picker-hero-badge-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Zero Hardware Lock-in</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Visual Showcase Composition -->
+      <div class="stocka-picker-hero-visual">
+        <div class="stocka-picker-visual-grid">
+          
+          <!-- Smart Scanner Live Station Card -->
+          <div class="stocka-picker-scanner-card">
+            
+            <div class="stocka-picker-scanner-header">
+              <div class="stocka-picker-scanner-status">
+                <span class="stocka-picker-scanner-dot"></span>
+                <span>Escáner Láser Activo</span>
+              </div>
+              <span class="stocka-picker-scanner-badge">Modo Bluetooth HID / USB</span>
+            </div>
+
+            <div class="stocka-picker-scanner-stage">
+              <div class="reticle-tl"></div>
+              <div class="reticle-tr"></div>
+              <div class="reticle-bl"></div>
+              <div class="reticle-br"></div>
+              <img 
+                src="{{ 'stocka-picker-scan.gif' | asset_url }}" 
+                alt="Pistola Lectora Escaneando Código de Barras Stocka Picker"
+                loading="eager"
+                width="300"
+                height="200"
+                class="stocka-picker-scanner-gif"
+              >
+            </div>
+
+            <!-- Live Decoded SKU Feedback Box -->
+            <div class="stocka-picker-scanner-feedback">
+              <div class="stocka-picker-feedback-left">
+                <div class="stocka-picker-feedback-check">✓</div>
+                <div class="stocka-picker-feedback-text">
+                  <div class="stocka-picker-feedback-sku">EAN / SKU: 7804653821073</div>
+                  <div class="stocka-picker-feedback-name">Máscara Total Restore (pomo) - 200 ml</div>
+                </div>
+              </div>
+              <div class="stocka-picker-feedback-match">Match 100%</div>
+            </div>
+
+            <!-- Operational Badges Row -->
+            <div class="stocka-picker-scanner-chips">
+              <div class="stocka-picker-chip-item">
+                <span class="chip-val">&lt; 0.1s</span>
+                <span class="chip-lbl">Lectura Láser</span>
+              </div>
+              <div class="stocka-picker-chip-item">
+                <span class="chip-val">1D / 2D / QR</span>
+                <span class="chip-lbl">Compatibilidad</span>
+              </div>
+              <div class="stocka-picker-chip-item">
+                <span class="chip-val">100% Sin Error</span>
+                <span class="chip-lbl">Validación Estricta</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Mobile App Mockup -->
+          <div class="stocka-picker-card-mobile-wrap">
+            <div class="stocka-picker-card-mobile">
+              <img 
+                src="{{ 'stocka-picker-mobile-completado.png' | asset_url }}" 
+                alt="Stocka Picker App Móvil en iPhone Pedido 100% Completado"
+                loading="eager"
+                width="600"
+                height="1200"
+              >
+              <div class="stocka-picker-floating-pill">
+                <span class="dot"></span>
+                <span>Validación Estricta SKU 100%</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       2. OPERATIONAL KPIS RIBBON
+       ======================================================== -->
+  <section class="stocka-picker-kpis-sec">
+    <div class="stocka-picker-container">
+      <div class="stocka-picker-kpis-grid">
+        
+        <div class="stocka-picker-kpi-item">
+          <div class="stocka-picker-kpi-val">99.98%</div>
+          <div class="stocka-picker-kpi-label">Precisión Operativa</div>
+          <div class="stocka-picker-kpi-sub">Validación obligatoria de SKU/EAN antes de permitir el empaque.</div>
+        </div>
+
+        <div class="stocka-picker-kpi-item">
+          <div class="stocka-picker-kpi-val">3.5x</div>
+          <div class="stocka-picker-kpi-label">Mayor Velocidad</div>
+          <div class="stocka-picker-kpi-sub">Rutas de pasillo guiadas y adiós definitivo a planillas impresas.</div>
+        </div>
+
+        <div class="stocka-picker-kpi-item">
+          <div class="stocka-picker-kpi-val">0%</div>
+          <div class="stocka-picker-kpi-label">Despachos Erróneos</div>
+          <div class="stocka-picker-kpi-sub">Alerta en pantalla si un cliente editó o canceló en Shopify o MeLi.</div>
+        </div>
+
+        <div class="stocka-picker-kpi-item">
+          <div class="stocka-picker-kpi-val">&lt; 15 min</div>
+          <div class="stocka-picker-kpi-label">Curva de Aprendizaje</div>
+          <div class="stocka-picker-kpi-sub">Cualquier operario nuevo empieza a pickear desde su primer turno.</div>
+        </div>
+
+      </div>
+
+      <!-- Operational Requisite Disclaimer -->
+      <div class="stocka-picker-kpis-disclaimer">
+        <div class="stocka-picker-disclaimer-inner">
+          <span class="stocka-picker-disclaimer-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+          </span>
+          <p class="stocka-picker-disclaimer-text">
+            <span class="prefix">* Nota técnica:</span> Estas métricas operativas aplican a comercios que cuenten con el <strong>100% de su inventario rotulado y codificado correctamente</strong> con su respectivo SKU y código de barras (EAN/UPC).
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       3. 5 CORE MODULES SHOWCASE (INTERACTIVE TABS)
+       ======================================================== -->
+  <section class="stocka-picker-modules-sec" id="modulos-picker">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag">TECNOLOGÍA EN SUELO DE BODEGA</span>
+        <h2 class="stocka-picker-sec-title">5 Funcionalidades clave diseñadas para operarios</h2>
+        <p class="stocka-picker-sec-desc">
+          Desde el escaneo del código de barras hasta la entrega al courier: cada pantalla resuelve un problema real de la preparación de pedidos.
+        </p>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="stocka-picker-tabs-nav" id="stocka-picker-tabs-nav">
+        <button type="button" class="stocka-picker-tab-btn active" data-target="picker-tab-1">
+          <span class="tab-num">01</span>
+          <span>Validación Estricta SKU</span>
+        </button>
+        <button type="button" class="stocka-picker-tab-btn" data-target="picker-tab-2">
+          <span class="tab-num">02</span>
+          <span>Alerta Pedido Modificado</span>
+        </button>
+        <button type="button" class="stocka-picker-tab-btn" data-target="picker-tab-3">
+          <span class="tab-num">03</span>
+          <span>Consola de Estación</span>
+        </button>
+        <button type="button" class="stocka-picker-tab-btn" data-target="picker-tab-4">
+          <span class="tab-num">04</span>
+          <span>Búsqueda por Tracking</span>
+        </button>
+        <button type="button" class="stocka-picker-tab-btn" data-target="picker-tab-5">
+          <span class="tab-num">05</span>
+          <span>Pick Lists & SLAs</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: Validación Estricta -->
+      <div class="stocka-picker-panel active" id="picker-tab-1">
+        <div class="stocka-picker-panel-card">
+          <div class="stocka-picker-panel-info">
+            <span class="stocka-picker-panel-badge badge-strict">Validación Forzada</span>
+            <h3 class="stocka-picker-panel-title">Escaneo obligatorio por SKU con foto y progreso en vivo</h3>
+            <p class="stocka-picker-panel-desc">
+              La app Stocka Picker no permite avanzar a ciegas. Cada producto debe ser verificado escaneando su código de barras original. Si el operario intenta ingresar una talla o color equivocado, el sistema emite una señal sonora y bloquea el registro.
+            </p>
+            <ul class="stocka-picker-panel-features">
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Confirmación visual fotográfica:</strong> El operario ve la imagen real del producto para evitar confusiones de empaque.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Conteo de unidades dinámico:</strong> Marcado automático paso a paso (ej: <code>✓ 1/1</code>, <code>✓ 3/3</code>) con barra verde al 100%.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Ubicación exacta en estantería:</strong> Muestra la zona asignada (ej: <em>Bodega Principal</em>) para recolectar sin dudar.</div>
+              </li>
+            </ul>
+            <div style="margin-top: 0.5rem;">
+              <a href="#picker-demo-section" class="stocka-picker-btn-primary" style="font-size: 0.9rem; padding: 0.75rem 1.5rem;">
+                <span>Probar esta funcionalidad ➔</span>
+              </a>
+            </div>
+          </div>
+          <div class="stocka-picker-panel-media">
+            <div class="stocka-picker-media-mobile">
+              <img 
+                src="{{ 'stocka-picker-mobile-completado.png' | asset_url }}" 
+                alt="Stocka Picker App Móvil Verificación de SKU"
+                loading="lazy"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Alerta Pedido Modificado -->
+      <div class="stocka-picker-panel" id="picker-tab-2">
+        <div class="stocka-picker-panel-card">
+          <div class="stocka-picker-panel-info">
+            <span class="stocka-picker-panel-badge badge-alert">Cero Despachos Erróneos</span>
+            <h3 class="stocka-picker-panel-title">Detección instantánea de cambios de último minuto en tienda</h3>
+            <p class="stocka-picker-panel-desc">
+              Uno de los mayores dolores del ecommerce: un cliente cambia la talla o agrega un producto en Shopify o Mercado Libre mientras el pedido ya está en bodega. Stocka Picker lo detecta en milisegundos y alerta al operario antes de sellar el paquete.
+            </p>
+            <ul class="stocka-picker-panel-features">
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Banner de advertencia en pantalla:</strong> Notificación roja destacada: <em>⚠️ [MODIFICADO] Pedido editado en WMS</em>.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Revalidación obligatoria de ítems:</strong> Exige confirmar los nuevos productos antes de generar el rótulo de despacho.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Elimina costos de logística inversa:</strong> Ahorra miles de pesos en fletes de devolución por envíos desactualizados.</div>
+              </li>
+            </ul>
+            <div style="margin-top: 0.5rem;">
+              <a href="#picker-demo-section" class="stocka-picker-btn-primary" style="font-size: 0.9rem; padding: 0.75rem 1.5rem;">
+                <span>Solicitar Demostración ➔</span>
+              </a>
+            </div>
+          </div>
+          <div class="stocka-picker-panel-media">
+            <div class="stocka-picker-media-mobile">
+              <img 
+                src="{{ 'stocka-picker-mobile-alerta-modificado.png' | asset_url }}" 
+                alt="Stocka Picker Alerta de Pedido Modificado en Vivo"
+                loading="lazy"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Consola de Estación Desktop -->
+      <div class="stocka-picker-panel" id="picker-tab-3">
+        <div class="stocka-picker-panel-card">
+          <div class="stocka-picker-panel-info">
+            <span class="stocka-picker-panel-badge badge-station">Mesón de Empaque</span>
+            <h3 class="stocka-picker-panel-title">Consola centralizada para monitores y tablets de estación</h3>
+            <p class="stocka-picker-panel-desc">
+              Pensada para mesones de preparación en bodegas con alto volumen de pedidos diarios (ej: Sucursal Ñuñoa). Permite a los jefes de turno y operarios de mesón supervisar la cola completa, buscar órdenes y despachar a máxima velocidad.
+            </p>
+            <ul class="stocka-picker-panel-features">
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Control de cola en tiempo real:</strong> Filtra decenas de pedidos simultáneos en preparación con un solo clic.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Buscador universal de SKU / Barras:</strong> Permite ingresar códigos por teclado o pistola de sobremesa fija.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Soporte multi-sucursal:</strong> Cambia de sucursal o centro de distribución al instante según la estación física.</div>
+              </li>
+            </ul>
+            <div style="margin-top: 0.5rem;">
+              <a href="#picker-demo-section" class="stocka-picker-btn-primary" style="font-size: 0.9rem; padding: 0.75rem 1.5rem;">
+                <span>Ver la Consola en Vivo ➔</span>
+              </a>
+            </div>
+          </div>
+          <div class="stocka-picker-panel-media">
+            <img 
+              src="{{ 'stocka-picker-estacion-desktop.png' | asset_url }}" 
+              alt="Stocka Picker Consola de Estación Desktop"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Búsqueda por Tracking -->
+      <div class="stocka-picker-panel" id="picker-tab-4">
+        <div class="stocka-picker-panel-card">
+          <div class="stocka-picker-panel-info">
+            <span class="stocka-picker-panel-badge badge-courier">Auditoría Rápida</span>
+            <h3 class="stocka-picker-panel-title">Búsqueda exprés escaneando la etiqueta de transporte</h3>
+            <p class="stocka-picker-panel-desc">
+              ¿Llegó el camión del courier o necesitas verificar un bulto ya embalado? Solo apunta la pistola lectora a la etiqueta de envío (Starken, Blue Express, Chilexpress, Mercado Envíos) y la app abrirá el pedido de inmediato.
+            </p>
+            <ul class="stocka-picker-panel-features">
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Disparo láser directo:</strong> Lectura ultra rápida del código de barras o código QR del courier.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Validación previa al despacho:</strong> Comprueba en 1 segundo que el contenido de la caja coincide con la etiqueta pegada.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Cero digitación manual:</strong> Sin necesidad de escribir códigos largos o números de seguimiento a mano.</div>
+              </li>
+            </ul>
+            <div style="margin-top: 0.5rem;">
+              <a href="#picker-demo-section" class="stocka-picker-btn-primary" style="font-size: 0.9rem; padding: 0.75rem 1.5rem;">
+                <span>Conocer Integraciones de Transporte ➔</span>
+              </a>
+            </div>
+          </div>
+          <div class="stocka-picker-panel-media">
+            <img 
+              src="{{ 'stocka-picker-scan-tracking.png' | asset_url }}" 
+              alt="Stocka Picker Escaneo de Etiqueta de Tracking"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 5: Generador de Pick Lists -->
+      <div class="stocka-picker-panel" id="picker-tab-5">
+        <div class="stocka-picker-panel-card">
+          <div class="stocka-picker-panel-info">
+            <span class="stocka-picker-panel-badge badge-sla">Optimización de Rutas</span>
+            <h3 class="stocka-picker-panel-title">Generación masiva de Pick Lists por Courier y SLA</h3>
+            <p class="stocka-picker-panel-desc">
+              Agrupa cientos de pedidos en segundos según la prioridad de retiro. La plataforma consolida las listas de recolección clasificadas por courier (Mercado Envíos Flex, Starken, Alpha) y las ordena alfabéticamente por SKU para recorrer la bodega en una sola pasada.
+            </p>
+            <ul class="stocka-picker-panel-features">
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Cumplimiento estricto de SLA:</strong> Prioriza automáticamente las órdenes Flex con horario de corte apremiante.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Recorrido óptimo por pasillo:</strong> Agrupación alfabética para que el operario no retroceda en sus pasos.</div>
+              </li>
+              <li>
+                <div class="stocka-picker-feat-icon">✓</div>
+                <div><strong>Exportación a PDF en un clic:</strong> Hojas de ruta con resumen de unidades totales y códigos de barra para control.</div>
+              </li>
+            </ul>
+            <div style="margin-top: 0.5rem;">
+              <a href="#picker-demo-section" class="stocka-picker-btn-primary" style="font-size: 0.9rem; padding: 0.75rem 1.5rem;">
+                <span>Probar Generador de Pick Lists ➔</span>
+              </a>
+            </div>
+          </div>
+          <div class="stocka-picker-panel-media">
+            <img 
+              src="{{ 'stocka-picker-generar-picklist.png' | asset_url }}" 
+              alt="Stocka Picker Generador de Pick Lists por Courier"
+              loading="lazy"
+            >
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       4. HARDWARE COMPATIBILITY (Zero Vendor Lock-in)
+       ======================================================== -->
+  <section class="stocka-picker-hardware-sec">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag">COMPATIBILIDAD UNIVERSAL</span>
+        <h2 class="stocka-picker-sec-title">Usa tus dispositivos actuales sin gastar de más</h2>
+        <p class="stocka-picker-sec-desc">
+          Filosofía <em>Zero Vendor Lock-in</em>: Stocka Picker funciona en hardware estándar de mercado. No estás atado a comprar costosos equipos propietarios.
+        </p>
+      </div>
+
+      <div class="stocka-picker-hw-grid">
+        
+        <!-- Smartphones & Tablets -->
+        <div class="stocka-picker-hw-card">
+          <div class="stocka-picker-hw-icon">📱</div>
+          <span class="stocka-picker-hw-tag">Android & iOS</span>
+          <h3 class="stocka-picker-hw-title">Smartphones y Tablets</h3>
+          <p class="stocka-picker-hw-desc">
+            Corre en cualquier celular moderno mediante Progressive Web App (PWA). Cero descargas pesadas en App Store o Play Store.
+          </p>
+        </div>
+
+        <!-- Lectores Bluetooth y USB -->
+        <div class="stocka-picker-hw-card">
+          <div class="stocka-picker-hw-icon">🔫</div>
+          <span class="stocka-picker-hw-tag">Láser 1D & 2D</span>
+          <h3 class="stocka-picker-hw-title">Pistolas Lectoras</h3>
+          <p class="stocka-picker-hw-desc">
+            Empareja cualquier escáner inalámbrico Bluetooth o USB de sobremesa. Escanea directo al campo de búsqueda sin tocar la pantalla.
+          </p>
+        </div>
+
+        <!-- Terminales PDA Industriales -->
+        <div class="stocka-picker-hw-card">
+          <div class="stocka-picker-hw-icon">📟</div>
+          <span class="stocka-picker-hw-tag">Uso Rudo / Rugerizado</span>
+          <h3 class="stocka-picker-hw-title">PDAs Industriales</h3>
+          <p class="stocka-picker-hw-desc">
+            Compatibilidad certificada con terminales de uso rudo Zebra, Honeywell, Sunmi y Datalogic con gatillo físico de lectura.
+          </p>
+        </div>
+
+        <!-- Impresoras Térmicas -->
+        <div class="stocka-picker-hw-card">
+          <div class="stocka-picker-hw-icon">🏷️</div>
+          <span class="stocka-picker-hw-tag">Etiquetado Instantáneo</span>
+          <h3 class="stocka-picker-hw-title">Impresoras Térmicas</h3>
+          <p class="stocka-picker-hw-desc">
+            Impresión al vuelo de etiquetas adhesivas y rótulos de despacho en impresoras térmicas Zebra (ZPL), Brother y Xprinter.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+     5. COMPARISON: PAPER PICKING VS STOCKA PICKER
+     ======================================================== -->
+  <section class="stocka-picker-comp-sec">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag">COMPARATIVA OPERATIVA</span>
+        <h2 class="stocka-picker-sec-title">Picking tradicional en papel vs. Stocka Smart Picker</h2>
+        <p class="stocka-picker-sec-desc">
+          Descubre el salto cuántico en eficiencia, trazabilidad y control de costos al digitalizar a tu equipo de bodega.
+        </p>
+      </div>
+
+      <div class="stocka-picker-comp-table-wrap">
+        <table class="stocka-picker-comp-table">
+          <thead>
+            <tr>
+              <th style="width: 28%;">Variable Operativa</th>
+              <th style="width: 36%;">Picking Tradicional (Papel / Planillas)</th>
+              <th style="width: 36%;" class="th-picker">Stocka Smart Picker App</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Validación de Variante</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>Inspección visual del operario (alta tasa de error)</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>Escaneo forzado:</strong> Bloquea si no coincide la talla/color</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Pedidos Modificados en Tienda</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>El operario empaca la versión vieja impresa</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>Alerta en tiempo real:</strong> Notifica el cambio al instante</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Ruta y Velocidad en Bodega</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>Paseos desordenados por pasillos sin mapa óptimo</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>Orden alfabético de SKU:</strong> Un solo trayecto lineal</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Trazabilidad de Operarios</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>Imposible saber quién armó qué paquete y a qué hora</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>Kardex digital:</strong> Operario, minuto y estado en el WMS</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Capacitación de Nuevos Trabajadores</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>Semanas memorizando códigos y ubicaciones físicas</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>En menos de 15 min:</strong> Guiado por fotos y pantallas</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Inversión en Equipamiento</strong></td>
+              <td>
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge neg">✕</span>
+                  <span>Gasto recurrente en tinta, resmas de papel y carpetas</span>
+                </div>
+              </td>
+              <td class="stocka-picker-comp-highlight">
+                <div class="stocka-picker-comp-point">
+                  <span class="stocka-picker-comp-badge pos">✓</span>
+                  <span><strong>Cero papel:</strong> En cualquier smartphone o tablet</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       6. DUAL BUSINESS MODEL (Fulfillment vs SaaS Bodega Propia)
+       ======================================================== -->
+  <section class="stocka-picker-dual-sec">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag">MODELOS DE ACCESO</span>
+        <h2 class="stocka-picker-sec-title">Dos formas de incorporar Stocka Picker a tu negocio</h2>
+        <p class="stocka-picker-sec-desc">
+          Elige entre delegar tu operación completa o licenciar nuestra tecnología para tu propia infraestructura.
+        </p>
+      </div>
+
+      <div class="stocka-picker-dual-grid">
+        
+        <!-- Opción 1: Fulfillment Stocka -->
+        <div class="stocka-picker-dual-card featured">
+          <div>
+            <span class="stocka-picker-dual-tag" style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;">
+              100% INCLUIDO EN FULFILLMENT
+            </span>
+            <h3 class="stocka-picker-dual-title">Fulfillment 360 con Picker Incluido</h3>
+            <p class="stocka-picker-dual-desc">
+              Almacena tu inventario en nuestras bodegas de Santiago (La Reina, Recoleta y Ñuñoa). Nuestro equipo profesional prepara cada orden con la app Stocka Picker garantizando 0 errores.
+            </p>
+            <ul class="stocka-picker-dual-list">
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Costo de software $0:</strong> La app y el WMS vienen incluidos sin cobro adicional.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Garantía de precisión 99.98%:</strong> Escaneo forzado por SKU en cada despacho.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Despachos el mismo día:</strong> Horario de corte extendido para envíos Same Day.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Integración nativa:</strong> Shopify, Mercado Libre, WooCommerce y más.</span>
+              </li>
+            </ul>
+          </div>
+          <a href="/pages/tarifas#stocka-cotizador-anchor" class="stocka-picker-btn-primary" style="justify-content: center; width: 100%;">
+            <span>Cotizar Servicio de Fulfillment ➔</span>
+          </a>
+        </div>
+
+        <!-- Opción 2: Picker SaaS Dedicado -->
+        <div class="stocka-picker-dual-card">
+          <div>
+            <span class="stocka-picker-dual-tag" style="background: #f5f3ff; color: #5c24ff; border: 1px solid #ddd6fe;">
+              SAAS BODEGA PROPIA
+            </span>
+            <h3 class="stocka-picker-dual-title">Stocka Picker SaaS para tu Bodega</h3>
+            <p class="stocka-picker-dual-desc">
+              ¿Ya cuentas con tu propia bodega física y equipo de operarios? Licencia nuestra app móvil y consola de mesón para digitalizar tu centro logístico en tiempo récord.
+            </p>
+            <ul class="stocka-picker-dual-list">
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>App móvil para tus operarios:</strong> Acceso en smartphones o PDAs de tu equipo.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Consola de mesón para computadores:</strong> Búsqueda rápida por SKU y monitor de órdenes.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Integración con tu ERP o eCommerce:</strong> Conexión mediante API REST y Webhooks.</span>
+              </li>
+              <li>
+                <span class="stocka-picker-dual-check">✓</span>
+                <span><strong>Capacitación y soporte continuo:</strong> Asesoría en optimización de rutas de pasillo.</span>
+              </li>
+            </ul>
+          </div>
+          <a href="#picker-demo-section" class="stocka-picker-btn-secondary" style="background: #0f172a; color: #ffffff !important; justify-content: center; width: 100%; border: none;">
+            <span>Solicitar Demo SaaS ➔</span>
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       7. LEAD & DEMO REQUEST FORM
+       ======================================================== -->
+  <section class="stocka-picker-form-sec" id="picker-demo-section">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag" style="background: rgba(255, 255, 255, 0.15); border: 1.5px solid rgba(255, 255, 255, 0.35); color: #ffffff; box-shadow: 0 4px 15px rgba(92, 36, 255, 0.3);">DEMO EN VIVO</span>
+        <h2 class="stocka-picker-sec-title" style="color: #ffffff !important;">Prueba Stocka Picker en tu operación</h2>
+        <p class="stocka-picker-sec-desc" style="color: #cbd5e1 !important;">
+          Agenda una demostración guiada de 15 minutos con un especialista logístico para ver la app y la consola funcionando en tiempo real.
+        </p>
+      </div>
+
+      <div class="stocka-picker-form-card">
+        <form id="stocka-picker-lead-form">
+          
+          <div class="stocka-picker-form-group">
+            <label for="picker-form-need">¿Qué solución se ajusta a tu modelo? *</label>
+            <select id="picker-form-need" class="stocka-picker-form-control stocka-picker-form-select" required>
+              <option value="Picker SaaS para Bodega Propia">Tengo bodega propia y quiero licenciar el Picker como software SaaS</option>
+              <option value="Fulfillment Stocka con Picker Incluido">Quiero externalizar mi operación con Stocka (Fulfillment + Picker WMS)</option>
+              <option value="Integracion API / Hardware Personalizado">Necesito integración con hardware específico o API a medida</option>
+            </select>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="stocka-picker-form-group">
+              <label for="picker-form-name">Nombre y Apellido *</label>
+              <input type="text" id="picker-form-name" class="stocka-picker-form-control" placeholder="Ej: Marcela Gómez" required>
+            </div>
+            <div class="stocka-picker-form-group">
+              <label for="picker-form-phone">Teléfono / WhatsApp *</label>
+              <input type="tel" id="picker-form-phone" class="stocka-picker-form-control" placeholder="+56 9 1234 5678" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="stocka-picker-form-group">
+              <label for="picker-form-email">Correo Electrónico *</label>
+              <input type="email" id="picker-form-email" class="stocka-picker-form-control" placeholder="nombre@empresa.cl" required>
+            </div>
+            <div class="stocka-picker-form-group">
+              <label for="picker-form-company">Empresa / Marca *</label>
+              <input type="text" id="picker-form-company" class="stocka-picker-form-control" placeholder="Nombre de tu tienda o negocio" required>
+            </div>
+          </div>
+
+          <div class="stocka-picker-form-group">
+            <label for="picker-form-volume">Volumen estimado de pedidos diarios</label>
+            <select id="picker-form-volume" class="stocka-picker-form-control stocka-picker-form-select">
+              <option value="1 a 30 pedidos/dia">1 a 30 pedidos/día</option>
+              <option value="31 a 100 pedidos/dia">31 a 100 pedidos/día</option>
+              <option value="101 a 300 pedidos/dia">101 a 300 pedidos/día</option>
+              <option value="+300 pedidos/dia">+300 pedidos/día (Alto volumen / Enterprise)</option>
+            </select>
+          </div>
+
+          <div class="stocka-picker-form-group">
+            <label for="picker-form-notes">¿Cuéntanos brevemente sobre tu bodega o proceso actual?</label>
+            <textarea id="picker-form-notes" rows="3" class="stocka-picker-form-control" placeholder="Ej: Preparamos calzado y accesorios con 3 operarios en Providencia usando listas impresas..."></textarea>
+          </div>
+
+          <div id="picker-form-msg" style="display: none; padding: 1rem; border-radius: 12px; margin-bottom: 1.25rem; font-size: 0.9rem; font-weight: 700; text-align: center;"></div>
+
+          <button type="submit" id="picker-form-submit-btn" class="stocka-picker-btn-primary" style="width: 100%; justify-content: center; font-size: 1.05rem;">
+            <span>Solicitar Demostración de Stocka Picker 🚀</span>
+          </button>
+
+          <p style="font-size: 0.78rem; color: #64748b; text-align: center; margin: 1rem 0 0 0;">
+            🔒 Información confidencial. Respuesta garantizada en menos de 2 horas hábiles.
+          </p>
+
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       8. TECHNICAL FAQ ACCORDION
+       ======================================================== -->
+  <section class="stocka-picker-faq-sec">
+    <div class="stocka-picker-container">
+      
+      <div class="stocka-picker-sec-header">
+        <span class="stocka-picker-sec-tag">PREGUNTAS FRECUENTES</span>
+        <h2 class="stocka-picker-sec-title">Dudas comunes sobre el Sistema Picker</h2>
+        <p class="stocka-picker-sec-desc">
+          Todo lo que necesitas saber sobre hardware, sincronización y puesta en marcha.
+        </p>
+      </div>
+
+      <div class="stocka-picker-faq-accordion" id="stocka-picker-faq">
+        
+        <div class="stocka-picker-faq-item active">
+          <button type="button" class="stocka-picker-faq-q">
+            <span>¿Puedo usar smartphones comunes o necesito comprar terminales industriales caros?</span>
+            <div class="stocka-picker-faq-icon">+</div>
+          </button>
+          <div class="stocka-picker-faq-a">
+            Puedes utilizar <strong>cualquier smartphone o tablet estándar</strong> (Android o iPhone/iPad). La app de Stocka Picker es una Progressive Web App (PWA) ultra ligera. Si deseas mayor velocidad, puedes emparejar un lector de código de barras Bluetooth de bajo costo o conectar pistolas USB en computadores de mesón.
+          </div>
+        </div>
+
+        <div class="stocka-picker-faq-item">
+          <button type="button" class="stocka-picker-faq-q">
+            <span>¿Qué ocurre si un operario escanea un producto con código incorrecto?</span>
+            <div class="stocka-picker-faq-icon">+</div>
+          </button>
+          <div class="stocka-picker-faq-a">
+            La app opera bajo el modo <strong>Strict Match</strong>. Si el SKU o código de barras no coincide al 100% con la variante exacta pedida por el cliente (talla, color o modelo), la aplicación bloquea el registro, emite un aviso sonoro de error y no permite dar por finalizado el pedido. Esto garantiza un 99.98% de precisión en los despachos.
+          </div>
+        </div>
+
+        <div class="stocka-picker-faq-item">
+          <button type="button" class="stocka-picker-faq-q">
+            <span>¿Cómo detecta la app si un cliente modificó su compra en Shopify o Mercado Libre?</span>
+            <div class="stocka-picker-faq-icon">+</div>
+          </button>
+          <div class="stocka-picker-faq-a">
+            El sistema se encuentra <strong>conectado en tiempo real bidireccional con el WMS</strong>. Cuando entra una actualización desde el ecommerce mientras el pedido está en preparación, la app del operario despliega un banner rojo de advertencia preventiva: <em>⚠️ [MODIFICADO] Pedido editado en WMS</em>, requiriendo verificar los ítems antes de sellar el paquete.
+          </div>
+        </div>
+
+        <div class="stocka-picker-faq-item">
+          <button type="button" class="stocka-picker-faq-q">
+            <span>¿Se puede usar Stocka Picker con múltiples bodegas o sucursales a la vez?</span>
+            <div class="stocka-picker-faq-icon">+</div>
+          </button>
+          <div class="stocka-picker-faq-a">
+            Sí. La consola de estación y la app móvil permiten <strong>filtrar por sucursal física</strong> (por ejemplo: Casa Matriz Ñuñoa, Bodega Recoleta, Sucursal La Reina o tus propias dependencias), asegurando que cada operario visualice únicamente los pedidos asignados a su ubicación.
+          </div>
+        </div>
+
+        <div class="stocka-picker-faq-item">
+          <button type="button" class="stocka-picker-faq-q">
+            <span>¿Cuánto tiempo toma poner en marcha el sistema con mis operarios?</span>
+            <div class="stocka-picker-faq-icon">+</div>
+          </button>
+          <div class="stocka-picker-faq-a">
+            La inducción es inmediata: gracias a la confirmación fotográfica y los indicadores de colores (rojo/verde), un operario nuevo aprende a utilizar la app en <strong>menos de 15 minutos</strong> sin necesidad de capacitaciones complejas ni manuales extensos.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================
+       9. WORKER FAST ACCESS BOTTOM BANNER
+       ======================================================== -->
+  <div class="stocka-picker-worker-bar">
+    <div class="stocka-picker-container">
+      ¿Eres operario o cliente de Stocka? Ingresa directamente a la aplicación web en:
+      <a href="https://picker-stocka.netlify.app/" target="_blank" rel="noopener">picker-stocka.netlify.app ➔</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  (function() {
+    function initPickerPage() {
+      // 1. Modules Tabs Logic
+      const tabs = document.querySelectorAll('#stocka-picker-tabs-nav .stocka-picker-tab-btn');
+      const panels = document.querySelectorAll('.stocka-picker-panel');
+
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const targetId = tab.dataset.target;
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => p.classList.remove('active'));
+
+          tab.classList.add('active');
+          const activePanel = document.getElementById(targetId);
+          if (activePanel) activePanel.classList.add('active');
+        });
+      });
+
+      // 2. FAQ Accordion Logic
+      const faqItems = document.querySelectorAll('#stocka-picker-faq .stocka-picker-faq-item');
+      faqItems.forEach(item => {
+        const qBtn = item.querySelector('.stocka-picker-faq-q');
+        if (qBtn) {
+          qBtn.addEventListener('click', () => {
+            const wasActive = item.classList.contains('active');
+            item.classList.toggle('active', !wasActive);
+          });
+        }
+      });
+
+      // 3. Lead Form Submission
+      const leadForm = document.getElementById('stocka-picker-lead-form');
+      const msgDiv = document.getElementById('picker-form-msg');
+      const submitBtn = document.getElementById('picker-form-submit-btn');
+
+      if (leadForm) {
+        leadForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '<span>Enviando solicitud... ⏳</span>';
+
+          const need = document.getElementById('picker-form-need')?.value || '';
+          const name = document.getElementById('picker-form-name')?.value || '';
+          const phone = document.getElementById('picker-form-phone')?.value || '';
+          const email = document.getElementById('picker-form-email')?.value || '';
+          const company = document.getElementById('picker-form-company')?.value || '';
+          const volume = document.getElementById('picker-form-volume')?.value || '';
+          const notes = document.getElementById('picker-form-notes')?.value || '';
+
+          const payload = {
+            contactName: name,
+            email: email,
+            phone: phone,
+            companyName: company,
+            services: ['Stocka Picker App', need],
+            monthlyVolume: volume,
+            notes: "Tipo de Solicitud: " + need + " | Volumen: " + volume + " | Detalle: " + (notes || 'Sin comentarios')
+          };
+
+          try {
+            const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/submit-lead', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error('Error al enviar');
+
+            msgDiv.style.background = '#ecfdf5';
+            msgDiv.style.color = '#059669';
+            msgDiv.style.border = '1.5px solid #a7f3d0';
+            msgDiv.innerHTML = '🎉 ¡Solicitud recibida con éxito! Un especialista del equipo de Stocka se contactará contigo a la brevedad.';
+            msgDiv.style.display = 'block';
+            leadForm.reset();
+            submitBtn.innerHTML = '<span>Solicitud Enviada ✓</span>';
+
+          } catch (err) {
+            msgDiv.style.background = '#fef2f2';
+            msgDiv.style.color = '#991b1b';
+            msgDiv.style.border = '1.5px solid #fecaca';
+            msgDiv.innerHTML = 'Solicitud registrada. Si prefieres respuesta inmediata, puedes escribirnos por <a href="https://wa.me/56939247487?text=' + encodeURIComponent('Hola! Quiero una demo de Stocka Picker para ' + company) + '" target="_blank" style="color: #5c24ff; text-decoration: underline;">WhatsApp aquí</a>.';
+            msgDiv.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<span>Reintentar Enviar</span>';
+          }
+        });
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initPickerPage);
+    } else {
+      initPickerPage();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Stocka Picker Landing",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Stocka Picker Landing"
+    }
+  ]
+}
+{% endschema %}

@@ -38,24 +38,33 @@ CREATE POLICY "Admins ven todos los tickets" ON public.tickets
   );
 
 DROP POLICY IF EXISTS "Clientes ven sus propios tickets" ON public.tickets;
-CREATE POLICY "Clientes ven sus propios tickets" ON public.tickets
+DROP POLICY IF EXISTS "Clientes ven tickets de su comercio" ON public.tickets;
+CREATE POLICY "Clientes ven tickets de su comercio" ON public.tickets
   FOR SELECT USING (
-    user_id = auth.uid()
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    OR public.check_user_commerce(comercio)
+    OR (user_id = auth.uid() AND (comercio IS NULL OR comercio = 'no asignado'))
   );
 
 DROP POLICY IF EXISTS "Clientes crean sus propios tickets" ON public.tickets;
 CREATE POLICY "Clientes crean sus propios tickets" ON public.tickets
   FOR INSERT WITH CHECK (
     user_id = auth.uid() AND
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('client', 'observer')
+    (
+      (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+      OR public.check_user_commerce(comercio)
+      OR (comercio IS NULL OR comercio = 'no asignado')
+    )
   );
 
 DROP POLICY IF EXISTS "Clientes actualizan sus propios tickets para cerrarlos" ON public.tickets;
 CREATE POLICY "Clientes actualizan sus propios tickets para cerrarlos" ON public.tickets
   FOR UPDATE USING (
-    user_id = auth.uid()
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    OR public.check_user_commerce(comercio)
+    OR user_id = auth.uid()
   ) WITH CHECK (
-    user_id = auth.uid() AND status = 'cerrado'
+    status = 'cerrado'
   );
 
 
@@ -71,7 +80,12 @@ CREATE POLICY "Clientes ven mensajes no internos de sus tickets" ON public.ticke
   FOR SELECT USING (
     EXISTS (
       SELECT 1 FROM public.tickets
-      WHERE tickets.id = ticket_messages.ticket_id AND tickets.user_id = auth.uid()
+      WHERE tickets.id = ticket_messages.ticket_id
+        AND (
+          (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+          OR public.check_user_commerce(tickets.comercio)
+          OR tickets.user_id = auth.uid()
+        )
     ) AND NOT is_internal
   );
 
@@ -81,7 +95,12 @@ CREATE POLICY "Clientes envían mensajes a sus tickets" ON public.ticket_message
     sender_id = auth.uid() AND
     EXISTS (
       SELECT 1 FROM public.tickets
-      WHERE tickets.id = ticket_messages.ticket_id AND tickets.user_id = auth.uid()
+      WHERE tickets.id = ticket_messages.ticket_id
+        AND (
+          (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+          OR public.check_user_commerce(tickets.comercio)
+          OR tickets.user_id = auth.uid()
+        )
     ) AND NOT is_internal
   );
 
