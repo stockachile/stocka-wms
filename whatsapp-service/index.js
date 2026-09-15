@@ -42,6 +42,15 @@ function getManualOrdersNotifier() {
   return require('../services/manual_orders_notifier');
 }
 
+function getCalendarService() {
+  const localPath = path.join(__dirname, 'services/calendar_service.js');
+  if (fs.existsSync(localPath)) return require(localPath);
+  return require('../services/calendar_service');
+}
+
+// Registro de respuestas automáticas de feriado enviadas (1 por usuario por día)
+const outOfOfficeRepliesSent = new Set();
+
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -97,6 +106,15 @@ async function connectToWhatsApp() {
   // Escuchar mensajes entrantes (para comandos o interacción futura)
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
+
+    let nonWorking = { isNonWorking: false };
+    try {
+      const { isNonWorkingDay } = getCalendarService();
+      nonWorking = await isNonWorkingDay();
+    } catch (e) {
+      console.error('[WhatsApp Service] Error evaluando estado de operaciones:', e.message);
+    }
+
     for (const msg of messages) {
       if (!msg.message || msg.key.fromMe) continue;
       const from = msg.key.remoteJid;
@@ -106,6 +124,30 @@ async function connectToWhatsApp() {
       // Comando simple de prueba
       if (text.trim().toLowerCase() === '!ping') {
         await sock.sendMessage(from, { text: '🏓 ¡Pong! Bot de Stocka WMS activo y funcionando correctamente 🚀' });
+        continue;
+      }
+
+      // Si es un chat individual (no grupo) y el día es no operativo o feriado
+      if (from.endsWith('@s.whatsapp.net') && nonWorking.isNonWorking) {
+        const trackingKey = `${from}_${nonWorking.date}`;
+        if (!outOfOfficeRepliesSent.has(trackingKey)) {
+          outOfOfficeRepliesSent.add(trackingKey);
+          const outOfOfficeMsg = [
+            `🤖 *Stox - Asistente Stocka WMS*`,
+            `━━━━━━━━━━━━━━━━━━━━`,
+            `¡Hola! Te informamos que hoy *${nonWorking.date}* nuestras operaciones de bodega se encuentran cerradas por *${nonWorking.reason}*.`,
+            ``,
+            `📅 Retomaremos la preparación de pedidos y despachos en nuestro próximo día hábil.`,
+            `━━━━━━━━━━━━━━━━━━━━`,
+            `_Mensaje automático de disponibilidad Stocka WMS_`
+          ].join('\n');
+          try {
+            await sock.sendMessage(from, { text: outOfOfficeMsg });
+            console.log(`[WhatsApp] Respuesta de día no operativo enviada a ${from}`);
+          } catch (err) {
+            console.error('[WhatsApp] Error enviando respuesta no operativo:', err.message);
+          }
+        }
       }
     }
   });
@@ -403,30 +445,76 @@ app.post('/notify-manual-orders', requireAuth, async (req, res) => {
     console.error('[Error en POST /notify-manual-orders]:', err);
     res.status(500).json({ error: 'Error ejecutando alerta de pedidos manuales: ' + err.message });
   }
+// 9. Endpoints de Calendario, Feriados y Google Calendar
+
+// 9.1 Consultar estado operativo (Domingo / Feriado / Sin operaciones)
+app.get('/calendar/status', async (req, res) => {
+  try {
+    const { isNonWorkingDay } = getCalendarService();
+    const targetDate = req.query.date ? new Date(req.query.date) : new Date();
+    const status = await isNonWorkingDay(targetDate);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ error: 'Error consultando estado de calendario: ' + err.message });
+  }
 });
 
-// Días feriados de Fiestas Patrias (17, 18 y 19 de Septiembre)
-const HOLIDAYS_CHILE = ['2026-09-17', '2026-09-18', '2026-09-19'];
-
-function isNonWorkingDayInChile(date = new Date()) {
-  const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Santiago',
-    weekday: 'short'
-  }).format(date);
-
-  if (dayOfWeek === 'Sun') {
-    return { isNonWorking: true, reason: 'Hoy es Domingo' };
+// 9.2 Feed RFC 5545 iCalendar (.ics) para suscripción en Google Calendar / Apple Calendar
+app.get(['/calendar.ics', '/calendar/ics'], async (req, res) => {
+  try {
+    const { generateIcsFeed } = getCalendarService();
+    const icsContent = await generateIcsFeed();
+    res.set({
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': 'inline; filename="stocka_wms_calendar.ics"',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.send(icsContent);
+  } catch (err) {
+    console.error('[Error generando .ics]:', err);
+    res.status(500).send('Error generando feed iCalendar: ' + err.message);
   }
+});
 
-  const dateStr = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Santiago'
-  }).format(date);
-
-  if (HOLIDAYS_CHILE.includes(dateStr)) {
-    return { isNonWorking: true, reason: `Feriado Fiestas Patrias (${dateStr})` };
+// 9.3 Forzar recarga de la caché de calendario
+app.post('/calendar/sync-cache', requireAuth, async (req, res) => {
+  try {
+    const { reloadCalendarCache } = getCalendarService();
+    const events = await reloadCalendarCache();
+    res.json({ success: true, message: 'Caché de calendario actualizada con éxito', count: events.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Error recargando caché: ' + err.message });
   }
+});
 
-  return { isNonWorking: false };
+// 9.4 Consultar listado de feriados oficiales de Chile
+app.get('/calendar/holidays-chile', requireAuth, (req, res) => {
+  const { OFFICIAL_CHILE_HOLIDAYS } = getCalendarService();
+  res.json({ success: true, holidays: OFFICIAL_CHILE_HOLIDAYS });
+});
+
+// 9.5 Importar feriados oficiales a Supabase
+app.post('/calendar/import-holidays', requireAuth, async (req, res) => {
+  const year = req.body.year || 2026;
+  try {
+    const { importOfficialHolidaysToSupabase } = getCalendarService();
+    const result = await importOfficialHolidaysToSupabase(year);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Error importando feriados: ' + err.message });
+  }
+});
+
+// Wrapper de compatibilidad hacia atrás
+async function isNonWorkingDayInChile(date = new Date()) {
+  try {
+    const { isNonWorkingDay } = getCalendarService();
+    return await isNonWorkingDay(date);
+  } catch (err) {
+    console.error('[isNonWorkingDayInChile Error]:', err.message);
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', weekday: 'short' }).format(date);
+    return { isNonWorking: dayOfWeek === 'Sun', reason: dayOfWeek === 'Sun' ? 'Hoy es Domingo' : 'Día hábil' };
+  }
 }
 
 // Control persistente para saludo de Fiestas Patrias (18 de Septiembre 12:00 hrs)
@@ -555,8 +643,8 @@ app.listen(PORT, () => {
         console.error('[Greeting Worker Error]:', err.message);
       }
 
-      // Los días Domingo y Feriados de Fiestas Patrias (17, 18, 19 Septiembre) no se envían alertas operativas
-      const nonWorking = isNonWorkingDayInChile();
+      // Los días Domingo, Feriados y Días Sin Operaciones no se envían alertas operativas ni se procesan retiros
+      const nonWorking = await isNonWorkingDayInChile();
 
       if (!nonWorking.isNonWorking) {
         // B. Procesar retiros automáticos
@@ -573,6 +661,10 @@ app.listen(PORT, () => {
           await checkAndNotifyPendingManualOrders({ force: false, dryRun: false });
         } catch (err) {
           console.error('[ManualOrders Worker Error]:', err.message);
+        }
+      } else {
+        if (syncCycleCounter % 15 === 0) {
+          console.log(`[Stox Worker] 🛑 Bodega sin operaciones hoy (${nonWorking.date}): ${nonWorking.reason}. Procesos automáticos en pausa.`);
         }
       }
 

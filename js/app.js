@@ -1,5 +1,7 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
+import { renderSurveysClient } from './surveys.js';
+window.renderSurveysClient = renderSurveysClient;
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 import { renderNotifications } from './notifications.js';
@@ -1111,6 +1113,10 @@ async function init() {
             viewTitle.textContent = 'Incidencias';
             const appContent = document.getElementById('app-content');
             renderIncidenciasClient(appContent);
+          } else if (view === 'surveys') {
+            viewTitle.textContent = 'Encuestas & Feedback';
+            const appContent = document.getElementById('app-content');
+            renderSurveysClient(appContent);
           } else if (view === 'documentation') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsClient();
@@ -1144,7 +1150,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'label_generator') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'label_generator' || view === 'surveys') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -35525,6 +35531,46 @@ async function updateClientBadges(userId, userComercio) {
       badgeEl.style.display = 'inline-flex';
     } else {
       badgeEl.style.display = 'none';
+    }
+
+    // Actualizar globo de encuestas pendientes
+    const badgeSurveys = document.getElementById('badge-surveys-client');
+    if (badgeSurveys) {
+      try {
+        const { data: surveysData, error: sErr } = await supabase
+          .from('surveys')
+          .select('id, target_type, target_merchants, target_users')
+          .eq('status', 'published')
+          .eq('is_active', true);
+
+        if (!sErr && surveysData && surveysData.length > 0) {
+          const { data: myResp } = await supabase
+            .from('survey_responses')
+            .select('survey_id')
+            .or(`user_id.eq.${userId},comercio.eq.${userComercio}`);
+          const answeredIds = new Set((myResp || []).map(r => r.survey_id));
+          const pendingCount = surveysData.filter(s => {
+            if (answeredIds.has(s.id)) return false;
+            if (s.target_type === 'all' || s.target_type === 'public_link') return true;
+            if (s.target_type === 'specific_merchants') {
+              const list = Array.isArray(s.target_merchants) ? s.target_merchants : [];
+              return list.some(m => m.toLowerCase() === (userComercio || '').toLowerCase());
+            }
+            return false;
+          }).length;
+
+          if (pendingCount > 0) {
+            badgeSurveys.textContent = pendingCount;
+            badgeSurveys.style.display = 'inline-flex';
+          } else {
+            badgeSurveys.style.display = 'none';
+          }
+        } else {
+          badgeSurveys.style.display = 'none';
+        }
+      } catch (sEx) {
+        badgeSurveys.style.display = 'none';
+      }
     }
   } catch (err) {
     console.error('Error al actualizar globo de incidencias del cliente:', err);

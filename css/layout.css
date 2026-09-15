@@ -1092,10 +1092,273 @@ body:has(.floating-support-btn) .scroll-to-top-btn,
   background: var(--color-bg) !important;
 }
 
-/* SweetAlert2 backdrop - only for modals with backdrop shown, not for toasts */
-.swal2-container.swal2-backdrop-show {
+/* SweetAlert2 backdrop - strictly for centered/modal dialogs, NEVER for toasts */
+.swal2-container.swal2-backdrop-show:not(.swal2-top-end):not(.swal2-top-start):not(.swal2-bottom-end):not(.swal2-bottom-start):not(.swal2-toast-shown):not(:has(.swal2-toast)) {
   backdrop-filter: blur(4px) !important;
   background: rgba(0, 0, 0, 0.5) !important;
+}
+
+body.swal2-toast-shown .swal2-container,
+.swal2-container:has(.swal2-toast) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  pointer-events: none !important;
+}
+
+body.swal2-toast-shown .swal2-popup.swal2-toast,
+.swal2-container .swal2-popup.swal2-toast {
+  pointer-events: auto !important;
+}
+
+/* ============================================= */
+/* Stocka Floating Toast Notifications (StockaToast) */
+/* ============================================= */
+.stocka-toast-container {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+  max-width: 440px;
+  width: calc(100vw - 2.5rem);
+}
+
+.stocka-toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1.1rem 1rem 1rem;
+  background: #ffffff;
+  color: var(--color-text-main, #1e293b);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  pointer-events: auto;
+  overflow: hidden;
+  box-sizing: border-box;
+  animation: stockaToastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: transform 0.25s ease, opacity 0.25s ease, margin 0.25s ease, max-height 0.25s ease;
+  max-height: 300px;
+}
+
+.stocka-toast.stocka-toast-closing {
+  transform: translateX(110%);
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-bottom: -0.75rem;
+  border-width: 0;
+}
+
+@keyframes stockaToastSlideIn {
+  from {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Icon container with soft circular badge */
+.stocka-toast-icon-wrap {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  margin-top: 0.05rem;
+}
+
+.stocka-toast-success .stocka-toast-icon-wrap {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.stocka-toast-error .stocka-toast-icon-wrap {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.stocka-toast-warning .stocka-toast-icon-wrap {
+  background: #fffbeb;
+  color: #f59e0b;
+}
+
+.stocka-toast-info .stocka-toast-icon-wrap {
+  background: #eff6ff;
+  color: #3b82f6;
+}
+
+/* Content block: Title + Message cleanly stacked */
+.stocka-toast-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stocka-toast-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--color-text-main, #0f172a);
+  word-break: break-word;
+}
+
+.stocka-toast-message {
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--color-text-muted, #64748b);
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+/* Actions block: Action button & Close button */
+.stocka-toast-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.25rem;
+  margin-top: 0.05rem;
+}
+
+.stocka-toast-action-btn {
+  background: var(--color-primary, #7117eb);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.775rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.stocka-toast-action-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.stocka-toast-action-btn:active {
+  transform: translateY(0);
+}
+
+.stocka-toast-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: color 0.2s, background-color 0.2s;
+  padding: 0;
+}
+
+.stocka-toast-close-btn:hover {
+  color: var(--color-text-main, #0f172a);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Progress bar */
+.stocka-toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.stocka-toast-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--color-primary, #7117eb);
+}
+
+.stocka-toast-success .stocka-toast-progress-bar {
+  background: #10b981;
+}
+
+.stocka-toast-error .stocka-toast-progress-bar {
+  background: #ef4444;
+}
+
+.stocka-toast-warning .stocka-toast-progress-bar {
+  background: #f59e0b;
+}
+
+.stocka-toast-info .stocka-toast-progress-bar {
+  background: #3b82f6;
+}
+
+/* Dark Mode Overrides for StockaToast */
+[data-theme="dark"] .stocka-toast {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .stocka-toast-title {
+  color: #ffffff;
+}
+
+[data-theme="dark"] .stocka-toast-message {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .stocka-toast-close-btn {
+  color: #64748b;
+}
+
+[data-theme="dark"] .stocka-toast-close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .stocka-toast-success .stocka-toast-icon-wrap {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+[data-theme="dark"] .stocka-toast-error .stocka-toast-icon-wrap {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+[data-theme="dark"] .stocka-toast-warning .stocka-toast-icon-wrap {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .stocka-toast-info .stocka-toast-icon-wrap {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .stocka-toast-progress {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* Custom SweetAlert2 Toast Overrides for compact, premium cards (Light/Default Mode) */

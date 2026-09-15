@@ -48,18 +48,37 @@
     }
   }
   </script>
+  <!-- Google Fonts: Outfit, Poppins & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css?v=1.0.2">
+  <link rel="stylesheet" href="./css/style.css?v=1.0.3">
   <script src="./js/theme.js"></script>
 </head>
 <body>
 
-  <button class="theme-toggle-btn floating-theme-toggle" aria-label="Cambiar tema">
-    <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-    <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-  </button>  <main class="auth-wrapper">
+  <!-- Top Environmental Bar -->
+  <header class="auth-topbar">
+    <div class="auth-topbar-brand">
+      <span class="wms-live-pulse"></span>
+      <span>STOCKA <span class="brand-tag">WMS</span> CLOUD</span>
+    </div>
+    <div class="auth-topbar-actions">
+      <a href="https://stocka.cl/pages/wms" target="_blank" rel="noopener" class="auth-topbar-link">
+        <i class="ri-external-link-line"></i>
+        <span>Conoce más de Stocka WMS</span>
+      </a>
+      <button class="theme-toggle-btn" aria-label="Cambiar tema" title="Cambiar tema">
+        <i class="ri-sun-line sun-icon"></i>
+        <i class="ri-moon-line moon-icon"></i>
+      </button>
+    </div>
+  </header>
+
+  <main class="auth-wrapper">
     <div class="auth-split-container">
       <div class="auth-card">
         <div class="auth-logo">
@@ -67,8 +86,15 @@
           <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="dark-logo">
         </div>
 
+        <div style="text-align: center;">
+          <div class="auth-tech-badge">
+            <span class="wms-live-pulse"></span>
+            <span>PORTAL DE BODEGA &amp; CLIENTES</span>
+          </div>
+        </div>
+
         <!-- Banner de Mantenimiento Técnico Temporal -->
-        <div id="db-status-banner" style="display: none; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md, 8px); padding: 0.85rem 1rem; margin-bottom: 1.25rem; align-items: flex-start; gap: 0.65rem; text-align: left; font-family: 'Inter', sans-serif;">
+        <div id="db-status-banner" style="display: none; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md, 8px); padding: 0.85rem 1rem; margin-bottom: 1.25rem; align-items: flex-start; gap: 0.65rem; text-align: left; font-family: 'Outfit', sans-serif;">
           <i class="ri-error-warning-line" style="color: var(--color-danger, #ef4444); font-size: 1.25rem; flex-shrink: 0; margin-top: 0.1rem;"></i>
           <div>
             <div style="font-weight: 700; color: var(--color-danger, #ef4444); font-size: 0.85rem; margin-bottom: 0.15rem;">Aviso de Interrupción Temporal</div>
@@ -79,224 +105,378 @@
         </div>
       
         <h1 class="auth-title">Bienvenido</h1>
-      <p class="auth-subtitle">Ingresa tus credenciales para acceder a tu bodega online.</p>
+        <p class="auth-subtitle">Ingresa tus credenciales para acceder a tu bodega online.</p>
 
-      <div id="alert-container"></div>
+        <div id="alert-container"></div>
 
-      <form id="login-form">
-        <div class="form-group">
-          <label for="email" class="form-label">Correo Electrónico</label>
-          <input type="email" id="email" class="form-input" placeholder="ejemplo@empresa.com" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="password" class="form-label">Contraseña</label>
-          <input type="password" id="password" class="form-input" placeholder="••••••••" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="login-btn">
-          Ingresar
-        </button>
-
-        <button type="button" class="btn btn-outline" style="width: 100%; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border: 2px dashed var(--color-accent); color: var(--color-accent); font-weight: 700; background: transparent; transition: all 0.2s; cursor: pointer;" id="demo-login-btn" onmouseover="this.style.background='rgba(94, 23, 235, 0.05)'; this.style.borderStyle='solid';" onmouseout="this.style.background='transparent'; this.style.borderStyle='dashed';">
-          <i class="ri-play-circle-line" style="font-size: 1.1rem; color: var(--color-accent);"></i> Probar Demo Gratis
-        </button>
-
-        <p style="text-align: right; margin-top: 0.75rem;">
-          <a href="#" id="toggle-to-forgot" style="color: var(--color-accent); font-weight: 500; font-size: 0.85rem; text-decoration: none;">¿Olvidaste tu contraseña?</a>
-        </p>
-
-        <div style="display: flex; align-items: center; justify-content: center; margin: 1.25rem 0 0.85rem 0; gap: 0.75rem;">
-          <div style="flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--color-border), transparent);"></div>
-          <span style="font-size: 0.7rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">¿Nuevo en Stocka?</span>
-          <div style="flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--color-border), transparent);"></div>
-        </div>
-
-        <div style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(94, 23, 235, 0.05) 100%); border: 1px dashed rgba(37, 99, 235, 0.4); border-radius: var(--radius-md); padding: 0.85rem 1rem; text-align: center; margin-bottom: 0.85rem; transition: all 0.2s; position: relative; overflow: hidden;">
-          <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.35rem; font-weight: 500;">¿Quieres calcular tus costos de bodegaje y despacho?</div>
-          <a href="./cotizaciones.html" id="go-to-cotizador" style="color: var(--color-primary); font-weight: 700; text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; transition: transform 0.2s;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='none'">
-            <i class="ri-calculator-line" style="font-size: 1.05rem;"></i> Cotizar Servicio Fulfillment 360 <i class="ri-arrow-right-line" style="font-size: 0.8rem;"></i>
-          </a>
-        </div>
-
-        <div style="background: linear-gradient(135deg, rgba(124, 58, 237, 0.08) 0%, rgba(37, 99, 235, 0.03) 100%); border: 1px dashed rgba(124, 58, 237, 0.35); border-radius: var(--radius-md); padding: 0.85rem 1rem; text-align: center; margin-bottom: 1.25rem; transition: all 0.2s; position: relative; overflow: hidden;">
-          <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.35rem; font-weight: 500;">¿Quieres operar con nosotros?</div>
-          <a href="./onboarding.html" id="go-to-onboarding" style="color: var(--color-accent); font-weight: 700; text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.25rem; transition: transform 0.2s;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='none'">
-            <i class="ri-rocket-2-line" style="font-size: 1rem;"></i> Solicitar Alta de Comercio <i class="ri-arrow-right-line" style="font-size: 0.8rem;"></i>
-          </a>
-        </div>
-
-        <div style="display: flex; align-items: center; justify-content: center; margin: 1.25rem 0 0.85rem 0; gap: 0.75rem;">
-          <div style="flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--color-border), transparent);"></div>
-          <span style="font-size: 0.7rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">¿Ya eres cliente de Stocka?</span>
-          <div style="flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--color-border), transparent);"></div>
-        </div>
-
-        <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(37, 99, 235, 0.03) 100%); border: 1px dashed rgba(16, 185, 129, 0.35); border-radius: var(--radius-md); padding: 0.85rem 1rem; text-align: center; margin-bottom: 0.5rem; transition: all 0.2s; position: relative; overflow: hidden;">
-          <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.35rem; font-weight: 500;">Si ya tienes el servicio contratado y necesitas tu usuario:</div>
-          <a href="#" id="toggle-to-register" style="color: var(--color-success); font-weight: 700; text-decoration: none; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.25rem; transition: transform 0.2s;" onmouseover="this.style.transform='translateX(2px)'" onmouseout="this.style.transform='none'">
-            <i class="ri-user-add-line" style="font-size: 1.05rem;"></i> Crear tu Cuenta de Usuario <i class="ri-arrow-right-line" style="font-size: 0.8rem;"></i>
-          </a>
-        </div>
-      </form>
-
-      <!-- Formulario de Registro (Oculto por defecto) -->
-      <form id="register-form" style="display: none;">
-        <div class="form-group">
-          <label for="reg-name" class="form-label">Nombre Completo</label>
-          <input type="text" id="reg-name" class="form-input" placeholder="Juan Pérez" required>
-        </div>
-
-        <div class="form-group">
-          <label for="reg-company" class="form-label">Nombre de la Empresa</label>
-          <input type="text" id="reg-company" class="form-input" placeholder="Mi Empresa S.A." required>
-        </div>
-
-        <div class="form-group">
-          <label for="reg-email" class="form-label">Correo Electrónico</label>
-          <input type="email" id="reg-email" class="form-input" placeholder="ejemplo@empresa.com" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="reg-password" class="form-label">Contraseña</label>
-          <input type="password" id="reg-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="register-btn">
-          Crear Cuenta
-        </button>
-
-        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          ¿Ya tienes una cuenta? <a href="#" id="toggle-to-login" style="color: var(--color-accent); font-weight: 600;">Inicia sesión aquí</a>
-        </p>
-      </form>
-
-      <!-- Formulario de Recuperar Contraseña (Oculto por defecto) -->
-      <form id="forgot-form" style="display: none;">
-        <div class="form-group">
-          <label for="forgot-email" class="form-label">Correo Electrónico</label>
-          <input type="email" id="forgot-email" class="form-input" placeholder="ejemplo@empresa.com" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="forgot-btn">
-          Enviar enlace de recuperación
-        </button>
-
-        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          <a href="#" id="toggle-to-login-from-forgot" style="color: var(--color-accent); font-weight: 600;">← Volver al inicio de sesión</a>
-        </p>
-      </form>
-
-      <!-- Formulario de Restablecer Contraseña (Oculto por defecto, se muestra tras hacer clic en enlace de recuperación) -->
-      <form id="reset-form" style="display: none;">
-        <div class="form-group">
-          <label for="reset-password" class="form-label">Nueva Contraseña</label>
-          <input type="password" id="reset-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
-        </div>
-        <div class="form-group" style="margin-top: 1rem;">
-          <label for="reset-confirm-password" class="form-label">Confirmar Contraseña</label>
-          <input type="password" id="reset-confirm-password" class="form-input" placeholder="Repite la contraseña" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1.5rem;" id="reset-btn">
-          Actualizar Contraseña
-        </button>
-
-        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          <a href="#" id="toggle-to-login-from-reset" style="color: var(--color-accent); font-weight: 600;">← Volver al inicio de sesión</a>
-        </p>
-      </form>
-
-      <!-- Formulario de Registro Demo (Oculto por defecto) -->
-      <form id="demo-register-form" style="display: none;">
-        <div class="form-group">
-          <label for="demo-reg-name" class="form-label">Nombre Completo</label>
-          <input type="text" id="demo-reg-name" class="form-input" placeholder="Juan Pérez" required>
-        </div>
-
-        <div class="form-group">
-          <label for="demo-reg-email" class="form-label">Correo Electrónico</label>
-          <input type="email" id="demo-reg-email" class="form-input" placeholder="ejemplo@empresa.com" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="demo-reg-password" class="form-label">Contraseña</label>
-          <input type="password" id="demo-reg-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
-        </div>
-
-        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; background: var(--color-accent); border-color: var(--color-accent);" id="demo-register-btn">
-          Solicitar Acceso Demo
-        </button>
-
-        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          ¿Ya tienes cuenta? <a href="#" id="toggle-to-login-from-demo" style="color: var(--color-accent); font-weight: 600;">Inicia sesión aquí</a>
-        </p>
-      </form>
-    </div>
-    <div class="auth-image-card">
-      <div class="auth-slider-container">
-        <!-- Slide 1: Control de Inventario -->
-        <div class="auth-slide active">
-          <div class="auth-slide-bg" style="background-image: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_72.png?v=1781744518');"></div>
-          <div class="auth-slide-overlay"></div>
-          <div class="auth-slide-content">
-            <div class="auth-slide-icon">
-              <i class="ri-archive-line"></i>
+        <!-- Formulario de Login -->
+        <form id="login-form">
+          <div class="form-group">
+            <label for="email" class="form-label">Correo Electrónico</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-mail-line input-icon"></i>
+              <input type="email" id="email" class="form-input with-icon" placeholder="ejemplo@empresa.com" required autocomplete="email">
             </div>
-            <h3 class="auth-slide-title">Control de Inventario en Tiempo Real</h3>
-            <p class="auth-slide-desc">Visualiza niveles exactos de stock en tu bodega, gestiona mappings de SKU y crea kits de productos sin esfuerzo.</p>
           </div>
-        </div>
-
-        <!-- Slide 2: Preparación y Picking -->
-        <div class="auth-slide">
-          <div class="auth-slide-bg" style="background-image: url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?q=80&w=1200&auto=format&fit=crop');"></div>
-          <div class="auth-slide-overlay"></div>
-          <div class="auth-slide-content">
-            <div class="auth-slide-icon">
-              <i class="ri-barcode-box-line"></i>
+          
+          <div class="form-group">
+            <label for="password" class="form-label">Contraseña</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-lock-password-line input-icon"></i>
+              <input type="password" id="password" class="form-input with-icon with-toggle" placeholder="••••••••" required autocomplete="current-password">
+              <button type="button" class="password-toggle-btn" id="toggle-password-visibility" aria-label="Mostrar/Ocultar contraseña" tabindex="-1">
+                <i class="ri-eye-line"></i>
+              </button>
             </div>
-            <h3 class="auth-slide-title">Picking y Empaque Automatizado</h3>
-            <p class="auth-slide-desc">Sincroniza tus ventas multicanal al instante. Nuestro equipo prepara tus pedidos con control riguroso de código de barras.</p>
           </div>
-        </div>
 
-        <!-- Slide 3: Tracking y Envíos -->
-        <div class="auth-slide">
-          <div class="auth-slide-bg" style="background-image: url('https://images.unsplash.com/photo-1527018601619-a508a2be00cd?q=80&w=1200&auto=format&fit=crop');"></div>
-          <div class="auth-slide-overlay"></div>
-          <div class="auth-slide-content">
-            <div class="auth-slide-icon">
-              <i class="ri-truck-line"></i>
+          <div class="auth-options-row">
+            <label class="remember-me-label">
+              <input type="checkbox" id="remember-me" class="custom-checkbox">
+              <span>Recordar mi cuenta</span>
+            </label>
+            <a href="#" id="toggle-to-forgot" class="auth-link-forgot">¿Olvidaste tu contraseña?</a>
+          </div>
+
+          <button type="submit" class="btn btn-wms-primary" id="login-btn">
+            <span>Ingresar a mi Bodega</span>
+            <i class="ri-arrow-right-line"></i>
+          </button>
+
+          <button type="button" class="btn btn-wms-demo" id="demo-login-btn">
+            <i class="ri-play-circle-line" style="font-size: 1.15rem;"></i>
+            <span>Probar Demo Gratis</span>
+            <span class="wms-micro-pill">Sin costo</span>
+          </button>
+
+          <div class="auth-divider">
+            <span>Accesos y Servicios Stocka</span>
+          </div>
+
+          <div class="auth-quick-actions">
+            <a href="./cotizaciones.html" id="go-to-cotizador" class="auth-action-card card-quote">
+              <div class="action-card-icon">
+                <i class="ri-calculator-line"></i>
+              </div>
+              <div class="action-card-text">
+                <span class="action-card-title">Cotizar Servicio Fulfillment 360</span>
+                <span class="action-card-desc">Calcula tus costos de bodegaje y despacho</span>
+              </div>
+              <i class="ri-arrow-right-s-line action-card-arrow"></i>
+            </a>
+
+            <a href="./onboarding.html" id="go-to-onboarding" class="auth-action-card card-onboard">
+              <div class="action-card-icon">
+                <i class="ri-rocket-2-line"></i>
+              </div>
+              <div class="action-card-text">
+                <span class="action-card-title">Solicitar Alta de Comercio</span>
+                <span class="action-card-desc">¿Quieres operar tu tienda con nosotros?</span>
+              </div>
+              <i class="ri-arrow-right-s-line action-card-arrow"></i>
+            </a>
+
+            <a href="#" id="toggle-to-register" class="auth-action-card card-register">
+              <div class="action-card-icon">
+                <i class="ri-user-add-line"></i>
+              </div>
+              <div class="action-card-text">
+                <span class="action-card-title">Crear tu Cuenta de Usuario</span>
+                <span class="action-card-desc">Si ya tienes el servicio contratado y requieres acceso</span>
+              </div>
+              <i class="ri-arrow-right-s-line action-card-arrow"></i>
+            </a>
+          </div>
+        </form>
+
+        <!-- Formulario de Registro (Oculto por defecto) -->
+        <form id="register-form" style="display: none;">
+          <div class="form-group">
+            <label for="reg-name" class="form-label">Nombre Completo</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-user-line input-icon"></i>
+              <input type="text" id="reg-name" class="form-input with-icon" placeholder="Juan Pérez" required autocomplete="name">
             </div>
-            <h3 class="auth-slide-title">Monitoreo y Despacho Multicourier</h3>
-            <p class="auth-slide-desc">Genera etiquetas automáticas y realiza seguimiento en tiempo real con Auto Track integrado con múltiples couriers.</p>
           </div>
-        </div>
 
-        <!-- Slide 4: Billing y Apelaciones -->
-        <div class="auth-slide">
-          <div class="auth-slide-bg" style="background-image: url('https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1200&auto=format&fit=crop');"></div>
-          <div class="auth-slide-overlay"></div>
-          <div class="auth-slide-content">
-            <div class="auth-slide-icon">
-              <i class="ri-file-chart-line"></i>
+          <div class="form-group">
+            <label for="reg-company" class="form-label">Nombre de la Empresa</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-building-line input-icon"></i>
+              <input type="text" id="reg-company" class="form-input with-icon" placeholder="Mi Empresa S.A." required autocomplete="organization">
             </div>
-            <h3 class="auth-slide-title">Finanzas y Reportes Transparentes</h3>
-            <p class="auth-slide-desc">Controla los costos de almacenamiento, seguros y preparación. Gestiona cobros adicionales y apelaciones con tu ejecutiva KAM.</p>
           </div>
-        </div>
 
-        <!-- Dots Navigation -->
-        <div class="auth-slider-dots">
-          <button class="auth-slider-dot active" aria-label="Ver diapositiva 1"></button>
-          <button class="auth-slider-dot" aria-label="Ver diapositiva 2"></button>
-          <button class="auth-slider-dot" aria-label="Ver diapositiva 3"></button>
-          <button class="auth-slider-dot" aria-label="Ver diapositiva 4"></button>
+          <div class="form-group">
+            <label for="reg-email" class="form-label">Correo Electrónico</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-mail-line input-icon"></i>
+              <input type="email" id="reg-email" class="form-input with-icon" placeholder="ejemplo@empresa.com" required autocomplete="email">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="reg-password" class="form-label">Contraseña</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-lock-password-line input-icon"></i>
+              <input type="password" id="reg-password" class="form-input with-icon with-toggle" placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+              <button type="button" class="password-toggle-btn" id="toggle-reg-password-visibility" aria-label="Mostrar/Ocultar contraseña" tabindex="-1">
+                <i class="ri-eye-line"></i>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-wms-primary" id="register-btn">
+            <span>Crear Cuenta</span>
+            <i class="ri-arrow-right-line"></i>
+          </button>
+
+          <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-family: 'Outfit', sans-serif;">
+            ¿Ya tienes una cuenta? <a href="#" id="toggle-to-login" style="color: #5c24ff; font-weight: 700; text-decoration: none;">Inicia sesión aquí</a>
+          </p>
+        </form>
+
+        <!-- Formulario de Recuperar Contraseña (Oculto por defecto) -->
+        <form id="forgot-form" style="display: none;">
+          <div class="form-group">
+            <label for="forgot-email" class="form-label">Correo Electrónico</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-mail-line input-icon"></i>
+              <input type="email" id="forgot-email" class="form-input with-icon" placeholder="ejemplo@empresa.com" required autocomplete="email">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-wms-primary" id="forgot-btn">
+            <span>Enviar enlace de recuperación</span>
+            <i class="ri-mail-send-line"></i>
+          </button>
+
+          <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-family: 'Outfit', sans-serif;">
+            <a href="#" id="toggle-to-login-from-forgot" style="color: #5c24ff; font-weight: 700; text-decoration: none;">← Volver al inicio de sesión</a>
+          </p>
+        </form>
+
+        <!-- Formulario de Restablecer Contraseña (Oculto por defecto) -->
+        <form id="reset-form" style="display: none;">
+          <div class="form-group">
+            <label for="reset-password" class="form-label">Nueva Contraseña</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-lock-password-line input-icon"></i>
+              <input type="password" id="reset-password" class="form-input with-icon" placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label for="reset-confirm-password" class="form-label">Confirmar Contraseña</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-lock-password-line input-icon"></i>
+              <input type="password" id="reset-confirm-password" class="form-input with-icon" placeholder="Repite la contraseña" required autocomplete="new-password">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-wms-primary" style="margin-top: 1.5rem;" id="reset-btn">
+            <span>Actualizar Contraseña</span>
+            <i class="ri-check-line"></i>
+          </button>
+
+          <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-family: 'Outfit', sans-serif;">
+            <a href="#" id="toggle-to-login-from-reset" style="color: #5c24ff; font-weight: 700; text-decoration: none;">← Volver al inicio de sesión</a>
+          </p>
+        </form>
+
+        <!-- Formulario de Registro Demo (Oculto por defecto) -->
+        <form id="demo-register-form" style="display: none;">
+          <div class="form-group">
+            <label for="demo-reg-name" class="form-label">Nombre Completo</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-user-line input-icon"></i>
+              <input type="text" id="demo-reg-name" class="form-input with-icon" placeholder="Juan Pérez" required autocomplete="name">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="demo-reg-email" class="form-label">Correo Electrónico</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-mail-line input-icon"></i>
+              <input type="email" id="demo-reg-email" class="form-input with-icon" placeholder="ejemplo@empresa.com" required autocomplete="email">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label for="demo-reg-password" class="form-label">Contraseña</label>
+            <div class="input-icon-wrapper">
+              <i class="ri-lock-password-line input-icon"></i>
+              <input type="password" id="demo-reg-password" class="form-input with-icon" placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-wms-primary" id="demo-register-btn">
+            <span>Solicitar Acceso Demo 🚀</span>
+          </button>
+
+          <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-family: 'Outfit', sans-serif;">
+            ¿Ya tienes cuenta? <a href="#" id="toggle-to-login-from-demo" style="color: #5c24ff; font-weight: 700; text-decoration: none;">Inicia sesión aquí</a>
+          </p>
+        </form>
+      </div>
+
+      <!-- Right Column: WMS Console Showcase Window -->
+      <div class="auth-image-card">
+        <div class="wms-console-window">
+          <div class="wms-console-topbar">
+            <div class="wms-console-dots">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <div class="wms-console-title">
+              <i class="ri-terminal-box-line"></i>
+              <span id="wms-console-path">wms.stocka.cl / Mis Pedidos Multi-Canal</span>
+            </div>
+            <div class="wms-console-live">
+              <span class="wms-live-pulse"></span>
+              <span>En Vivo</span>
+            </div>
+          </div>
+
+          <div class="auth-slider-container">
+            <!-- Slide 1: Mis Pedidos Multi-Canal -->
+            <div class="auth-slide active" data-path="wms.stocka.cl / Mis Pedidos Multi-Canal">
+              <div class="auth-slide-media">
+                <img src="./img/wms/stocka-wms-pedidos-multicanal.png" alt="Control de Pedidos Multi-Canal en Tiempo Real" loading="eager">
+                <div class="wms-media-badge"><i class="ri-refresh-line"></i> Sync &lt; 120ms</div>
+              </div>
+              <div class="auth-slide-content">
+                <div class="auth-slide-header-tag">
+                  <span class="wms-tag-pill">MÓDULO 03 · PIPELINE DE VENTAS</span>
+                  <span class="wms-tag-sub">Shopify • MeLi • WooCommerce</span>
+                </div>
+                <h3 class="auth-slide-title">Control de Pedidos Multi-Canal en Tiempo Real</h3>
+                <p class="auth-slide-desc">Sincroniza todas tus ventas al instante con validación estricta de SKU, empaque automatizado y asignación inteligente de couriers.</p>
+                <div class="wms-metrics-ribbon">
+                  <div class="wms-metric-item"><span class="val">38</span><span class="lbl">Total Pedidos</span></div>
+                  <div class="wms-metric-item"><span class="val">10</span><span class="lbl">En Preparación</span></div>
+                  <div class="wms-metric-item"><span class="val">0%</span><span class="lbl">Error SKU</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 2: Volumen Diario (m³) -->
+            <div class="auth-slide" data-path="wms.stocka.cl / Volumen Diario m³">
+              <div class="auth-slide-media">
+                <img src="./img/wms/stocka-wms-volumen-diario.png" alt="Auditoría Diaria de Volumen m³" loading="lazy">
+                <div class="wms-media-badge"><i class="ri-shield-check-line"></i> Auditoría Diaria</div>
+              </div>
+              <div class="auth-slide-content">
+                <div class="auth-slide-header-tag">
+                  <span class="wms-tag-pill">MÓDULO 01 · GESTIÓN DE ESPACIO</span>
+                  <span class="wms-tag-sub">Cobro 100% Transparente</span>
+                </div>
+                <h3 class="auth-slide-title">Evolución de Volumen Diario y Metros Cúbicos</h3>
+                <p class="auth-slide-desc">Auditoría volumétrica milimétrica de tu mercadería día a día en bodega. Visualiza picos de rotación y tu base de cobro sin sorpresas.</p>
+                <div class="wms-metrics-ribbon">
+                  <div class="wms-metric-item"><span class="val">m³ exacto</span><span class="lbl">Medición 3D</span></div>
+                  <div class="wms-metric-item"><span class="val">1:1 / 4:3</span><span class="lbl">Exportación Gráficos</span></div>
+                  <div class="wms-metric-item"><span class="val">Diario</span><span class="lbl">Cálculo Ponderado</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 3: Picking & Empaque con Caja / Dron -->
+            <div class="auth-slide" data-path="wms.stocka.cl / Empaque y Despachos">
+              <div class="auth-slide-media stage-media">
+                <div class="reticle reticle-tl"></div>
+                <div class="reticle reticle-tr"></div>
+                <div class="reticle reticle-bl"></div>
+                <div class="reticle reticle-br"></div>
+                <img src="./img/wms/stocka-wms-box.gif" alt="Empaque Automatizado" class="box-gif" loading="lazy">
+                <div class="wms-media-badge"><i class="ri-truck-line"></i> Auto-Routing Couriers</div>
+              </div>
+              <div class="auth-slide-content">
+                <div class="auth-slide-header-tag">
+                  <span class="wms-tag-pill">MÓDULO 02 · PICK &amp; PACK EXPRESS</span>
+                  <span class="wms-tag-sub">Same Day RM &amp; Regiones</span>
+                </div>
+                <h3 class="auth-slide-title">Picking y Empaque Automatizado</h3>
+                <p class="auth-slide-desc">Generación automática de etiquetas y despacho integrado con Chilexpress, Starken, Blue Express y entregas el mismo día.</p>
+                <div class="wms-couriers-row">
+                  <span class="courier-badge">Chilexpress</span>
+                  <span class="courier-badge">Starken</span>
+                  <span class="courier-badge">Blue Express</span>
+                  <span class="courier-badge highlight">Same Day RM</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 4: Conexión Sistema Picker & Escáner Láser -->
+            <div class="auth-slide" data-path="wms.stocka.cl / Hardware Picker / Lector Activo">
+              <div class="auth-slide-media stage-media">
+                <div class="reticle reticle-tl"></div>
+                <div class="reticle reticle-tr"></div>
+                <div class="reticle reticle-bl"></div>
+                <div class="reticle reticle-br"></div>
+                <div class="scanner-live-tag">
+                  <span class="scanner-radar-dot"></span>
+                  <span>Escáner Láser Activo</span>
+                </div>
+                <img src="./img/wms/stocka-picker-scan.gif" alt="Escáner Láser y Sistema Picker" class="scan-gif" loading="lazy">
+                <div class="scanner-sku-tag">
+                  <span>✓ SKU Match 100%</span>
+                </div>
+                <div class="wms-media-badge"><i class="ri-barcode-line"></i> Escáner Láser &lt; 0.1s</div>
+              </div>
+              <div class="auth-slide-content">
+                <div class="auth-slide-header-tag">
+                  <span class="wms-tag-pill">MÓDULO 04 · SISTEMA PICKER &amp; SCANNER</span>
+                  <span class="wms-tag-sub">Bluetooth HID • USB • Pistolas Láser</span>
+                </div>
+                <h3 class="auth-slide-title">Conexión con Sistema Picker y Pistolas Láser</h3>
+                <p class="auth-slide-desc">Sincronización en tiempo real con terminales de bodega y lectores de código de barras (1D, 2D y QR). Validación estricta de SKU para empaque 100% libre de errores.</p>
+                <div class="wms-metrics-ribbon">
+                  <div class="wms-metric-item"><span class="val">&lt; 0.1s</span><span class="lbl">Lectura Láser</span></div>
+                  <div class="wms-metric-item"><span class="val">1D / 2D / QR</span><span class="lbl">Compatibilidad</span></div>
+                  <div class="wms-metric-item"><span class="val">100% Match</span><span class="lbl">Validación SKU</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 5: Kardex 2.0 y Trazabilidad -->
+            <div class="auth-slide" data-path="wms.stocka.cl / Kardex de Movimientos">
+              <div class="auth-slide-media">
+                <img src="./img/wms/stocka-wms-kardex-movimientos.png" alt="Kardex 2.0 y Trazabilidad Inmutable" loading="lazy">
+                <div class="wms-media-badge"><i class="ri-history-line"></i> Timestamp Inmutable</div>
+              </div>
+              <div class="auth-slide-content">
+                <div class="auth-slide-header-tag">
+                  <span class="wms-tag-pill">MÓDULO 05 · TRAZABILIDAD TOTAL</span>
+                  <span class="wms-tag-sub">Auditoría por Operario</span>
+                </div>
+                <h3 class="auth-slide-title">Kardex 2.0 e Historial de Movimientos</h3>
+                <p class="auth-slide-desc">Control por segundo de cada unidad que ingresa, se pickea o despacha. Trazabilidad inmutable por bodega física en La Reina, Recoleta y Ñuñoa.</p>
+                <div class="wms-metrics-ribbon">
+                  <div class="wms-metric-item"><span class="val">100%</span><span class="lbl">Trazabilidad</span></div>
+                  <div class="wms-metric-item"><span class="val">Multibodega</span><span class="lbl">Ñuñoa, Reina, Rec.</span></div>
+                  <div class="wms-metric-item"><span class="val">Audit Log</span><span class="lbl">Seguridad Cloud</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Console Controls Bar -->
+          <div class="wms-console-bottombar">
+            <div class="auth-slider-dots">
+              <button class="auth-slider-dot active" aria-label="Ver Diapositiva 1 - Pedidos Multi-Canal"></button>
+              <button class="auth-slider-dot" aria-label="Ver Diapositiva 2 - Volumen Diario m3"></button>
+              <button class="auth-slider-dot" aria-label="Ver Diapositiva 3 - Empaque y Despachos"></button>
+              <button class="auth-slider-dot" aria-label="Ver Diapositiva 4 - Sistema Picker y Scanner"></button>
+              <button class="auth-slider-dot" aria-label="Ver Diapositiva 5 - Kardex de Movimientos"></button>
+            </div>
+            <div class="wms-slider-counter">
+              <span id="wms-slide-curr">01</span> / <span>05</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
   </main>
 
   <!-- Supabase CDN -->

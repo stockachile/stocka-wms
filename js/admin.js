@@ -5,6 +5,9 @@ import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
+import { renderSurveysAdmin } from './surveys.js';
+
+window.renderSurveysAdmin = renderSurveysAdmin;
 
 window.ALPHA_COBERTURA_36 = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
@@ -3039,6 +3042,17 @@ async function init() {
           } else if (view === 'returns_admin') {
             viewTitle.textContent = 'Logística Inversa';
             renderAdminReturns();
+          } else if (view === 'pos_admin') {
+            viewTitle.textContent = 'Punto de Ventas (Sucursal Ñuñoa)';
+            if (typeof window.renderPosAdmin === 'function') {
+              window.renderPosAdmin();
+            } else if (typeof renderPosAdmin === 'function') {
+              renderPosAdmin();
+            }
+          } else if (view === 'surveys_admin') {
+            viewTitle.textContent = 'Encuestas & Reviews';
+            const appContent = document.getElementById('app-content');
+            renderSurveysAdmin(appContent);
           }
         });
       });
@@ -3055,7 +3069,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'tickets_admin' || view === 'movements_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' || view === 'movements_admin' || view === 'surveys_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -3317,6 +3331,25 @@ window.updateAdminBadges = async function() {
       }
     } catch (err) {
       console.warn('Error fetching leads count for admin badge:', err);
+    }
+
+    // 11. Encuestas & Reviews Admin Badge (Encuestas activas publicadas)
+    try {
+      const badgeSurveysAdmin = document.getElementById('badge-surveys-admin');
+      if (badgeSurveysAdmin) {
+        const { count: activeSurveysCount, error: sErr } = await supabase
+          .from('surveys')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'published');
+        if (!sErr && activeSurveysCount !== null) {
+          badgeSurveysAdmin.textContent = activeSurveysCount;
+          badgeSurveysAdmin.style.display = activeSurveysCount > 0 ? 'inline-flex' : 'none';
+        } else {
+          badgeSurveysAdmin.style.display = 'none';
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching surveys count for admin badge:', err);
     }
 
   } catch (e) {

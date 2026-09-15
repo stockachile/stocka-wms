@@ -118,12 +118,53 @@ async function sendWhatsAppDocument({ to, fileBuffer, fileBase64, fileName, capt
   }
 }
 
+async function checkCalendarStatus(date) {
+  try {
+    const url = date ? `${WHATSAPP_API_URL}/calendar/status?date=${encodeURIComponent(date)}` : `${WHATSAPP_API_URL}/calendar/status`;
+    const response = await fetch(url, { method: 'GET' });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error consultando estado de calendario:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function syncCalendarCache() {
+  try {
+    const response = await fetch(`${WHATSAPP_API_URL}/calendar/sync-cache`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error sincronizando caché de calendario:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function importChileHolidays(year = 2026) {
+  try {
+    const response = await fetch(`${WHATSAPP_API_URL}/calendar/import-holidays`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ year })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('[WhatsApp Client] Error importando feriados chilenos:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   checkWhatsAppStatus,
   sendWhatsAppMessage,
   sendWhatsAppDocument,
   sendPickupAlert,
   listBotGroups,
-  notifyManualOrdersAlert
+  notifyManualOrdersAlert,
+  checkCalendarStatus,
+  syncCalendarCache,
+  importChileHolidays
 };
 

@@ -2,6 +2,44 @@
 // RE-DISEÑO DE CALENDARIO OPERACIONAL STOCKA WMS (COMPACTO)
 // ========================================================
 
+// Helpers globales de clasificación de eventos
+window.isEventNonOperational = function(e) {
+  if (!e) return false;
+  if (e.is_non_operational === true || e.is_non_operational === 'true') return true;
+  if (e.event_type === 'non_operational' || e.event_type === 'holiday') return true;
+  const title = (e.title || '').toLowerCase();
+  const desc = (e.description || '').toLowerCase();
+  return title.includes('sin operacion') || title.includes('feriado') || desc.includes('sin operacion') || desc.includes('feriado');
+};
+
+window.isEventHoliday = function(e) {
+  if (!e) return false;
+  if (e.is_holiday === true || e.is_holiday === 'true' || e.event_type === 'holiday') return true;
+  const title = (e.title || '').toLowerCase();
+  const desc = (e.description || '').toLowerCase();
+  return title.includes('feriado') || desc.includes('feriado');
+};
+
+window.buildGoogleCalendarEventUrl = function(e) {
+  if (!e || !e.event_date) return '#';
+  const datePart = e.event_date.split('T')[0].split(' ')[0];
+  const [y, m, d] = datePart.split('-').map(Number);
+  
+  // Para evento de día completo, la fecha de inicio es YYYYMMDD y término al día siguiente YYYYMMDD
+  const startObj = new Date(y, m - 1, d);
+  const endObj = new Date(y, m - 1, d + 1);
+
+  const startStr = `${startObj.getFullYear()}${String(startObj.getMonth() + 1).padStart(2, '0')}${String(startObj.getDate()).padStart(2, '0')}`;
+  const endStr = `${endObj.getFullYear()}${String(endObj.getMonth() + 1).padStart(2, '0')}${String(endObj.getDate()).padStart(2, '0')}`;
+
+  const isNonOp = window.isEventNonOperational(e);
+  const prefix = isNonOp ? '🛑 SIN OPERACIONES: ' : '📅 ';
+  const title = encodeURIComponent(`${prefix}${e.title || 'Evento Stocka WMS'}`);
+  const details = encodeURIComponent(`${e.description || 'Día sin operaciones registrado en Stocka WMS.'}\n\n[Bloqueado automáticamente para evitar agendamiento de reuniones y visitas]`);
+
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startStr}/${endStr}&details=${details}&trp=true&sf=true&output=xml`;
+};
+
 window.toggleCalendarGridVisibility = function() {
   const wrapper = document.getElementById('cal-grid-body-wrapper');
   const btn = document.getElementById('cal-toggle-grid');
@@ -67,14 +105,23 @@ window.renderCalendarUI = function(events, currentDate, selectedDateStr) {
     const isSelected = selectedDateStr === dStr;
     const isToday = dStr === todayStr;
 
-    let cellStyle = `padding: 0.35rem 0.15rem; text-align: center; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 38px; box-sizing: border-box;`;
+    let cellStyle = `padding: 0.35rem 0.15rem; text-align: center; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 38px; box-sizing: border-box; position: relative;`;
     let bgCol = 'transparent';
+    let iconBadge = '';
+
+    const hasHoliday = dayEvents.some(e => window.isEventHoliday(e));
+    const hasNonOp = dayEvents.some(e => window.isEventNonOperational(e));
 
     if (isSelected) {
       cellStyle += ` background-color: var(--color-primary); color: white; font-weight: 700; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4);`;
     } else if (isToday) {
       bgCol = 'rgba(59, 130, 246, 0.08)';
       cellStyle += ` background-color: ${bgCol}; color: var(--color-primary); font-weight: 700; border: 1px solid rgba(59, 130, 246, 0.35);`;
+    } else if (hasNonOp || hasHoliday) {
+      borderCol = '#ef4444';
+      bgCol = 'rgba(239, 68, 68, 0.08)';
+      cellStyle += ` background-color: ${bgCol}; border-bottom: 3.5px solid #ef4444; color: var(--color-text-main); font-weight: 750;`;
+      iconBadge = hasHoliday ? `<span style="font-size: 0.62rem; line-height: 1; margin-top: 1px;" title="Feriado / Sin Operaciones">🇨🇱</span>` : `<span style="font-size: 0.58rem; line-height: 1; margin-top: 1px; color: #ef4444;" title="Sin Operaciones">🛑</span>`;
     } else if (hasEvents) {
       let borderCol = '#2563eb';
       bgCol = 'rgba(37, 99, 235, 0.07)';
@@ -102,6 +149,7 @@ window.renderCalendarUI = function(events, currentDate, selectedDateStr) {
     gridHtml += `
       <div class="cal-day-cell" data-date="${dStr}" style="${cellStyle}" onmouseover="if(!${isSelected}) this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="if(!${isSelected}) this.style.backgroundColor='${bgCol}'">
         <span>${day}</span>
+        ${iconBadge}
       </div>
     `;
   }
@@ -133,7 +181,15 @@ window.renderEventsListUI = function(events, selectedDateStr) {
   let todayStatusIcon = 'ri-checkbox-circle-line';
   let todayStatusLabel = 'Sin eventos hoy';
 
-  if (todayEvents.length > 0) {
+  const todayHoliday = todayEvents.some(e => window.isEventHoliday(e));
+  const todayNonOp = todayEvents.some(e => window.isEventNonOperational(e));
+
+  if (todayNonOp || todayHoliday) {
+    todayStatusBg = 'rgba(239, 68, 68, 0.12)';
+    todayStatusColor = '#ef4444';
+    todayStatusIcon = 'ri-forbid-2-line';
+    todayStatusLabel = todayHoliday ? 'Feriado / Sin Operaciones' : 'Sin Operaciones Hoy';
+  } else if (todayEvents.length > 0) {
     const hasAlert = todayEvents.some(e => e.color_type === 'alert' || e.color_type === 'warning');
     todayStatusBg = hasAlert ? 'rgba(239, 68, 68, 0.07)' : 'rgba(37, 99, 235, 0.07)';
     todayStatusColor = hasAlert ? '#ef4444' : '#2563eb';
@@ -179,20 +235,33 @@ window.renderEventsListUI = function(events, selectedDateStr) {
       const timePart = e.event_date.includes('T') ? e.event_date.split('T')[1].slice(0, 5) : '';
       const timeStr = timePart && timePart !== '00:00' ? timePart : '';
 
+      const isHoliday = window.isEventHoliday(e);
+      const isNonOp = window.isEventNonOperational(e);
+
       let colorClass = e.color_type || 'primary';
       if (colorClass === 'info') colorClass = 'primary';
-      if (colorClass === 'alert') colorClass = 'danger';
-      
+      if (colorClass === 'alert' || isHoliday || isNonOp) colorClass = 'danger';
+
+      const gcalUrl = window.buildGoogleCalendarEventUrl(e);
+
       return `
         <div class="compact-event-row" style="display: flex; flex-direction: column; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; width: 100%; box-sizing: border-box;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
           <div style="display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.85rem; cursor: pointer; user-select: none;" onclick="const desc = this.nextElementSibling; if(desc) { desc.style.display = desc.style.display === 'none' ? 'block' : 'none'; }">
-            <div style="width: 4px; height: 26px; background-color: var(--color-${colorClass}); border-radius: 2px; flex-shrink: 0;"></div>
+            <div style="width: 4px; height: 32px; background-color: var(--color-${colorClass}); border-radius: 2px; flex-shrink: 0;"></div>
             <div style="flex: 1; min-width: 0;">
-              <h5 style="margin: 0; font-size: 0.825rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${e.title}">${e.title}</h5>
-              <div style="font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.05rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <h5 style="margin: 0; font-size: 0.825rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${e.title}">${e.title}</h5>
+                ${isHoliday ? `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.65rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px;"><i class="ri-flag-fill"></i> Feriado</span>` : ''}
+                ${isNonOp && !isHoliday ? `<span style="background: rgba(220, 38, 38, 0.12); color: #dc2626; font-size: 0.65rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 4px;"><i class="ri-forbid-2-line"></i> Sin Operaciones</span>` : ''}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.45rem; margin-top: 0.15rem; flex-wrap: wrap;">
                 <span><i class="ri-calendar-line"></i> ${day} ${month}</span>
                 ${timeStr ? `<span>• <i class="ri-time-line"></i> ${timeStr}</span>` : ''}
-                ${e.description ? `<span style="color: var(--color-primary); font-weight: 600; margin-left: 0.2rem;"><i class="ri-information-line"></i> Detalles</span>` : ''}
+                ${(isNonOp || isHoliday) ? `<span style="color: #16a34a; font-weight: 600;"><i class="ri-whatsapp-line"></i> Bot en pausa</span>` : ''}
+                <a href="${gcalUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" style="color: #2563eb; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; background: rgba(37,99,235,0.06); padding: 0.05rem 0.35rem; border-radius: 3px;" title="Bloquear este día en tu Google Calendar para que nadie agende reuniones">
+                  <i class="ri-google-fill"></i> Bloquear en Google
+                </a>
+                ${e.description ? `<span style="color: var(--color-primary); font-weight: 600; margin-left: 0.1rem;"><i class="ri-information-line"></i> Detalles</span>` : ''}
               </div>
             </div>
             ${e.description ? `<i class="ri-arrow-down-s-line" style="color: var(--color-text-muted); font-size: 0.85rem;"></i>` : ''}

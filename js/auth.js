@@ -579,9 +579,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 200);
   }
 
+  // Helper de Alternancia de Visibilidad de Contraseña (Eye Toggle)
+  const setupPasswordToggle = (toggleBtnId, passwordInputId) => {
+    const toggleBtn = document.getElementById(toggleBtnId);
+    const passwordInput = document.getElementById(passwordInputId);
+    if (!toggleBtn || !passwordInput) return;
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isPassword = passwordInput.type === 'password';
+      passwordInput.type = isPassword ? 'text' : 'password';
+      const icon = toggleBtn.querySelector('i');
+      if (icon) {
+        icon.className = isPassword ? 'ri-eye-off-line' : 'ri-eye-line';
+      }
+    });
+  };
+
+  setupPasswordToggle('toggle-password-visibility', 'password');
+  setupPasswordToggle('toggle-reg-password-visibility', 'reg-password');
+
   // WMS Client Feature Slide Control Logic
   const slides = document.querySelectorAll('.auth-slide');
   const dots = document.querySelectorAll('.auth-slider-dot');
+  const consolePathEl = document.getElementById('wms-console-path');
+  const slideCurrEl = document.getElementById('wms-slide-curr');
+  const consoleWindow = document.querySelector('.wms-console-window');
   let currentSlide = 0;
   let slideInterval;
 
@@ -591,7 +614,16 @@ document.addEventListener('DOMContentLoaded', () => {
     dots.forEach(d => d.classList.remove('active'));
     
     slides[index].classList.add('active');
-    dots[index].classList.add('active');
+    if (dots[index]) dots[index].classList.add('active');
+
+    // Update Console path & slide counter
+    if (consolePathEl && slides[index].dataset.path) {
+      consolePathEl.textContent = slides[index].dataset.path;
+    }
+    if (slideCurrEl) {
+      slideCurrEl.textContent = `0${index + 1}`;
+    }
+
     currentSlide = index;
   }
 
@@ -603,11 +635,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function startSlideShow() {
     if (!slides.length) return;
-    slideInterval = setInterval(nextSlide, 5000);
+    stopSlideShow();
+    slideInterval = setInterval(nextSlide, 5500);
   }
 
   function stopSlideShow() {
-    clearInterval(slideInterval);
+    if (slideInterval) clearInterval(slideInterval);
   }
 
   if (dots.length) {
@@ -620,8 +653,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Pause slideshow on hover
+  if (consoleWindow) {
+    consoleWindow.addEventListener('mouseenter', stopSlideShow);
+    consoleWindow.addEventListener('mouseleave', startSlideShow);
+  }
+
   // Initialize Slideshow
   if (slides.length) {
+    showSlide(0);
     startSlideShow();
   }
 });

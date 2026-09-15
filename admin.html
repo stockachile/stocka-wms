@@ -271,6 +271,7 @@
           <li><a href="#" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
           <li><a href="#" class="nav-item" data-view="returns_admin"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
+          <li><a href="#" class="nav-item" data-view="pos_admin"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
 
           <li class="sidebar-category-header">📥 INVENTARIO Y CATÁLOGO</li>
           <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span></a></li>
@@ -290,6 +291,8 @@
           <li><a href="#" class="nav-item" data-view="redzone_admin" style="color: #ef4444;"><i class="ri-close-circle-line"></i> <span class="nav-text">Solicitudes de Baja</span> <span id="badge-redzone-admin" class="menu-badge" style="display: none; background-color: #ef4444;">0</span></a></li>
           <li><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"><i class="ri-ticket-line"></i> <span class="nav-text">Gestión de Tickets</span> <span id="badge-tickets-sidebar" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span> <span id="badge-integrations" class="menu-badge" style="display: none;">0</span></a></li>
+          <li><a href="#" class="nav-item" data-view="surveys_admin"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Reviews</span> <span id="badge-surveys-admin" class="menu-badge" style="display: none;">0</span></a></li>
+
 
           <li class="sidebar-category-header">⚙️ CONFIGURACIÓN DEL SISTEMA</li>
           <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span> <span id="badge-users" class="menu-badge" style="display: none;">0</span></a></li>
@@ -2687,6 +2690,326 @@
     </div>
   </div>
 
+  <!-- Modal Registrar Venta en Sucursal (POS Admin) -->
+  <div class="modal-overlay" id="modal-pos-sale" style="z-index: 1050;">
+    <div class="modal-content" style="max-width: 1100px; width: 95%;">
+      <div class="modal-header">
+        <h3 id="pos-modal-title" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+          <i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i> Registrar Venta en Sucursal (POS Ñuñoa)
+        </h3>
+        <button type="button" class="modal-close" data-close="modal-pos-sale">&times;</button>
+      </div>
+      <form id="form-pos-sale" novalidate>
+        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
+          
+          <!-- Wizard Step Indicator -->
+          <div class="pos-wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
+            <div class="pos-wizard-step-tab active" id="pos-wizard-tab-1" style="flex: 1; text-align: center; font-weight: bold; color: var(--color-primary); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15); font-weight: 700;">1</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Comercio y Cliente</span>
+            </div>
+            <div class="pos-wizard-step-line" id="pos-wizard-line-1" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="pos-wizard-step-tab" id="pos-wizard-tab-2" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">2</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Productos y Stock</span>
+            </div>
+            <div class="pos-wizard-step-line" id="pos-wizard-line-2" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="pos-wizard-step-tab" id="pos-wizard-tab-3" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Pago y Confirmación</span>
+            </div>
+          </div>
+
+          <!-- STEP 1: COMERCIO, SUCURSAL Y CLIENTE -->
+          <div id="pos-wizard-step-1" class="pos-wizard-step-container">
+            
+            <!-- Selector de Comercio y Sucursal -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem;">
+                  Comercio de la Venta <span class="text-danger">*</span>
+                </label>
+                <select id="pos-select-commerce" class="form-input" style="font-weight: 600; color: var(--color-text-main);" required>
+                  <option value="">Selecciona comercio...</option>
+                </select>
+                <div id="pos-commerce-badges-container" style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                  <!-- Dynamic badges: Catálogo y Seguimiento de Stock -->
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem;">
+                  Sucursal de Venta Física <span class="text-danger">*</span>
+                </label>
+                <select id="pos-select-sucursal" class="form-input" style="font-weight: 600; color: var(--color-text-main);" required>
+                  <option value="973da888-8a63-4790-a08f-919e1af41a93" selected>Matriz Ñuñoa (Campo de Deportes 405)</option>
+                </select>
+                <small class="text-muted" style="margin-top: 0.35rem; display: block;">
+                  <i class="ri-map-pin-line"></i> Punto físico habilitado con inventario y atención directa.
+                </small>
+              </div>
+            </div>
+
+            <!-- Datos del Cliente -->
+            <div style="margin-bottom: 1.5rem;">
+              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                <i class="ri-user-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Datos del Cliente
+              </h4>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Nombre del Cliente <span class="text-danger">*</span></label>
+                  <input type="text" id="pos-customer-name" class="form-input" required placeholder="Ej: Juan Pérez">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Email del Cliente <span class="text-danger">*</span></label>
+                  <input type="email" id="pos-customer-email" class="form-input" required placeholder="Ej: cliente@correo.com">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Teléfono (Opcional)</label>
+                  <input type="text" id="pos-customer-phone" class="form-input" placeholder="Ej: +56912345678">
+                </div>
+              </div>
+            </div>
+
+            <!-- Tipo de Documento: Boleta vs Factura -->
+            <div style="margin-bottom: 1rem;">
+              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                <i class="ri-file-list-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Tipo de Documento Tributario
+              </h4>
+              <input type="hidden" id="pos-documento-tipo" value="BOLETA">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                <div id="lbl-pos-doc-boleta" onclick="window.selectPosDocTipo('BOLETA')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.2rem;">
+                    <i class="ri-bill-line"></i>
+                  </div>
+                  <div>
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Boleta Electrónica</span>
+                    <span style="font-size: 0.7rem; color: var(--color-text-muted);">Venta directa a consumidor final</span>
+                  </div>
+                </div>
+                
+                <div id="lbl-pos-doc-factura" onclick="window.selectPosDocTipo('FACTURA')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;">
+                    <i class="ri-file-paper-2-line"></i>
+                  </div>
+                  <div>
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Factura Electrónica</span>
+                    <span style="font-size: 0.7rem; color: var(--color-text-muted);">Requiere datos de empresa para emisión</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Campos Factura (ocultos por defecto) -->
+              <div id="pos-factura-fields" style="display: none; background: rgba(59, 130, 246, 0.03); border: 1px solid rgba(59, 130, 246, 0.2); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1rem;">
+                <h5 style="margin: 0 0 0.75rem 0; color: var(--color-primary); font-size: 0.85rem; font-weight: 700;">Datos Fiscales para Factura</h5>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem;">RUT Facturación <span class="text-danger">*</span></label>
+                    <input type="text" id="pos-factura-rut" class="form-input" placeholder="76.123.456-7">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem;">Razón Social <span class="text-danger">*</span></label>
+                    <input type="text" id="pos-factura-razon-social" class="form-input" placeholder="Comercial SpA">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem;">Giro Comercial <span class="text-danger">*</span></label>
+                    <input type="text" id="pos-factura-giro" class="form-input" placeholder="Venta al por menor">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem;">Dirección Facturación <span class="text-danger">*</span></label>
+                    <input type="text" id="pos-factura-direccion" class="form-input" placeholder="Av. Providencia 1234">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- STEP 2: PRODUCTOS Y STOCK -->
+          <div id="pos-wizard-step-2" class="pos-wizard-step-container" style="display: none;">
+            
+            <!-- Modo Manual Checkbox -->
+            <div id="pos-manual-mode-wrapper" style="margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
+              <input type="checkbox" id="pos-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
+              <label for="pos-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
+                Ingreso manual de productos (Comercios sin catálogo configurado)
+              </label>
+            </div>
+
+            <!-- Banner Informativo Paso 2 -->
+            <div style="margin-bottom: 1.25rem; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4;">
+              <div style="font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                <i class="ri-information-line"></i> Control de Stock en Sucursal Ñuñoa
+              </div>
+              <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                Los productos cargados verifican el stock disponible físicamente en la sucursal de Ñuñoa. Al registrar la venta se descontará el stock si el comercio tiene seguimiento activo.
+              </p>
+            </div>
+
+            <!-- Tabla de Productos -->
+            <div class="table-responsive" style="margin-bottom: 1rem;">
+              <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+                <thead>
+                  <tr>
+                    <th style="width: 42%;">Producto</th>
+                    <th style="width: 14%; text-align: center;">Stock Disp. Ñuñoa</th>
+                    <th style="width: 12%; text-align: center;">Cantidad</th>
+                    <th style="width: 16%; text-align: right;">Precio Unit. ($)</th>
+                    <th style="width: 16%; text-align: right;">Subtotal ($)</th>
+                    <th style="width: 5%; text-align: center;"></th>
+                  </tr>
+                </thead>
+                <tbody id="pos-products-tbody">
+                  <!-- Dynamic Rows -->
+                </tbody>
+              </table>
+            </div>
+
+            <button type="button" id="btn-pos-add-row" style="border: 1px dashed var(--color-primary); background: rgba(59, 130, 246, 0.03); color: var(--color-primary); border-radius: var(--radius-md); font-weight: 600; padding: 0.45rem 1rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
+              <i class="ri-add-line" style="font-size: 1rem; font-weight: 700;"></i> Agregar Producto
+            </button>
+
+            <!-- Resumen Financiero -->
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+              <div style="width: 320px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+                  <span>Subtotal Neto:</span>
+                  <span id="pos-summary-neto" style="font-weight: 600; color: var(--color-text-main);">$0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+                  <span>IVA Estimado (19%):</span>
+                  <span id="pos-summary-iva" style="font-weight: 600; color: var(--color-text-main);">$0</span>
+                </div>
+                <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: 700; font-size: 1rem; color: var(--color-text-main);">Total a Cobrar:</span>
+                  <span id="pos-summary-total" style="font-weight: 800; font-size: 1.35rem; color: #10b981;">$0</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- STEP 3: PAGO Y CONFIRMACION -->
+          <div id="pos-wizard-step-3" class="pos-wizard-step-container" style="display: none;">
+            
+            <!-- Resumen Rápido -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div>
+                <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">Comercio</span>
+                <strong id="pos-confirm-commerce" style="font-size: 1.05rem; color: var(--color-primary);">-</strong>
+                <div id="pos-confirm-client" style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">-</div>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">Total de la Venta</span>
+                <strong id="pos-confirm-total" style="font-size: 1.45rem; color: #10b981;">$0</strong>
+                <div id="pos-confirm-items-count" style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">0 ítems</div>
+              </div>
+            </div>
+
+            <!-- Método de Pago -->
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label class="form-label" style="font-weight: 700; margin-bottom: 0.65rem; display: block;">Método de Pago <span class="text-danger">*</span></label>
+              <input type="hidden" id="pos-modo-pago" value="Tarjeta de Débito">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem;">
+                
+                <div id="lbl-pos-pago-debito" onclick="window.selectPosModoPago('Tarjeta de Débito')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-bank-card-line" style="font-size: 1.5rem; color: var(--color-primary); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Tarjeta de Débito</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">Redcompra POS</span>
+                </div>
+
+                <div id="lbl-pos-pago-credito" onclick="window.selectPosModoPago('Tarjeta de Crédito')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-bank-card-2-line" style="font-size: 1.5rem; color: var(--color-text-muted); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Tarjeta de Crédito</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">Cuotas / POS</span>
+                </div>
+
+                <div id="lbl-pos-pago-efectivo" onclick="window.selectPosModoPago('Efectivo')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-money-dollar-circle-line" style="font-size: 1.5rem; color: var(--color-text-muted); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Efectivo</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">Pago en caja física</span>
+                </div>
+
+                <div id="lbl-pos-pago-transferencia" onclick="window.selectPosModoPago('Transferencia')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-exchange-dollar-line" style="font-size: 1.5rem; color: var(--color-text-muted); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Transferencia</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted);">Comprobante bancario</span>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Código de Venta y Observaciones -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Código de Venta / Referencia</label>
+                <div style="display: flex; gap: 0.5rem;">
+                  <input type="text" id="pos-codigo-venta" class="form-input" style="font-family: monospace; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;">
+                  <button type="button" class="btn btn-outline" onclick="window.regeneratePosCode()" style="padding: 0.5rem 0.75rem;" title="Generar nuevo código"><i class="ri-refresh-line"></i></button>
+                </div>
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Código único registrado en el sistema.</small>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Comentarios / Voucher POS (Opcional)</label>
+                <textarea id="pos-comments" class="form-input" rows="2" placeholder="Ej: Pago POS Transbank operación #4920..."></textarea>
+              </div>
+            </div>
+
+            <!-- Alerta informativa de impacto de inventario y pedidos -->
+            <div style="margin-top: 1.25rem; margin-bottom: 1.5rem; display: flex; gap: 0.65rem; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.85rem 1.2rem; border-radius: var(--radius-md); align-items: flex-start;">
+              <i class="ri-check-double-line" style="color: #10b981; font-size: 1.25rem; line-height: 1; margin-top: 0.1rem;"></i>
+              <div style="font-size: 0.8rem; color: var(--color-text-main); line-height: 1.45;">
+                <strong style="color: #059669; font-weight: 700;">Acciones Automáticas al Confirmar:</strong>
+                <ul style="margin: 0.25rem 0 0 0; padding-left: 1.2rem; color: var(--color-text-muted);">
+                  <li>Se guardará el registro en <strong>Punto de Ventas</strong> (visible inmediatamente para el comercio).</li>
+                  <li>Se creará el pedido en el <strong>Gestor de Pedidos</strong> con origen <em>"Punto de Venta"</em> y estado <em>"Despachado"</em>.</li>
+                  <li>Se descontará el inventario físico en la sucursal de Ñuñoa y se registrará la salida en movimientos si el comercio tiene activo el seguimiento de stock.</li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1.25rem 1.5rem;">
+          <button type="button" id="btn-pos-prev" style="border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); font-weight: 600; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
+            <i class="ri-arrow-left-s-line" style="font-size: 1.1rem;"></i> Volver
+          </button>
+          <button type="button" id="btn-pos-next" style="border: none; background: var(--color-primary); color: white; border-radius: var(--radius-md); font-weight: 600; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);">
+            Siguiente <i class="ri-arrow-right-s-line" style="font-size: 1.1rem;"></i>
+          </button>
+          <button type="submit" id="btn-pos-save" style="border: none; background: var(--color-success, #10b981); color: white; border-radius: var(--radius-md); font-weight: 700; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+            Confirmar y Registrar Venta <i class="ri-check-line" style="font-size: 1.1rem;"></i>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Detalle Venta POS (Admin) -->
+  <div class="modal-overlay" id="modal-pos-detail" style="z-index: 1060;">
+    <div class="modal-content" style="max-width: 750px; width: 95%;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+          <i class="ri-receipt-line" style="color: var(--color-primary);"></i> Detalle de Venta Presencial (POS)
+        </h3>
+        <button type="button" class="modal-close" data-close="modal-pos-detail">&times;</button>
+      </div>
+      <div class="modal-body" id="pos-detail-content" style="max-height: 70vh; overflow-y: auto; padding: 1.5rem;">
+        <!-- Injected dynamically -->
+      </div>
+      <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem;">
+        <button type="button" id="btn-pos-print-ticket" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-printer-line"></i> Imprimir Comprobante
+        </button>
+        <button type="button" class="btn btn-primary" data-close="modal-pos-detail">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- SweetAlert2 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <!-- Barcode & QR Code Generator -->
@@ -2705,12 +3028,14 @@
   <script src="./js/calendar.js"></script>
   <script src="./js/shipping_rates.js"></script>
   <script src="./js/inventory_sheets.js"></script>
+  <script src="./js/toast_notifications.js?v=1.0.0"></script>
   <script src="./js/inbound_notifications.js?v=1.0.3"></script>
-  <script type="module" src="./js/admin.js?v=1.0.88"></script>
+  <script type="module" src="./js/admin.js?v=1.0.93"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.4"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.0.6"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
+  <script type="module" src="./js/pos_admin.js?v=1.0.5"></script>
 
   <!-- Floating Mercado Libre Sync Button -->
   <button class="floating-meli-btn" id="meli-monitor-btn" title="Mercado Libre: Sincronización y Nuevos Pedidos" onclick="window.toggleMeliMonitorPanel()" style="display: flex;">
