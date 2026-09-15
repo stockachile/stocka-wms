@@ -10,6 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let maxReachedSubStep = 1;
   const totalSubSteps = 4;
   
+  // Variables para conversión de cuenta Demo previa a cuenta oficial
+  let isDemoConversion = false;
+  let demoUserId = null;
+  
   // Elementos del DOM
   const form = document.getElementById('onboarding-form');
   const alertContainer = document.getElementById('onboarding-alert');
@@ -89,6 +93,26 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) {
     console.warn("No se pudieron pre-cargar parámetros del cotizador:", e);
   }
+
+  // Pre-completar datos si el usuario ya inició sesión con una cuenta demo
+  (async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
+      if (user && user.email) {
+        const emailInput = document.getElementById('email');
+        const nameInput = document.getElementById('full_name');
+        if (emailInput && !emailInput.value) {
+          emailInput.value = user.email;
+        }
+        if (nameInput && !nameInput.value && user.user_metadata?.full_name) {
+          nameInput.value = user.user_metadata.full_name;
+        }
+      }
+    } catch (e) {
+      console.warn("No se pudo verificar sesión previa para auto-completar:", e);
+    }
+  })();
 
   // --- MÉTODOS DE UTILIDAD Y VALIDACIÓN ---
 
@@ -572,13 +596,37 @@ document.addEventListener('DOMContentLoaded', () => {
       btnNext.disabled = true;
       btnNext.innerHTML = `<i class="ri-loader-4-line spin"></i> Verificando...`;
       try {
-        const { data: exists, error } = await supabase.rpc('check_email_exists', { p_email: email });
+        const { data: res, error } = await supabase.rpc('check_email_exists', { p_email: email });
         if (error) throw error;
-        if (exists) {
-          showAlert('El correo electrónico ya se encuentra registrado en el sistema. Intenta con otro o inicia sesión.');
+        
+        // Manejar tanto respuesta estructurada (JSONB) como booleana tradicional
+        let allowed = true;
+        let isDemo = false;
+        let message = 'El correo electrónico ya se encuentra registrado en el sistema. Intenta con otro o inicia sesión.';
+
+        if (typeof res === 'object' && res !== null) {
+          allowed = res.allowed !== false;
+          isDemo = res.is_demo === true;
+          if (res.user_id) demoUserId = res.user_id;
+          if (res.message) message = res.message;
+        } else if (typeof res === 'boolean') {
+          // Si es legacy y devolvió true, indicaba que existe
+          allowed = !res;
+        }
+
+        if (!allowed) {
+          showAlert(message);
           btnNext.disabled = false;
           btnNext.innerHTML = `Siguiente <i class="ri-arrow-right-line"></i>`;
           return;
+        }
+
+        isDemoConversion = isDemo;
+        if (isDemoConversion) {
+          showAlert('¡Excelente! Detectamos tu cuenta demo previa. Vincularemos tu onboarding a tu cuenta oficial.', 'info');
+          await new Promise(resolve => setTimeout(resolve, 600));
+        } else {
+          clearAlert();
         }
       } catch (err) {
         console.warn('Advertencia verificando correo:', err);
@@ -671,25 +719,87 @@ document.addEventListener('DOMContentLoaded', () => {
     const packagingDesc = document.getElementById('descripcion_packaging').value.trim();
 
     try {
-      // 1. Crear usuario en Supabase Auth
-      showLoader('Creando cuenta de usuario...', 'Registrando tus credenciales en el portal.');
+      // 1. Obtener o crear cuenta de usuario en Supabase Auth
+      showLoader('Preparando cuenta de usuario...', 'Registrando tus credenciales en el portal.');
       
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email,
-        password: password,
-        options: {
-          data: {
-            full_name: name,
-            company_name: razon
+      let userId = null;
+
+      if (isDemoConversion) {
+        // Conversión directa de cuenta Demo previa a Onboarding oficial
+        try {
+          const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
+            p_email: email,
+            p_password: password,
+            p_full_name: name,
+            p_company_name: razon
+          });
+          if (convertErr) throw convertErr;
+          userId = convertedId;
+        } catch (convErr) {
+          console.warn('Error en convert_demo_user_for_onboarding, intentando fallback de autenticación:', convErr);
+          const { data: loginData } = await supabase.auth.signInWithPassword({ email, password });
+          if (loginData?.user) {
+            userId = loginData.user.id;
+          } else {
+            throw convErr;
           }
         }
-      });
+      } else {
+        // Registro de usuario completamente nuevo
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              full_name: name,
+              company_name: razon
+            }
+          }
+        });
+        
+        if (authError) {
+          // Si el error indica que ya está registrado, intentar conversión automática si era demo
+          const errStr = (authError.message || '').toLowerCase();
+          if (errStr.includes('already registered') || errStr.includes('already in use') || errStr.includes('unique')) {
+            try {
+              const { data: convertedId, error: convertErr } = await supabase.rpc('convert_demo_user_for_onboarding', {
+                p_email: email,
+                p_password: password,
+                p_full_name: name,
+                p_company_name: razon
+              });
+              if (!convertErr && convertedId) {
+                userId = convertedId;
+                isDemoConversion = true;
+              } else {
+                throw authError;
+              }
+            } catch (fallbackErr) {
+              throw authError;
+            }
+          } else {
+            throw authError;
+          }
+        } else {
+          userId = authData.user ? authData.user.id : null;
+        }
+      }
       
-      if (authError) throw authError;
-      
-      const userId = authData.user ? authData.user.id : null;
       if (!userId) {
         throw new Error('No se pudo generar el identificador único de usuario.');
+      }
+
+      // Asegurar que el navegador salga del modo demo si venía de él
+      try {
+        sessionStorage.removeItem('wms_demo_mode');
+        sessionStorage.removeItem('wms_demo_db_initialized');
+      } catch (e) {}
+
+      // Iniciar sesión con sus credenciales reales
+      try {
+        await supabase.auth.signInWithPassword({ email, password });
+      } catch (e) {
+        console.warn('Sesión no auto-iniciada (posible confirmación pendiente):', e);
       }
       
       // 2. Crear solicitud de onboarding llamando a la RPC de Base de Datos

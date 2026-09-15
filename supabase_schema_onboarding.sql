@@ -116,20 +116,122 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Otorgar permiso de ejecución al público
 GRANT EXECUTE ON FUNCTION public.create_onboarding_request TO anon, authenticated;
 
--- 3. Función segura para comprobar la existencia del correo
+-- 3. Función segura para comprobar la existencia del correo y permitir conversión de usuarios demo
+DROP FUNCTION IF EXISTS public.check_email_exists(TEXT);
 CREATE OR REPLACE FUNCTION public.check_email_exists(p_email TEXT)
-RETURNS BOOLEAN AS $$
+RETURNS JSONB AS $$
+DECLARE
+    v_clean_email TEXT := LOWER(TRIM(p_email));
+    v_user_id UUID;
+    v_is_demo BOOLEAN := false;
+    v_role TEXT := '';
 BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM auth.users WHERE email = p_email
-    ) OR EXISTS (
-        SELECT 1 FROM public.onboarding_requests WHERE email = p_email AND status = 'pending'
-    );
+    IF v_clean_email IS NULL OR v_clean_email = '' THEN
+        RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'Por favor ingresa un correo electrónico válido.');
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.onboarding_requests 
+        WHERE LOWER(TRIM(email)) = v_clean_email 
+          AND status IN ('pending', 'pending_contract', 'approved')
+    ) THEN
+        RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'Ya existe una solicitud de onboarding en proceso o aprobada para este correo electrónico.');
+    END IF;
+
+    SELECT id INTO v_user_id FROM auth.users WHERE LOWER(TRIM(email)) = v_clean_email LIMIT 1;
+
+    IF v_user_id IS NOT NULL THEN
+        SELECT COALESCE(is_demo_user, false), COALESCE(role, 'observer') 
+        INTO v_is_demo, v_role
+        FROM public.profiles WHERE id = v_user_id;
+
+        IF (v_is_demo IS TRUE OR v_role = 'observer') THEN
+            RETURN jsonb_build_object('allowed', true, 'is_demo', true, 'user_id', v_user_id, 'message', 'Usuario demo detectado. Se vinculará a la solicitud oficial de cliente.');
+        ELSE
+            RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'El correo electrónico ya se encuentra registrado con una cuenta activa en el sistema.');
+        END IF;
+    END IF;
+
+    RETURN jsonb_build_object('allowed', true, 'is_demo', false, 'message', 'Correo disponible.');
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Otorgar permiso de ejecución al público
-GRANT EXECUTE ON FUNCTION public.check_email_exists TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.check_email_exists TO anon, authenticated, service_role;
+
+-- 3.1 Función segura para convertir usuarios demo en onboarding
+CREATE OR REPLACE FUNCTION public.convert_demo_user_for_onboarding(
+    p_email TEXT,
+    p_password TEXT,
+    p_full_name TEXT,
+    p_company_name TEXT
+)
+RETURNS UUID AS $$
+DECLARE
+    v_clean_email TEXT := LOWER(TRIM(p_email));
+    v_user_id UUID;
+    v_is_demo BOOLEAN := false;
+    v_role TEXT := '';
+BEGIN
+    SELECT id INTO v_user_id FROM auth.users WHERE LOWER(TRIM(email)) = v_clean_email LIMIT 1;
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'No se encontró la cuenta de usuario para el correo proporcionado.';
+    END IF;
+
+    SELECT COALESCE(is_demo_user, false), COALESCE(role, 'observer') 
+    INTO v_is_demo, v_role
+    FROM public.profiles WHERE id = v_user_id;
+
+    IF NOT (v_is_demo IS TRUE OR v_role = 'observer') THEN
+        RAISE EXCEPTION 'Esta cuenta no califica como usuario demo convertible.';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.onboarding_requests 
+        WHERE LOWER(TRIM(email)) = v_clean_email 
+          AND status IN ('pending', 'pending_contract', 'approved')
+    ) THEN
+        RAISE EXCEPTION 'Ya existe una solicitud de onboarding activa o aprobada para este correo.';
+    END IF;
+
+    IF p_password IS NOT NULL AND LENGTH(p_password) >= 8 THEN
+        UPDATE auth.users
+        SET 
+            encrypted_password = crypt(p_password, gen_salt('bf', 10)),
+            raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
+                'full_name', p_full_name,
+                'company_name', p_company_name,
+                'is_demo_user', false
+            ),
+            email_confirmed_at = COALESCE(email_confirmed_at, now()),
+            updated_at = now()
+        WHERE id = v_user_id;
+    ELSE
+        UPDATE auth.users
+        SET 
+            raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object(
+                'full_name', p_full_name,
+                'company_name', p_company_name,
+                'is_demo_user', false
+            ),
+            email_confirmed_at = COALESCE(email_confirmed_at, now()),
+            updated_at = now()
+        WHERE id = v_user_id;
+    END IF;
+
+    UPDATE public.profiles
+    SET 
+        full_name = p_full_name,
+        company_name = p_company_name,
+        is_demo_user = false,
+        lead_status = 'onboarding',
+        updated_at = now()
+    WHERE id = v_user_id;
+
+    RETURN v_user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION public.convert_demo_user_for_onboarding TO anon, authenticated, service_role;
 
 -- 3. Políticas de Storage sobre el bucket 'service_docs'
 -- Permite que cualquiera (incluyendo usuarios anónimos durante el proceso de registro) pueda subir archivos en la carpeta onboarding/
