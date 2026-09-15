@@ -119,7 +119,7 @@ GRANT EXECUTE ON FUNCTION public.create_onboarding_request TO anon, authenticate
 -- 3. Función segura para comprobar la existencia del correo y permitir conversión de usuarios demo
 DROP FUNCTION IF EXISTS public.check_email_exists(TEXT);
 CREATE OR REPLACE FUNCTION public.check_email_exists(p_email TEXT)
-RETURNS JSONB AS $$
+RETURNS BOOLEAN AS $$
 DECLARE
     v_clean_email TEXT := LOWER(TRIM(p_email));
     v_user_id UUID;
@@ -127,7 +127,7 @@ DECLARE
     v_role TEXT := '';
 BEGIN
     IF v_clean_email IS NULL OR v_clean_email = '' THEN
-        RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'Por favor ingresa un correo electrónico válido.');
+        RETURN FALSE;
     END IF;
 
     IF EXISTS (
@@ -135,7 +135,7 @@ BEGIN
         WHERE LOWER(TRIM(email)) = v_clean_email 
           AND status IN ('pending', 'pending_contract', 'approved')
     ) THEN
-        RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'Ya existe una solicitud de onboarding en proceso o aprobada para este correo electrónico.');
+        RETURN TRUE;
     END IF;
 
     SELECT id INTO v_user_id FROM auth.users WHERE LOWER(TRIM(email)) = v_clean_email LIMIT 1;
@@ -146,13 +146,13 @@ BEGIN
         FROM public.profiles WHERE id = v_user_id;
 
         IF (v_is_demo IS TRUE OR v_role = 'observer') THEN
-            RETURN jsonb_build_object('allowed', true, 'is_demo', true, 'user_id', v_user_id, 'message', 'Usuario demo detectado. Se vinculará a la solicitud oficial de cliente.');
+            RETURN FALSE;
         ELSE
-            RETURN jsonb_build_object('allowed', false, 'is_demo', false, 'message', 'El correo electrónico ya se encuentra registrado con una cuenta activa en el sistema.');
+            RETURN TRUE;
         END IF;
     END IF;
 
-    RETURN jsonb_build_object('allowed', true, 'is_demo', false, 'message', 'Correo disponible.');
+    RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

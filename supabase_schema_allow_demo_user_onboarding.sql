@@ -3,38 +3,31 @@
 -- Ejecutar este script en el SQL Editor de Supabase
 -- ==============================================================================
 
--- 1. Eliminar la versión previa de check_email_exists para actualizar su tipo de retorno
+-- 1. Eliminar la versión previa de check_email_exists para asegurar el tipo de retorno
 DROP FUNCTION IF EXISTS public.check_email_exists(TEXT);
 
--- 2. Nueva función check_email_exists que diferencia leads demo de clientes activos
+-- 2. Nueva función check_email_exists compatible (retorna BOOLEAN)
+-- Retorna FALSE si el correo está libre o si es un usuario DEMO (permite continuar)
+-- Retorna TRUE únicamente si ya existe un cliente real, admin o solicitud activa de onboarding (bloquea)
 CREATE OR REPLACE FUNCTION public.check_email_exists(p_email TEXT)
-RETURNS JSONB AS $$
+RETURNS BOOLEAN AS $$
 DECLARE
     v_clean_email TEXT := LOWER(TRIM(p_email));
     v_user_id UUID;
     v_is_demo BOOLEAN := false;
     v_role TEXT := '';
 BEGIN
-    -- Validar formato básico
     IF v_clean_email IS NULL OR v_clean_email = '' THEN
-        RETURN jsonb_build_object(
-            'allowed', false,
-            'is_demo', false,
-            'message', 'Por favor ingresa un correo electrónico válido.'
-        );
+        RETURN FALSE;
     END IF;
 
-    -- 2.1 Verificar si ya existe una solicitud de onboarding en curso o aprobada para este correo
+    -- 2.1 Si ya tiene una solicitud de onboarding en curso o aprobada, bloquear (TRUE)
     IF EXISTS (
         SELECT 1 FROM public.onboarding_requests 
         WHERE LOWER(TRIM(email)) = v_clean_email 
           AND status IN ('pending', 'pending_contract', 'approved')
     ) THEN
-        RETURN jsonb_build_object(
-            'allowed', false,
-            'is_demo', false,
-            'message', 'Ya existe una solicitud de onboarding en proceso o aprobada para este correo electrónico. Nuestro equipo se contactará contigo.'
-        );
+        RETURN TRUE;
     END IF;
 
     -- 2.2 Buscar si el usuario existe en auth.users
@@ -50,35 +43,21 @@ BEGIN
         FROM public.profiles 
         WHERE id = v_user_id;
 
-        -- Si es un usuario registrado para la DEMO y con rol 'observer' (no cliente operativo, admin o colaborador)
+        -- Si es un usuario registrado para la DEMO y con rol 'observer': PERMITIR (FALSE)
         IF (v_is_demo IS TRUE OR v_role = 'observer') THEN
-            RETURN jsonb_build_object(
-                'allowed', true,
-                'is_demo', true,
-                'user_id', v_user_id,
-                'message', 'Usuario demo detectado. Se vinculará tu cuenta existente a tu solicitud oficial de cliente.'
-            );
+            RETURN FALSE;
         ELSE
-            -- Es un usuario operativo, cliente o admin existente: Bloquear para evitar sobreescritura accidental
-            RETURN jsonb_build_object(
-                'allowed', false,
-                'is_demo', false,
-                'message', 'El correo electrónico ya se encuentra registrado con una cuenta activa en el sistema. Inicia sesión o contacta a soporte.'
-            );
+            -- Es un usuario operativo, cliente real o admin: BLOQUEAR (TRUE)
+            RETURN TRUE;
         END IF;
     END IF;
 
-    -- 2.3 El correo no existe en el sistema: Completamente libre
-    RETURN jsonb_build_object(
-        'allowed', true,
-        'is_demo', false,
-        'user_id', NULL,
-        'message', 'Correo disponible.'
-    );
+    -- 2.3 No existe en auth.users: PERMITIR (FALSE)
+    RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Otorgar permisos de ejecución para la comprobación
+-- Otorgar permisos de ejecución
 GRANT EXECUTE ON FUNCTION public.check_email_exists TO anon, authenticated, service_role;
 
 
