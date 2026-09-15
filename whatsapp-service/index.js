@@ -445,6 +445,8 @@ app.post('/notify-manual-orders', requireAuth, async (req, res) => {
     console.error('[Error en POST /notify-manual-orders]:', err);
     res.status(500).json({ error: 'Error ejecutando alerta de pedidos manuales: ' + err.message });
   }
+});
+
 // 9. Endpoints de Calendario, Feriados y Google Calendar
 
 // 9.1 Consultar estado operativo (Domingo / Feriado / Sin operaciones)
