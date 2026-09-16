@@ -35585,6 +35585,11 @@ async function updateClientBadges(userId, userComercio) {
         badgeSurveys.style.display = 'none';
       }
     }
+
+    // Actualizar globo de solicitudes de inventario en sidebar y tab
+    if (typeof updateClientInventoryRequestsBadge === 'function') {
+      updateClientInventoryRequestsBadge(userComercio);
+    }
   } catch (err) {
     console.error('Error al actualizar globo de incidencias del cliente:', err);
   }
@@ -37704,27 +37709,60 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
 async function updateClientInventoryRequestsBadge(commerce) {
   const badge = document.getElementById('client-requests-badge');
-  if (!badge) return;
+  const sidebarBadge = document.getElementById('badge-inventory-client');
+  if (!badge && !sidebarBadge) return;
+
+  const updateEl = (el, count) => {
+    if (!el) return;
+    if (count > 0) {
+      el.textContent = count;
+      el.style.display = 'inline-flex';
+    } else {
+      el.style.display = 'none';
+    }
+  };
 
   try {
-    const { data, error } = await supabase
+    const targetCommerce = commerce || window.currentMerchantCommerce || 'no asignado';
+    let query = supabase
       .from('inventory_requests')
-      .select('id, status')
-      .eq('comercio', commerce || 'no asignado')
-      .in('status', ['Pendiente', 'En Conteo']);
+      .select('id, status');
+
+    if (targetCommerce && targetCommerce !== 'all') {
+      const commerceList = targetCommerce.split(',').map(s => s.trim()).filter(Boolean);
+      if (commerceList.length > 0) {
+        query = query.in('comercio', commerceList);
+      } else {
+        query = query.eq('comercio', targetCommerce);
+      }
+    }
+
+    // Excluir solicitudes ya finalizadas, canceladas o rechazadas
+    query = query.not('status', 'in', '("Finalizada","Cancelada","Rechazada")');
+
+    const { data, error } = await query;
 
     if (!error && data) {
-      if (data.length > 0) {
-        badge.textContent = data.length;
-        badge.style.display = 'inline-block';
-      } else {
-        badge.style.display = 'none';
+      const count = data.length;
+      updateEl(badge, count);
+      updateEl(sidebarBadge, count);
+    } else {
+      // Fallback si la sintaxis not in diera error
+      const fb = await supabase
+        .from('inventory_requests')
+        .select('id, status')
+        .in('status', ['Pendiente', 'En Conteo', 'Requiere Información', 'Aceptada']);
+      if (!fb.error && fb.data) {
+        const count = fb.data.length;
+        updateEl(badge, count);
+        updateEl(sidebarBadge, count);
       }
     }
   } catch (e) {
     console.error('Error updating client inventory requests badge:', e);
   }
 }
+window.updateClientInventoryRequestsBadge = updateClientInventoryRequestsBadge;
 
 async function openRequestInventoryModal(commerce, onComplete) {
   let modal = document.getElementById('modal-request-inventory');
@@ -38199,6 +38237,15 @@ async function openRequestInventoryModal(commerce, onComplete) {
 
       const createdReq = insertedData || newRecord;
 
+      // Enviar notificaciones por correo (solicitante y stockachile@gmail.com) e in-app
+      if (window.sendInventoryRequestNotification) {
+        window.sendInventoryRequestNotification({
+          event: 'created',
+          req: createdReq,
+          userEmail: userEmail
+        }).catch(e => console.warn('[InventoryRequest] Error enviando notificación de creación:', e));
+      }
+
       // Descargas automáticas si fueron seleccionadas
       if (autoPdf && typeof window.generateInventoryCountPdf === 'function') {
         window.generateInventoryCountPdf(createdReq);
@@ -38343,6 +38390,12 @@ async function openClientInventoryRequestsModal(commerce) {
       let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
       if (r.status === 'En Conteo') {
         statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb;">En Conteo</span>';
+      } else if (r.status === 'Aceptada') {
+        statusBadge = '<span class="badge badge-info" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;">Aceptada</span>';
+      } else if (r.status === 'Requiere Información' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Requiere Información]'))) {
+        statusBadge = '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #f59e0b; font-weight: bold;">Requiere Info</span>';
+      } else if (r.status === 'Rechazada' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Rechazada]'))) {
+        statusBadge = '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #ef4444;">Rechazada</span>';
       } else if (r.status === 'Finalizada') {
         statusBadge = '<span class="badge badge-success">Finalizada</span>';
       } else if (r.status === 'Cancelada') {
@@ -38355,6 +38408,7 @@ async function openClientInventoryRequestsModal(commerce) {
 
       const isPending = r.status === 'Pendiente';
       const isFinalized = r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined);
+      const requiresInfo = r.status === 'Requiere Información' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Requiere Información]'));
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border);">
@@ -38368,6 +38422,11 @@ async function openClientInventoryRequestsModal(commerce) {
           <td style="padding: 0.65rem 0.75rem; text-align: center;">${statusBadge}</td>
           <td style="padding: 0.65rem 0.75rem; text-align: center;">
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+              ${requiresInfo ? `
+                <button class="btn btn-warning btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.25rem 0.5rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-question-answer-line"></i> Aclarar
+                </button>
+              ` : ''}
               ${isFinalized ? `
                 <button class="btn btn-outline btn-sm" onclick="window.generateInventoryReportPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer;">
                   <i class="ri-file-chart-line"></i>
@@ -38382,7 +38441,7 @@ async function openClientInventoryRequestsModal(commerce) {
               <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981; cursor: pointer;">
                 <i class="ri-file-excel-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
+              <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Respuestas y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
                 <i class="ri-eye-line"></i>
               </button>
               ${isPending ? `
@@ -38434,9 +38493,14 @@ function openViewInventoryRequestDetailModal(req) {
 
   const folio = req.folio || req.id.substring(0, 8);
   const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const isFinalized = req.status === 'Finalizada' || products.some(p => p.counted_qty !== null && p.counted_qty !== undefined);
+  const requiresInfo = req.status === 'Requiere Información' || (req.admin_notes && req.admin_notes.includes('[ESTADO: Requiere Información]'));
 
   let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
   if (req.status === 'En Conteo') statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb;">En Conteo</span>';
+  else if (req.status === 'Aceptada') statusBadge = '<span class="badge badge-info" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;">Aceptada</span>';
+  else if (req.status === 'Requiere Información' || (req.admin_notes && req.admin_notes.includes('[ESTADO: Requiere Información]'))) statusBadge = '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #f59e0b; font-weight: bold;">Requiere Información</span>';
+  else if (req.status === 'Rechazada' || (req.admin_notes && req.admin_notes.includes('[ESTADO: Rechazada]'))) statusBadge = '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #ef4444;">Rechazada</span>';
   else if (req.status === 'Finalizada') statusBadge = '<span class="badge badge-success">Finalizada</span>';
   else if (req.status === 'Cancelada') statusBadge = '<span class="badge badge-neutral">Cancelada</span>';
 
@@ -38523,7 +38587,60 @@ function openViewInventoryRequestDetailModal(req) {
           </div>
         ` : ''}
 
-        ${req.admin_notes ? `
+        <!-- Respuesta oficial de STOCKA -->
+        ${req.admin_response ? `
+          <div style="background: rgba(99, 102, 241, 0.08); border-left: 4px solid #6366f1; padding: 0.85rem 1.1rem; border-radius: 0 var(--radius-md) var(--radius-md) 0; font-size: 0.875rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.3rem;">
+              <strong style="color: #4338ca; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-question-answer-line"></i> Respuesta del Administrador / Bodega STOCKA:
+              </strong>
+              ${req.admin_response_at ? `<span style="font-size: 0.75rem; color: var(--color-text-muted);">${new Date(req.admin_response_at).toLocaleString('es-CL')}</span>` : ''}
+            </div>
+            <div style="color: var(--color-text-main); white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5;">${req.admin_response}</div>
+          </div>
+        ` : (req.admin_notes && (req.admin_notes.includes('[ESTADO:') || req.admin_notes.includes('Observación:')) ? `
+          <div style="background: rgba(99, 102, 241, 0.08); border-left: 4px solid #6366f1; padding: 0.85rem 1.1rem; border-radius: 0 var(--radius-md) var(--radius-md) 0; font-size: 0.875rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <strong style="color: #4338ca; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-question-answer-line"></i> Observación / Respuesta de Bodega STOCKA:
+              </strong>
+            </div>
+            <div style="color: var(--color-text-main); white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5;">${req.admin_notes}</div>
+          </div>
+        ` : '')}
+
+        <!-- Aclaración enviada previamente por el cliente -->
+        ${req.client_reply ? `
+          <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 0.85rem 1.1rem; border-radius: 0 var(--radius-md) var(--radius-md) 0; font-size: 0.875rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.3rem;">
+              <strong style="color: #065f46; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-reply-line"></i> Tu aclaración enviada a STOCKA:
+              </strong>
+              ${req.client_reply_at ? `<span style="font-size: 0.75rem; color: var(--color-text-muted);">${new Date(req.client_reply_at).toLocaleString('es-CL')}</span>` : ''}
+            </div>
+            <div style="color: var(--color-text-main); white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5;">${req.client_reply}</div>
+          </div>
+        ` : ''}
+
+        <!-- Formulario interactivo si se requiere información adicional -->
+        ${requiresInfo ? `
+          <div style="background: rgba(245, 158, 11, 0.07); border: 1px solid #f59e0b; border-radius: var(--radius-md); padding: 1.1rem; margin-top: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: #b45309; font-weight: 700; margin-bottom: 0.5rem; font-size: 0.95rem;">
+              <i class="ri-error-warning-line" style="font-size: 1.25rem;"></i> Acción Requerida: Responder a STOCKA
+            </div>
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.4;">
+              El equipo de bodega ha dejado observaciones o preguntas sobre tu solicitud. Por favor escribe tu respuesta a continuación para que la solicitud vuelva a ser revisada:
+            </p>
+            <textarea id="client-reply-textarea" class="form-control" rows="3" placeholder="Escribe aquí los antecedentes, aclaraciones, SKUs o números de documento requeridos..." style="width: 100%; box-sizing: border-box; font-size: 0.875rem; margin-bottom: 0.75rem; padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);"></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+              <button type="button" id="btn-submit-client-reply" class="btn btn-primary" style="background: #f59e0b; border-color: #f59e0b; color: white; font-weight: 600; font-size: 0.875rem; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; cursor: pointer;">
+                <i class="ri-send-plane-fill"></i> Enviar Aclaración a STOCKA
+              </button>
+            </div>
+          </div>
+        ` : ''}
+
+        ${req.admin_notes && !req.admin_notes.includes('[ESTADO:') ? `
           <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 0.6rem 0.85rem; border-radius: 0 4px 4px 0; font-size: 0.85rem;">
             <strong style="color: #065f46;">Observaciones de Bodega / Cuadratura:</strong> ${req.admin_notes}
           </div>
@@ -38559,14 +38676,19 @@ function openViewInventoryRequestDetailModal(req) {
       </div>
       <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-pdf" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
-            <i class="ri-file-chart-line"></i> Descargar Informe de Resultados (PDF)
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-excel" style="border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
-            <i class="ri-file-excel-2-line"></i> Informe (Excel)
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-sheet-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
+          ${isFinalized ? `
+            <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-pdf" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; cursor: pointer;">
+              <i class="ri-file-chart-line"></i> Descargar Informe de Resultados (PDF)
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-excel" style="border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; cursor: pointer;">
+              <i class="ri-file-excel-2-line"></i> Informe (Excel)
+            </button>
+          ` : ''}
+          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-sheet-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
             <i class="ri-file-pdf-line"></i> Hoja Terreno PDF
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-sheet-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+            <i class="ri-file-excel-line"></i> Planilla Excel
           </button>
         </div>
         <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-view-inventory-request-detail').remove()">Cerrar</button>
@@ -38575,6 +38697,112 @@ function openViewInventoryRequestDetailModal(req) {
   `;
 
   document.body.appendChild(modal);
+
+  // Listeners de descargas
+  const btnReportPdf = modal.querySelector('#btn-client-modal-report-pdf');
+  if (btnReportPdf) {
+    btnReportPdf.addEventListener('click', () => {
+      if (typeof window.generateInventoryReportPdf === 'function') {
+        window.generateInventoryReportPdf(req);
+      }
+    });
+  }
+
+  const btnReportExcel = modal.querySelector('#btn-client-modal-report-excel');
+  if (btnReportExcel) {
+    btnReportExcel.addEventListener('click', () => {
+      if (typeof window.generateInventoryReportExcel === 'function') {
+        window.generateInventoryReportExcel(req);
+      }
+    });
+  }
+
+  const btnSheetPdf = modal.querySelector('#btn-client-modal-sheet-pdf');
+  if (btnSheetPdf) {
+    btnSheetPdf.addEventListener('click', () => {
+      if (typeof window.generateInventoryCountPdf === 'function') {
+        window.generateInventoryCountPdf(req);
+      }
+    });
+  }
+
+  const btnSheetExcel = modal.querySelector('#btn-client-modal-sheet-excel');
+  if (btnSheetExcel) {
+    btnSheetExcel.addEventListener('click', () => {
+      if (typeof window.generateInventoryCountExcel === 'function') {
+        window.generateInventoryCountExcel(req);
+      }
+    });
+  }
+
+  // Listener para responder aclaración a STOCKA
+  const btnReply = modal.querySelector('#btn-submit-client-reply');
+  if (btnReply) {
+    btnReply.addEventListener('click', async () => {
+      const replyText = (modal.querySelector('#client-reply-textarea')?.value || '').trim();
+      if (!replyText) {
+        alert('Por favor ingresa tu respuesta o aclaración antes de enviar.');
+        return;
+      }
+
+      btnReply.disabled = true;
+      btnReply.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando...';
+
+      try {
+        const nowIso = new Date().toISOString();
+        let updatePayload = {
+          client_reply: replyText,
+          client_reply_at: nowIso,
+          status: 'Pendiente',
+          updated_at: nowIso
+        };
+
+        let { error: updErr } = await supabase
+          .from('inventory_requests')
+          .update(updatePayload)
+          .eq('id', req.id);
+
+        if (updErr) {
+          // Fallback si la columna client_reply aún no está creada en Supabase
+          console.warn('[InventoryRequest] Fallback al guardar respuesta del cliente:', updErr);
+          const combinedNotes = `${req.admin_notes || ''}\n[RESPUESTA CLIENTE ${new Date().toLocaleString('es-CL')}]: ${replyText}`.trim();
+          const fallbackRes = await supabase
+            .from('inventory_requests')
+            .update({
+              admin_notes: combinedNotes,
+              status: 'Pendiente',
+              updated_at: nowIso
+            })
+            .eq('id', req.id);
+          if (fallbackRes.error) throw fallbackRes.error;
+        }
+
+        // Trigger email notification al equipo STOCKA (stockachile@gmail.com)
+        if (window.sendInventoryRequestNotification) {
+          await window.sendInventoryRequestNotification({
+            event: 'client_replied',
+            req: { ...req, client_reply: replyText, client_reply_at: nowIso },
+            replyText: replyText
+          }).catch(e => console.warn('[InventoryRequest] Error enviando notificación por correo:', e));
+        }
+
+        alert('¡Tu aclaración ha sido enviada con éxito al equipo de STOCKA!');
+        modal.remove();
+
+        if (typeof openClientInventoryRequestsModal === 'function') {
+          openClientInventoryRequestsModal(req.comercio);
+        }
+        if (typeof updateClientInventoryRequestsBadge === 'function') {
+          updateClientInventoryRequestsBadge(req.comercio);
+        }
+      } catch (err) {
+        console.error('Error enviando aclaración del cliente:', err);
+        alert('Error al enviar la aclaración: ' + (err.message || err));
+        btnReply.disabled = false;
+        btnReply.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Aclaración a STOCKA';
+      }
+    });
+  }
 }
 
 

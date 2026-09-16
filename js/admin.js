@@ -3353,6 +3353,24 @@ window.updateAdminBadges = async function() {
       console.warn('Error fetching surveys count for admin badge:', err);
     }
 
+    // 12. Solicitudes Activas de Inventario Físico Admin Badge
+    try {
+      const badgeInvAdmin = document.getElementById('badge-inventory-admin');
+      if (badgeInvAdmin) {
+        const { data: invData, error: invErr } = await supabase
+          .from('inventory_requests')
+          .select('id, status');
+
+        if (!invErr && invData) {
+          const activeCount = invData.filter(r => r.status !== 'Finalizada' && r.status !== 'Cancelada' && r.status !== 'Rechazada').length;
+          badgeInvAdmin.textContent = activeCount;
+          badgeInvAdmin.style.display = activeCount > 0 ? 'inline-flex' : 'none';
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching active inventory requests for admin badge:', err);
+    }
+
   } catch (e) {
     console.error('Error updating admin badges:', e);
   }
@@ -14040,20 +14058,33 @@ function exportAdminInventoryToCsv() {
 
 async function updateAdminInventoryRequestsTabBadge() {
   const badge = document.getElementById('badge-admin-inv-requests');
-  if (!badge) return;
+  const sidebarBadge = document.getElementById('badge-inventory-admin');
 
   try {
     const { data, error } = await supabase
       .from('inventory_requests')
-      .select('id, status')
-      .eq('status', 'Pendiente');
+      .select('id, status');
 
     if (!error && data) {
-      if (data.length > 0) {
-        badge.textContent = data.length;
-        badge.style.display = 'inline-block';
-      } else {
-        badge.style.display = 'none';
+      const pendingCount = data.filter(r => r.status === 'Pendiente' || r.status === 'Requiere Información').length;
+      const activeCount = data.filter(r => r.status !== 'Finalizada' && r.status !== 'Cancelada' && r.status !== 'Rechazada').length;
+
+      if (badge) {
+        if (pendingCount > 0) {
+          badge.textContent = pendingCount;
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+
+      if (sidebarBadge) {
+        if (activeCount > 0) {
+          sidebarBadge.textContent = activeCount;
+          sidebarBadge.style.display = 'inline-flex';
+        } else {
+          sidebarBadge.style.display = 'none';
+        }
       }
     }
   } catch (e) {
@@ -14358,7 +14389,13 @@ function renderAdminInventoryRequestsTableBody() {
 
     let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
     if (r.status === 'En Conteo') {
-      statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb;">En Conteo</span>';
+      statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb;"><i class="ri-loader-3-line"></i> En Conteo</span>';
+    } else if (r.status === 'Aceptada') {
+      statusBadge = '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.15); color: #059669; font-weight: 700;"><i class="ri-checkbox-circle-line"></i> Aceptada</span>';
+    } else if (r.status === 'Requiere Información') {
+      statusBadge = '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.18); color: #d97706; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.3);"><i class="ri-question-line"></i> Requiere Info</span>';
+    } else if (r.status === 'Rechazada') {
+      statusBadge = '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; font-weight: 700;"><i class="ri-close-circle-line"></i> Rechazada</span>';
     } else if (r.status === 'Finalizada') {
       statusBadge = '<span class="badge badge-success">Finalizada</span>';
     } else if (r.status === 'Cancelada') {
@@ -14409,6 +14446,10 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+            <!-- Botón Responder / Solicitar Información -->
+            <button class="btn btn-outline btn-sm btn-admin-respond-req" data-id="${r.id}" title="Responder Solicitud / Solicitar Información / Aceptar o Rechazar" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-chat-voice-line"></i> Responder
+            </button>
             <!-- Botón Informe Oficial de Resultados (PDF) si está finalizada o tiene conteos -->
             ${(r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined)) ? `
               <button class="btn btn-outline btn-sm btn-admin-report-pdf" data-id="${r.id}" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer;">
@@ -14440,6 +14481,16 @@ function renderAdminInventoryRequestsTableBody() {
   }).join('');
 
   // Vincular event listeners a los botones de acción
+  tbody.querySelectorAll('.btn-admin-respond-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req) {
+        openAdminRespondInventoryRequestModal(req);
+      }
+    });
+  });
+
   tbody.querySelectorAll('.btn-admin-report-pdf').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const reqId = e.currentTarget.getAttribute('data-id');
@@ -14532,6 +14583,317 @@ async function deleteAdminInventoryRequest(reqId) {
     console.error('Error deleting inventory request:', err);
     alert('Error al eliminar la solicitud: ' + err.message);
   }
+}
+
+function openAdminRespondInventoryRequestModal(req) {
+  if (!req) return;
+
+  let modal = document.getElementById('modal-admin-respond-inventory-request');
+  if (modal) modal.remove();
+
+  const folio = req.folio || req.id.substring(0, 8);
+  const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const commHistory = Array.isArray(req.communication_history) ? req.communication_history : [];
+
+  modal = document.createElement('div');
+  modal.id = 'modal-admin-respond-inventory-request';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+
+  const defaultAction = req.status === 'Requiere Información' ? 'info_requested' : 'accepted';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 780px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+            <i class="ri-chat-voice-line" style="color: #6366f1;"></i> Responder a Solicitud de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.35rem;">${folio}</code>
+          </h3>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Comercio: <strong style="color: var(--color-text-main);">${req.comercio}</strong> • Solicitado por: <strong>${req.requested_by || 'Cliente WMS'}</strong></span>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-respond-inventory-request').remove()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <!-- Tarjeta de Parámetros de la Solicitud -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.825rem;">
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">ESTADO ACTUAL</span>
+            <strong style="color: var(--color-text-main);">${req.status}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">BODEGA</span>
+            <strong style="color: var(--color-text-main);">${req.warehouse_name || 'Todas'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">ALCANCE / SKUS</span>
+            <strong style="color: var(--color-text-main);">${req.type === 'selectivo' ? 'Selectivo' : 'Completo'} (${req.total_skus || products.length} SKUs)</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">PRIORIDAD</span>
+            <strong style="color: #6366f1;">${req.priority || 'Normal'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">CORTE PEDIDO</span>
+            <strong style="color: #4338ca; font-family: monospace;">${req.cutoff_order || 'Sin corte'}</strong>
+          </div>
+        </div>
+
+        <!-- Instrucciones / Comentarios originales del Solicitante -->
+        ${req.notes ? `
+          <div style="background: rgba(99, 102, 241, 0.05); border-left: 3px solid #6366f1; padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.85rem;">
+            <strong style="color: #4338ca; display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">
+              <i class="ri-user-line"></i> Instrucciones u Observaciones del Solicitante:
+            </strong>
+            <span style="color: var(--color-text-main); line-height: 1.4;">${req.notes}</span>
+          </div>
+        ` : ''}
+
+        <!-- Historial o Aclaración previa enviada por el solicitante -->
+        ${req.client_reply ? `
+          <div style="background: rgba(2, 132, 199, 0.07); border-left: 3px solid #0284c7; padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.85rem;">
+            <strong style="color: #0369a1; display: block; font-size: 0.8rem; margin-bottom: 0.25rem;">
+              <i class="ri-reply-line"></i> Aclaración enviada por el Solicitante ${req.client_reply_at ? `(${new Date(req.client_reply_at).toLocaleString('es-CL')})` : ''}:
+            </strong>
+            <span style="color: var(--color-text-main); line-height: 1.4;">${req.client_reply}</span>
+          </div>
+        ` : ''}
+
+        <!-- Selección de Acción del Administrador -->
+        <div>
+          <label style="display: block; font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--color-text-main);">
+            Selecciona la Acción o Respuesta:
+          </label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;" id="admin-respond-actions-group">
+            
+            <label style="border: 2px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); cursor: pointer; display: flex; flex-direction: column; gap: 0.35rem; transition: all 0.2s;" class="respond-action-option" data-action="accepted">
+              <input type="radio" name="respond-action-type" value="accepted" checked style="display: none;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: #10b981; font-size: 0.85rem;">
+                <i class="ri-checkbox-circle-line" style="font-size: 1.1rem;"></i> Aceptar Solicitud
+              </div>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Aprobar y programar toma física en bodega</span>
+            </label>
+
+            <label style="border: 2px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); cursor: pointer; display: flex; flex-direction: column; gap: 0.35rem; transition: all 0.2s;" class="respond-action-option" data-action="info_requested">
+              <input type="radio" name="respond-action-type" value="info_requested" style="display: none;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: #f59e0b; font-size: 0.85rem;">
+                <i class="ri-question-line" style="font-size: 1.1rem;"></i> Solicitar Información
+              </div>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Pedir más datos o aclaraciones al solicitante</span>
+            </label>
+
+            <label style="border: 2px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); cursor: pointer; display: flex; flex-direction: column; gap: 0.35rem; transition: all 0.2s;" class="respond-action-option" data-action="rejected">
+              <input type="radio" name="respond-action-type" value="rejected" style="display: none;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: #ef4444; font-size: 0.85rem;">
+                <i class="ri-close-circle-line" style="font-size: 1.1rem;"></i> Rechazar Solicitud
+              </div>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Indicar motivo formal de no aprobación</span>
+            </label>
+
+          </div>
+        </div>
+
+        <!-- Textarea de Respuesta -->
+        <div>
+          <label id="admin-respond-textarea-label" style="display: block; font-weight: 700; font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--color-text-main);">
+            Mensaje de Respuesta / Instrucciones de Programación:
+          </label>
+          <textarea id="admin-respond-message-input" class="form-input" rows="3" placeholder="Ej: Solicitud aprobada. El conteo se realizará en el turno mañana a las 09:00 hrs..." style="width: 100%; padding: 0.6rem 0.75rem; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1.5px solid var(--color-border); border-radius: var(--radius-md); resize: vertical;"></textarea>
+        </div>
+
+        <!-- Checkbox de Envío de Correo -->
+        <div style="background: var(--color-bg-alt); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none;">
+            <input type="checkbox" id="admin-respond-send-email" checked style="width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;">
+            <span><i class="ri-mail-send-line" style="color: #6366f1;"></i> Enviar notificación inmediata por correo al solicitante y a <code>stockachile@gmail.com</code> (desde <code>info@stocka.cl</code>)</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-respond-inventory-request').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-admin-respond" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+          <i class="ri-send-plane-fill"></i> Enviar Respuesta y Actualizar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const actionOptions = modal.querySelectorAll('.respond-action-option');
+  const textareaLabel = modal.querySelector('#admin-respond-textarea-label');
+  const textareaInput = modal.querySelector('#admin-respond-message-input');
+  const submitBtn = modal.querySelector('#btn-submit-admin-respond');
+
+  function updateActionStyles(selectedVal) {
+    actionOptions.forEach(opt => {
+      const act = opt.getAttribute('data-action');
+      const radio = opt.querySelector('input[type="radio"]');
+      if (act === selectedVal) {
+        radio.checked = true;
+        if (act === 'accepted') {
+          opt.style.borderColor = '#10b981';
+          opt.style.background = 'rgba(16, 185, 129, 0.08)';
+          if (textareaLabel) textareaLabel.textContent = 'Mensaje de Aprobación y Programación (para el solicitante):';
+          if (textareaInput) textareaInput.placeholder = 'Ej: Solicitud aprobada. Programada para conteo en bodega mañana a las 09:00 hrs...';
+          if (submitBtn) {
+            submitBtn.style.background = '#10b981';
+            submitBtn.style.borderColor = '#10b981';
+            submitBtn.innerHTML = '<i class="ri-checkbox-circle-line"></i> Aceptar y Notificar';
+          }
+        } else if (act === 'info_requested') {
+          opt.style.borderColor = '#f59e0b';
+          opt.style.background = 'rgba(245, 158, 11, 0.08)';
+          if (textareaLabel) textareaLabel.textContent = '¿Qué información o aclaración requieres del solicitante?:';
+          if (textareaInput) textareaInput.placeholder = 'Ej: Favor confirmar si debemos detener la preparación de pedidos durante la toma o si se excluyen artículos en cuarentena...';
+          if (submitBtn) {
+            submitBtn.style.background = '#f59e0b';
+            submitBtn.style.borderColor = '#f59e0b';
+            submitBtn.innerHTML = '<i class="ri-question-line"></i> Solicitar Información y Notificar';
+          }
+        } else if (act === 'rejected') {
+          opt.style.borderColor = '#ef4444';
+          opt.style.background = 'rgba(239, 68, 68, 0.08)';
+          if (textareaLabel) textareaLabel.textContent = 'Motivo del Rechazo de la Solicitud:';
+          if (textareaInput) textareaInput.placeholder = 'Ej: No es posible ejecutar tomas completas esta semana debido a eventos de despacho. Favor solicitar toma selectiva o reprogramar...';
+          if (submitBtn) {
+            submitBtn.style.background = '#ef4444';
+            submitBtn.style.borderColor = '#ef4444';
+            submitBtn.innerHTML = '<i class="ri-close-circle-line"></i> Rechazar y Notificar';
+          }
+        }
+      } else {
+        radio.checked = false;
+        opt.style.borderColor = 'var(--color-border)';
+        opt.style.background = 'transparent';
+      }
+    });
+  }
+
+  actionOptions.forEach(opt => {
+    opt.addEventListener('click', () => {
+      const act = opt.getAttribute('data-action');
+      updateActionStyles(act);
+    });
+  });
+
+  updateActionStyles(defaultAction);
+
+  submitBtn.addEventListener('click', async () => {
+    const selectedRadio = modal.querySelector('input[name="respond-action-type"]:checked');
+    const actionVal = selectedRadio ? selectedRadio.value : 'accepted';
+    const messageText = textareaInput.value.trim();
+    const sendEmail = modal.querySelector('#admin-respond-send-email')?.checked;
+
+    if ((actionVal === 'info_requested' || actionVal === 'rejected') && !messageText) {
+      alert(actionVal === 'info_requested' ? 'Por favor especifica qué información requieres del solicitante.' : 'Por favor ingresa el motivo del rechazo de la solicitud.');
+      textareaInput.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Procesando...';
+
+    try {
+      let targetStatus = 'Pendiente';
+      let actionLabel = 'Aceptada';
+      if (actionVal === 'accepted') {
+        targetStatus = 'Aceptada';
+        actionLabel = 'Aprobada / Aceptada';
+      } else if (actionVal === 'info_requested') {
+        targetStatus = 'Requiere Información';
+        actionLabel = 'Información Requerida';
+      } else if (actionVal === 'rejected') {
+        targetStatus = 'Rechazada';
+        actionLabel = 'Rechazada';
+      }
+
+      const historyEntry = {
+        sender: 'admin',
+        sender_name: 'Administración STOCKA',
+        action: actionVal,
+        message: messageText || (actionVal === 'accepted' ? 'Solicitud aceptada' : ''),
+        created_at: new Date().toISOString()
+      };
+      const updatedHistory = [...commHistory, historyEntry];
+
+      const updatePayload = {
+        status: targetStatus,
+        admin_response: messageText,
+        admin_response_at: new Date().toISOString(),
+        admin_notes: messageText ? `[${actionLabel.toUpperCase()}]: ${messageText}` : (req.admin_notes || actionLabel),
+        communication_history: updatedHistory,
+        updated_at: new Date().toISOString()
+      };
+
+      let { error: updateErr } = await supabase
+        .from('inventory_requests')
+        .update(updatePayload)
+        .eq('id', req.id);
+
+      if (updateErr && (updateErr.code === '23514' || updateErr.message?.includes('violates check constraint') || updateErr.code === '42703')) {
+        console.warn('Fallback por compatibilidad de restricciones en Supabase:', updateErr.message);
+        const fallbackPayload = {
+          admin_notes: `[ESTADO: ${targetStatus}] ${messageText || ''}`.trim(),
+          updated_at: new Date().toISOString()
+        };
+        if (actionVal === 'accepted') fallbackPayload.status = 'En Conteo';
+        else if (actionVal === 'rejected') fallbackPayload.status = 'Cancelada';
+        else if (actionVal === 'info_requested') fallbackPayload.status = 'Pendiente';
+
+        const { error: fallbackErr } = await supabase
+          .from('inventory_requests')
+          .update(fallbackPayload)
+          .eq('id', req.id);
+
+        if (fallbackErr) throw fallbackErr;
+        Object.assign(updatePayload, fallbackPayload);
+      } else if (updateErr) {
+        throw updateErr;
+      }
+
+      const mergedReq = { ...req, ...updatePayload };
+
+      if (sendEmail && typeof window.sendInventoryRequestNotification === 'function') {
+        window.sendInventoryRequestNotification({
+          event: actionVal,
+          req: mergedReq,
+          adminResponse: messageText
+        }).catch(err => console.warn('Error enviando notificación por correo:', err));
+      }
+
+      if (window.cachedAdminInventoryRequests) {
+        const fIdx = window.cachedAdminInventoryRequests.findIndex(r => r.id === req.id);
+        if (fIdx !== -1) {
+          window.cachedAdminInventoryRequests[fIdx] = mergedReq;
+        }
+      }
+
+      modal.remove();
+      renderAdminInventoryRequestsTableBody();
+      updateAdminInventoryRequestsTabBadge();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Respuesta Registrada!',
+          html: `La solicitud <code style="color: #6366f1; font-weight: bold;">${folio}</code> se actualizó a <strong>${targetStatus}</strong>.${sendEmail ? '<br><small style="color: #64748b;">Se enviaron las notificaciones por correo.</small>' : ''}`,
+          confirmButtonColor: '#6366f1'
+        });
+      } else {
+        alert(`¡Respuesta enviada para la solicitud ${folio}!`);
+      }
+
+    } catch (err) {
+      console.error('Error al responder solicitud de inventario:', err);
+      alert('Error al guardar la respuesta: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Respuesta y Actualizar';
+    }
+  });
 }
 
 function openAdminManageInventoryRequestModal(req) {
@@ -15000,6 +15362,15 @@ function openAdminManageInventoryRequestModal(req) {
         .eq('id', req.id);
 
       if (reqErr) throw reqErr;
+
+      // Enviar notificación formal de finalización con plazo de 7 días y solicitud de firma de conformidad
+      if (typeof window.sendInventoryRequestNotification === 'function') {
+        window.sendInventoryRequestNotification({
+          event: 'completed',
+          req: { ...req, ...updatePayload },
+          supervisor: supervisor
+        }).catch(err => console.warn('Error enviando notificación de inventario finalizado:', err));
+      }
 
       modal.remove();
       renderAdminInventoryRequestsWorkspace();
@@ -15586,6 +15957,14 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       }
       if (autoExcel && typeof window.generateInventoryCountExcel === 'function') {
         window.generateInventoryCountExcel(createdReq);
+      }
+
+      // Notificar por correo al solicitante y a operaciones (stockachile@gmail.com)
+      if (typeof window.sendInventoryRequestNotification === 'function') {
+        window.sendInventoryRequestNotification({
+          event: 'created',
+          req: createdReq
+        }).catch(err => console.warn('Error enviando notificación de solicitud creada:', err));
       }
 
       modal.remove();
