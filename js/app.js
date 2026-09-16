@@ -1,6 +1,6 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
-import { renderSurveysClient } from './surveys.js';
+import { renderSurveysClient, checkAndShowSurveyLoginPopup } from './surveys.js';
 window.renderSurveysClient = renderSurveysClient;
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
@@ -1206,6 +1206,9 @@ async function init() {
       updateClientBadges(session.user.id, currentCompany);
       setInterval(() => updateClientBadges(session.user.id, currentCompany), 60000);
     }
+
+    // Popup de Encuestas en inicio de sesión (diario hasta completar)
+    checkAndShowSurveyLoginPopup(session.user, profile);
 
   } catch (err) {
     console.error('DEBUG: Error crítico durante la inicialización de app.js:', err);
@@ -8177,6 +8180,8 @@ async function renderOrders() {
       operador,
       fecha_procesamiento,
       sucursal_pickeo,
+      stock_descontado,
+      stock_descontado_at,
       order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `;
 
@@ -8308,6 +8313,8 @@ async function renderOrders() {
             operador,
             fecha_procesamiento,
             sucursal_pickeo,
+            stock_descontado,
+            stock_descontado_at,
             order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth);

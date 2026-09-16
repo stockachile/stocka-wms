@@ -156,9 +156,11 @@ export async function getLiveUfValue() {
     }
   } catch (e) {}
 
-  // 2. Fetch desde API oficial mindicador.cl
+  // 2. Fetch desde API oficial mindicador.cl (con timeout de 1.5s para no bloquear el inicio)
   try {
-    const res = await fetch('https://mindicador.cl/api/uf');
+    const fetchPromise = fetch('https://mindicador.cl/api/uf');
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('UF fetch timeout')), 1500));
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
     if (res.ok) {
       const data = await res.json();
       const val = data?.serie?.[0]?.valor;
@@ -177,8 +179,9 @@ export async function getLiveUfValue() {
       }
     }
   } catch (e) {
-    console.warn('No se pudo obtener UF en vivo de mindicador.cl:', e);
+    console.warn('No se pudo obtener UF en vivo de mindicador.cl (usando fallback):', e.message || e);
   }
+
 
   // 3. Respaldo previo en localStorage
   try {

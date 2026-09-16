@@ -25,7 +25,7 @@ WHERE m.order_id IS NULL
     OR m.reference_doc ILIKE 'Pedido ' || o.id::text || '%'
   );
 
--- Coincidencia con external_order_number de orders
+-- Coincidencia con external_order_number de orders y prefijos de comercios (ej: Pedido BLE#1032)
 UPDATE public.movements m
 SET order_id = o.id
 FROM public.orders o
@@ -34,6 +34,11 @@ WHERE m.order_id IS NULL
   AND (
     m.reference_doc = 'Pedido ' || o.external_order_number
     OR m.reference_doc ILIKE 'Pedido ' || o.external_order_number || '%'
+    OR (
+      length(regexp_replace(o.external_order_number, '[^0-9]', '', 'g')) >= 3
+      AND m.reference_doc ILIKE '%' || regexp_replace(o.external_order_number, '[^0-9]', '', 'g') || '%'
+      AND (o.comercio IS NULL OR m.reference_doc ILIKE '%' || substring(o.comercio from 1 for 3) || '%')
+    )
   );
 
 -- 4. Backfill stock_descontado en orders
@@ -60,6 +65,7 @@ DECLARE
   v_new_wms TEXT;
   v_is_virtual BOOLEAN;
   v_order_num TEXT;
+  v_clean_num TEXT;
 BEGIN
   -- Validar si el pedido califica para procesamiento de stock según reglas de corte
   IF NOT public.should_process_order_stock(NEW.id) THEN
@@ -69,24 +75,43 @@ BEGIN
   v_old_wms := COALESCE(OLD.estado_wms, 'En procesamiento');
   v_new_wms := COALESCE(NEW.estado_wms, 'En procesamiento');
   v_order_num := COALESCE(NEW.external_order_number, NEW.id::text);
+  v_clean_num := regexp_replace(v_order_num, '[^0-9]', '', 'g');
 
   -- =========================================================================
   -- CASO 1: El pedido pasa a DESPACHADO (Únicamente cuando estado_wms = 'Despachado')
   -- =========================================================================
   IF v_new_wms = 'Despachado' AND v_old_wms != 'Despachado' THEN
     
-    -- REGLA MÁXIMA DE IDEMPOTENCIA: Si ya descontó stock en su ciclo de vida, nunca descontar dos veces
-    IF COALESCE(OLD.stock_descontado, false) = true THEN
-      NEW.stock_descontado := true;
-      RETURN NEW;
-    END IF;
+    -- REGLA MÁXIMA DE IDEMPOTENCIA: Si ya descontó stock en su ciclo de vida o existe movimiento previo
+    IF COALESCE(OLD.stock_descontado, false) = true 
+       OR EXISTS (SELECT 1 FROM public.movements WHERE order_id = NEW.id AND type = 'out')
+       OR (length(v_clean_num) >= 3 AND EXISTS (SELECT 1 FROM public.movements WHERE reference_doc ILIKE '%' || v_clean_num || '%' AND type = 'out'))
+    THEN
+      -- Auto-enlazar movimiento si estaba desvinculado
+      IF length(v_clean_num) >= 3 THEN
+        UPDATE public.movements 
+        SET order_id = NEW.id 
+        WHERE order_id IS NULL AND type = 'out' AND reference_doc ILIKE '%' || v_clean_num || '%';
+      END IF;
 
-    -- Validación secundaria: verificar si ya existe al menos una salida previa para esta orden
-    IF EXISTS (
-      SELECT 1 FROM public.movements 
-      WHERE order_id = NEW.id AND type = 'out'
-    ) THEN
+      -- Liberar compromisos o reservas en estante/mesa sin afectar stock físico
+      FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
+        SELECT COALESCE(is_virtual, false) INTO v_is_virtual FROM public.products WHERE id = item.product_id;
+        IF NOT v_is_virtual AND item.warehouse_id IS NOT NULL THEN
+          IF v_old_wms IN ('En preparación', 'Pickeado') THEN
+            UPDATE public.inventory 
+            SET reserved_quantity = GREATEST(0, reserved_quantity - item.quantity)
+            WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
+          ELSIF v_old_wms = 'En procesamiento' THEN
+            UPDATE public.inventory 
+            SET committed_quantity = GREATEST(0, committed_quantity - item.quantity)
+            WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
+          END IF;
+        END IF;
+      END LOOP;
+
       NEW.stock_descontado := true;
+      NEW.stock_descontado_at := COALESCE(NEW.stock_descontado_at, NOW());
       RETURN NEW;
     END IF;
 
@@ -203,3 +228,16 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Asegurar que los triggers sobre orders usen BEFORE UPDATE OF estado_wms
+DROP TRIGGER IF EXISTS on_order_status_change ON public.orders;
+DROP TRIGGER IF EXISTS on_order_status_update ON public.orders;
+DROP TRIGGER IF EXISTS on_order_wms_status_change ON public.orders;
+
+CREATE TRIGGER on_order_wms_status_change
+  BEFORE UPDATE OF estado_wms ON public.orders
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_order_status_change();
+
+-- 8. Recalcular stock comprometido para limpiar cualquier residuo anterior
+SELECT public.recalculate_committed_stock();

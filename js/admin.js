@@ -3379,7 +3379,15 @@ const ALL_STATUSES = [
 async function updateOrderStatus(orderId, newStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
   if (order && (newStatus === 'en preparación' || newStatus === 'despachado')) {
-    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
+    if (newStatus === 'despachado' && window.checkOrderExistingStockMovement) {
+      const checkPrior = await window.checkOrderExistingStockMovement(order);
+      if (checkPrior && checkPrior.hasMovement) {
+        order.stock_descontado = true;
+      }
+    }
+    const itemsToCheck = (!order.stock_descontado) 
+      ? (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item))
+      : [];
     if (itemsToCheck.length > 0) {
       const productIds = itemsToCheck.map(item => item.product_id);
       const { data: invData, error: invErr } = await supabase
@@ -3816,6 +3824,8 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
+        stock_descontado,
+        stock_descontado_at,
         order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
       `.replace(/\s+/g, ' ').trim();
 
@@ -4279,7 +4289,7 @@ async function renderAdminOrders() {
 
       let hasStockAlert = false;
       let stockAlertDetails = [];
-      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+      const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
       if (shouldProcessStock && !isOrderTerminalOrShipped) {
         const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && (!window.isOrderItemEliminated || !window.isOrderItemEliminated(order, item)));
         if (itemsToCheck.length > 0) {
@@ -5494,7 +5504,7 @@ window.applyWmsFiltersAndRender = function() {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = !!(config && config.inventario_seguimiento);
     const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
-    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+    const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms) || !!order.stock_descontado;
 
     const stockAlert = window.checkOrderStockAlert ? window.checkOrderStockAlert(order) : { hasStockAlert: false, stockAlertDetails: [] };
     const hasStockAlert = stockAlert.hasStockAlert;
@@ -5929,9 +5939,10 @@ window.applyWmsFiltersAndRender = function() {
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
+        const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
-        } else if (isOrderTerminalOrShipped) {
+        } else if (isAlreadyDescontado) {
           stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
         } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
           const invMap = window.loadedOrdersInventoryMap || {};
@@ -7527,29 +7538,49 @@ window.applyBulkWmsStatus = async function() {
       }
 
       try {
-        const updateData = { 
+        const priorIds = valResult.ordersWithPriorMovement ? idsToProcess.filter(id => valResult.ordersWithPriorMovement.includes(id)) : [];
+        const normalIds = idsToProcess.filter(id => !priorIds.includes(id));
+
+        const baseUpdateData = { 
           estado_wms: 'Despachado',
-          status: 'despachado'
+          stock_descontado: true
         };
         if (!dispatchFormValues.keepPicking) {
-          if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
-          if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
-          if (dispatchFormValues.fechaProc) updateData.fecha_procesamiento = dispatchFormValues.fechaProc;
+          if (dispatchFormValues.operador) baseUpdateData.operador = dispatchFormValues.operador;
+          if (dispatchFormValues.agenda) baseUpdateData.agenda = dispatchFormValues.agenda;
+          if (dispatchFormValues.fechaProc) baseUpdateData.fecha_procesamiento = dispatchFormValues.fechaProc;
         }
 
-        const { error } = await supabase
-          .from('orders')
-          .update(updateData)
-          .in('id', idsToProcess);
-          
-        if (error) throw error;
+        if (priorIds.length > 0) {
+          const { error: errPrior } = await supabase
+            .from('orders')
+            .update(baseUpdateData)
+            .in('id', priorIds);
+          if (errPrior) throw errPrior;
+        }
+
+        if (normalIds.length > 0) {
+          const normalUpdateData = { ...baseUpdateData, status: 'despachado' };
+          const { error: errNormal } = await supabase
+            .from('orders')
+            .update(normalUpdateData)
+            .in('id', normalIds);
+          if (errNormal) throw errNormal;
+        }
+
+        try {
+          await supabase.rpc('recalculate_committed_stock');
+        } catch (e) {}
         
         if (window.loadedOrders) {
           idsToProcess.forEach(id => {
             const order = window.loadedOrders.find(o => o.id === id);
             if (order) {
               order.estado_wms = 'Despachado';
-              order.status = 'despachado';
+              if (!priorIds.includes(id)) {
+                order.status = 'despachado';
+              }
+              order.stock_descontado = true;
               if (!dispatchFormValues.keepPicking) {
                 if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
                 if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
@@ -7563,18 +7594,26 @@ window.applyBulkWmsStatus = async function() {
         const cbAll = document.getElementById('wms-select-all');
         if (cbAll && window.wmsSelectedOrderIds.size === 0) cbAll.checked = false;
         
+        const priorCount = valResult.ordersWithPriorMovement ? valResult.ordersWithPriorMovement.filter(id => idsToProcess.includes(id)).length : 0;
+        let priorNoteHtml = '';
+        if (priorCount > 0) {
+          priorNoteHtml = `<div style="background: rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; border-radius: 4px; padding: 0.6rem 0.85rem; color: #065f46; font-size: 0.85rem; margin-top: 0.75rem; text-align: left;">
+            <i class="ri-checkbox-circle-fill" style="color: #10b981;"></i> <strong>${priorCount} pedido(s)</strong> ya contaban con movimiento de stock registrado en el inventario. <strong>No se realizó un doble descuento.</strong>
+          </div>`;
+        }
+
         if (partialFailureInfo) {
           Swal.fire({
             icon: 'warning',
             title: 'Despacho Parcial Completado',
-            text: `Se despacharon exitosamente ${partialFailureInfo.validCount} pedidos. ${partialFailureInfo.failedCount} pedidos no pudieron ser despachados por falta de stock.`,
+            html: `Se despacharon exitosamente ${partialFailureInfo.validCount} pedidos. ${partialFailureInfo.failedCount} pedidos no pudieron ser despachados por falta de stock.${priorNoteHtml}`,
             confirmButtonColor: '#7117eb'
           });
         } else {
           Swal.fire({
             icon: 'success',
             title: '¡Pedidos Despachados!',
-            text: `Se actualizaron ${idsToProcess.length} pedidos como Despachados.`,
+            html: `Se actualizaron ${idsToProcess.length} pedidos como Despachados.${priorNoteHtml}`,
             confirmButtonColor: '#059669'
           });
         }
@@ -8063,21 +8102,85 @@ window.showStockShortageSlidesModal = async function({
   });
 };
 
+// Helper para verificar si un pedido ya cuenta con movimiento de salida o stock descontado previamente
+window.checkOrderExistingStockMovement = async function(order) {
+  if (!order) return { hasMovement: false, movement: null };
+  if (order.stock_descontado) {
+    return { hasMovement: true, movement: null, isFlagged: true };
+  }
+
+  const orderId = order.id;
+  const ext = String(order.external_order_number || '').trim();
+  const cleanNum = ext.replace(/[^0-9]/g, '');
+
+  try {
+    let query = supabase
+      .from('movements')
+      .select('id, reference_doc, order_id, product_id, quantity, date, type')
+      .eq('type', 'out');
+
+    if (cleanNum && cleanNum.length >= 3) {
+      query = query.or(`order_id.eq.${orderId},reference_doc.ilike.%${ext}%,reference_doc.ilike.%${cleanNum}%`);
+    } else {
+      query = query.or(`order_id.eq.${orderId},reference_doc.ilike.%${ext}%`);
+    }
+
+    const { data: movs, error } = await query.limit(15);
+    if (error) throw error;
+
+    if (movs && movs.length > 0) {
+      const matched = movs.find(m => {
+        if (m.order_id === orderId) return true;
+        const ref = (m.reference_doc || '').toLowerCase();
+        if (ext && ref.includes(ext.toLowerCase())) return true;
+        if (cleanNum && cleanNum.length >= 3) {
+          const re = new RegExp(`(^|[^0-9])${cleanNum}([^0-9]|$)`);
+          if (re.test(ref)) return true;
+        }
+        return false;
+      });
+
+      if (matched) {
+        if (!matched.order_id) {
+          await supabase.from('movements').update({ order_id: orderId }).eq('id', matched.id);
+          matched.order_id = orderId;
+        }
+        await supabase.from('orders').update({
+          stock_descontado: true,
+          stock_descontado_at: matched.date || new Date().toISOString()
+        }).eq('id', orderId);
+        order.stock_descontado = true;
+        order.stock_descontado_at = matched.date || new Date().toISOString();
+
+        return { hasMovement: true, movement: matched };
+      }
+    }
+  } catch (err) {
+    console.warn('[checkOrderExistingStockMovement] Error checking movements:', err);
+  }
+
+  return { hasMovement: false, movement: null };
+};
+
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
 async function validateOrderStockForDispatch(ordersList) {
   if (!ordersList || ordersList.length === 0) return true;
 
   const itemsToCheck = [];
   const ordersToPrompt = [];
+  const ordersWithPriorMovement = new Set();
 
   for (const order of ordersList) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
-    // Si el pedido ya tiene status terminal (despachado/entregado/retirado) o estado_wms Despachado, su stock ya fue descontado en BD
-    const isAlreadyShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || order.estado_wms === 'Despachado';
-    if (isAlreadyShipped) continue;
+    // Si el pedido ya tiene status terminal (despachado/entregado/retirado), estado_wms Despachado o stock_descontado = true, no requiere validación
+    const isAlreadyShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || order.estado_wms === 'Despachado' || !!order.stock_descontado;
+    if (isAlreadyShipped) {
+      if (order.stock_descontado) ordersWithPriorMovement.add(order.id);
+      continue;
+    }
 
     const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
     const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
@@ -8199,6 +8302,14 @@ async function validateOrderStockForDispatch(ordersList) {
     
     const available = invMap[key] || 0;
     if (available < requiredMap[key]) {
+      // Verificar si este pedido YA cuenta con un movimiento de salida previo registrado en el inventario/Kardex
+      const checkMov = await window.checkOrderExistingStockMovement(check.order);
+      if (checkMov && checkMov.hasMovement) {
+        ordersWithPriorMovement.add(check.order.id);
+        console.log(`[validateOrderStockForDispatch] Pedido ${check.order.external_order_number || check.order.id} ya cuenta con movimiento de salida previo (${checkMov.movement?.reference_doc || 'Kardex'}). Se permite despacho sin descontar nuevamente.`);
+        continue;
+      }
+
       const orderId = check.order.id;
       if (!failuresByOrderMap.has(orderId)) {
         failuresByOrderMap.set(orderId, {
@@ -8244,14 +8355,15 @@ async function validateOrderStockForDispatch(ordersList) {
         isValid: true,
         proceedWithValidOnly: true,
         validOrders,
-        failedOrders: failuresByOrder
+        failedOrders: failuresByOrder,
+        ordersWithPriorMovement: Array.from(ordersWithPriorMovement)
       };
     }
 
-    return { isValid: false, validOrders: [], failedOrders: failuresByOrder };
+    return { isValid: false, validOrders: [], failedOrders: failuresByOrder, ordersWithPriorMovement: Array.from(ordersWithPriorMovement) };
   }
 
-  return { isValid: true, proceedWithValidOnly: false, validOrders: ordersList, failedOrders: [] };
+  return { isValid: true, proceedWithValidOnly: false, validOrders: ordersList, failedOrders: [], ordersWithPriorMovement: Array.from(ordersWithPriorMovement) };
 }
 
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
@@ -8708,6 +8820,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return;
         }
 
+        const checkPrior = await window.checkOrderExistingStockMovement(order);
+        const hadPriorMovement = (checkPrior && checkPrior.hasMovement) || !!order.stock_descontado;
+
         const valRes = await validateOrderStockForDispatch([order]);
         if (!valRes || !valRes.isValid) {
           applyWmsFiltersAndRender();
@@ -8716,8 +8831,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         const updateData = { 
           estado_wms: 'Despachado', 
-          status: 'despachado' 
+          stock_descontado: true
         };
+        if (!hadPriorMovement) {
+          updateData.status = 'despachado';
+        }
         if (!dispatchFormValues.keepPicking) {
           if (dispatchFormValues.operador) updateData.operador = dispatchFormValues.operador;
           if (dispatchFormValues.agenda) updateData.agenda = dispatchFormValues.agenda;
@@ -8732,14 +8850,45 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         if (error) throw error;
         
         order.estado_wms = 'Despachado';
-        order.status = 'despachado';
+        if (!hadPriorMovement) {
+          order.status = 'despachado';
+        }
+        order.stock_descontado = true;
         if (!dispatchFormValues.keepPicking) {
           if (dispatchFormValues.operador) order.operador = dispatchFormValues.operador;
           if (dispatchFormValues.agenda) order.agenda = dispatchFormValues.agenda;
           if (dispatchFormValues.fechaProc) order.fecha_procesamiento = dispatchFormValues.fechaProc;
         }
         
+        // Liberar compromisos/reservas en inventario si venía de procesamiento o preparación
+        try {
+          await supabase.rpc('recalculate_committed_stock');
+        } catch (e) {
+          console.warn('Error al recalcular stock comprometido tras despacho:', e);
+        }
+
         applyWmsFiltersAndRender();
+
+        if (hadPriorMovement) {
+          const docName = checkPrior.movement?.reference_doc ? ` (Referencia: <em>${checkPrior.movement.reference_doc}</em>)` : '';
+          await Swal.fire({
+            title: 'Pedido Marcado como Despachado',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem;">
+                <p style="margin-bottom: 0.65rem;">El pedido <strong>${order.external_order_number || order.id}</strong> ha sido marcado como <strong>Despachado</strong>.</p>
+                <div style="background: rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; border-radius: 4px; padding: 0.75rem 1rem; color: #065f46;">
+                  <strong style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.92rem; margin-bottom: 0.25rem;">
+                    <i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1.1rem;"></i> Movimiento previo verificado
+                  </strong>
+                  <span>Ya existe un movimiento de salida registrado en el inventario para este pedido${docName}. <strong>Este cambio de estado no afectará el inventario físico (sin doble descuento).</strong></span>
+                </div>
+              </div>
+            `,
+            icon: 'success',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: '#059669'
+          });
+        }
         return;
       }
 
@@ -33665,7 +33814,7 @@ window.renderBillingAdmin = async function() {
   switchBillingAdminTab('metrics');
 };
 
-window.switchBillingAdminTab = function(tabName) {
+window.switchBillingAdminTab = function(tabName, ...args) {
   const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations', 'generator', 'clickup'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
@@ -33699,11 +33848,11 @@ window.switchBillingAdminTab = function(tabName) {
     loadBillingObservationsTab();
   } else if (tabName === 'generator') {
     if (window.renderBillingGeneratorAdmin) {
-      window.renderBillingGeneratorAdmin('tab-generator-content');
+      window.renderBillingGeneratorAdmin('tab-generator-content', ...args);
     }
   } else if (tabName === 'clickup') {
     if (window.renderClickupFacturacionAdmin) {
-      window.renderClickupFacturacionAdmin('tab-clickup-content');
+      window.renderClickupFacturacionAdmin('tab-clickup-content', ...args);
     }
   }
 };

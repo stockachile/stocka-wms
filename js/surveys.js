@@ -599,6 +599,40 @@ function injectSurveyStyles() {
       background: rgba(239, 68, 68, 0.15);
       color: var(--color-danger);
     }
+
+    /* Popup Modal Styles */
+    @keyframes surveyModalFadeIn {
+      from { opacity: 0; transform: scale(0.95) translateY(12px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes surveyFloatIcon {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-6px) rotate(3deg); }
+    }
+    .survey-login-popup-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(5px);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      overflow-y: auto;
+    }
+    .survey-login-popup-card {
+      background: var(--color-surface);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-xl, 18px);
+      max-width: 530px;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45);
+      position: relative;
+      animation: surveyModalFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -1006,7 +1040,10 @@ export async function renderSurveysAdmin(targetContainer) {
         submit_button_text: 'Enviar Encuesta',
         success_title: '¡Muchas gracias por tu tiempo!',
         success_message: 'Tus respuestas han sido recibidas y nos ayudan a optimizar nuestro servicio.',
-        estimated_minutes: 2
+        estimated_minutes: 2,
+        popup_on_login: false,
+        popup_frequency: 'daily',
+        popup_message: ''
       },
       pages: [
         {
@@ -1042,7 +1079,12 @@ export async function renderSurveysAdmin(targetContainer) {
       ]
     };
 
-    // Asegurar estructura de páginas
+    // Asegurar estructura de páginas y settings
+    if (!survey.settings) survey.settings = {};
+    if (survey.settings.popup_on_login === undefined) survey.settings.popup_on_login = false;
+    if (!survey.settings.popup_frequency) survey.settings.popup_frequency = 'daily';
+    if (!survey.settings.popup_message) survey.settings.popup_message = '';
+
     if (!Array.isArray(survey.pages) || survey.pages.length === 0) {
       survey.pages = [{ id: 'page-1', title: 'Página 1', description: '', blocks: [] }];
     }
@@ -1165,6 +1207,40 @@ export async function renderSurveysAdmin(targetContainer) {
                     <span style="font-weight: 500;">${escapeHtml(c.nombre)}</span>
                   </label>
                 `).join('')}
+              </div>
+            </div>
+          </div>
+
+          <!-- Automatización de Popup al Iniciar Sesión -->
+          <div style="border-top: 1px solid var(--color-border); padding-top: 1.25rem; margin-top: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;">
+              <div>
+                <label style="font-weight: 700; font-size: 0.92rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem; cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="builder-popup-login" ${survey.settings?.popup_on_login ? 'checked' : ''} style="width: 18px; height: 18px; accent-color: var(--color-primary); cursor: pointer;">
+                  <span>🔔 Mostrar Popup automático al iniciar sesión</span>
+                </label>
+                <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.25rem 0 0 1.6rem; max-width: 620px; line-height: 1.4;">
+                  Muestra una ventana emergente a los usuarios/comercios destinatarios cuando entran a su Dashboard, invitándolos a responder la encuesta hasta que la completen.
+                </p>
+              </div>
+
+              <button type="button" id="btn-test-popup" class="btn btn-outline btn-sm" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; padding: 0.4rem 0.8rem;">
+                <i class="ri-play-circle-line" style="color: var(--color-primary); font-size: 1.05rem;"></i> Probar Popup
+              </button>
+            </div>
+
+            <div id="builder-popup-options" style="display: ${survey.settings?.popup_on_login ? 'grid' : 'none'}; grid-template-columns: 1fr 2fr; gap: 1.25rem; margin-top: 1rem; background: var(--color-bg); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.82rem; margin-bottom: 0.35rem;">Frecuencia del Popup</label>
+                <select id="builder-popup-frequency" class="survey-form-control" style="font-size: 0.88rem;">
+                  <option value="daily" ${survey.settings?.popup_frequency === 'daily' || !survey.settings?.popup_frequency ? 'selected' : ''}>Diario (1 vez al día hasta completar)</option>
+                  <option value="every_login" ${survey.settings?.popup_frequency === 'every_login' ? 'selected' : ''}>En cada inicio de sesión hasta completar</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.82rem; margin-bottom: 0.35rem;">Mensaje / Frase de Invitación (Opcional)</label>
+                <input type="text" id="builder-popup-message" class="survey-form-control" value="${escapeHtmlAttr(survey.settings?.popup_message || '')}" placeholder="Ej: ¡Hola! Tu opinión nos ayuda a optimizar los despachos de tus pedidos. ¿Tienes 2 minutos?" style="font-size: 0.88rem;">
               </div>
             </div>
           </div>
@@ -1646,6 +1722,30 @@ export async function renderSurveysAdmin(targetContainer) {
       e.target.textContent = allChecked ? 'Seleccionar todos' : 'Deseleccionar todos';
     });
 
+    // Toggle visibilidad opciones del popup
+    const popupToggle = document.getElementById('builder-popup-login');
+    const popupOptions = document.getElementById('builder-popup-options');
+    popupToggle?.addEventListener('change', (e) => {
+      if (popupOptions) {
+        popupOptions.style.display = e.target.checked ? 'grid' : 'none';
+      }
+    });
+
+    // Probar popup desde el builder
+    document.getElementById('btn-test-popup')?.addEventListener('click', () => {
+      saveCurrentPageInputs();
+      const tempSurvey = JSON.parse(JSON.stringify(survey));
+      tempSurvey.title = document.getElementById('builder-survey-title')?.value.trim() || tempSurvey.title;
+      tempSurvey.description = document.getElementById('builder-survey-desc')?.value.trim() || tempSurvey.description;
+      tempSurvey.category = document.getElementById('builder-survey-category')?.value || tempSurvey.category;
+      tempSurvey.settings = tempSurvey.settings || {};
+      tempSurvey.settings.popup_on_login = true;
+      tempSurvey.settings.popup_frequency = document.getElementById('builder-popup-frequency')?.value || 'daily';
+      tempSurvey.settings.popup_message = document.getElementById('builder-popup-message')?.value.trim() || '';
+
+      showSurveyLoginModal(tempSurvey, null, null, { isTest: true });
+    });
+
     // Guardar borrador o publicar
     async function saveSurvey(newStatus) {
       saveCurrentPageInputs();
@@ -1667,6 +1767,15 @@ export async function renderSurveysAdmin(targetContainer) {
       survey.description = descInput ? descInput.value.trim() : '';
       survey.category = catInput ? catInput.value : 'satisfaction';
       if (newStatus) survey.status = newStatus;
+
+      // Actualizar settings del popup
+      survey.settings = survey.settings || {};
+      const popupCheck = document.getElementById('builder-popup-login');
+      const popupFreq = document.getElementById('builder-popup-frequency');
+      const popupMsg = document.getElementById('builder-popup-message');
+      if (popupCheck) survey.settings.popup_on_login = popupCheck.checked;
+      if (popupFreq) survey.settings.popup_frequency = popupFreq.value;
+      if (popupMsg) survey.settings.popup_message = popupMsg.value.trim();
 
       // Obtener comercios seleccionados si aplica
       if (survey.target_type === 'specific_merchants') {
@@ -3119,3 +3228,278 @@ function escapeHtmlAttr(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+// ==============================================================================
+// POPUP AUTOMÁTICO EN INICIO DE SESIÓN
+// ==============================================================================
+
+/**
+ * Muestra el modal popup de invitación a responder la encuesta
+ */
+export function showSurveyLoginModal(survey, user, profile, options = {}) {
+  const existing = document.getElementById('survey-login-popup-modal');
+  if (existing) existing.remove();
+
+  injectSurveyStyles();
+
+  const isTest = !!options.isTest;
+  const userId = user?.id || (isTest ? 'test_user' : null);
+  const cat = SURVEY_CATEGORIES[survey.category] || SURVEY_CATEGORIES.satisfaction;
+  const estMins = survey.settings?.estimated_minutes || 2;
+  const customMsg = survey.settings?.popup_message || survey.description || 'Tu opinión sobre el empaque, almacenamiento y rapidez de despacho es esencial para optimizar la operación de tu cuenta.';
+
+  const modal = document.createElement('div');
+  modal.id = 'survey-login-popup-modal';
+  modal.className = 'survey-login-popup-overlay';
+
+  modal.innerHTML = `
+    <div class="survey-login-popup-card">
+      
+      <!-- Header con gradiente suave y badge -->
+      <div style="background: linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(16, 185, 129, 0.1) 100%); border-bottom: 1px solid var(--color-border); padding: 1.5rem; position: relative;">
+        <button id="btn-close-login-popup" style="position: absolute; top: 1rem; right: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-full); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted); font-size: 1.15rem; transition: all 0.2s ease;" title="Cerrar y recordar más tarde">
+          <i class="ri-close-line"></i>
+        </button>
+
+        <div style="display: flex; align-items: center; gap: 0.9rem;">
+          <div style="width: 52px; height: 52px; border-radius: 16px; background: var(--color-surface); border: 1.5px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 1.75rem; color: var(--color-primary); box-shadow: var(--shadow-sm); animation: surveyFloatIcon 3s ease-in-out infinite; flex-shrink: 0;">
+            <i class="${cat.icon}"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem; flex-wrap: wrap;">
+              <span class="survey-badge" style="background: ${cat.bgColor}; color: ${cat.color}; font-weight: 700; font-size: 0.74rem;">
+                ${cat.label}
+              </span>
+              <span class="survey-badge" style="background: rgba(37, 99, 235, 0.12); color: var(--color-primary); font-size: 0.72rem; font-weight: 600;">
+                <i class="ri-time-line"></i> ~${estMins} min
+              </span>
+              ${isTest ? `<span class="survey-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem; font-weight: 700;">Vista de Prueba</span>` : ''}
+            </div>
+            <h3 style="font-size: 1.18rem; font-weight: 700; color: var(--color-text-main); margin: 0; line-height: 1.35;">
+              ${escapeHtml(survey.title)}
+            </h3>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cuerpo del popup -->
+      <div style="padding: 1.5rem;">
+        <p style="font-size: 0.92rem; color: var(--color-text-main); line-height: 1.55; margin: 0 0 1.25rem 0;">
+          ${escapeHtml(customMsg)}
+        </p>
+
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: var(--color-text-muted);">
+            <i class="ri-checkbox-circle-fill" style="color: #10b981;"></i>
+            <span>Solo te tomará un par de minutos</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: var(--color-text-muted);">
+            <i class="ri-shield-check-fill" style="color: var(--color-primary);"></i>
+            <span>Tus respuestas son confidenciales y se procesan con seguridad</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: var(--color-text-muted);">
+            <i class="ri-heart-pulse-fill" style="color: #ec4899;"></i>
+            <span>Ayuda directa a optimizar la preparación y tiempos de entrega</span>
+          </div>
+        </div>
+
+        <!-- Botones de Acción -->
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <button type="button" id="btn-popup-respond-now" class="btn btn-primary" style="width: 100%; padding: 0.85rem 1.25rem; font-size: 0.98rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 0.5rem; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);">
+            <span>Responder Encuesta Ahora</span>
+            <i class="ri-arrow-right-line" style="font-size: 1.15rem;"></i>
+          </button>
+
+          <button type="button" id="btn-popup-remind-later" class="btn btn-outline" style="width: 100%; padding: 0.65rem 1rem; font-size: 0.85rem; color: var(--color-text-muted); border-color: transparent;">
+            Recordar más tarde
+          </button>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  function dismissModal() {
+    if (!isTest && userId && survey.id) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      try {
+        localStorage.setItem(`stocka_survey_popup_${survey.id}_${userId}`, todayStr);
+      } catch (e) {}
+    }
+    modal.style.opacity = '0';
+    modal.style.transition = 'opacity 0.2s ease';
+    setTimeout(() => modal.remove(), 200);
+  }
+
+  document.getElementById('btn-close-login-popup')?.addEventListener('click', dismissModal);
+  document.getElementById('btn-popup-remind-later')?.addEventListener('click', dismissModal);
+
+  document.getElementById('btn-popup-respond-now')?.addEventListener('click', () => {
+    modal.remove();
+    openSurveyWizardModal(survey, user, profile, { isTest });
+  });
+}
+
+/**
+ * Abre el asistente interactivo de encuesta dentro de un modal superpuesto
+ */
+export function openSurveyWizardModal(survey, user, profile, options = {}) {
+  const existing = document.getElementById('survey-wizard-overlay-modal');
+  if (existing) existing.remove();
+
+  injectSurveyStyles();
+
+  const isTest = !!options.isTest;
+  const modal = document.createElement('div');
+  modal.id = 'survey-wizard-overlay-modal';
+  modal.className = 'survey-login-popup-overlay';
+
+  modal.innerHTML = `
+    <div style="background: var(--color-surface); border: 1.5px solid var(--color-border); border-radius: var(--radius-xl, 18px); max-width: 820px; width: 100%; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,0.5); position: relative; animation: surveyModalFadeIn 0.25s ease;">
+      
+      <!-- Top Bar -->
+      <div style="padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+          <i class="ri-survey-line" style="color: var(--color-primary); font-size: 1.25rem; flex-shrink: 0;"></i>
+          <span style="font-size: 0.95rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${escapeHtml(survey.title)}
+          </span>
+          ${isTest ? `<span class="survey-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.72rem; font-weight: 700;">Modo Prueba</span>` : ''}
+        </div>
+        <button id="btn-close-survey-wizard-modal" style="background: transparent; border: none; font-size: 1.35rem; cursor: pointer; color: var(--color-text-muted); display: flex; align-items: center;" title="Cerrar y posponer">&times;</button>
+      </div>
+
+      <!-- Body Container -->
+      <div id="survey-wizard-modal-inner" style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+        <!-- Se inyecta renderSurveyWizard -->
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const innerContainer = modal.querySelector('#survey-wizard-modal-inner');
+
+  renderSurveyWizard(survey, innerContainer, {
+    isPreview: isTest,
+    userProfile: profile,
+    onComplete: () => {
+      if (!isTest && user?.id && survey.id) {
+        try {
+          localStorage.setItem(`stocka_survey_completed_${survey.id}_${user.id}`, 'true');
+        } catch (e) {}
+      }
+
+      // Actualizar contador del badge en el sidebar si está en el DOM
+      const badge = document.getElementById('badge-surveys-client');
+      if (badge) {
+        const count = parseInt(badge.textContent || '1', 10);
+        if (count <= 1) badge.style.display = 'none';
+        else badge.textContent = count - 1;
+      }
+
+      setTimeout(() => {
+        modal.style.opacity = '0';
+        modal.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => modal.remove(), 300);
+      }, 2500);
+    }
+  });
+
+  document.getElementById('btn-close-survey-wizard-modal')?.addEventListener('click', () => {
+    if (confirm('¿Deseas pausar esta encuesta? Te la recordaremos en tu próximo ingreso.')) {
+      if (!isTest && user?.id && survey.id) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        try {
+          localStorage.setItem(`stocka_survey_popup_${survey.id}_${user.id}`, todayStr);
+        } catch (e) {}
+      }
+      modal.remove();
+    }
+  });
+}
+
+/**
+ * Comprueba si hay encuestas dirigidas al usuario que requieran popup al iniciar sesión
+ */
+export async function checkAndShowSurveyLoginPopup(user, profile) {
+  if (!user || !user.id) return;
+
+  try {
+    const userCommerce = (profile?.comercio || '').split(',')[0].trim();
+    const userId = user.id;
+
+    // 1. Obtener encuestas publicadas
+    const { data: surveys, error } = await supabase
+      .from('surveys')
+      .select('*')
+      .eq('status', 'published')
+      .order('created_at', { ascending: false });
+
+    if (error || !surveys || surveys.length === 0) return;
+
+    // Filtrar aquellas con popup_on_login activado en settings
+    const popupSurveys = surveys.filter(s => {
+      return s.settings && (s.settings.popup_on_login === true || s.settings.popup_on_login === 'true');
+    });
+
+    if (popupSurveys.length === 0) return;
+
+    // 2. Filtrar por audiencia aplicable
+    const applicable = popupSurveys.filter(s => {
+      if (s.target_type === 'all' || s.target_type === 'public_link') return true;
+      if (s.target_type === 'specific_merchants') {
+        const merchants = Array.isArray(s.target_merchants) ? s.target_merchants : [];
+        return merchants.some(m => m.toLowerCase() === userCommerce.toLowerCase());
+      }
+      if (s.target_type === 'specific_users') {
+        const users = Array.isArray(s.target_users) ? s.target_users : [];
+        return users.includes(userId) || (profile?.email && users.includes(profile.email.toLowerCase()));
+      }
+      return false;
+    });
+
+    if (applicable.length === 0) return;
+
+    // 3. Revisar cada encuesta aplicable
+    for (const survey of applicable) {
+      // Verificar si ya fue respondida en Supabase
+      const { data: responses, error: rErr } = await supabase
+        .from('survey_responses')
+        .select('id')
+        .eq('survey_id', survey.id)
+        .or(`user_id.eq.${userId},comercio.eq.${userCommerce}`)
+        .limit(1);
+
+      if (!rErr && responses && responses.length > 0) {
+        // Ya completada, pasar a la siguiente
+        continue;
+      }
+
+      // Verificar regla de localStorage según frecuencia
+      const key = `stocka_survey_popup_${survey.id}_${userId}`;
+      const lastShown = localStorage.getItem(key);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const frequency = survey.settings?.popup_frequency || 'daily';
+
+      if (frequency === 'daily' && lastShown === todayStr) {
+        // Ya se mostró hoy, omitir
+        continue;
+      }
+
+      // Mostrar popup tras 1.2 segundos para asegurar renderizado del dashboard
+      setTimeout(() => {
+        showSurveyLoginModal(survey, user, profile);
+      }, 1200);
+
+      // Limitar a un popup por inicio de sesión
+      break;
+    }
+  } catch (err) {
+    console.warn('Error al verificar popups de encuesta en inicio de sesión:', err);
+  }
+}
+

@@ -1,5 +1,59 @@
 # Walkthrough - Mejoras y Correcciones WMS Stocka
 
+## Verificación de Movimiento de Stock Previo al Despachar e Idempotencia (Sin Doble Descuento)
+
+### 1. Resumen del Problema y Causa Raíz
+- **Situación:** En el pedido `#1032` de la tienda `BLESSNUSS` (SKU `Iceberg_emerald`), el movimiento de stock de salida (`out`, 1 unidad) ya había sido registrado en la tabla `movements` el 29 de agosto de 2026 con la referencia `Pedido BLE#1032`.
+- Sin embargo, el pedido permanecía en estado WMS `En procesamiento` y no permitía ser cambiado a `Despachado` porque el stock físico en `inventory` estaba en `0` (`Insuficiente: 0 disp. / nec. 1`).
+- Además, el pedido retenía 1 unidad en `committed_quantity` (stock comprometido), impidiendo que la disponibilidad quedara limpia, y el movimiento tenía `order_id = NULL` porque la migración previa solo buscaba coincidencias de la forma `Pedido ` + número de orden (omitiendo el prefijo `BLE#`).
+
+### 2. Soluciones Implementadas
+
+#### A. Enlace Retrospectivo de Movimientos (Backfill)
+- Se ejecutó el script de enlace que asoció el movimiento `3c17ba5b-1fbd-420a-9dc1-24606476430c` con la orden `#1032` (`3adca2c4-2a26-4420-9884-bd161fa2196c`).
+- Se marcaron las órdenes con movimiento registrado con `stock_descontado: true` y `stock_descontado_at`.
+- Se extendió el patrón de backfill en el archivo de migración SQL para reconocer pedidos con prefijos de comercio (`BLE#`, etc.).
+
+#### B. Helper de Detección de Movimientos Previos (`checkOrderExistingStockMovement`)
+- Implementado en `js/admin.js` (`window.checkOrderExistingStockMovement`).
+- Cuando un pedido se va a despachar, verifica en tiempo real:
+  1. Si `order.stock_descontado` es `true`.
+  2. O si existe en la tabla `movements` un registro con `type = 'out'` cuyo `order_id` coincida o cuya `reference_doc` contenga el ID o el número del pedido (incluyendo referencias como `Pedido BLE#1032`).
+- Si detecta un movimiento previo no enlazado, lo auto-vincula (`order_id = order.id`) y marca la orden con `stock_descontado = true`.
+
+#### C. Validación de Stock Adaptativa (`validateOrderStockForDispatch`)
+- En `js/admin.js`, la función `validateOrderStockForDispatch` ahora evalúa dinámicamente si un pedido con stock físico insuficiente ya cuenta con movimiento de salida en el Kardex.
+- Si cuenta con movimiento previo:
+  - Se autoriza el cambio de estado a `Despachado`.
+  - Se añade a la lista `ordersWithPriorMovement`.
+  - Se evita bloquear al operador con la alerta de falta de stock.
+
+#### D. Despacho Idempotente y Notificación en UI (Individual y Masivo)
+- Al despachar un pedido que ya tenía movimiento registrado:
+  1. **Actualización Segura:** Actualiza `estado_wms: 'Despachado'` y `stock_descontado: true`, preservando el estado de plataforma sin disparar triggers legados que intenten restar unidades inexistentes.
+  2. **Liberación de Stock Comprometido:** Ejecuta `supabase.rpc('recalculate_committed_stock')` para resetear el stock comprometido a 0.
+  3. **Notificación Visual al Usuario (`Swal.fire`):** Muestra un banner verde explícito informando al operador:
+     > *"Ya existe un movimiento de salida registrado en el inventario para este pedido (Referencia: ...). Este cambio de estado no afectará el inventario físico (sin doble descuento)."*
+  4. En despachos masivos, el modal final de resumen detalla cuántos pedidos ya contaban con movimiento previo verificado sin doble descuento.
+
+#### E. Consistencia en Tablas de Pedidos (`js/admin.js` y `js/app.js`)
+- Se incluyó `stock_descontado` y `stock_descontado_at` en las consultas de pedidos.
+- En la tabla de órdenes, la columna de stock muestra la etiqueta verde *"Descontado (1 un.)"* cuando `order.stock_descontado` es `true`.
+
+#### F. Migración SQL Actualizada (`supabase_schema_prevent_duplicate_order_stock_deduction.sql`)
+- Definición de trigger `BEFORE UPDATE OF estado_wms` con blindaje estricto de idempotencia: si `OLD.stock_descontado = true` o existe un movimiento en `movements`, libera reservas/compromisos y retorna `NEW` sin tocar stock físico ni insertar movimientos duplicados.
+
+### 3. Verificación de Resultados
+- **Pedido #1032:** Estado WMS actualizado a `Despachado`.
+- **Inventario SKU `Iceberg_emerald` (Matriz Ñuñoa):**
+  - `physical_quantity`: `0` (Permaneció intacto en 0, sin valores negativos).
+  - `committed_quantity`: `0` (Liberado de 1 a 0).
+  - `reserved_quantity`: `0`.
+- **Movimientos de Stock:** 1 solo movimiento registrado (`Pedido BLE#1032`). Cero duplicados.
+- **Compilación de Producción:** `npm run build` completado exitosamente en `dist/`.
+
+---
+
 ## Automatización y Enriquecimiento de Notas en Pedidos de Logística Inversa
 
 Se implementó la generación automática y persistencia de notas completas y estructuradas para todos los pedidos creados desde el módulo de **Logística Inversa** (tanto en el panel de Administrador como en el Portal de Clientes):

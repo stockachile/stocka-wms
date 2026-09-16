@@ -991,9 +991,15 @@ export async function getUfForPeriod(year, month) {
   const dateStr = `01-${mmStr}-${year}`;
   const displayDateStr = `01/${mmStr}/${year}`;
 
+  const fetchWithTimeout = async (url, ms = 1500) => {
+    const fetchPromise = fetch(url);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), ms));
+    return Promise.race([fetchPromise, timeoutPromise]);
+  };
+
   // 1. Intentar consulta a mindicador.cl para la fecha exacta del día 1
   try {
-    const res = await fetch(`https://mindicador.cl/api/uf/${dateStr}`);
+    const res = await fetchWithTimeout(`https://mindicador.cl/api/uf/${dateStr}`, 1500);
     if (res.ok) {
       const data = await res.json();
       const val = data?.serie?.[0]?.valor;
@@ -1002,12 +1008,12 @@ export async function getUfForPeriod(year, month) {
       }
     }
   } catch (e) {
-    console.warn(`No se pudo obtener UF para fecha ${dateStr}:`, e);
+    console.warn(`No se pudo obtener UF para fecha ${dateStr} (usando fallback rápido):`, e.message || e);
   }
 
   // 2. Si cayó en fin de semana, probar con el día 2 o 3
   try {
-    const res2 = await fetch(`https://mindicador.cl/api/uf/02-${mmStr}-${year}`);
+    const res2 = await fetchWithTimeout(`https://mindicador.cl/api/uf/02-${mmStr}-${year}`, 1500);
     if (res2.ok) {
       const data2 = await res2.json();
       const val2 = data2?.serie?.[0]?.valor;
@@ -1473,17 +1479,21 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
   // 7. Determinar cantidad de pedidos y tramo tarifario (order_ranges)
   const totalOrdersCount = ordersList.length;
-  let activeRange = cfg.order_ranges[0];
-  for (const r of cfg.order_ranges) {
-    if (totalOrdersCount >= r.min && totalOrdersCount <= r.max) {
-      activeRange = r;
-      break;
+  const fallbackRange = { min: 0, max: 999999, pick_pack_base: 1250, storage_m3: 48900 };
+  let activeRange = (cfg.order_ranges && cfg.order_ranges[0]) || fallbackRange;
+  if (cfg.order_ranges && Array.isArray(cfg.order_ranges) && cfg.order_ranges.length > 0) {
+    for (const r of cfg.order_ranges) {
+      if (totalOrdersCount >= r.min && totalOrdersCount <= r.max) {
+        activeRange = r;
+        break;
+      }
+    }
+    if (totalOrdersCount > cfg.order_ranges[cfg.order_ranges.length - 1].min) {
+      activeRange = cfg.order_ranges[cfg.order_ranges.length - 1];
     }
   }
-  if (totalOrdersCount > cfg.order_ranges[cfg.order_ranges.length - 1].min) {
-    activeRange = cfg.order_ranges[cfg.order_ranges.length - 1];
-  }
   billingState.activeRange = activeRange;
+
 
   const deliveryTypesList = getDeliveryTypes(cfg);
   const getDeliveryPrice = (key, fallback = 0) => {
@@ -1708,20 +1718,20 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
     if (rawOrd.order_items && Array.isArray(rawOrd.order_items) && rawOrd.order_items.length > 0) {
       items = rawOrd.order_items.map(oi => ({
-        sku: (oi.products?.sku || 'S/SKU').trim(),
-        name: (oi.products?.name || oi.products?.sku || 'Producto sin nombre').trim(),
+        sku: String(oi.products?.sku || 'S/SKU').trim(),
+        name: String(oi.products?.name || oi.products?.sku || 'Producto sin nombre').trim(),
         quantity: parseInt(oi.quantity, 10) || 1
       }));
     } else if (rawOrd.raw_shopify_data?.line_items && Array.isArray(rawOrd.raw_shopify_data.line_items)) {
       items = rawOrd.raw_shopify_data.line_items.map(li => ({
-        sku: (li.sku || 'S/SKU').trim(),
-        name: (li.name || li.title || 'Producto Shopify').trim(),
+        sku: String(li.sku || 'S/SKU').trim(),
+        name: String(li.name || li.title || 'Producto Shopify').trim(),
         quantity: parseInt(li.quantity, 10) || 1
       }));
     } else if (rawOrd.raw_woocommerce_data?.line_items && Array.isArray(rawOrd.raw_woocommerce_data.line_items)) {
       items = rawOrd.raw_woocommerce_data.line_items.map(li => ({
-        sku: (li.sku || 'S/SKU').trim(),
-        name: (li.name || 'Producto WooCommerce').trim(),
+        sku: String(li.sku || 'S/SKU').trim(),
+        name: String(li.name || 'Producto WooCommerce').trim(),
         quantity: parseInt(li.quantity, 10) || 1
       }));
     } else if (rawOrd.raw_meli_data) {
@@ -1730,8 +1740,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
         if (mo && Array.isArray(mo.order_items)) {
           mo.order_items.forEach(mi => {
             items.push({
-              sku: (mi.item?.seller_sku || 'S/SKU').trim(),
-              name: (mi.item?.title || 'Producto MercadoLibre').trim(),
+              sku: String(mi.item?.seller_sku || 'S/SKU').trim(),
+              name: String(mi.item?.title || 'Producto MercadoLibre').trim(),
               quantity: parseInt(mi.quantity, 10) || 1
             });
           });
@@ -1741,8 +1751,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
     if (items.length === 0) {
       items.push({
-        sku: (rawOrd.sku || 'S/SKU').trim(),
-        name: (rawOrd.item || rawOrd.sku || 'Producto general').trim(),
+        sku: String(rawOrd.sku || 'S/SKU').trim(),
+        name: String(rawOrd.item || rawOrd.sku || 'Producto general').trim(),
         quantity: parseInt(rawOrd.cantidad, 10) || ord.unitsCount || 1
       });
     }
@@ -3562,6 +3572,15 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   const container = document.getElementById(targetContainerId);
   if (!container) return;
 
+  // Mostrar estado de carga inmediato mientras se obtienen filtros de Supabase
+  container.innerHTML = `
+    <div style="text-align: center; padding: 4rem 2rem; color: var(--color-text-muted);">
+      <div style="width: 44px; height: 44px; border: 4px solid rgba(95, 6, 250, 0.15); border-top-color: #5f06fa; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem;"></div>
+      <h3 style="font-weight: 800; color: var(--color-text-main); margin: 0 0 0.5rem 0; font-size: 1.15rem;">Cargando Gestor de Facturación...</h3>
+      <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">Obteniendo periodos oficiales, comercios y tarifas...</p>
+    </div>
+  `;
+
   // Cargar lista de periodos y lista de comercios
   let periods = [];
   let comercios = [];
@@ -3576,8 +3595,13 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     console.error('Error cargando filtros iniciales:', e);
   }
 
+  // Garantizar que initialCommerce esté en la lista si fue solicitado
+  if (initialCommerce && !comercios.some(c => String(c.nombre).toUpperCase() === String(initialCommerce).toUpperCase())) {
+    comercios.unshift({ nombre: initialCommerce, sigla: 'COM' });
+  }
+
   const defaultPeriod = initialPeriodId 
-    ? periods.find(p => p.id === initialPeriodId) 
+    ? (periods.find(p => p.id === initialPeriodId) || periods[0] || { id: initialPeriodId, name: 'AGOSTO 2026' })
     : (periods[0] || { id: '', name: 'AGOSTO 2026' });
 
   const defaultCommerce = initialCommerce || (comercios[0]?.nombre || 'STREET GYM');
@@ -3592,9 +3616,11 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <i class="ri-store-2-line" style="color: #5f06fa;"></i> COMERCIO A FACTURAR:
             </label>
             <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 230px; font-weight: 700; border-radius: 8px;">
-              ${comercios.map(c => `
-                <option value="${c.nombre}" ${c.nombre === defaultCommerce ? 'selected' : ''}>${c.nombre} (${c.sigla || 'N/A'})</option>
-              `).join('')}
+              ${comercios.length > 0 
+                ? comercios.map(c => `
+                    <option value="${escapeHtml(c.nombre)}" ${String(c.nombre).toUpperCase() === String(defaultCommerce).toUpperCase() ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>
+                  `).join('')
+                : `<option value="${escapeHtml(defaultCommerce)}" selected>${escapeHtml(defaultCommerce)}</option>`}
             </select>
           </div>
 
@@ -3603,9 +3629,11 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <i class="ri-calendar-event-line" style="color: #5f06fa;"></i> PERIODO OFICIAL:
             </label>
             <select id="bg-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 190px; font-weight: 700; border-radius: 8px;">
-              ${periods.map(p => `
-                <option value="${p.id}" data-name="${p.name}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>${p.name}</option>
-              `).join('')}
+              ${periods.length > 0
+                ? periods.map(p => `
+                    <option value="${p.id}" data-name="${escapeHtml(p.name)}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>
+                  `).join('')
+                : `<option value="${escapeHtml(defaultPeriod?.id || '')}" data-name="${escapeHtml(defaultPeriod?.name || 'AGOSTO 2026')}" selected>${escapeHtml(defaultPeriod?.name || 'AGOSTO 2026')}</option>`}
             </select>
           </div>
 
@@ -3637,7 +3665,10 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
 
       <!-- Resumen KPI en Vivo -->
       <div id="bg-kpis-container" class="bg-kpi-grid">
-        <!-- Cargado dinámicamente -->
+        <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
+          <div>Iniciando cálculo para <strong>${escapeHtml(defaultCommerce)}</strong>...</div>
+        </div>
       </div>
 
       <!-- Sub-pestañas de Navegación del Gestor -->
@@ -3933,51 +3964,119 @@ window.switchBgSubTab = function(tabKey) {
 };
 
 // Ejecutar el motor de cálculo desde los valores actuales de la UI
-async function executeCalculationFromUI(overrides = {}) {
+export async function executeCalculationFromUI(overrides = {}) {
   const commerceSelect = document.getElementById('bg-select-commerce');
   const periodSelect = document.getElementById('bg-select-period');
+  const calcBtn = document.getElementById('bg-btn-recalculate');
 
   if (!commerceSelect || !periodSelect) return;
 
   const commerceName = commerceSelect.value;
   const periodId = periodSelect.value;
-  const selectedOption = periodSelect.options[periodSelect.selectedIndex];
-  const periodName = selectedOption ? selectedOption.getAttribute('data-name') : 'AGOSTO 2026';
+  const selectedOption = periodSelect.selectedIndex >= 0 ? periodSelect.options[periodSelect.selectedIndex] : null;
+  const periodName = (selectedOption && selectedOption.getAttribute('data-name')) || selectedOption?.text || 'AGOSTO 2026';
 
-  billingState.currentPeriodId = periodId;
-
-  // Ejecutar cálculo completo
-  await calculateCommerceBilling(commerceName, periodName, overrides);
-
-  // Actualizar KPI Cards en pantalla
-  renderKPIsUI();
-
-  // Actualizar Tabla Editable
-  renderOrdersTableUI();
-
-  // Actualizar Desglose Oficial
-  const desgloseCont = document.getElementById('bg-desglose-view-container');
-  if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
-
-  // Actualizar Badge y Vista de Checklist
-  if (typeof updateChecklistNavBadge === 'function') {
-    updateChecklistNavBadge();
+  if (!commerceName) {
+    console.warn('executeCalculationFromUI: No hay comercio seleccionado.');
+    return;
   }
-  const checklistContent = document.getElementById('bg-content-checklist');
-  if (checklistContent && checklistContent.style.display !== 'none') {
-    if (typeof renderBillingChecklistUI === 'function') {
-      renderBillingChecklistUI();
+
+  // Feedback visual inmediato en botón de cálculo
+  if (calcBtn) {
+    calcBtn.disabled = true;
+    calcBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Calculando...`;
+  }
+
+  // Si la tabla o KPIs están vacíos, mostrar spinner de carga
+  const ordersTbody = document.getElementById('bg-orders-table-body');
+  if (ordersTbody && (!billingState.orders || billingState.orders.length === 0)) {
+    ordersTbody.innerHTML = `
+      <tr>
+        <td colspan="16" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 2.2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.6rem;"></i>
+          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">Calculando facturación para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
+          <div style="font-size: 0.775rem; color: var(--color-text-muted); margin-top: 0.25rem;">Consultando pedidos, almacenamiento, tarifas oficiales y despachos.</div>
+        </td>
+      </tr>
+    `;
+  }
+
+  try {
+    billingState.currentPeriodId = periodId;
+
+    // Ejecutar cálculo completo
+    await calculateCommerceBilling(commerceName, periodName, overrides);
+
+    // Actualizar KPI Cards en pantalla
+    renderKPIsUI();
+
+    // Actualizar Tabla Editable
+    renderOrdersTableUI();
+
+    // Actualizar Desglose Oficial
+    const desgloseCont = document.getElementById('bg-desglose-view-container');
+    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+    // Actualizar Badge y Vista de Checklist
+    if (typeof updateChecklistNavBadge === 'function') {
+      updateChecklistNavBadge();
+    }
+    const checklistContent = document.getElementById('bg-content-checklist');
+    if (checklistContent && checklistContent.style.display !== 'none') {
+      if (typeof renderBillingChecklistUI === 'function') {
+        renderBillingChecklistUI();
+      }
+    }
+  } catch (err) {
+    console.error('Error calculando facturación desde UI:', err);
+    if (ordersTbody) {
+      ordersTbody.innerHTML = `
+        <tr>
+          <td colspan="16" style="text-align: center; padding: 2.5rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;">
+            <i class="ri-error-warning-fill" style="font-size: 2.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            <strong style="font-size: 1rem;">No se pudo completar el cálculo de facturación</strong><br>
+            <span style="font-size: 0.85rem; font-family: monospace; display: inline-block; margin-top: 0.35rem; color: #7f1d1d;">${escapeHtml(err.message || 'Error inesperado')}</span><br>
+            <button type="button" class="btn btn-sm btn-primary" onclick="window.executeCalculationFromUI()" style="margin-top: 1rem; background: #5f06fa; border-color: #5f06fa; font-weight: 700; border-radius: 6px;">
+              <i class="ri-refresh-line"></i> Reintentar Cálculo
+            </button>
+          </td>
+        </tr>
+      `;
+    }
+    const kpisCont = document.getElementById('bg-kpis-container');
+    if (kpisCont && (!billingState.totals || !billingState.totals.totalToPay)) {
+      kpisCont.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;">
+          <i class="ri-alert-line" style="font-size: 1.5rem; display: inline-block; margin-bottom: 0.25rem;"></i>
+          <div style="font-weight: 700;">Error al calcular totales del periodo para ${escapeHtml(commerceName)}.</div>
+        </div>
+      `;
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error en cálculo de facturación',
+        text: err.message || 'No se pudo generar el cálculo para este comercio.',
+        confirmButtonColor: '#5f06fa'
+      });
+    }
+  } finally {
+    billingState.isLoading = false;
+    if (calcBtn) {
+      calcBtn.disabled = false;
+      calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Calcular Facturación`;
     }
   }
 }
+window.executeCalculationFromUI = executeCalculationFromUI;
 
 // Renderizar Tarjetas de KPI
-function renderKPIsUI() {
+export function renderKPIsUI() {
   const container = document.getElementById('bg-kpis-container');
   if (!container) return;
 
   const b = billingState;
-  const t = b.totals;
+  const t = b.totals || {};
 
   container.innerHTML = `
     <div class="bg-kpi-card" style="border-left: 4px solid #5f06fa;">
@@ -3995,19 +4094,19 @@ function renderKPIsUI() {
 
     <div class="bg-kpi-card" style="border-left: 4px solid #0284c7;">
       <div class="bg-kpi-title"><i class="ri-box-3-line" style="color: #0284c7;"></i> PEDIDOS PROCESADOS</div>
-      <div class="bg-kpi-value" style="color: #0284c7;">${t.billableOrdersCount} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">/ ${t.ordersCount}</span></div>
+      <div class="bg-kpi-value" style="color: #0284c7;">${t.billableOrdersCount || 0} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">/ ${t.ordersCount || 0}</span></div>
       <div class="bg-kpi-subtitle">Pick & Pack Base: ${formatCLP(b.activeRange?.pick_pack_base || 1250)}</div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #10b981;">
       <div class="bg-kpi-title"><i class="ri-archive-2-line" style="color: #10b981;"></i> ALMACENAMIENTO MES</div>
       <div class="bg-kpi-value" style="color: #10b981;">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">m³</span></div>
-      <div class="bg-kpi-subtitle">Promedio ${b.volumeDaysLogged} días (${formatCLP(t.storageNet)} neto)</div>
+      <div class="bg-kpi-subtitle">Promedio ${b.volumeDaysLogged || 0} días (${formatCLP(t.storageNet)} neto)</div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #f59e0b;">
       <div class="bg-kpi-title"><i class="ri-flashlight-line" style="color: #f59e0b;"></i> DESPACHOS RM / FLEX</div>
-      <div class="bg-kpi-value" style="color: #f59e0b;">${t.shippingRmFlexCount} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">envíos</span></div>
+      <div class="bg-kpi-value" style="color: #f59e0b;">${t.shippingRmFlexCount || 0} <span style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-muted, #94a3b8);">envíos</span></div>
       <div class="bg-kpi-subtitle">Neto Despachos: ${formatCLP(t.shippingRmFlexNet)}</div>
     </div>
 
@@ -4020,10 +4119,11 @@ function renderKPIsUI() {
     </div>
   `;
 }
+window.renderKPIsUI = renderKPIsUI;
 
 // Generador del badge de Estado WMS (Despachado, Pickeado, En preparación, etc.)
 export function getWmsStatusBadgeHTML(status) {
-  const raw = (status || 'Completado').trim();
+  const raw = String(status || 'Completado').trim();
   const lower = raw.toLowerCase();
 
   let cls = 'bg-wms-default';
@@ -4069,7 +4169,7 @@ export function renderOrdersTableUI() {
       <tr>
         <td colspan="16" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
           <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: #5f06fa;"></i>
-          No se encontraron pedidos asignados al periodo <strong>${billingState.currentPeriodName}</strong> para este comercio.<br>
+          No se encontraron pedidos asignados al periodo <strong>${escapeHtml(billingState.currentPeriodName || '')}</strong> para este comercio.<br>
           <span style="font-size: 0.8rem; margin-top: 0.25rem; display: inline-block;">Asigna el periodo en el <strong>Gestor de Pedidos</strong> para que aparezcan aquí automáticamente.</span>
         </td>
       </tr>
@@ -4089,25 +4189,28 @@ export function renderOrdersTableUI() {
     const rowClass = isChecked ? '' : 'style="opacity: 0.5; background: #f1f5f9;"';
 
     // 1. Agenda check: junto al número de pedido, marcar en rojo si está vacío
-    const hasAgenda = o.agenda && o.agenda.trim() !== '' && o.agenda !== '—';
-    const agendaText = hasAgenda ? o.agenda.trim() : '';
+    const rawAgendaStr = String(o.agenda || '').trim();
+    const hasAgenda = rawAgendaStr !== '' && rawAgendaStr !== '—' && rawAgendaStr !== '-';
+    const agendaText = hasAgenda ? rawAgendaStr : '';
     const agendaBadge = hasAgenda
       ? `<span class="bg-order-agenda-badge" title="Agenda asignada: ${escapeHtml(agendaText)}"><i class="ri-calendar-event-line"></i> ${escapeHtml(agendaText)}</span>`
       : `<span class="bg-order-agenda-badge-empty" title="Sin agenda asignada en el Gestor de Pedidos"><i class="ri-alert-line"></i> Sin Agenda</span>`;
 
     // 1b. Estado WMS al lado de la etiqueta de agenda
-    const wmsStatusText = o.estadoWms || 'Completado';
+    const wmsStatusText = String(o.estadoWms || 'Completado').trim();
     const wmsStatusBadge = getWmsStatusBadgeHTML(wmsStatusText);
 
     // 2. Operador junto a la comuna, y abajo el método de envío
-    const hasOperador = o.operador && o.operador.trim() !== '' && o.operador !== '—';
-    const operadorText = hasOperador ? o.operador.trim() : 'S/Op';
+    const rawOperadorStr = String(o.operador || '').trim();
+    const hasOperador = rawOperadorStr !== '' && rawOperadorStr !== '—' && rawOperadorStr !== '-';
+    const operadorText = hasOperador ? rawOperadorStr : 'S/Op';
     const operadorBadge = hasOperador
       ? `<span class="bg-order-operador-badge" title="Operador en Gestor: ${escapeHtml(operadorText)}"><i class="ri-truck-line"></i> ${escapeHtml(operadorText)}</span>`
       : `<span class="bg-order-operador-badge-empty" title="Sin operador asignado">S/Op</span>`;
 
-    const shippingMethodText = (o.shippingMethod && o.shippingMethod.trim() !== '' && o.shippingMethod !== '—')
-      ? o.shippingMethod.trim()
+    const rawShippingMethodStr = String(o.shippingMethod || '').trim();
+    const shippingMethodText = (rawShippingMethodStr !== '' && rawShippingMethodStr !== '—' && rawShippingMethodStr !== '-')
+      ? rawShippingMethodStr
       : 'Sin método';
 
     return `
@@ -5686,7 +5789,10 @@ window.bgFilterState = {
 // Actualizar contadores numéricos en las pastillas de filtros rápidos
 function updateQuickPillCounts(orders) {
   const total = orders.length;
-  const noAgenda = orders.filter(o => !o.agenda || o.agenda.trim() === '' || o.agenda === '—').length;
+  const noAgenda = orders.filter(o => {
+    const a = String(o.agenda || '').trim();
+    return !a || a === '—' || a === '-';
+  }).length;
   const withAgenda = total - noAgenda;
   const rmFlex = orders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'COLINA' || o.deliveryType === 'FLEX').length;
   const enviame = orders.filter(o => o.deliveryType === 'ENVIAME_REGION').length;
@@ -5718,7 +5824,7 @@ function updateAgendaFilterOptions(orders) {
   const agendaMap = {};
 
   orders.forEach(o => {
-    const rawAgenda = (o.agenda || '').trim();
+    const rawAgenda = String(o.agenda || '').trim();
     if (!rawAgenda || rawAgenda === '—' || rawAgenda === '-') {
       noAgendaCount++;
     } else {
@@ -6016,9 +6122,10 @@ window.filterBgOrdersTable = function(query) {
 // Función de entrada para abrir el Gestor directamente desde una fila del Control de Facturación
 window.openBillingGeneratorForRecord = function(periodId, commerceName) {
   if (typeof window.switchBillingAdminTab === 'function') {
-    window.switchBillingAdminTab('generator');
+    window.switchBillingAdminTab('generator', commerceName, periodId);
+  } else if (typeof window.renderBillingGeneratorAdmin === 'function') {
+    window.renderBillingGeneratorAdmin('tab-generator-content', commerceName, periodId);
   }
-  window.renderBillingGeneratorAdmin('tab-generator-content', commerceName, periodId);
 };
 
 // Modal interactivo para fechas y datos legales del desglose oficial
