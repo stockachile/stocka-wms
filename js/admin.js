@@ -5,7 +5,7 @@ import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
-import { renderSurveysAdmin } from './surveys.js';
+import { renderSurveysAdmin } from './surveys.js?v=1.0.1';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 

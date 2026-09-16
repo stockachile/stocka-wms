@@ -2743,16 +2743,16 @@ export function renderSurveyWizard(survey, container, options = {}) {
 
         <!-- Botones de Navegación del Wizard -->
         <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); padding-top: 1.25rem;">
-          <button id="btn-wizard-prev" class="btn btn-outline" ${currentPageIdx === 0 ? 'disabled' : ''} style="display: flex; align-items: center; gap: 0.4rem;">
+          <button type="button" id="btn-survey-wizard-prev" class="btn btn-outline" ${currentPageIdx === 0 ? 'disabled' : ''} style="display: flex; align-items: center; gap: 0.4rem; cursor: ${currentPageIdx === 0 ? 'not-allowed' : 'pointer'};">
             <i class="ri-arrow-left-line"></i> Anterior
           </button>
 
           ${currentPageIdx < totalPages - 1 ? `
-            <button id="btn-wizard-next" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.5rem;">
+            <button type="button" id="btn-survey-wizard-next" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.5rem; cursor: pointer;">
               Siguiente <i class="ri-arrow-right-line"></i>
             </button>
           ` : `
-            <button id="btn-wizard-submit" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.5rem; background: #10b981; border-color: #10b981;">
+            <button type="button" id="btn-survey-wizard-submit" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.4rem; padding: 0.6rem 1.5rem; background: #10b981; border-color: #10b981; cursor: pointer;">
               <i class="ri-send-plane-fill"></i> ${escapeHtml(survey.settings?.submit_button_text || 'Enviar Encuesta')}
             </button>
           `}
@@ -2764,25 +2764,37 @@ export function renderSurveyWizard(survey, container, options = {}) {
     // Conectar interactividad de los bloques en esta página
     attachBlockEvents(page.blocks || []);
 
-    // Botones de navegación
-    document.getElementById('btn-wizard-prev')?.addEventListener('click', () => {
+    // Botones de navegación con selección scoped al contenedor
+    container.querySelector('#btn-survey-wizard-prev')?.addEventListener('click', () => {
+      saveInputsToAnswers(page.blocks || []);
       if (currentPageIdx > 0) {
         currentPageIdx--;
         renderCurrentPage();
+        scrollWizardTop();
       }
     });
 
-    document.getElementById('btn-wizard-next')?.addEventListener('click', () => {
+    container.querySelector('#btn-survey-wizard-next')?.addEventListener('click', () => {
+      saveInputsToAnswers(page.blocks || []);
       if (validateCurrentPage(page.blocks || [])) {
         currentPageIdx++;
         renderCurrentPage();
+        scrollWizardTop();
       }
     });
 
-    document.getElementById('btn-wizard-submit')?.addEventListener('click', async () => {
+    container.querySelector('#btn-survey-wizard-submit')?.addEventListener('click', async () => {
+      saveInputsToAnswers(page.blocks || []);
       if (!validateCurrentPage(page.blocks || [])) return;
       await submitSurveyAnswers();
     });
+  }
+
+  function scrollWizardTop() {
+    const parentScroll = container.closest('#survey-wizard-modal-inner') || container;
+    if (parentScroll && parentScroll.scrollTop !== undefined) {
+      parentScroll.scrollTop = 0;
+    }
   }
 
   function renderBlockInput(block, currentValue) {
@@ -3045,7 +3057,7 @@ export function renderSurveyWizard(survey, container, options = {}) {
 
       // Text Short & Text Long
       if (['text_short', 'text_long'].includes(b.type)) {
-        const inp = container.querySelector(`[data-block-id="${b.id}"]`);
+        const inp = container.querySelector(`.wizard-text-input[data-block-id="${b.id}"], .wizard-textarea-input[data-block-id="${b.id}"]`);
         if (inp) {
           inp.addEventListener('input', (e) => {
             answers[b.id] = e.target.value.trim();
@@ -3067,14 +3079,31 @@ export function renderSurveyWizard(survey, container, options = {}) {
     });
   }
 
+  function saveInputsToAnswers(blocks) {
+    blocks.forEach(b => {
+      if (['text_short', 'text_long'].includes(b.type)) {
+        const inp = container.querySelector(`.wizard-text-input[data-block-id="${b.id}"], .wizard-textarea-input[data-block-id="${b.id}"]`);
+        if (inp) {
+          answers[b.id] = inp.value.trim();
+        }
+      } else if (b.type === 'dropdown') {
+        const sel = container.querySelector(`select[data-block-id="${b.id}"]`);
+        if (sel) {
+          answers[b.id] = sel.value;
+        }
+      }
+    });
+  }
+
   function clearBlockError(blockId) {
     const err = container.querySelector(`.block-error-msg[data-block-id="${blockId}"]`);
     if (err) err.style.display = 'none';
-    const wrapper = document.getElementById(`field-wrapper-${blockId}`);
+    const wrapper = container.querySelector(`#field-wrapper-${blockId}`);
     if (wrapper) wrapper.style.borderColor = 'var(--color-border)';
   }
 
   function validateCurrentPage(blocks) {
+    saveInputsToAnswers(blocks);
     let isValid = true;
     blocks.forEach(b => {
       if (b.required && !['text_header', 'text_paragraph', 'text_callout', 'divider'].includes(b.type)) {
@@ -3084,7 +3113,7 @@ export function renderSurveyWizard(survey, container, options = {}) {
           isValid = false;
           const err = container.querySelector(`.block-error-msg[data-block-id="${b.id}"]`);
           if (err) err.style.display = 'block';
-          const wrapper = document.getElementById(`field-wrapper-${b.id}`);
+          const wrapper = container.querySelector(`#field-wrapper-${b.id}`);
           if (wrapper) wrapper.style.borderColor = 'var(--color-danger)';
         }
       }
@@ -3104,7 +3133,7 @@ export function renderSurveyWizard(survey, container, options = {}) {
       return;
     }
 
-    const submitBtn = document.getElementById('btn-wizard-submit');
+    const submitBtn = container.querySelector('#btn-survey-wizard-submit');
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enviando...';
@@ -3200,7 +3229,7 @@ export function renderSurveyWizard(survey, container, options = {}) {
       </div>
     `;
 
-    document.getElementById('btn-success-done')?.addEventListener('click', () => {
+    container.querySelector('#btn-success-done')?.addEventListener('click', () => {
       onComplete();
     });
   }
