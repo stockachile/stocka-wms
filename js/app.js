@@ -3924,65 +3924,64 @@ async function renderInventory() {
     const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
     let products = [];
+    const selectFields = `
+      id,
+      sku,
+      name,
+      comercio,
+      stock_critico,
+      is_virtual,
+      is_pack,
+      status,
+      inventory (
+        warehouse_id,
+        quantity,
+        committed_quantity,
+        reserved_quantity,
+        warehouses (name)
+      )
+    `;
+    const selectFallback = `
+      id,
+      sku,
+      name,
+      comercio,
+      stock_critico,
+      is_virtual,
+      is_pack,
+      status,
+      inventory (
+        warehouse_id,
+        quantity,
+        committed_quantity,
+        warehouses (name)
+      )
+    `;
+
     try {
-      let query = supabase
-        .from('products')
-        .select(`
-          id,
-          sku,
-          name,
-          comercio,
-          stock_critico,
-          is_virtual,
-          is_pack,
-          status,
-          inventory (
-            warehouse_id,
-            quantity,
-            committed_quantity,
-            reserved_quantity,
-            warehouses (name)
-          )
-        `);
-
-      if (commerce) {
-        query = query.eq('comercio', commerce);
+      if (typeof window.fetchAllSupabaseRows === 'function') {
+        products = await window.fetchAllSupabaseRows('products', selectFields, q => {
+          return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
+        });
       } else {
-        query = query.eq('comercio', 'no asignado');
+        let query = supabase.from('products').select(selectFields);
+        query = commerce ? query.eq('comercio', commerce) : query.eq('comercio', 'no asignado');
+        const { data: pData, error: pErr } = await query.order('name');
+        if (pErr) throw pErr;
+        products = pData || [];
       }
-
-      const { data: pData, error: pErr } = await query;
-      if (pErr) throw pErr;
-      products = pData || [];
     } catch (errFallback) {
-      let queryFallback = supabase
-        .from('products')
-        .select(`
-          id,
-          sku,
-          name,
-          comercio,
-          stock_critico,
-          is_virtual,
-          is_pack,
-          status,
-          inventory (
-            warehouse_id,
-            quantity,
-            committed_quantity,
-            warehouses (name)
-          )
-        `);
-
-      if (commerce) {
-        queryFallback = queryFallback.eq('comercio', commerce);
+      if (typeof window.fetchAllSupabaseRows === 'function') {
+        products = await window.fetchAllSupabaseRows('products', selectFallback, q => {
+          return commerce ? q.eq('comercio', commerce).order('name') : q.eq('comercio', 'no asignado').order('name');
+        });
       } else {
-        queryFallback = queryFallback.eq('comercio', 'no asignado');
+        let queryFallback = supabase.from('products').select(selectFallback);
+        queryFallback = commerce ? queryFallback.eq('comercio', commerce) : queryFallback.eq('comercio', 'no asignado');
+        const { data: pDataFallback, error: pErrFallback } = await queryFallback.order('name');
+        if (pErrFallback) throw pErrFallback;
+        products = pDataFallback || [];
       }
-
-      const { data: pDataFallback, error: pErrFallback } = await queryFallback;
-      if (pErrFallback) throw pErrFallback;
-      products = pDataFallback || [];
     }
 
     const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
@@ -13405,13 +13404,23 @@ async function renderIntegrations() {
     try {
       const { data: userAuth } = await supabase.auth.getUser();
       if (userAuth && userAuth.user) {
-        let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
-        if (selectedCommerce) {
-          query = query.eq('comercio', selectedCommerce);
+        let products = [];
+        if (typeof window.fetchAllSupabaseRows === 'function') {
+          products = await window.fetchAllSupabaseRows(
+            'products',
+            'id, name, sku, price, volumen, weight, status',
+            q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.eq('comercio', 'no asignado').order('name')
+          );
         } else {
-          query = query.eq('comercio', 'no asignado');
+          let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+          if (selectedCommerce) {
+            query = query.eq('comercio', selectedCommerce);
+          } else {
+            query = query.eq('comercio', 'no asignado');
+          }
+          const { data: pData } = await query;
+          products = pData || [];
         }
-        const { data: products } = await query;
         const productsList = (products || [])
           .filter(p => p.status !== 'archived')
           .map(p => ({
@@ -30194,12 +30203,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
           return;
         }
 
-        const { data: wmsProds, error: wmsErr } = await supabase
-          .from('products')
-          .select('sku')
-          .eq('comercio', commerce);
-
-        if (wmsErr) throw wmsErr;
+        const wmsProds = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
+          : (await supabase.from('products').select('sku').eq('comercio', commerce)).data;
 
         const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
 
@@ -36964,10 +36970,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
         }
 
         // Fetch inventory levels for selected warehouse
-        const { data: dbInventory } = await supabase
-          .from('inventory')
-          .select('product_id, quantity')
-          .eq('warehouse_id', selectedWarehouseId);
+        const dbInventory = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows('inventory', 'product_id, quantity', q => q.eq('warehouse_id', selectedWarehouseId))
+          : (await supabase.from('inventory').select('product_id, quantity').eq('warehouse_id', selectedWarehouseId)).data;
 
         const inventoryMap = {};
         if (dbInventory) {

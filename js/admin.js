@@ -11979,12 +11979,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
           return;
         }
 
-        const { data: wmsProds, error: wmsErr } = await supabase
-          .from('products')
-          .select('sku')
-          .eq('comercio', commerce);
-
-        if (wmsErr) throw wmsErr;
+        const wmsProds = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
+          : (await supabase.from('products').select('sku').eq('comercio', commerce)).data;
 
         const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
 
@@ -13147,51 +13144,56 @@ async function renderAdminInventoryWorkspace(commerce) {
 
   try {
     let products = [];
+    const selectFields = `
+      id,
+      sku,
+      name,
+      comercio,
+      stock_critico,
+      is_virtual,
+      is_pack,
+      status,
+      inventory (
+        warehouse_id,
+        quantity,
+        committed_quantity,
+        reserved_quantity,
+        warehouses (name)
+      )
+    `;
+    const selectFallback = `
+      id,
+      sku,
+      name,
+      comercio,
+      stock_critico,
+      is_virtual,
+      is_pack,
+      status,
+      inventory (
+        warehouse_id,
+        quantity,
+        committed_quantity,
+        warehouses (name)
+      )
+    `;
+
     try {
-      const { data: pData, error: pErr } = await supabase
-        .from('products')
-        .select(`
-          id,
-          sku,
-          name,
-          comercio,
-          stock_critico,
-          is_virtual,
-          is_pack,
-          status,
-          inventory (
-            warehouse_id,
-            quantity,
-            committed_quantity,
-            reserved_quantity,
-            warehouses (name)
-          )
-        `)
-        .eq('comercio', commerce);
-      if (pErr) throw pErr;
-      products = pData || [];
+      if (typeof window.fetchAllSupabaseRows === 'function') {
+        products = await window.fetchAllSupabaseRows('products', selectFields, q => q.eq('comercio', commerce).order('name'));
+      } else {
+        const { data: pData, error: pErr } = await supabase.from('products').select(selectFields).eq('comercio', commerce).order('name');
+        if (pErr) throw pErr;
+        products = pData || [];
+      }
     } catch (errFallback) {
-      const { data: pDataFallback, error: pErrFallback } = await supabase
-        .from('products')
-        .select(`
-          id,
-          sku,
-          name,
-          comercio,
-          stock_critico,
-          is_virtual,
-          is_pack,
-          status,
-          inventory (
-            warehouse_id,
-            quantity,
-            committed_quantity,
-            warehouses (name)
-          )
-        `)
-        .eq('comercio', commerce);
-      if (pErrFallback) throw pErrFallback;
-      products = pDataFallback || [];
+      if (typeof window.fetchAllSupabaseRows === 'function') {
+        products = await window.fetchAllSupabaseRows('products', selectFallback, q => q.eq('comercio', commerce).order('name'));
+      } else {
+        const { data: pDataFallback, error: pErrFallback } = await supabase.from('products').select(selectFallback).eq('comercio', commerce).order('name');
+        if (pErrFallback) throw pErrFallback;
+        products = pDataFallback || [];
+      }
     }
 
     const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
@@ -58544,10 +58546,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
         }
 
         // Fetch products of commerce
-        const { data: dbProducts } = await supabase
-          .from('products')
-          .select('id, sku, name, status')
-          .eq('comercio', commerce);
+        const dbProducts = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce))
+          : (await supabase.from('products').select('id, sku, name, status').eq('comercio', commerce)).data;
 
         const productMap = {};
         if (dbProducts) {
@@ -58559,10 +58560,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
         }
 
         // Fetch inventory levels for selected warehouse
-        const { data: dbInventory } = await supabase
-          .from('inventory')
-          .select('product_id, quantity')
-          .eq('warehouse_id', selectedWarehouseId);
+        const dbInventory = typeof window.fetchAllSupabaseRows === 'function'
+          ? await window.fetchAllSupabaseRows('inventory', 'product_id, quantity', q => q.eq('warehouse_id', selectedWarehouseId))
+          : (await supabase.from('inventory').select('product_id, quantity').eq('warehouse_id', selectedWarehouseId)).data;
 
         const inventoryMap = {};
         if (dbInventory) {
@@ -60953,14 +60953,24 @@ window.getTransitTimeText = function(courierId, ratesData) {
 
 window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
   try {
-    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
-    if (selectedCommerce) {
-      query = query.eq('comercio', selectedCommerce);
+    let products = [];
+    if (typeof window.fetchAllSupabaseRows === 'function') {
+      products = await window.fetchAllSupabaseRows(
+        'products',
+        'id, name, sku, price, volumen, weight, status',
+        q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.eq('comercio', 'no asignado').order('name')
+      );
     } else {
-      query = query.eq('comercio', 'no asignado');
+      let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+      if (selectedCommerce) {
+        query = query.eq('comercio', selectedCommerce);
+      } else {
+        query = query.eq('comercio', 'no asignado');
+      }
+      const { data: pData, error } = await query;
+      if (error) throw error;
+      products = pData || [];
     }
-    const { data: products, error } = await query;
-    if (error) throw error;
     
     // Map weight column to peso for consistency with calculation helpers
     window.tempClientProductsList = (products || [])
