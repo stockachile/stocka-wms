@@ -129,11 +129,22 @@ export const BLOCK_TYPES = {
   }
 };
 
-const STATUS_MAP = {
+export const STATUS_MAP = {
   draft: { label: 'Borrador', badgeClass: 'badge-warning', icon: 'ri-draft-line' },
-  published: { label: 'Publicada / Activa', badgeClass: 'badge-success', icon: 'ri-checkbox-circle-line' },
-  closed: { label: 'Finalizada / Cerrada', badgeClass: 'badge-danger', icon: 'ri-lock-line' }
+  published: { label: 'Activa', badgeClass: 'badge-success', icon: 'ri-checkbox-circle-line' },
+  closed: { label: 'Inactiva', badgeClass: 'badge-danger', icon: 'ri-pause-circle-line' }
 };
+
+export function getSurveyStatus(survey) {
+  if (!survey) return STATUS_MAP.draft;
+  if (survey.status === 'draft') {
+    return { key: 'draft', label: 'Borrador', badgeClass: 'badge-warning', icon: 'ri-draft-line', isActive: false };
+  }
+  if (survey.is_active === false || survey.status === 'closed') {
+    return { key: 'closed', label: 'Inactiva', badgeClass: 'badge-danger', icon: 'ri-pause-circle-line', isActive: false };
+  }
+  return { key: 'published', label: 'Activa', badgeClass: 'badge-success', icon: 'ri-checkbox-circle-line', isActive: true };
+}
 
 const CSAT_EMOJIS = [
   { value: 1, emoji: '😡', label: 'Muy insatisfecho', color: '#ef4444' },
@@ -633,6 +644,54 @@ function injectSurveyStyles() {
       animation: surveyModalFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       overflow: hidden;
     }
+
+    /* Modern Toggle Switch */
+    .survey-toggle-switch {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      margin: 0;
+    }
+    .survey-toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .survey-toggle-track {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      background-color: #cbd5e1;
+      border-radius: 22px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .survey-toggle-track::before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      border-radius: 50%;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .survey-toggle-switch input:checked + .survey-toggle-track {
+      background-color: #10b981;
+    }
+    .survey-toggle-switch input:checked + .survey-toggle-track::before {
+      transform: translateX(16px);
+    }
+    .survey-toggle-switch input:disabled + .survey-toggle-track {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -734,10 +793,35 @@ export async function renderSurveysAdmin(targetContainer) {
     });
   }
 
-  function renderMainAdminView() {
-    // Calcular estadísticas
+  function updateHeaderMetrics() {
     const totalSurveys = surveys.length;
-    const publishedCount = surveys.filter(s => s.status === 'published').length;
+    const activeCount = surveys.filter(s => s.status === 'published' && s.is_active !== false).length;
+    const closedCount = surveys.filter(s => s.status === 'closed' || s.is_active === false).length;
+    let totalResponses = 0;
+    surveys.forEach(s => {
+      if (s.survey_responses && s.survey_responses.length > 0) {
+        totalResponses += s.survey_responses[0].count || 0;
+      }
+    });
+
+    const totalEl = document.getElementById('metric-total-surveys');
+    if (totalEl) totalEl.textContent = totalSurveys;
+    const activeEl = document.getElementById('metric-active-surveys');
+    if (activeEl) activeEl.textContent = activeCount;
+    const respEl = document.getElementById('metric-total-responses');
+    if (respEl) respEl.textContent = totalResponses;
+
+    const btnFilterPublished = container.querySelector('.filter-btn[data-filter="published"]');
+    if (btnFilterPublished) btnFilterPublished.textContent = `Activas (${activeCount})`;
+    const btnFilterClosed = container.querySelector('.filter-btn[data-filter="closed"]');
+    if (btnFilterClosed) btnFilterClosed.textContent = `Inactivas (${closedCount})`;
+  }
+
+  function renderMainAdminView() {
+    // Calcular estadísticas iniciales
+    const totalSurveys = surveys.length;
+    const activeCount = surveys.filter(s => s.status === 'published' && s.is_active !== false).length;
+    const closedCount = surveys.filter(s => s.status === 'closed' || s.is_active === false).length;
     let totalResponses = 0;
     surveys.forEach(s => {
       if (s.survey_responses && s.survey_responses.length > 0) {
@@ -771,7 +855,7 @@ export async function renderSurveysAdmin(targetContainer) {
             </div>
             <div>
               <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Total Encuestas</div>
-              <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${totalSurveys}</div>
+              <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);" id="metric-total-surveys">${totalSurveys}</div>
             </div>
           </div>
 
@@ -780,8 +864,8 @@ export async function renderSurveysAdmin(targetContainer) {
               <i class="ri-checkbox-circle-line"></i>
             </div>
             <div>
-              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Activas / Publicadas</div>
-              <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${publishedCount}</div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Encuestas Activas</div>
+              <div style="font-size: 1.5rem; font-weight: 700; color: #10b981;" id="metric-active-surveys">${activeCount}</div>
             </div>
           </div>
 
@@ -791,7 +875,7 @@ export async function renderSurveysAdmin(targetContainer) {
             </div>
             <div>
               <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Respuestas Totales</div>
-              <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${totalResponses}</div>
+              <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);" id="metric-total-responses">${totalResponses}</div>
             </div>
           </div>
 
@@ -812,9 +896,9 @@ export async function renderSurveysAdmin(targetContainer) {
           <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); margin-right: 0.5rem;">Estado:</span>
             <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">Todas</button>
-            <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'published' ? 'active' : ''}" data-filter="published">Publicadas</button>
+            <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'published' ? 'active' : ''}" data-filter="published">Activas (${activeCount})</button>
+            <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'closed' ? 'active' : ''}" data-filter="closed">Inactivas (${closedCount})</button>
             <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'draft' ? 'active' : ''}" data-filter="draft">Borradores</button>
-            <button class="filter-btn btn btn-outline btn-sm ${currentFilter === 'closed' ? 'active' : ''}" data-filter="closed">Cerradas</button>
           </div>
 
           <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; max-width: 400px; min-width: 250px;">
@@ -855,12 +939,118 @@ export async function renderSurveysAdmin(targetContainer) {
     renderFilteredCards();
   }
 
+  async function toggleSurveyActive(id, explicitState = null) {
+    const survey = surveys.find(s => s.id === id);
+    if (!survey) return;
+
+    const currentStatus = getSurveyStatus(survey);
+    const targetActive = explicitState !== null ? explicitState : !currentStatus.isActive;
+
+    // Si se intenta activar pero no tiene preguntas
+    if (targetActive) {
+      let totalQ = 0;
+      if (Array.isArray(survey.pages)) {
+        survey.pages.forEach(p => {
+          if (p.blocks) totalQ += p.blocks.length;
+        });
+      }
+      if (totalQ === 0) {
+        if (window.Swal) {
+          window.Swal.fire({
+            icon: 'warning',
+            title: 'Sin Preguntas',
+            text: 'Debes editar la encuesta y agregar al menos una pregunta antes de activarla.'
+          });
+        } else {
+          alert('Debes editar la encuesta y agregar al menos una pregunta antes de activarla.');
+        }
+        renderFilteredCards();
+        return;
+      }
+    }
+
+    // Confirmación al desactivar
+    if (!targetActive) {
+      let confirmed = true;
+      if (window.Swal) {
+        const res = await window.Swal.fire({
+          title: '¿Desactivar encuesta?',
+          text: 'La encuesta quedará en pausa. Los destinatarios ya no podrán verla ni responderla.',
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Sí, desactivar',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#ef4444'
+        });
+        confirmed = res.isConfirmed;
+      } else {
+        confirmed = confirm('¿Deseas desactivar esta encuesta? Los clientes ya no podrán verla ni responderla.');
+      }
+      if (!confirmed) {
+        renderFilteredCards();
+        return;
+      }
+    }
+
+    try {
+      const updatePayload = targetActive
+        ? { is_active: true, status: 'published' }
+        : { is_active: false, status: 'closed' };
+
+      const { error } = await supabase
+        .from('surveys')
+        .update(updatePayload)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      survey.is_active = targetActive;
+      survey.status = targetActive ? 'published' : 'closed';
+
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'success',
+          title: targetActive ? '¡Encuesta Activada!' : 'Encuesta Desactivada',
+          text: targetActive
+            ? 'La encuesta ahora está activa y disponible para recibir respuestas.'
+            : 'La encuesta ha sido pausada correctamente.',
+          timer: 1800,
+          showConfirmButton: false
+        });
+      }
+
+      renderFilteredCards();
+      updateHeaderMetrics();
+
+      // Actualizar badge de admin en sidebar si existe
+      const badgeAdmin = document.getElementById('badge-surveys-admin');
+      if (badgeAdmin) {
+        const count = surveys.filter(s => s.status === 'published' && s.is_active !== false).length;
+        badgeAdmin.textContent = count;
+        badgeAdmin.style.display = count > 0 ? 'inline-flex' : 'none';
+      }
+    } catch (err) {
+      console.error('Error al actualizar estado de la encuesta:', err);
+      if (window.Swal) {
+        window.Swal.fire({ icon: 'error', title: 'Error al cambiar estado', text: err.message || err });
+      } else {
+        alert('Error: ' + (err.message || err));
+      }
+      renderFilteredCards();
+    }
+  }
+
   function renderFilteredCards() {
     const grid = document.getElementById('surveys-cards-grid');
     if (!grid) return;
 
     let filtered = surveys.filter(s => {
-      if (currentFilter !== 'all' && s.status !== currentFilter) return false;
+      const st = getSurveyStatus(s);
+      if (currentFilter !== 'all') {
+        if (currentFilter === 'published' && !st.isActive) return false;
+        if (currentFilter === 'closed' && (st.isActive || st.key === 'draft')) return false;
+        if (currentFilter === 'draft' && st.key !== 'draft') return false;
+      }
       if (searchQuery && !s.title.toLowerCase().includes(searchQuery)) return false;
       return true;
     });
@@ -884,7 +1074,7 @@ export async function renderSurveysAdmin(targetContainer) {
 
     grid.innerHTML = filtered.map(s => {
       const cat = SURVEY_CATEGORIES[s.category] || SURVEY_CATEGORIES.custom;
-      const statusInfo = STATUS_MAP[s.status] || STATUS_MAP.draft;
+      const statusInfo = getSurveyStatus(s);
       const responseCount = s.survey_responses && s.survey_responses.length > 0 ? (s.survey_responses[0].count || 0) : 0;
       const pagesCount = Array.isArray(s.pages) ? s.pages.length : 1;
       let totalQuestions = 0;
@@ -912,13 +1102,19 @@ export async function renderSurveysAdmin(targetContainer) {
         <div class="survey-card" data-id="${s.id}">
           <div>
             <!-- Header de tarjeta -->
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
               <span class="survey-badge" style="background: ${cat.bgColor}; color: ${cat.color};">
                 <i class="${cat.icon}"></i> ${cat.label}
               </span>
-              <span class="survey-badge ${statusInfo.badgeClass}">
-                <i class="${statusInfo.icon}"></i> ${statusInfo.label}
-              </span>
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <span class="survey-badge ${statusInfo.badgeClass}" id="badge-status-${s.id}">
+                  <i class="${statusInfo.icon}"></i> ${statusInfo.label}
+                </span>
+                <label class="survey-toggle-switch" title="${statusInfo.isActive ? 'Encuesta Activa (Clic para desactivar)' : 'Encuesta Inactiva (Clic para activar)'}">
+                  <input type="checkbox" class="survey-toggle-active" data-id="${s.id}" ${statusInfo.isActive ? 'checked' : ''}>
+                  <span class="survey-toggle-track"></span>
+                </label>
+              </div>
             </div>
 
             <!-- Título y Descripción -->
@@ -947,6 +1143,9 @@ export async function renderSurveysAdmin(targetContainer) {
                 <span>${responseCount}</span> <span style="font-weight: 400; color: var(--color-text-muted); font-size: 0.78rem;">${responseCount === 1 ? 'respuesta' : 'respuestas'}</span>
               </div>
               <div style="display: flex; gap: 0.35rem;">
+                <button class="btn-toggle-active-quick btn btn-outline btn-sm" title="${statusInfo.isActive ? 'Desactivar / Pausar Encuesta' : 'Activar Encuesta'}" data-id="${s.id}" style="padding: 0.35rem 0.6rem; color: ${statusInfo.isActive ? '#ef4444' : '#10b981'}; border-color: ${statusInfo.isActive ? 'rgba(239, 68, 68, 0.35)' : 'rgba(16, 185, 129, 0.35)'};">
+                  <i class="${statusInfo.isActive ? 'ri-pause-circle-line' : 'ri-play-circle-line'}"></i>
+                </button>
                 <button class="btn-copy-link btn btn-outline btn-sm" title="Copiar Enlace Directo" data-id="${s.id}" data-token="${s.public_token || s.id}" style="padding: 0.35rem 0.6rem;">
                   <i class="ri-link"></i>
                 </button>
@@ -968,6 +1167,19 @@ export async function renderSurveysAdmin(targetContainer) {
         </div>
       `;
     }).join('');
+
+    // Listeners en tarjetas
+    grid.querySelectorAll('.survey-toggle-active').forEach(chk => {
+      chk.addEventListener('change', (e) => {
+        toggleSurveyActive(chk.dataset.id, chk.checked);
+      });
+    });
+
+    grid.querySelectorAll('.btn-toggle-active-quick').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        toggleSurveyActive(btn.dataset.id);
+      });
+    });
 
     // Listeners en tarjetas
     grid.querySelectorAll('.btn-edit-survey').forEach(btn => {
@@ -1100,6 +1312,8 @@ export async function renderSurveysAdmin(targetContainer) {
       console.warn('No se pudo cargar v_comercios_config:', e);
     }
 
+    const initialStatus = getSurveyStatus(survey);
+
     container.innerHTML = `
       <div style="max-width: 1100px; margin: 0 auto; padding-bottom: 3rem;">
         
@@ -1116,15 +1330,20 @@ export async function renderSurveysAdmin(targetContainer) {
             </div>
           </div>
 
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <button id="btn-preview-builder" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.4rem;">
               <i class="ri-eye-line"></i> Vista Previa
             </button>
+            ${survey.id ? `
+              <button id="btn-toggle-active-builder" class="btn btn-outline" style="border-color: ${initialStatus.isActive ? '#ef4444' : '#10b981'}; color: ${initialStatus.isActive ? '#ef4444' : '#10b981'}; display: flex; align-items: center; gap: 0.4rem;" title="${initialStatus.isActive ? 'Desactivar / Pausar Encuesta' : 'Activar Encuesta'}">
+                <i class="${initialStatus.isActive ? 'ri-pause-circle-line' : 'ri-play-circle-line'}"></i> <span id="btn-toggle-active-text">${initialStatus.isActive ? 'Desactivar Encuesta' : 'Activar Encuesta'}</span>
+              </button>
+            ` : ''}
             <button id="btn-save-draft" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); display: flex; align-items: center; gap: 0.4rem;">
               <i class="ri-save-line"></i> Guardar Borrador
             </button>
             <button id="btn-publish-survey" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-checkbox-circle-line"></i> ${survey.status === 'published' ? 'Guardar y Publicar' : 'Publicar Encuesta'}
+              <i class="ri-checkbox-circle-line"></i> ${survey.status === 'published' && survey.is_active !== false ? 'Guardar y Publicar' : 'Publicar y Activar'}
             </button>
           </div>
         </div>
@@ -1137,6 +1356,27 @@ export async function renderSurveysAdmin(targetContainer) {
             </div>
             Configuración General
           </h4>
+
+          <!-- Estado de la Encuesta (Activa / Inactiva) -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-toggle-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Estado de la Encuesta
+              </div>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+                Las encuestas activas están disponibles para ser respondidas. Si la desactivas, queda en pausa y nadie podrá responderla.
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <span id="builder-active-status-badge" class="survey-badge ${initialStatus.badgeClass}">
+                <i class="${initialStatus.icon}"></i> ${initialStatus.label}
+              </span>
+              <label class="survey-toggle-switch" title="Activar o desactivar">
+                <input type="checkbox" id="builder-survey-active-toggle" ${initialStatus.isActive ? 'checked' : ''}>
+                <span class="survey-toggle-track"></span>
+              </label>
+            </div>
+          </div>
 
           <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
             <div>
@@ -1799,6 +2039,26 @@ export async function renderSurveysAdmin(targetContainer) {
         return;
       }
 
+      if (newStatus === 'published') {
+        survey.status = 'published';
+        survey.is_active = true;
+      } else if (newStatus === 'draft') {
+        survey.status = 'draft';
+        survey.is_active = false;
+      } else if (newStatus === 'closed') {
+        survey.status = 'closed';
+        survey.is_active = false;
+      } else {
+        const toggleEl = document.getElementById('builder-survey-active-toggle');
+        if (toggleEl) {
+          survey.is_active = toggleEl.checked;
+          if (survey.is_active && survey.status === 'closed') survey.status = 'published';
+          if (!survey.is_active && survey.status === 'published') survey.status = 'closed';
+        }
+      }
+
+      const isActive = survey.is_active !== undefined ? survey.is_active : (survey.status === 'published');
+
       const saveBtn = newStatus === 'published' ? document.getElementById('btn-publish-survey') : document.getElementById('btn-save-draft');
       const originalHtml = saveBtn ? saveBtn.innerHTML : '';
       if (saveBtn) saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
@@ -1810,6 +2070,7 @@ export async function renderSurveysAdmin(targetContainer) {
           description: survey.description,
           category: survey.category,
           status: survey.status,
+          is_active: isActive,
           target_type: survey.target_type,
           target_merchants: survey.target_merchants,
           target_users: survey.target_users || [],
@@ -1828,12 +2089,22 @@ export async function renderSurveysAdmin(targetContainer) {
         if (result.error) throw result.error;
 
         if (window.Swal) {
+          let alertTitle = '¡Cambios Guardados!';
+          let alertText = 'Los cambios se han guardado con éxito.';
+          if (newStatus === 'published') {
+            alertTitle = '¡Encuesta Publicada y Activa!';
+            alertText = 'La encuesta ya está disponible para que los destinatarios respondan.';
+          } else if (newStatus === 'closed') {
+            alertTitle = 'Encuesta Desactivada';
+            alertText = 'La encuesta ha sido pausada correctamente.';
+          } else if (newStatus === 'draft') {
+            alertTitle = '¡Borrador Guardado!';
+          }
+
           window.Swal.fire({
             icon: 'success',
-            title: newStatus === 'published' ? '¡Encuesta Publicada!' : '¡Borrador Guardado!',
-            text: newStatus === 'published' 
-              ? 'La encuesta ya está disponible para que los comercios respondan.' 
-              : 'Los cambios se han guardado con éxito.',
+            title: alertTitle,
+            text: alertText,
             timer: 2000,
             showConfirmButton: false
           });
@@ -1850,6 +2121,63 @@ export async function renderSurveysAdmin(targetContainer) {
         if (saveBtn) saveBtn.innerHTML = originalHtml;
       }
     }
+
+    // Toggle activo/inactivo en el formulario del builder
+    document.getElementById('builder-survey-active-toggle')?.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      survey.is_active = isChecked;
+      if (isChecked && survey.status === 'closed') survey.status = 'published';
+      if (!isChecked && survey.status === 'published') survey.status = 'closed';
+
+      const statusBadge = document.getElementById('builder-active-status-badge');
+      const updatedSt = getSurveyStatus(survey);
+      if (statusBadge) {
+        statusBadge.className = `survey-badge ${updatedSt.badgeClass}`;
+        statusBadge.innerHTML = `<i class="${updatedSt.icon}"></i> ${updatedSt.label}`;
+      }
+      const toggleBtn = document.getElementById('btn-toggle-active-builder');
+      if (toggleBtn) {
+        toggleBtn.style.borderColor = updatedSt.isActive ? '#ef4444' : '#10b981';
+        toggleBtn.style.color = updatedSt.isActive ? '#ef4444' : '#10b981';
+        const txt = document.getElementById('btn-toggle-active-text');
+        if (txt) txt.textContent = updatedSt.isActive ? 'Desactivar Encuesta' : 'Activar Encuesta';
+        const icon = toggleBtn.querySelector('i');
+        if (icon) icon.className = updatedSt.isActive ? 'ri-pause-circle-line' : 'ri-play-circle-line';
+      }
+    });
+
+    // Botón activar/desactivar en cabecera del builder
+    document.getElementById('btn-toggle-active-builder')?.addEventListener('click', async () => {
+      saveCurrentPageInputs();
+      survey.title = document.getElementById('builder-survey-title')?.value || survey.title;
+      survey.description = document.getElementById('builder-survey-desc')?.value || survey.description;
+
+      const currentSt = getSurveyStatus(survey);
+      const targetActive = !currentSt.isActive;
+
+      if (!targetActive) {
+        let confirmed = true;
+        if (window.Swal) {
+          const res = await window.Swal.fire({
+            title: '¿Desactivar encuesta?',
+            text: 'La encuesta quedará en pausa. Los clientes y usuarios no podrán verla ni responderla.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, desactivar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#ef4444'
+          });
+          confirmed = res.isConfirmed;
+        } else {
+          confirmed = confirm('¿Deseas desactivar esta encuesta?');
+        }
+        if (!confirmed) return;
+      }
+
+      survey.is_active = targetActive;
+      survey.status = targetActive ? 'published' : 'closed';
+      await saveSurvey(targetActive ? 'published' : 'closed');
+    });
 
     document.getElementById('btn-save-draft')?.addEventListener('click', () => saveSurvey('draft'));
     document.getElementById('btn-publish-survey')?.addEventListener('click', () => saveSurvey('published'));
@@ -3461,18 +3789,20 @@ export async function checkAndShowSurveyLoginPopup(user, profile) {
     const userCommerce = (profile?.comercio || '').split(',')[0].trim();
     const userId = user.id;
 
-    // 1. Obtener encuestas publicadas
+    // 1. Obtener encuestas publicadas y activas
     const { data: surveys, error } = await supabase
       .from('surveys')
       .select('*')
       .eq('status', 'published')
+      .eq('is_active', true)
       .order('created_at', { ascending: false });
 
     if (error || !surveys || surveys.length === 0) return;
 
-    // Filtrar aquellas con popup_on_login activado en settings
+    // Filtrar aquellas con popup_on_login activado en settings y activas
     const popupSurveys = surveys.filter(s => {
-      return s.settings && (s.settings.popup_on_login === true || s.settings.popup_on_login === 'true');
+      const isActive = s.status === 'published' && s.is_active !== false;
+      return isActive && s.settings && (s.settings.popup_on_login === true || s.settings.popup_on_login === 'true');
     });
 
     if (popupSurveys.length === 0) return;

@@ -5,7 +5,7 @@ import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
-import { renderSurveysAdmin } from './surveys.js?v=1.0.1';
+import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 
@@ -3340,7 +3340,8 @@ window.updateAdminBadges = async function() {
         const { count: activeSurveysCount, error: sErr } = await supabase
           .from('surveys')
           .select('*', { count: 'exact', head: true })
-          .eq('status', 'published');
+          .eq('status', 'published')
+          .eq('is_active', true);
         if (!sErr && activeSurveysCount !== null) {
           badgeSurveysAdmin.textContent = activeSurveysCount;
           badgeSurveysAdmin.style.display = activeSurveysCount > 0 ? 'inline-flex' : 'none';

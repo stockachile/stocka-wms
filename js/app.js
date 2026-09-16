@@ -1,6 +1,6 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
-import { renderSurveysClient, checkAndShowSurveyLoginPopup } from './surveys.js?v=1.0.1';
+import { renderSurveysClient, checkAndShowSurveyLoginPopup } from './surveys.js?v=1.0.2';
 window.renderSurveysClient = renderSurveysClient;
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
