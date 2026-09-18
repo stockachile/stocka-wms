@@ -1,6 +1,121 @@
 // js/inventory_sheets.js - Generador de Hojas de Conteo de Inventario Físico (PDF & Excel) para STOCKA WMS
 
 /**
+ * Enriquece la lista de productos de una solicitud de inventario con sus códigos de barra
+ * desde memoria o consultando Supabase si faltaban al momento de emitir la solicitud.
+ * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ * @returns {Promise<Array>} Lista de productos enriquecidos
+ */
+window.enrichInventoryProductsBarcodes = async function(req) {
+  if (!req) return [];
+  const products = Array.isArray(req.products_list) ? req.products_list : [];
+  if (products.length === 0) return products;
+
+  // Verificar si hay productos que carecen de código de barras
+  const needsEnrich = products.some(p => !p.barcode || p.barcode === '-' || String(p.barcode).trim() === '');
+  if (!needsEnrich) return products;
+
+  try {
+    const barcodeMap = new Map();
+
+    // 1. Revisar cachés locales en memoria si están disponibles
+    const localCaches = [
+      window.cachedInventoryProducts,
+      window.cachedActiveProducts,
+      window.decCatalogProductsCache,
+      window.cachedAdminProducts
+    ];
+
+    localCaches.forEach(cache => {
+      if (Array.isArray(cache)) {
+        cache.forEach(item => {
+          const bc = item.barcode || item.codigo_barra || item.codebar;
+          if (bc && String(bc).trim() && String(bc).trim() !== '-') {
+            const clean = String(bc).trim();
+            if (item.id) barcodeMap.set(String(item.id), clean);
+            if (item.sku) barcodeMap.set(String(item.sku).toUpperCase().trim(), clean);
+          }
+        });
+      }
+    });
+
+    // Asignar desde cachés en memoria
+    products.forEach(p => {
+      if (!p.barcode || p.barcode === '-' || String(p.barcode).trim() === '') {
+        const fromCache = (p.id && barcodeMap.get(String(p.id))) || (p.sku && barcodeMap.get(String(p.sku).toUpperCase().trim()));
+        if (fromCache) {
+          p.barcode = fromCache;
+        }
+      }
+    });
+
+    // 2. Para los que aún falten, consultar directamente a la base de datos Supabase
+    const stillMissing = products.filter(p => !p.barcode || p.barcode === '-' || String(p.barcode).trim() === '');
+    if (stillMissing.length > 0 && typeof supabase !== 'undefined') {
+      const idsToQuery = stillMissing.map(p => p.id).filter(Boolean);
+      const skusToQuery = stillMissing.map(p => p.sku).filter(Boolean);
+
+      let query = supabase.from('products').select('id, sku, barcode, codigo_barra');
+      if (req.comercio && req.comercio !== 'Todos' && req.comercio !== 'no asignado') {
+        query = query.eq('comercio', req.comercio);
+      }
+
+      if (idsToQuery.length > 0) {
+        query = query.in('id', idsToQuery);
+      } else if (skusToQuery.length > 0) {
+        query = query.in('sku', skusToQuery);
+      }
+
+      const { data: dbProds, error: dbErr } = await query;
+      if (!dbErr && Array.isArray(dbProds)) {
+        dbProds.forEach(item => {
+          const bc = item.barcode || item.codigo_barra;
+          if (bc && String(bc).trim() && String(bc).trim() !== '-') {
+            const clean = String(bc).trim();
+            if (item.id) barcodeMap.set(String(item.id), clean);
+            if (item.sku) barcodeMap.set(String(item.sku).toUpperCase().trim(), clean);
+          }
+        });
+      }
+
+      // Si quedan sin coincidencia por id, reintentar por SKU
+      const remainingMissing = products.filter(p => !p.barcode || p.barcode === '-' || String(p.barcode).trim() === '');
+      if (remainingMissing.length > 0 && skusToQuery.length > 0) {
+        let skuQuery = supabase.from('products').select('id, sku, barcode, codigo_barra').in('sku', skusToQuery);
+        if (req.comercio && req.comercio !== 'Todos' && req.comercio !== 'no asignado') {
+          skuQuery = skuQuery.eq('comercio', req.comercio);
+        }
+        const { data: skuData } = await skuQuery;
+        if (Array.isArray(skuData)) {
+          skuData.forEach(item => {
+            const bc = item.barcode || item.codigo_barra;
+            if (bc && String(bc).trim() && String(bc).trim() !== '-') {
+              const clean = String(bc).trim();
+              if (item.sku) barcodeMap.set(String(item.sku).toUpperCase().trim(), clean);
+              if (item.id) barcodeMap.set(String(item.id), clean);
+            }
+          });
+        }
+      }
+
+      // Aplicar códigos encontrados a los productos
+      products.forEach(p => {
+        if (!p.barcode || p.barcode === '-' || String(p.barcode).trim() === '') {
+          const found = (p.id && barcodeMap.get(String(p.id))) || (p.sku && barcodeMap.get(String(p.sku).toUpperCase().trim()));
+          if (found) {
+            p.barcode = found;
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[enrichInventoryProductsBarcodes] Error al enriquecer códigos de barra:', err);
+  }
+
+  return products;
+};
+
+/**
  * Genera y descarga la Hoja Oficial de Toma de Inventario Físico en formato PDF
  * Diseñada específicamente con cuadrícula y espacio para conteo manual en terreno
  * @param {Object} req - Objeto con los datos de la solicitud de inventario
@@ -9,6 +124,11 @@ window.generateInventoryCountPdf = async function(req) {
   if (!req) {
     alert('Error: Datos de solicitud de inventario no disponibles.');
     return;
+  }
+
+  // Enriquecer códigos de barra faltantes antes de generar la hoja
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
   }
 
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
@@ -45,7 +165,7 @@ window.generateInventoryCountPdf = async function(req) {
   if (products.length === 0) {
     rowsHtml = `
       <tr>
-        <td colspan="10" style="text-align: center; padding: 20px; color: #64748b; font-style: italic;">
+        <td colspan="9" style="text-align: center; padding: 20px; color: #64748b; font-style: italic;">
           No se especificaron productos individuales en la solicitud.
         </td>
       </tr>
@@ -54,16 +174,25 @@ window.generateInventoryCountPdf = async function(req) {
     products.forEach((p, idx) => {
       const isEven = idx % 2 === 0;
       const bg = isEven ? '#ffffff' : '#f8fafc';
-      const barcode = p.barcode || p.codigo_barra || '-';
+      const barcode = p.barcode || p.codigo_barra || '';
       const whName = p.warehouse_name || warehouseName || 'Principal';
       const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : (p.quantity || 0);
+
+      const barcodeHtml = (barcode && barcode !== '-')
+        ? `<div style="font-family: 'Courier New', monospace; color: #475569; font-size: 7.5pt; line-height: 1.2; margin-top: 3px; word-break: break-all;">
+             <span style="color: #64748b; font-size: 6.5pt; font-weight: 700; text-transform: uppercase;">CB:</span> ${barcode}
+           </div>`
+        : `<div style="font-family: 'Courier New', monospace; color: #94a3b8; font-size: 7pt; line-height: 1.2; margin-top: 2px; font-style: italic;">Sin cód. barras</div>`;
 
       rowsHtml += `
         <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; page-break-inside: avoid;">
           <td style="padding: 6px 4px; text-align: center; font-weight: 600; color: #64748b; font-size: 8pt; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
-          <td style="padding: 6px 6px; font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8.5pt; border-right: 1px solid #e2e8f0; white-space: nowrap;">${p.sku || '-'}</td>
-          <td style="padding: 6px 6px; font-family: 'Courier New', monospace; color: #475569; font-size: 8pt; border-right: 1px solid #e2e8f0;">${barcode}</td>
-          <td style="padding: 6px 6px; color: #0f172a; font-size: 8.5pt; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.2;">${p.name || 'Sin nombre'}</td>
+          <!-- SKU y Código de Barras juntos en la misma columna (uno sobre el otro) -->
+          <td style="padding: 5px 6px; border-right: 1px solid #e2e8f0; vertical-align: middle;">
+            <div style="font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8.5pt; line-height: 1.2; word-break: break-all;">${p.sku || '-'}</div>
+            ${barcodeHtml}
+          </td>
+          <td style="padding: 6px 6px; color: #0f172a; font-size: 8.5pt; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.25;">${p.name || 'Sin nombre'}</td>
           <td style="padding: 6px 4px; color: #475569; font-size: 7.5pt; text-align: center; border-right: 1px solid #e2e8f0;">${whName}</td>
           <td style="padding: 6px 4px; text-align: center; font-weight: 700; color: #1e40af; font-size: 9pt; background-color: #f1f5f9; border-right: 1px solid #cbd5e1;">${sysQty}</td>
           <!-- Casilla 1er Conteo -->
@@ -181,11 +310,10 @@ window.generateInventoryCountPdf = async function(req) {
         <thead>
           <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px;">
             <th style="padding: 6px 4px; width: 22px; text-align: center; border-right: 1px solid #334155;">#</th>
-            <th style="padding: 6px 6px; width: 85px; border-right: 1px solid #334155;">SKU</th>
-            <th style="padding: 6px 6px; width: 85px; border-right: 1px solid #334155;">Cód. Barras</th>
+            <th style="padding: 6px 6px; width: 105px; border-right: 1px solid #334155;">SKU / Cód. Barras</th>
             <th style="padding: 6px 6px; border-right: 1px solid #334155;">Descripción del Producto</th>
             <th style="padding: 6px 4px; width: 70px; text-align: center; border-right: 1px solid #334155;">Bodega</th>
-            <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Sist.</th>
+            <th style="padding: 6px 4px; width: 48px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Sist.</th>
             <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #047857; border-right: 1px solid #334155;">1° Conteo</th>
             <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #047857; border-right: 1px solid #334155;">2° Conteo</th>
             <th style="padding: 6px 4px; width: 45px; text-align: center; background-color: #475569; border-right: 1px solid #334155;">Dif. (±)</th>
@@ -266,7 +394,7 @@ window.generateInventoryCountPdf = async function(req) {
  * Genera y descarga la planilla Excel (XLSX) con la estructura de conteo de inventario
  * @param {Object} req - Objeto con los datos de la solicitud de inventario
  */
-window.generateInventoryCountExcel = function(req) {
+window.generateInventoryCountExcel = async function(req) {
   if (!req) {
     alert('Error: Datos de solicitud de inventario no disponibles.');
     return;
@@ -275,6 +403,11 @@ window.generateInventoryCountExcel = function(req) {
   if (typeof XLSX === 'undefined') {
     alert('Error: Librería de exportación Excel (XLSX) no disponible.');
     return;
+  }
+
+  // Enriquecer códigos de barra faltantes antes de generar la planilla
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
   }
 
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
@@ -374,6 +507,11 @@ window.generateInventoryReportPdf = async function(req) {
     return;
   }
 
+  // Enriquecer códigos de barra faltantes antes de generar el informe
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
+  }
+
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
   const comercio = req.comercio || 'Todos';
   const warehouseName = req.warehouse_name || 'Todas las bodegas';
@@ -442,7 +580,7 @@ window.generateInventoryReportPdf = async function(req) {
     products.forEach((p, idx) => {
       const isEven = idx % 2 === 0;
       const bg = isEven ? '#ffffff' : '#f8fafc';
-      const barcode = p.barcode || p.codigo_barra || '-';
+      const barcode = p.barcode || p.codigo_barra || '';
       const whName = p.warehouse_name || warehouseName || 'Principal';
       const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? Number(p.system_qty) : 0;
       const counted = (p.counted_qty !== undefined && p.counted_qty !== null) ? Number(p.counted_qty) : sysQty;
@@ -463,11 +601,20 @@ window.generateInventoryReportPdf = async function(req) {
         statusTag = `<span style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 7pt; display: inline-block;">▼ FALTANTE (${diff})</span>`;
       }
 
+      const barcodeHtml = (barcode && barcode !== '-')
+        ? `<div style="font-family: 'Courier New', monospace; color: #475569; font-size: 7pt; line-height: 1.2; margin-top: 2px; word-break: break-all;">
+             <span style="color: #64748b; font-size: 6pt; font-weight: 700; text-transform: uppercase;">CB:</span> ${barcode}
+           </div>`
+        : `<div style="font-family: 'Courier New', monospace; color: #94a3b8; font-size: 6.5pt; line-height: 1.2; margin-top: 2px; font-style: italic;">Sin CB</div>`;
+
       rowsHtml += `
         <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; page-break-inside: avoid;">
           <td style="padding: 5px 4px; text-align: center; font-weight: 600; color: #64748b; font-size: 8pt; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
-          <td style="padding: 5px 6px; font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8pt; border-right: 1px solid #e2e8f0; white-space: nowrap;">${p.sku || '-'}</td>
-          <td style="padding: 5px 6px; font-family: 'Courier New', monospace; color: #475569; font-size: 7.5pt; border-right: 1px solid #e2e8f0;">${barcode}</td>
+          <!-- SKU y Código de Barras en una misma columna (uno sobre el otro) -->
+          <td style="padding: 5px 6px; border-right: 1px solid #e2e8f0; vertical-align: middle;">
+            <div style="font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8pt; line-height: 1.2; word-break: break-all;">${p.sku || '-'}</div>
+            ${barcodeHtml}
+          </td>
           <td style="padding: 5px 6px; color: #0f172a; font-size: 8pt; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.2;">${p.name || 'Sin nombre'}</td>
           <td style="padding: 5px 4px; color: #475569; font-size: 7.5pt; text-align: center; border-right: 1px solid #e2e8f0;">${whName}</td>
           <td style="padding: 5px 4px; text-align: center; font-weight: 700; color: #1e40af; font-size: 8.5pt; background-color: #f1f5f9; border-right: 1px solid #cbd5e1;">${sysQty}</td>
@@ -591,8 +738,7 @@ window.generateInventoryReportPdf = async function(req) {
         <thead>
           <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 7.2pt; text-transform: uppercase; letter-spacing: 0.5px;">
             <th style="padding: 5px 4px; width: 20px; text-align: center; border-right: 1px solid #334155;">#</th>
-            <th style="padding: 5px 6px; width: 80px; border-right: 1px solid #334155;">SKU</th>
-            <th style="padding: 5px 6px; width: 80px; border-right: 1px solid #334155;">Cód. Barras</th>
+            <th style="padding: 5px 6px; width: 95px; border-right: 1px solid #334155;">SKU / Cód. Barras</th>
             <th style="padding: 5px 6px; border-right: 1px solid #334155;">Descripción del Producto</th>
             <th style="padding: 5px 4px; width: 65px; text-align: center; border-right: 1px solid #334155;">Bodega</th>
             <th style="padding: 5px 4px; width: 48px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Sist.</th>
@@ -607,7 +753,7 @@ window.generateInventoryReportPdf = async function(req) {
         </tbody>
         <tfoot>
           <tr style="background-color: #f1f5f9; border-top: 2px solid #0f172a; font-weight: 800; font-size: 8pt;">
-            <td colspan="5" style="padding: 5px 6px; text-align: right; color: #0f172a;">TOTALES CONSOLIDADOS:</td>
+            <td colspan="4" style="padding: 5px 6px; text-align: right; color: #0f172a;">TOTALES CONSOLIDADOS:</td>
             <td style="padding: 5px 4px; text-align: center; color: #1e40af; border-right: 1px solid #cbd5e1;">${totalSysUnits}</td>
             <td style="padding: 5px 4px; text-align: center; color: #0f172a; border-right: 1px solid #cbd5e1;">${totalCountedUnits}</td>
             <td style="padding: 5px 4px; text-align: center; color: ${netDiffUnits === 0 ? '#059669' : (netDiffUnits > 0 ? '#2563eb' : '#dc2626')}; border-right: 1px solid #cbd5e1;">
@@ -695,7 +841,7 @@ window.generateInventoryReportPdf = async function(req) {
  * Genera y descarga el INFORME OFICIAL DE RESULTADOS DE INVENTARIO FÍSICO en formato Excel (XLSX)
  * @param {Object} req - Objeto con los datos y resultados de la solicitud de inventario
  */
-window.generateInventoryReportExcel = function(req) {
+window.generateInventoryReportExcel = async function(req) {
   if (!req) {
     alert('Error: Datos de solicitud de inventario no disponibles.');
     return;
@@ -704,6 +850,11 @@ window.generateInventoryReportExcel = function(req) {
   if (typeof XLSX === 'undefined') {
     alert('Error: Librería de exportación Excel (XLSX) no disponible.');
     return;
+  }
+
+  // Enriquecer códigos de barra faltantes antes de generar la planilla
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
   }
 
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;

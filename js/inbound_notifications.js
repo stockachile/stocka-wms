@@ -135,6 +135,166 @@
   }
 
   /**
+   * Normaliza y consolida la lista de discrepancias e incidencias detectadas en la recepción
+   */
+  function normalizeInboundDiscrepancies(incidentsList, productsList, dec, stageComment, isConforme) {
+    const list = [];
+    const seenSkus = new Set();
+
+    // 1. Detectar discrepancias directas desde productsList (o dec.products_list)
+    const prods = (productsList && productsList.length > 0) ? productsList : (dec?.products_list || []);
+    if (prods && prods.length > 0) {
+      prods.forEach(p => {
+        const declared = parseInt(p.qty || p.quantity || 0, 10);
+        const confirmed = (p.qty_confirmed !== undefined && p.qty_confirmed !== null && p.qty_confirmed !== '')
+          ? parseInt(p.qty_confirmed, 10)
+          : (isConforme ? declared : declared);
+        
+        const diff = confirmed - declared;
+        if (diff !== 0) {
+          const sku = (p.sku || '').trim();
+          if (sku) seenSkus.add(sku.toLowerCase());
+
+          if (diff < 0) {
+            const missingQty = Math.abs(diff);
+            list.push({
+              type: 'Faltante',
+              badgeColor: '#b91c1c',
+              badgeBg: '#fee2e2',
+              sku: sku || '-',
+              name: p.name || 'Producto no especificado',
+              declared: declared,
+              confirmed: confirmed,
+              diff: diff,
+              diffStr: `${diff} uds`,
+              quantity: missingQty,
+              reason: `Faltan ${missingQty} unidad(es) físicas (${confirmed} recibidas de ${declared} declaradas)`
+            });
+          } else {
+            list.push({
+              type: 'Sobrante',
+              badgeColor: '#15803d',
+              badgeBg: '#dcfce7',
+              sku: sku || '-',
+              name: p.name || 'Producto no especificado',
+              declared: declared,
+              confirmed: confirmed,
+              diff: diff,
+              diffStr: `+${diff} uds`,
+              quantity: diff,
+              reason: `${diff} unidad(es) adicionales recibidas (${confirmed} recibidas vs ${declared} declaradas)`
+            });
+          }
+        }
+      });
+    }
+
+    // 2. Procesar incidentes manuales o reportados en incidentsList
+    if (incidentsList && Array.isArray(incidentsList)) {
+      incidentsList.forEach(inc => {
+        if (!inc) return;
+
+        if (typeof inc === 'string') {
+          const str = inc.trim();
+          if (!str) return;
+
+          // Intentar parsear formato generado previamente: "SKU: +10 uds (33 recibidas vs 23 declaradas)" o "SKU: -5 uds (...)"
+          const matchDiff = str.match(/^([^:]+):\s*([+-]?\d+)\s*uds\s*\((.*)\)/i);
+          if (matchDiff) {
+            const matchedSku = matchDiff[1].trim();
+            const matchedDiff = parseInt(matchDiff[2], 10);
+            const matchedDetails = matchDiff[3].trim();
+
+            if (matchedSku && seenSkus.has(matchedSku.toLowerCase())) {
+              return;
+            }
+
+            if (matchedSku) seenSkus.add(matchedSku.toLowerCase());
+            const prod = prods.find(p => p.sku && p.sku.toLowerCase().trim() === matchedSku.toLowerCase());
+
+            list.push({
+              type: matchedDiff < 0 ? 'Faltante' : (matchedDiff > 0 ? 'Sobrante' : 'Incidencia'),
+              badgeColor: matchedDiff < 0 ? '#b91c1c' : (matchedDiff > 0 ? '#15803d' : '#991b1b'),
+              badgeBg: matchedDiff < 0 ? '#fee2e2' : (matchedDiff > 0 ? '#dcfce7' : '#fee2e2'),
+              sku: matchedSku,
+              name: prod?.name || '',
+              declared: prod ? parseInt(prod.qty || prod.quantity || 0, 10) : null,
+              confirmed: prod && prod.qty_confirmed !== undefined ? parseInt(prod.qty_confirmed, 10) : null,
+              diff: matchedDiff,
+              diffStr: `${matchedDiff > 0 ? '+' : ''}${matchedDiff} uds`,
+              quantity: Math.abs(matchedDiff),
+              reason: matchedDetails || str
+            });
+            return;
+          }
+
+          // Si es un texto descriptivo libre
+          list.push({
+            type: 'Observación / Daño',
+            badgeColor: '#c2410c',
+            badgeBg: '#ffedd5',
+            sku: '-',
+            name: 'Inspección Física',
+            declared: null,
+            confirmed: null,
+            diff: null,
+            diffStr: '-',
+            quantity: 1,
+            reason: str
+          });
+        } else if (typeof inc === 'object') {
+          const sku = (inc.sku || inc.product_sku || '-').trim();
+          if (sku && sku !== '-') {
+            if (seenSkus.has(sku.toLowerCase()) && list.some(x => x.sku.toLowerCase() === sku.toLowerCase() && x.diff === inc.diff)) {
+              return;
+            }
+            seenSkus.add(sku.toLowerCase());
+          }
+
+          const prod = prods.find(p => p.sku && sku && p.sku.toLowerCase().trim() === sku.toLowerCase());
+          const type = inc.type || inc.tipo || ((inc.diff !== undefined && inc.diff < 0) ? 'Faltante' : ((inc.diff !== undefined && inc.diff > 0) ? 'Sobrante' : 'Incidencia'));
+          const qty = parseInt(inc.quantity || inc.qty || inc.cant || 1, 10) || 1;
+          const obs = inc.comment || inc.reason || inc.notes || inc.observacion || inc.motivo || 'Reportado en recepción física';
+
+          list.push({
+            type: type,
+            badgeColor: (type === 'Faltante' || (inc.diff && inc.diff < 0)) ? '#b91c1c' : ((type === 'Sobrante' || (inc.diff && inc.diff > 0)) ? '#15803d' : '#c2410c'),
+            badgeBg: (type === 'Faltante' || (inc.diff && inc.diff < 0)) ? '#fee2e2' : ((type === 'Sobrante' || (inc.diff && inc.diff > 0)) ? '#dcfce7' : '#ffedd5'),
+            sku: sku,
+            name: inc.name || inc.product_name || prod?.name || '',
+            declared: inc.declared ?? (prod ? parseInt(prod.qty || prod.quantity || 0, 10) : null),
+            confirmed: inc.received ?? inc.confirmed ?? (prod && prod.qty_confirmed !== undefined ? parseInt(prod.qty_confirmed, 10) : null),
+            diff: inc.diff ?? null,
+            diffStr: inc.diff ? `${inc.diff > 0 ? '+' : ''}${inc.diff} uds` : `${qty} ud(s)`,
+            quantity: qty,
+            reason: obs
+          });
+        }
+      });
+    }
+
+    // 3. Fallback en caso de no registrar discrepancias específicas pero marcarse con incidencias
+    if (!isConforme && list.length === 0) {
+      const fallbackReason = stageComment || dec?.admin_notes || 'Se reportaron discrepancias o incidencias físicas durante la recepción y conteo.';
+      list.push({
+        type: 'Incidencia Reportada',
+        badgeColor: '#b91c1c',
+        badgeBg: '#fee2e2',
+        sku: '-',
+        name: 'Recepción en Bodega',
+        declared: null,
+        confirmed: null,
+        diff: null,
+        diffStr: `${dec?.quantity_incidents || 1} uds`,
+        quantity: dec?.quantity_incidents || 1,
+        reason: fallbackReason
+      });
+    }
+
+    return list;
+  }
+
+  /**
    * Generador de plantilla HTML para los correos
    */
   function generateInboundEmailHtml(params) {
@@ -398,9 +558,10 @@
     // 4. EVENTO: COMPLETADO (CONFORME O CON INCIDENCIAS)
     else if (event === 'completed') {
       const isConforme = status === 'Recibido Conforme';
-      const hasIncidents = !isConforme || (incidentsList && incidentsList.length > 0);
+      const discrepancies = normalizeInboundDiscrepancies(incidentsList, productsList, dec, stageComment, isConforme);
+      const hasIncidents = !isConforme || discrepancies.length > 0;
 
-      if (isConforme) {
+      if (isConforme && discrepancies.length === 0) {
         emailSubject = `✅ [${shortCode}] Ingreso de Stock Completado Conforme - ${comercio}`;
         headerGradient = 'linear-gradient(135deg, #047857, #10b981)';
         emailTitle = 'Ingreso Completado Conforme';
@@ -414,34 +575,104 @@
         badgeColor = '#dc2626';
       }
 
-      const qtyDeclared = dec.quantity_declared || 0;
+      const qtyDeclared = dec.quantity_declared || (productsList && productsList.length > 0 ? productsList.reduce((acc, p) => acc + (parseInt(p.qty || p.quantity || 0, 10)), 0) : 0);
       const qtyReceived = dec.quantity_received || (isConforme ? qtyDeclared : (qtyDeclared - (dec.quantity_incidents || 0)));
-      const qtyIncidents = dec.quantity_incidents || (hasIncidents ? (incidentsList || []).reduce((acc, i) => acc + (parseInt(i.quantity || i.qty || 1, 10)), 0) : 0);
+      const qtyIncidents = dec.quantity_incidents || (hasIncidents ? discrepancies.reduce((acc, i) => acc + (i.diff && i.diff < 0 ? Math.abs(i.diff) : (i.quantity || 1)), 0) : 0);
       const volConfirmed = parseFloat(dec.volume_confirmed || dec.volume_declared || 0).toFixed(4);
 
       let incidentsTableHtml = '';
-      if (hasIncidents && incidentsList && incidentsList.length > 0) {
+      if (hasIncidents && discrepancies.length > 0) {
         incidentsTableHtml = `
-          <div style="margin-top: 20px; background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px;">
-            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #991b1b; font-weight: 700;">⚠️ Detalle de Discrepancias / Incidencias Detectadas:</h4>
-            <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; color: #334155;">
+          <div style="margin-top: 24px; margin-bottom: 20px; background-color: #fef2f2; border: 1.5px solid #fecaca; border-radius: 8px; padding: 18px;">
+            <div style="margin-bottom: 12px; display: flex; align-items: center;">
+              <h4 style="margin: 0; font-size: 14px; color: #991b1b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">
+                ⚠️ Detalle de Discrepancias / Incidencias Detectadas:
+              </h4>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; color: #334155; background-color: #ffffff; border-radius: 6px; overflow: hidden; border: 1px solid #fee2e2;">
               <thead>
-                <tr style="border-bottom: 1px solid #fca5a5; text-align: left; color: #7f1d1d;">
-                  <th style="padding: 6px 8px;">Tipo</th>
-                  <th style="padding: 6px 8px;">SKU / Producto</th>
-                  <th style="padding: 6px 8px; text-align: center;">Cant.</th>
-                  <th style="padding: 6px 8px;">Motivo / Observación</th>
+                <tr style="background-color: #fee2e2; text-align: left; border-bottom: 1.5px solid #fca5a5; color: #7f1d1d;">
+                  <th style="padding: 8px 10px; font-weight: 700; width: 95px;">Tipo</th>
+                  <th style="padding: 8px 10px; font-weight: 700;">SKU / Producto</th>
+                  <th style="padding: 8px 10px; text-align: center; font-weight: 700; width: 105px;">Cant. / Dif.</th>
+                  <th style="padding: 8px 10px; font-weight: 700;">Motivo / Observación</th>
                 </tr>
               </thead>
               <tbody>
-                ${incidentsList.map((inc, i) => `
-                  <tr style="border-bottom: 1px solid #fee2e2; background-color: ${i % 2 === 0 ? '#ffffff' : '#fff5f5'};">
-                    <td style="padding: 7px 8px; font-weight: 700; color: #b91c1c;">${inc.type || inc.tipo || 'Incidencia'}</td>
-                    <td style="padding: 7px 8px; font-family: monospace; font-weight: 600;">${inc.sku || inc.product_sku || '-'}: ${inc.name || inc.product_name || ''}</td>
-                    <td style="padding: 7px 8px; text-align: center; font-weight: 700; color: #991b1b;">${inc.quantity || inc.qty || 1}</td>
-                    <td style="padding: 7px 8px; font-size: 12px; color: #4b5563;">${inc.comment || inc.reason || inc.notes || 'Sin detalles'}</td>
+                ${discrepancies.map((item, i) => `
+                  <tr style="border-bottom: 1px solid #fee2e2; background-color: ${i % 2 === 0 ? '#ffffff' : '#fffafa'};">
+                    <td style="padding: 8px 10px; vertical-align: top;">
+                      <span style="display: inline-block; background-color: ${item.badgeBg}; color: ${item.badgeColor}; font-weight: 700; font-size: 11px; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; border: 1px solid ${item.badgeColor}30;">
+                        ${item.type}
+                      </span>
+                    </td>
+                    <td style="padding: 8px 10px; vertical-align: top;">
+                      ${item.sku && item.sku !== '-' ? `<div style="font-family: monospace; font-weight: 700; color: #0f172a; font-size: 13px;">${item.sku}</div>` : ''}
+                      <div style="color: ${item.sku && item.sku !== '-' ? '#64748b' : '#1e293b'}; font-size: 12px; font-weight: ${item.sku && item.sku !== '-' ? '400' : '600'}; margin-top: 2px;">
+                        ${item.name || (item.sku === '-' ? 'General' : '')}
+                      </div>
+                    </td>
+                    <td style="padding: 8px 10px; text-align: center; vertical-align: top;">
+                      ${item.declared !== null && item.confirmed !== null ? `
+                        <div style="font-weight: 600; font-size: 12px; color: #334155;">${item.confirmed.toLocaleString('es-CL')} <span style="font-size: 10px; color: #94a3b8;">/ ${item.declared.toLocaleString('es-CL')} decl.</span></div>
+                        <div style="font-weight: 700; font-size: 11px; color: ${item.diff < 0 ? '#dc2626' : (item.diff > 0 ? '#16a34a' : '#64748b')}; margin-top: 2px;">
+                          (${item.diff > 0 ? '+' : ''}${item.diff} uds)
+                        </div>
+                      ` : `
+                        <span style="font-weight: 700; color: #991b1b; font-size: 12px;">${item.diffStr || `${item.quantity} ud(s)`}</span>
+                      `}
+                    </td>
+                    <td style="padding: 8px 10px; font-size: 12px; color: #334155; vertical-align: top; line-height: 1.45;">
+                      ${item.reason}
+                    </td>
                   </tr>
                 `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      // Detalle de todos los productos
+      let productsSummaryTableHtml = '';
+      const finalProds = (productsList && productsList.length > 0) ? productsList : (dec?.products_list || []);
+      if (finalProds && finalProds.length > 0) {
+        productsSummaryTableHtml = `
+          <div style="margin-top: 20px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 13.5px; color: #1e293b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">
+              Detalle Completo de Productos Recibidos:
+            </h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #334155; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;">
+              <thead>
+                <tr style="background-color: #f1f5f9; text-align: left; border-bottom: 1px solid #cbd5e1;">
+                  <th style="padding: 8px 10px; font-weight: 600;">SKU</th>
+                  <th style="padding: 8px 10px; font-weight: 600;">Producto</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600; width: 75px;">Declarado</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600; width: 75px;">Recibido</th>
+                  <th style="padding: 8px 10px; text-align: right; font-weight: 600; width: 75px;">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${finalProds.map((p, idx) => {
+                  const decQty = parseInt(p.qty || p.quantity || 0, 10);
+                  const recQty = (p.qty_confirmed !== undefined && p.qty_confirmed !== null && p.qty_confirmed !== '') 
+                    ? parseInt(p.qty_confirmed, 10) 
+                    : (isConforme ? decQty : decQty);
+                  const diff = recQty - decQty;
+                  let diffColor = '#64748b';
+                  let diffText = '0';
+                  if (diff > 0) { diffColor = '#15803d'; diffText = `+${diff}`; }
+                  else if (diff < 0) { diffColor = '#b91c1c'; diffText = `${diff}`; }
+                  return `
+                    <tr style="border-bottom: 1px solid #e2e8f0; background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                      <td style="padding: 8px 10px; font-family: monospace; font-weight: 600; color: #2563eb;">${p.sku || '-'}</td>
+                      <td style="padding: 8px 10px;">${p.name || '-'}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 600;">${decQty.toLocaleString('es-CL')}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: #059669;">${recQty.toLocaleString('es-CL')}</td>
+                      <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: ${diffColor};">${diffText}</td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -452,11 +683,11 @@
         <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Hola equipo <strong>${comercio}</strong>,<br><br>
           El proceso de recepción física, conteo y clasificación para tu ingreso <strong>"${title}"</strong> (${shortCode}) ha finalizado. 
-          ${isConforme ? 'Todas las unidades declaradas fueron verificadas correctamente y se encuentran cargadas en tu inventario.' : 'Se detectaron algunas discrepancias que detallamos a continuación. Las unidades conformes ya están disponibles en tu inventario activo.'}
+          ${isConforme && discrepancies.length === 0 ? 'Todas las unidades declaradas fueron verificadas correctamente y se encuentran cargadas en tu inventario.' : 'Se detectaron algunas discrepancias que detallamos a continuación. Las unidades conformes ya están disponibles en tu inventario activo.'}
         </div>
 
-        <div style="background-color: ${isConforme ? '#f0fdf4' : '#fff7ed'}; border: 1px solid ${isConforme ? '#bbf7d0' : '#fed7aa'}; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
-          <h4 style="margin: 0 0 12px 0; font-size: 14px; color: ${isConforme ? '#166534' : '#9a3412'}; font-weight: 700; text-transform: uppercase;">Resultado del Conteo Final:</h4>
+        <div style="background-color: ${isConforme && discrepancies.length === 0 ? '#f0fdf4' : '#fff7ed'}; border: 1px solid ${isConforme && discrepancies.length === 0 ? '#bbf7d0' : '#fed7aa'}; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <h4 style="margin: 0 0 12px 0; font-size: 14px; color: ${isConforme && discrepancies.length === 0 ? '#166534' : '#9a3412'}; font-weight: 700; text-transform: uppercase;">Resultado del Conteo Final:</h4>
           <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
             <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 7px 0; font-weight: 600; width: 42%;">Código de Ingreso:</td><td style="padding: 7px 0; font-weight: 700; color: #2563eb; font-family: monospace;">${shortCode}</td></tr>
             <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 7px 0; font-weight: 600;">Unidades Declaradas:</td><td style="padding: 7px 0; font-weight: 600;">${qtyDeclared.toLocaleString('es-CL')} uds</td></tr>
@@ -468,6 +699,8 @@
         </div>
 
         ${incidentsTableHtml}
+
+        ${productsSummaryTableHtml}
 
         <div style="margin-top: 20px; padding: 14px; background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px; font-size: 13px; color: #166534; line-height: 1.5;">
           <strong>Stock Disponible:</strong> Las unidades recibidas conformes ya se encuentran disponibles en tu módulo de <strong>Inventario</strong> para la preparación y despacho de tus pedidos.

@@ -4164,7 +4164,7 @@ async function renderAdminOrders() {
         if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
         if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
         if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
+        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -4217,6 +4217,9 @@ async function renderAdminOrders() {
               if (s.raw_data && s.raw_data[23]) statusText = s.raw_data[23];
               else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
             }
+            if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+              gStatus = 'SIN MOVIMIENTO';
+            }
             if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
               const rawStatus = statusText.toLowerCase().trim();
               if (s.source_table === 'lightdata_envios') {
@@ -4237,6 +4240,14 @@ async function renderAdminOrders() {
                 } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
                   gStatus = 'ALERTA';
                 }
+              } else if (s.source_table === 'optiroute_orders') {
+                if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+                  gStatus = 'SIN MOVIMIENTO';
+                } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+                  gStatus = 'DESPACHADO';
+                } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+                  gStatus = 'ALERTA';
+                }
               }
             }
             return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 2 : 1;
@@ -4252,7 +4263,9 @@ async function renderAdminOrders() {
           if (matchA && !matchB) return -1;
           if (!matchA && matchB) return 1;
 
-          return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0);
+          const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return timeB - timeA;
         });
       }
 
@@ -4265,6 +4278,9 @@ async function renderAdminOrders() {
         } else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) {
           statusText = order.raw_lightdata_data.raw_data[23];
         }
+      }
+      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+        globStatus = 'SIN MOVIMIENTO';
       }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatus = statusText.toLowerCase().trim();
@@ -4291,6 +4307,14 @@ async function renderAdminOrders() {
             globStatus = 'ALERTA';
           } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'optiroute_orders') {
+          if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+            globStatus = 'ALERTA';
           }
         }
       }
@@ -5254,7 +5278,7 @@ window.applyWmsFiltersAndRender = function() {
       if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
       if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
       if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
+      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
       let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
       if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -5311,6 +5335,9 @@ window.applyWmsFiltersAndRender = function() {
               statusText = order.raw_lightdata_data.raw_data[23];
             }
           }
+          if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+            gStatus = 'SIN MOVIMIENTO';
+          }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             const rawStatus = statusText.toLowerCase().trim();
             if (s.source_table === 'lightdata_envios') {
@@ -5336,6 +5363,14 @@ window.applyWmsFiltersAndRender = function() {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'optiroute_orders') {
+              if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+                gStatus = 'SIN MOVIMIENTO';
+              } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+                gStatus = 'ALERTA';
               }
             }
           }
@@ -5551,6 +5586,9 @@ window.applyWmsFiltersAndRender = function() {
           statusText = order.raw_lightdata_data.raw_data[23];
         }
       }
+      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+        globStatus = 'SIN MOVIMIENTO';
+      }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatus = statusText.toLowerCase().trim();
         if (shipment.source_table === 'lightdata_envios') {
@@ -5576,6 +5614,14 @@ window.applyWmsFiltersAndRender = function() {
             globStatus = 'ALERTA';
           } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'optiroute_orders') {
+          if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+            globStatus = 'ALERTA';
           }
         }
       }
@@ -5767,6 +5813,9 @@ window.applyWmsFiltersAndRender = function() {
             statusText = order.raw_lightdata_data.raw_data[23];
           }
         }
+        if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+          globStatus = 'SIN MOVIMIENTO';
+        }
         if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
           const rawStatusLower = statusText.toLowerCase().trim();
           if (shipment.source_table === 'lightdata_envios') {
@@ -5792,6 +5841,14 @@ window.applyWmsFiltersAndRender = function() {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
               globStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (shipment.source_table === 'optiroute_orders') {
+            if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+              globStatus = 'SIN MOVIMIENTO';
+            } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
+              globStatus = 'ALERTA';
             }
           }
         }
@@ -5836,6 +5893,9 @@ window.applyWmsFiltersAndRender = function() {
           statusText = order.raw_lightdata_data.raw_data[23];
         }
       }
+      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+        globStatus = 'SIN MOVIMIENTO';
+      }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatusLower = statusText.toLowerCase().trim();
         if (shipment.source_table === 'lightdata_envios') {
@@ -5861,6 +5921,14 @@ window.applyWmsFiltersAndRender = function() {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'optiroute_orders') {
+          if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
+            globStatus = 'ALERTA';
           }
         }
       }
@@ -14896,8 +14964,13 @@ function openAdminRespondInventoryRequestModal(req) {
   });
 }
 
-function openAdminManageInventoryRequestModal(req) {
+async function openAdminManageInventoryRequestModal(req) {
   if (!req) return;
+
+  // Enriquecer códigos de barra faltantes antes de abrir el modal de gestión
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
+  }
 
   let modal = document.getElementById('modal-admin-manage-inventory-request');
   if (modal) modal.remove();
@@ -14927,11 +15000,17 @@ function openAdminManageInventoryRequestModal(req) {
       }
     }
 
+    const barcode = p.barcode || p.codigo_barra || '';
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sys-qty="${sysQty}">
         <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
-        <td style="padding: 0.5rem 0.6rem; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${p.sku || '-'}</td>
-        <td style="padding: 0.5rem 0.6rem; font-family: monospace; font-size: 0.8rem; color: var(--color-text-muted);">${p.barcode || '-'}</td>
+        <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
+          <div style="font-weight: 700; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${p.sku || '-'}</div>
+          <div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+            ${(barcode && barcode !== '-') ? `<span style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">CB:</span> ${barcode}` : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">Sin CB</span>'}
+          </div>
+        </td>
         <td style="padding: 0.5rem 0.6rem; font-size: 0.85rem; font-weight: 500;">${p.name || 'Sin nombre'}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">${p.warehouse_name || req.warehouse_name || 'Bodega'}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-primary); background: var(--color-bg-alt);">${sysQty}</td>
@@ -15018,8 +15097,7 @@ function openAdminManageInventoryRequestModal(req) {
               <thead>
                 <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.725rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
                   <th style="padding: 0.6rem 0.6rem; width: 30px; text-align: center;">#</th>
-                  <th style="padding: 0.6rem 0.6rem;">SKU</th>
-                  <th style="padding: 0.6rem 0.6rem;">Cód. Barras</th>
+                  <th style="padding: 0.6rem 0.6rem; width: 140px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.6rem 0.6rem;">Producto</th>
                   <th style="padding: 0.6rem 0.6rem; text-align: center;">Bodega</th>
                   <th style="padding: 0.6rem 0.6rem; text-align: center; background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">Stock Sist.</th>
@@ -15578,7 +15656,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
                   <th id="admin-create-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
                     <input type="checkbox" id="admin-create-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
                   </th>
-                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
+                  <th style="padding: 0.4rem 0.6rem; width: 130px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.4rem 0.6rem;">Nombre</th>
                   <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
                 </tr>
@@ -15737,7 +15815,8 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       if (!searchFilter) return true;
       const sku = (p.sku || '').toLowerCase();
       const name = (p.name || '').toLowerCase();
-      return sku.includes(searchFilter) || name.includes(searchFilter);
+      const barcode = (p.barcode || p.codigo_barra || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter) || barcode.includes(searchFilter);
     });
 
     if (isSelective) {
@@ -15786,7 +15865,10 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
               <input type="checkbox" class="admin-create-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
             ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
           </td>
-          <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 0.4rem 0.6rem;">
+            <div style="font-weight: 600; font-family: monospace;">${p.sku}</div>
+            ${(p.barcode || p.codigo_barra) ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace;">CB: ${p.barcode || p.codigo_barra}</div>` : ''}
+          </td>
           <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
           <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         </tr>
@@ -15906,7 +15988,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
           id: p.id,
           sku: p.sku,
           name: p.name,
-          barcode: p.barcode || '',
+          barcode: p.barcode || p.codigo_barra || '',
           warehouse_id: selectedWhId,
           warehouse_name: selectedWhName,
           system_qty: sysQty,
@@ -16165,7 +16247,7 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
                   <th id="admin-edit-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
                     <input type="checkbox" id="admin-edit-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
                   </th>
-                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
+                  <th style="padding: 0.4rem 0.6rem; width: 130px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.4rem 0.6rem;">Nombre</th>
                   <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
                 </tr>
@@ -16277,7 +16359,8 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
       if (!searchFilter) return true;
       const sku = (p.sku || '').toLowerCase();
       const name = (p.name || '').toLowerCase();
-      return sku.includes(searchFilter) || name.includes(searchFilter);
+      const barcode = (p.barcode || p.codigo_barra || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter) || barcode.includes(searchFilter);
     });
 
     if (isSelective) {
@@ -16326,7 +16409,10 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
               <input type="checkbox" class="admin-edit-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
             ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
           </td>
-          <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 0.4rem 0.6rem;">
+            <div style="font-weight: 600; font-family: monospace;">${p.sku}</div>
+            ${(p.barcode || p.codigo_barra) ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace;">CB: ${p.barcode || p.codigo_barra}</div>` : ''}
+          </td>
           <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
           <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         </tr>
@@ -16446,7 +16532,7 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
           id: p.id,
           sku: p.sku,
           name: p.name,
-          barcode: p.barcode || '',
+          barcode: p.barcode || p.codigo_barra || (prev ? prev.barcode : '') || '',
           warehouse_id: selectedWhId,
           warehouse_name: selectedWhName,
           system_qty: sysQty,
@@ -30796,7 +30882,7 @@ function handleManageStatusChange(status) {
 }
 
 function renderIncidentsInputsList() {
-  const container = document.getElementById('manage-dec-incidents-list-container');
+  const container = document.getElementById('manage-dec-incidents-container');
   if (!container) return;
   container.innerHTML = '';
   
@@ -30805,10 +30891,16 @@ function renderIncidentsInputsList() {
   }
   
   currentDeclarationIncidents.forEach((inc, idx) => {
+    let textVal = '';
+    if (typeof inc === 'string') {
+      textVal = inc;
+    } else if (typeof inc === 'object' && inc !== null) {
+      textVal = inc.reason || inc.comment || inc.notes || inc.observacion || (inc.sku && inc.sku !== '-' ? `${inc.sku}: ${inc.reason || inc.type || ''}` : '');
+    }
     container.innerHTML += `
       <div style="display: flex; gap: 0.5rem; align-items: center;" class="incident-item-row" data-index="${idx}">
         <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-danger); width: 20px;">${idx + 1}.</span>
-        <input type="text" class="form-input incident-desc-input" style="flex: 1; padding: 0.35rem; font-size: 0.85rem;" value="${inc.replace(/"/g, '&quot;')}" placeholder="Ej. Caja 3 mojada, daño menor">
+        <input type="text" class="form-input incident-desc-input" style="flex: 1; padding: 0.35rem; font-size: 0.85rem;" value="${String(textVal || '').replace(/"/g, '&quot;')}" placeholder="Ej. Caja 3 mojada, daño menor">
         <button type="button" class="btn btn-outline btn-remove-incident" style="padding: 0.25rem 0.4rem; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.2); height: auto; margin: 0; line-height: 1;" data-index="${idx}" title="Eliminar">&times;</button>
       </div>
     `;
@@ -31753,31 +31845,72 @@ document.addEventListener('submit', async (e) => {
       qtyIncidents = 0;
     } else if (status === 'Recibido con Incidencias') {
       saveCurrentIncidentsInputs();
-      incidentsList = currentDeclarationIncidents.filter(Boolean);
+      const manualIncidents = currentDeclarationIncidents.filter(Boolean);
       
-      // Auto-generar incidencias desde la tabla de productos si no se escribieron manualmente
-      if (incidentsList.length === 0 && window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
-        const diffProds = window.currentDeclarationProductsEditing.filter(p => {
-          const decQty = parseInt(p.qty, 10) || 0;
-          const recQty = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : decQty;
-          return decQty !== recQty;
+      // Auto-generar incidencias y discrepancias desde la tabla de productos
+      const productDiscrepancies = [];
+      const currentProds = (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing_id === id)
+        ? window.currentDeclarationProductsEditing
+        : [];
+
+      if (currentProds && currentProds.length > 0) {
+        currentProds.forEach(p => {
+          const decQty = parseInt(p.qty || p.quantity || 0, 10);
+          const recQty = (p.qty_confirmed !== undefined && p.qty_confirmed !== null && p.qty_confirmed !== '') ? parseInt(p.qty_confirmed, 10) : decQty;
+          const diff = recQty - decQty;
+          if (diff !== 0) {
+            productDiscrepancies.push({
+              type: diff < 0 ? 'Faltante' : 'Sobrante',
+              sku: (p.sku || '-').trim(),
+              name: p.name || '',
+              declared: decQty,
+              received: recQty,
+              diff: diff,
+              quantity: Math.abs(diff),
+              reason: diff < 0 
+                ? `Faltan ${Math.abs(diff)} uds físicas (${recQty} recibidas vs ${decQty} declaradas)`
+                : `${diff} uds adicionales recibidas (${recQty} recibidas vs ${decQty} declaradas)`
+            });
+          }
         });
-        if (diffProds.length > 0) {
-          incidentsList = diffProds.map(p => {
-            const decQty = parseInt(p.qty, 10) || 0;
-            const recQty = parseInt(p.qty_confirmed, 10) || 0;
-            const diff = recQty - decQty;
-            return `${p.sku}: ${diff > 0 ? '+' : ''}${diff} uds (${recQty} recibidas vs ${decQty} declaradas)`;
-          });
-        }
+      }
+
+      // Consolidar lista de incidencias combinando discrepancias de catálogo y notas manuales
+      incidentsList = [...productDiscrepancies];
+      if (manualIncidents.length > 0) {
+        manualIncidents.forEach(m => {
+          if (typeof m === 'string') {
+            const str = m.trim();
+            if (str) {
+              incidentsList.push({
+                type: 'Observación / Daño',
+                sku: '-',
+                name: 'Inspección Física',
+                quantity: 1,
+                reason: str
+              });
+            }
+          } else if (typeof m === 'object' && m !== null) {
+            incidentsList.push(m);
+          }
+        });
       }
 
       if (incidentsList.length === 0) {
-        incidentsList = [`Diferencias reportadas en recepción física: ${qtyIncidents || 1} unidades con incidencia`];
+        incidentsList = [{
+          type: 'Incidencia',
+          sku: '-',
+          name: 'Recepción física',
+          quantity: qtyIncidents || 1,
+          reason: stageComment || adminNotes || `Diferencias reportadas en recepción física (${qtyIncidents || 1} uds)`
+        }];
       }
 
       if (qtyIncidents <= 0) {
-        qtyIncidents = 1;
+        const calculatedIncidentsQty = productDiscrepancies.reduce((sum, d) => sum + (d.diff < 0 ? Math.abs(d.diff) : 0), 0);
+        qtyIncidents = calculatedIncidentsQty > 0 ? calculatedIncidentsQty : 1;
+        const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
+        if (qtyIncidentsInput) qtyIncidentsInput.value = qtyIncidents;
       }
     }
 
@@ -34761,6 +34894,7 @@ async function loadBillingRecords(periodId, bodyElement) {
     
     let tableRowsFulf = '';
     let tableRowsEnv = '';
+    let tableRowsResumen = '';
     records.forEach(r => {
       const alDia = statusMap[r.comercio] !== false; // Default true
       
@@ -34960,6 +35094,96 @@ async function loadBillingRecords(periodId, bodyElement) {
           </td>
         </tr>
       `;
+
+      // 3. Build Resumen row
+      const totalFulf = r.total_fulfillment || 0;
+      const abonoFulf = r.abono_fulfillment || 0;
+      const pagoFulf = r.pago_fulfillment || 'Por solicitar';
+
+      const totalEnv = r.enviame || 0;
+      const abonoEnv = r.abono_enviame || 0;
+      const pagoEnv = r.pago_enviame || 'Por solicitar';
+
+      const totalGeneral = totalFulf + totalEnv;
+      const totalAbonado = abonoFulf + abonoEnv;
+      const saldoPendiente = totalGeneral - totalAbonado;
+
+      const hasAtraso = pagoFulf === 'Atrasado' || pagoEnv === 'Atrasado';
+      const isPagado = totalGeneral > 0 && saldoPendiente <= 0;
+      const isSinMovimiento = totalGeneral === 0;
+
+      let debtStatus = 'pendiente';
+      let badgeGeneral = '';
+      if (hasAtraso) {
+        debtStatus = 'atrasado';
+        badgeGeneral = `<span class="badge badge-danger" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-error-warning-line"></i> Atrasado</span>`;
+      } else if (isPagado) {
+        debtStatus = 'pagado';
+        badgeGeneral = `<span class="badge badge-success" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-checkbox-circle-line"></i> Pagado / Al Día</span>`;
+      } else if (isSinMovimiento) {
+        debtStatus = 'sin_movimiento';
+        badgeGeneral = `<span class="badge badge-neutral" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-subtract-line"></i> Sin Movimientos</span>`;
+      } else {
+        debtStatus = 'pendiente';
+        badgeGeneral = `<span class="badge badge-warning" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-time-line"></i> Saldo Pendiente</span>`;
+      }
+
+      tableRowsResumen += `
+        <tr id="row-resumen-${r.id}" class="billing-record-row-resumen" data-record-id="${r.id}" data-comercio="${(r.comercio || '').toLowerCase()}" data-debt-status="${debtStatus}" data-total-fulf="${totalFulf}" data-abono-fulf="${abonoFulf}" data-total-env="${totalEnv}" data-abono-env="${abonoEnv}" data-total-general="${totalGeneral}" data-total-abonado="${totalAbonado}" data-saldo="${saldoPendiente}">
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <span>${r.comercio}</span>
+              ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
+            </div>
+          </td>
+          <td class="resumen-cell-total-fulf" style="text-align: right; vertical-align: middle; font-weight: 600; color: var(--color-text-main);">
+            ${formatCLP(totalFulf)}
+          </td>
+          <td class="resumen-cell-abono-fulf" style="text-align: right; vertical-align: middle; color: ${abonoFulf > 0 ? 'var(--color-success)' : 'var(--color-text-muted)'}; font-weight: 500;">
+            ${formatCLP(abonoFulf)}
+          </td>
+          <td class="resumen-cell-pago-fulf" style="text-align: center; vertical-align: middle;">
+            <span class="client-badge ${getStatusClass(pagoFulf)}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;">${pagoFulf}</span>
+          </td>
+          <td class="resumen-cell-total-env" style="text-align: right; vertical-align: middle; font-weight: 600; color: var(--color-text-main);">
+            ${formatCLP(totalEnv)}
+          </td>
+          <td class="resumen-cell-abono-env" style="text-align: right; vertical-align: middle; color: ${abonoEnv > 0 ? 'var(--color-success)' : 'var(--color-text-muted)'}; font-weight: 500;">
+            ${formatCLP(abonoEnv)}
+          </td>
+          <td class="resumen-cell-pago-env" style="text-align: center; vertical-align: middle;">
+            <span class="client-badge ${getStatusClass(pagoEnv)}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;">${pagoEnv}</span>
+          </td>
+          <td class="resumen-cell-total-general" style="text-align: right; vertical-align: middle; background: rgba(99, 102, 241, 0.04); font-weight: 700; font-size: 0.88rem; color: var(--color-primary);">
+            ${formatCLP(totalGeneral)}
+          </td>
+          <td class="resumen-cell-total-abonado" style="text-align: right; vertical-align: middle; background: rgba(16, 185, 129, 0.04); font-weight: 600; color: var(--color-success);">
+            ${formatCLP(totalAbonado)}
+          </td>
+          <td class="resumen-cell-saldo-pendiente" style="text-align: right; vertical-align: middle; background: ${saldoPendiente > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)'}; font-weight: 700; color: ${saldoPendiente > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">
+            ${formatCLP(saldoPendiente)}
+          </td>
+          <td class="resumen-cell-badge-general" style="text-align: center; vertical-align: middle;">
+            ${badgeGeneral}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <div style="display: inline-flex; gap: 0.25rem;">
+              <button class="btn btn-outline btn-sm" onclick="window.goToBillingRecordTab('${periodId}', 'fulf', '${r.id}')" title="Ir al desglose de Fulfillment" style="padding: 0.15rem 0.35rem;">
+                <i class="ri-bill-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="window.goToBillingRecordTab('${periodId}', 'env', '${r.id}')" title="Ir al desglose de Envíame" style="padding: 0.15rem 0.35rem;">
+                <i class="ri-truck-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" style="padding: 0.15rem 0.35rem; border-color: #5f06fa; color: #5f06fa; background: rgba(95, 6, 250, 0.08);" title="⚡ Gestor de Facturación Stocka">
+                <i class="ri-calculator-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" title="${emailBtnTitle}">
+                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
     });
     
     window.generateBillingMultiSelect = function(label, filterClass, periodId, options) {
@@ -35002,6 +35226,9 @@ async function loadBillingRecords(periodId, bodyElement) {
             <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'env' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
               <i class="ri-truck-line" style="font-size: 1rem;"></i> Envíame
             </button>
+            <button class="billing-period-tab-btn" id="btn-tab-resumen-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'resumen')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'resumen' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
+              <i class="ri-pie-chart-line" style="font-size: 1rem; color: #6366f1;"></i> Resumen por Comercio
+            </button>
           </div>
           <button class="btn btn-primary btn-sm" onclick="window.openEasyBillingRecordModal('${periodId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.825rem;">
             <i class="ri-add-circle-line" style="font-size: 1rem;"></i> Crear Registro
@@ -35020,6 +35247,31 @@ async function loadBillingRecords(periodId, bodyElement) {
           <div class="filter-group-env-${periodId}" style="display: ${activeTab === 'env' ? 'flex' : 'none'}; gap: 1rem; align-items: center;">
             ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
             ${generateBillingMultiSelect('Factura Env:', 'filter-fact-env', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
+          </div>
+
+          <div class="filter-group-resumen-${periodId}" style="display: ${activeTab === 'resumen' ? 'flex' : 'none'}; gap: 1rem; align-items: center; flex: 1; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
+                <input type="text" id="filter-resumen-search-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingSummaryRows('${periodId}')" style="padding: 0.25rem 0.5rem 0.25rem 1.65rem; font-size: 0.78rem; width: 160px; margin: 0; border-radius: var(--radius-sm);">
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado:</label>
+              <select id="filter-resumen-status-${periodId}" class="form-input" onchange="window.filterBillingSummaryRows('${periodId}')" style="padding: 0.25rem 0.5rem; font-size: 0.78rem; width: auto; margin: 0; border-radius: var(--radius-sm);">
+                <option value="all">Todos los Comercios</option>
+                <option value="pendiente">⚠️ Con Saldo Pendiente</option>
+                <option value="pagado">✅ Al Día / Pagado ($0)</option>
+                <option value="atrasado">🔴 Con Atraso</option>
+                <option value="sin_movimiento">⚪ Sin Movimientos ($0)</option>
+              </select>
+            </div>
+            <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+              <button class="btn btn-outline btn-sm" onclick="window.exportBillingPeriodSummaryToExcel('${periodId}')" title="Descargar planilla Excel con el resumen de este periodo" style="padding: 0.25rem 0.65rem; font-size: 0.78rem; border-color: #16a34a; color: #16a34a; display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(22, 163, 74, 0.04);">
+                <i class="ri-file-excel-line" style="font-size: 0.95rem;"></i> Exportar Resumen Excel
+              </button>
+            </div>
           </div>
         </div>
 
@@ -35076,12 +35328,81 @@ async function loadBillingRecords(periodId, bodyElement) {
           </table>
         </div>
 
+        <!-- Tab Resumen por Comercio -->
+        <div id="billing-tab-content-resumen-${periodId}" style="display: ${activeTab === 'resumen' ? 'block' : 'none'}; padding: 1.25rem;">
+          <!-- Resumen KPIs -->
+          <div class="billing-resumen-kpis" id="resumen-kpis-${periodId}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+            <div class="card" style="margin: 0; padding: 1rem; border-left: 4px solid var(--color-primary); background: var(--color-surface);">
+              <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                <span>Total Facturado</span>
+                <i class="ri-bill-line" style="font-size: 1.1rem; color: var(--color-primary);"></i>
+              </div>
+              <div id="kpi-resumen-total-facturado-${periodId}" style="font-size: 1.35rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.35rem;">$0</div>
+              <div id="kpi-resumen-sub-facturado-${periodId}" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">Fulf + Envíame</div>
+            </div>
+
+            <div class="card" style="margin: 0; padding: 1rem; border-left: 4px solid var(--color-success); background: var(--color-surface);">
+              <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                <span>Total Recaudado</span>
+                <i class="ri-checkbox-circle-line" style="font-size: 1.1rem; color: var(--color-success);"></i>
+              </div>
+              <div id="kpi-resumen-total-recaudado-${periodId}" style="font-size: 1.35rem; font-weight: 700; color: var(--color-success); margin-top: 0.35rem;">$0</div>
+              <div id="kpi-resumen-sub-recaudado-${periodId}" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">0% recaudado</div>
+            </div>
+
+            <div class="card" style="margin: 0; padding: 1rem; border-left: 4px solid var(--color-warning); background: var(--color-surface);">
+              <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                <span>Saldo Pendiente</span>
+                <i class="ri-error-warning-line" style="font-size: 1.1rem; color: var(--color-warning);"></i>
+              </div>
+              <div id="kpi-resumen-saldo-pendiente-${periodId}" style="font-size: 1.35rem; font-weight: 700; color: var(--color-warning); margin-top: 0.35rem;">$0</div>
+              <div id="kpi-resumen-sub-pendiente-${periodId}" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">Por cobrar restante</div>
+            </div>
+
+            <div class="card" style="margin: 0; padding: 1rem; border-left: 4px solid #6366f1; background: var(--color-surface);">
+              <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                <span>Estado Comercios</span>
+                <i class="ri-store-2-line" style="font-size: 1.1rem; color: #6366f1;"></i>
+              </div>
+              <div id="kpi-resumen-comercios-estado-${periodId}" style="font-size: 1.35rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.35rem;">-</div>
+              <div id="kpi-resumen-sub-comercios-${periodId}" style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">Al día / Con deuda</div>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table billing-table" style="min-width: 1100px; font-size: 0.825rem; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th style="min-width: 160px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
+                  <th style="min-width: 95px; text-align: right; border-bottom: 2px solid var(--color-border);" title="Monto total facturado por Fulfillment">Total Fulf</th>
+                  <th style="min-width: 95px; text-align: right; border-bottom: 2px solid var(--color-border);" title="Monto abonado en Fulfillment">Abono Fulf</th>
+                  <th style="min-width: 100px; text-align: center; border-bottom: 2px solid var(--color-border);">Pago Fulf</th>
+                  <th style="min-width: 95px; text-align: right; border-bottom: 2px solid var(--color-border);" title="Monto total facturado por Envíame">Total Env</th>
+                  <th style="min-width: 95px; text-align: right; border-bottom: 2px solid var(--color-border);" title="Monto abonado en Envíame">Abono Env</th>
+                  <th style="min-width: 100px; text-align: center; border-bottom: 2px solid var(--color-border);">Pago Env</th>
+                  <th style="min-width: 110px; text-align: right; border-bottom: 2px solid var(--color-border); background: rgba(99, 102, 241, 0.05);" title="Total Combinado (Fulf + Env)">Total General</th>
+                  <th style="min-width: 110px; text-align: right; border-bottom: 2px solid var(--color-border); background: rgba(16, 185, 129, 0.05);" title="Total Abonos Combinados">Total Pagado</th>
+                  <th style="min-width: 115px; text-align: right; border-bottom: 2px solid var(--color-border); background: rgba(239, 68, 68, 0.05);" title="Saldo Pendiente por Cobrar">Saldo Pendiente</th>
+                  <th style="min-width: 130px; text-align: center; border-bottom: 2px solid var(--color-border);">Estado General</th>
+                  <th style="width: 130px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-resumen-${periodId}">
+                ${tableRowsResumen}
+              </tbody>
+              <tfoot id="tfoot-resumen-${periodId}" style="background: var(--color-surface); font-weight: 700; position: sticky; bottom: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 10;">
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
         <!-- Bulk Action Bar Container -->
         <div id="bulk-action-bar-container-${periodId}" style="margin-top: 1rem;"></div>
     `;
     
     // Update the tfoot dynamically
     window.updateBillingFooterTotals(periodId);
+    window.updateBillingSummaryFooterTotals(periodId);
     
   } catch (err) {
     console.error('Error rendering billing records:', err);
@@ -35256,43 +35577,389 @@ window.switchBillingPeriodTab = function(periodId, tabName) {
 
   const btnFulf = document.getElementById(`btn-tab-fulf-${periodId}`);
   const btnEnv = document.getElementById(`btn-tab-env-${periodId}`);
+  const btnResumen = document.getElementById(`btn-tab-resumen-${periodId}`);
   
   const contentFulf = document.getElementById(`billing-tab-content-fulf-${periodId}`);
   const contentEnv = document.getElementById(`billing-tab-content-env-${periodId}`);
+  const contentResumen = document.getElementById(`billing-tab-content-resumen-${periodId}`);
   
   const filterGroupFulf = document.querySelectorAll(`.filter-group-fulf-${periodId}`);
   const filterGroupEnv = document.querySelectorAll(`.filter-group-env-${periodId}`);
+  const filterGroupResumen = document.querySelectorAll(`.filter-group-resumen-${periodId}`);
+
+  [btnFulf, btnEnv, btnResumen].forEach(b => {
+    if (b) {
+      b.style.background = 'transparent';
+      b.style.borderColor = 'transparent';
+      b.style.color = 'var(--color-text-muted)';
+      b.style.fontWeight = '600';
+    }
+  });
+  if (contentFulf) contentFulf.style.display = 'none';
+  if (contentEnv) contentEnv.style.display = 'none';
+  if (contentResumen) contentResumen.style.display = 'none';
+
+  filterGroupFulf.forEach(el => el.style.display = 'none');
+  filterGroupEnv.forEach(el => el.style.display = 'none');
+  filterGroupResumen.forEach(el => el.style.display = 'none');
 
   if (tabName === 'fulf') {
     if (btnFulf) {
       btnFulf.style.background = 'var(--color-bg)';
       btnFulf.style.borderColor = 'var(--color-border)';
       btnFulf.style.color = 'var(--color-text-main)';
-    }
-    if (btnEnv) {
-      btnEnv.style.background = 'transparent';
-      btnEnv.style.borderColor = 'transparent';
-      btnEnv.style.color = 'var(--color-text-muted)';
+      btnFulf.style.fontWeight = 'bold';
     }
     if (contentFulf) contentFulf.style.display = 'block';
-    if (contentEnv) contentEnv.style.display = 'none';
     filterGroupFulf.forEach(el => el.style.display = 'flex');
-    filterGroupEnv.forEach(el => el.style.display = 'none');
-  } else {
-    if (btnFulf) {
-      btnFulf.style.background = 'transparent';
-      btnFulf.style.borderColor = 'transparent';
-      btnFulf.style.color = 'var(--color-text-muted)';
-    }
+  } else if (tabName === 'env') {
     if (btnEnv) {
       btnEnv.style.background = 'var(--color-bg)';
       btnEnv.style.borderColor = 'var(--color-border)';
       btnEnv.style.color = 'var(--color-text-main)';
+      btnEnv.style.fontWeight = 'bold';
     }
-    if (contentFulf) contentFulf.style.display = 'none';
     if (contentEnv) contentEnv.style.display = 'block';
-    filterGroupFulf.forEach(el => el.style.display = 'none');
     filterGroupEnv.forEach(el => el.style.display = 'flex');
+  } else if (tabName === 'resumen') {
+    if (btnResumen) {
+      btnResumen.style.background = 'var(--color-bg)';
+      btnResumen.style.borderColor = 'var(--color-border)';
+      btnResumen.style.color = 'var(--color-text-main)';
+      btnResumen.style.fontWeight = 'bold';
+    }
+    if (contentResumen) contentResumen.style.display = 'block';
+    filterGroupResumen.forEach(el => el.style.display = 'flex');
+
+    if (window.syncBillingSummaryFromInputRows) {
+      window.syncBillingSummaryFromInputRows(periodId);
+    }
+    if (window.filterBillingSummaryRows) {
+      window.filterBillingSummaryRows(periodId);
+    }
+  }
+};
+
+window.updateBillingSummaryFooterTotals = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const rowsResumen = container.querySelectorAll('.billing-record-row-resumen');
+  let sumTotalFulf = 0;
+  let sumAbonoFulf = 0;
+  let sumTotalEnv = 0;
+  let sumAbonoEnv = 0;
+  let sumTotalGeneral = 0;
+  let sumTotalAbonado = 0;
+  let sumSaldoPendiente = 0;
+
+  let countAlDia = 0;
+  let countConSaldo = 0;
+  let countSinMov = 0;
+
+  rowsResumen.forEach(row => {
+    if (row.style.display === 'none') return;
+    const tF = parseFloat(row.getAttribute('data-total-fulf') || '0') || 0;
+    const aF = parseFloat(row.getAttribute('data-abono-fulf') || '0') || 0;
+    const tE = parseFloat(row.getAttribute('data-total-env') || '0') || 0;
+    const aE = parseFloat(row.getAttribute('data-abono-env') || '0') || 0;
+    const tG = parseFloat(row.getAttribute('data-total-general') || '0') || 0;
+    const tA = parseFloat(row.getAttribute('data-total-abonado') || '0') || 0;
+    const sP = parseFloat(row.getAttribute('data-saldo') || '0') || 0;
+
+    sumTotalFulf += tF;
+    sumAbonoFulf += aF;
+    sumTotalEnv += tE;
+    sumAbonoEnv += aE;
+    sumTotalGeneral += tG;
+    sumTotalAbonado += tA;
+    sumSaldoPendiente += sP;
+
+    if (tG === 0) {
+      countSinMov++;
+    } else if (sP <= 0) {
+      countAlDia++;
+    } else {
+      countConSaldo++;
+    }
+  });
+
+  const tfootResumen = document.getElementById(`tfoot-resumen-${periodId}`);
+  if (tfootResumen) {
+    tfootResumen.innerHTML = `
+      <tr>
+        <td style="text-align: right; padding: 0.85rem; font-weight: 700;">TOTALES (filtrados):</td>
+        <td style="text-align: right; padding: 0.85rem;">${formatCLP(sumTotalFulf)}</td>
+        <td style="text-align: right; padding: 0.85rem;">${formatCLP(sumAbonoFulf)}</td>
+        <td></td>
+        <td style="text-align: right; padding: 0.85rem;">${formatCLP(sumTotalEnv)}</td>
+        <td style="text-align: right; padding: 0.85rem;">${formatCLP(sumAbonoEnv)}</td>
+        <td></td>
+        <td style="text-align: right; padding: 0.85rem; font-weight: 700; color: var(--color-primary); background: rgba(99, 102, 241, 0.05);">${formatCLP(sumTotalGeneral)}</td>
+        <td style="text-align: right; padding: 0.85rem; font-weight: 700; color: var(--color-success); background: rgba(16, 185, 129, 0.05);">${formatCLP(sumTotalAbonado)}</td>
+        <td style="text-align: right; padding: 0.85rem; font-weight: 700; color: ${sumSaldoPendiente > 0 ? 'var(--color-danger)' : 'var(--color-success)'}; background: ${sumSaldoPendiente > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)'};">${formatCLP(sumSaldoPendiente)}</td>
+        <td colspan="2"></td>
+      </tr>
+    `;
+  }
+
+  const kpiFact = document.getElementById(`kpi-resumen-total-facturado-${periodId}`);
+  const kpiSubFact = document.getElementById(`kpi-resumen-sub-facturado-${periodId}`);
+  if (kpiFact) kpiFact.textContent = formatCLP(sumTotalGeneral);
+  if (kpiSubFact) kpiSubFact.textContent = `Fulf: ${formatCLP(sumTotalFulf)} | Env: ${formatCLP(sumTotalEnv)}`;
+
+  const kpiRec = document.getElementById(`kpi-resumen-total-recaudado-${periodId}`);
+  const kpiSubRec = document.getElementById(`kpi-resumen-sub-recaudado-${periodId}`);
+  if (kpiRec) kpiRec.textContent = formatCLP(sumTotalAbonado);
+  const percentRec = sumTotalGeneral > 0 ? Math.round((sumTotalAbonado / sumTotalGeneral) * 100) : 0;
+  if (kpiSubRec) kpiSubRec.textContent = `${percentRec}% recaudado del total`;
+
+  const kpiPend = document.getElementById(`kpi-resumen-saldo-pendiente-${periodId}`);
+  const kpiSubPend = document.getElementById(`kpi-resumen-sub-pendiente-${periodId}`);
+  if (kpiPend) kpiPend.textContent = formatCLP(sumSaldoPendiente);
+  if (kpiSubPend) kpiSubPend.textContent = countConSaldo > 0 ? `${countConSaldo} comercios con saldo pendiente` : 'Sin saldos pendientes';
+
+  const kpiCom = document.getElementById(`kpi-resumen-comercios-estado-${periodId}`);
+  const kpiSubCom = document.getElementById(`kpi-resumen-sub-comercios-${periodId}`);
+  if (kpiCom) kpiCom.textContent = `${countAlDia} / ${countConSaldo}`;
+  if (kpiSubCom) kpiSubCom.textContent = `${countAlDia} al día, ${countConSaldo} con saldo, ${countSinMov} sin mov.`;
+};
+
+window.filterBillingSummaryRows = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const searchInput = document.getElementById(`filter-resumen-search-${periodId}`);
+  const statusSelect = document.getElementById(`filter-resumen-status-${periodId}`);
+
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const statusFilter = statusSelect?.value || 'all';
+
+  const rows = container.querySelectorAll('.billing-record-row-resumen');
+  rows.forEach(row => {
+    const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
+    const debtStatus = row.getAttribute('data-debt-status') || '';
+
+    const matchQuery = !query || comercio.includes(query);
+    const matchStatus = statusFilter === 'all' || debtStatus === statusFilter;
+
+    if (matchQuery && matchStatus) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+
+  window.updateBillingSummaryFooterTotals(periodId);
+};
+
+window.syncBillingSummaryFromInputRows = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const rowsResumen = container.querySelectorAll('.billing-record-row-resumen');
+  rowsResumen.forEach(resRow => {
+    const recordId = resRow.getAttribute('data-record-id');
+    if (!recordId) return;
+
+    const rowFulf = document.getElementById(`row-fulf-${recordId}`);
+    const rowEnv = document.getElementById(`row-env-${recordId}`);
+
+    let totalFulf = 0;
+    let abonoFulf = 0;
+    let pagoFulf = 'Por solicitar';
+
+    if (rowFulf) {
+      const inputTotalFulf = rowFulf.querySelector('input[onblur*="total_fulfillment"]');
+      const inputAbonoFulf = rowFulf.querySelector('input[onblur*="abono_fulfillment"]');
+      const selectPagoFulf = rowFulf.querySelector('select[onchange*="pago_fulfillment"]');
+
+      if (inputTotalFulf) totalFulf = parseInt((inputTotalFulf.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+      if (inputAbonoFulf) abonoFulf = parseInt((inputAbonoFulf.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+      if (selectPagoFulf) pagoFulf = selectPagoFulf.value;
+    }
+
+    let totalEnv = 0;
+    let abonoEnv = 0;
+    let pagoEnv = 'Por solicitar';
+
+    if (rowEnv) {
+      const inputTotalEnv = rowEnv.querySelector('input[onblur*="enviame"]');
+      const inputAbonoEnv = rowEnv.querySelector('input[onblur*="abono_enviame"]');
+      const selectPagoEnv = rowEnv.querySelector('select[onchange*="pago_enviame"]');
+
+      if (inputTotalEnv) totalEnv = parseInt((inputTotalEnv.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+      if (inputAbonoEnv) abonoEnv = parseInt((inputAbonoEnv.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+      if (selectPagoEnv) pagoEnv = selectPagoEnv.value;
+    }
+
+    const totalGeneral = totalFulf + totalEnv;
+    const totalAbonado = abonoFulf + abonoEnv;
+    const saldoPendiente = totalGeneral - totalAbonado;
+
+    const hasAtraso = pagoFulf === 'Atrasado' || pagoEnv === 'Atrasado';
+    const isPagado = totalGeneral > 0 && saldoPendiente <= 0;
+    const isSinMovimiento = totalGeneral === 0;
+
+    let debtStatus = 'pendiente';
+    let badgeGeneral = '';
+    if (hasAtraso) {
+      debtStatus = 'atrasado';
+      badgeGeneral = `<span class="badge badge-danger" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-error-warning-line"></i> Atrasado</span>`;
+    } else if (isPagado) {
+      debtStatus = 'pagado';
+      badgeGeneral = `<span class="badge badge-success" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-checkbox-circle-line"></i> Pagado / Al Día</span>`;
+    } else if (isSinMovimiento) {
+      debtStatus = 'sin_movimiento';
+      badgeGeneral = `<span class="badge badge-neutral" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-subtract-line"></i> Sin Movimientos</span>`;
+    } else {
+      debtStatus = 'pendiente';
+      badgeGeneral = `<span class="badge badge-warning" style="font-size: 0.72rem; padding: 0.18rem 0.45rem; text-transform: uppercase;"><i class="ri-time-line"></i> Saldo Pendiente</span>`;
+    }
+
+    resRow.setAttribute('data-debt-status', debtStatus);
+    resRow.setAttribute('data-total-fulf', totalFulf);
+    resRow.setAttribute('data-abono-fulf', abonoFulf);
+    resRow.setAttribute('data-total-env', totalEnv);
+    resRow.setAttribute('data-abono-env', abonoEnv);
+    resRow.setAttribute('data-total-general', totalGeneral);
+    resRow.setAttribute('data-total-abonado', totalAbonado);
+    resRow.setAttribute('data-saldo', saldoPendiente);
+
+    const cellTF = resRow.querySelector('.resumen-cell-total-fulf');
+    if (cellTF) cellTF.textContent = formatCLP(totalFulf);
+
+    const cellAF = resRow.querySelector('.resumen-cell-abono-fulf');
+    if (cellAF) {
+      cellAF.textContent = formatCLP(abonoFulf);
+      cellAF.style.color = abonoFulf > 0 ? 'var(--color-success)' : 'var(--color-text-muted)';
+    }
+
+    const cellPF = resRow.querySelector('.resumen-cell-pago-fulf');
+    if (cellPF) {
+      cellPF.innerHTML = `<span class="client-badge ${getStatusClass(pagoFulf)}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;">${pagoFulf}</span>`;
+    }
+
+    const cellTE = resRow.querySelector('.resumen-cell-total-env');
+    if (cellTE) cellTE.textContent = formatCLP(totalEnv);
+
+    const cellAE = resRow.querySelector('.resumen-cell-abono-env');
+    if (cellAE) {
+      cellAE.textContent = formatCLP(abonoEnv);
+      cellAE.style.color = abonoEnv > 0 ? 'var(--color-success)' : 'var(--color-text-muted)';
+    }
+
+    const cellPE = resRow.querySelector('.resumen-cell-pago-env');
+    if (cellPE) {
+      cellPE.innerHTML = `<span class="client-badge ${getStatusClass(pagoEnv)}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem;">${pagoEnv}</span>`;
+    }
+
+    const cellTG = resRow.querySelector('.resumen-cell-total-general');
+    if (cellTG) cellTG.textContent = formatCLP(totalGeneral);
+
+    const cellTA = resRow.querySelector('.resumen-cell-total-abonado');
+    if (cellTA) cellTA.textContent = formatCLP(totalAbonado);
+
+    const cellSP = resRow.querySelector('.resumen-cell-saldo-pendiente');
+    if (cellSP) {
+      cellSP.textContent = formatCLP(saldoPendiente);
+      cellSP.style.color = saldoPendiente > 0 ? 'var(--color-danger)' : 'var(--color-success)';
+      cellSP.style.background = saldoPendiente > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)';
+    }
+
+    const cellBG = resRow.querySelector('.resumen-cell-badge-general');
+    if (cellBG) cellBG.innerHTML = badgeGeneral;
+  });
+
+  window.updateBillingSummaryFooterTotals(periodId);
+};
+
+window.goToBillingRecordTab = function(periodId, tabName, recordId) {
+  window.switchBillingPeriodTab(periodId, tabName);
+  setTimeout(() => {
+    const rowId = tabName === 'fulf' ? `row-fulf-${recordId}` : `row-env-${recordId}`;
+    const row = document.getElementById(rowId);
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const origBg = row.style.backgroundColor;
+      row.style.transition = 'background-color 0.4s';
+      row.style.backgroundColor = 'rgba(99, 102, 241, 0.15)';
+      setTimeout(() => {
+        row.style.backgroundColor = origBg;
+      }, 1500);
+    }
+  }, 100);
+};
+
+window.exportBillingPeriodSummaryToExcel = async function(periodId, periodName) {
+  try {
+    if (!periodName) {
+      const card = document.getElementById(`period-card-${periodId}`);
+      if (card) {
+        periodName = card.querySelector('.billing-period-header span')?.textContent?.trim() || 'Periodo';
+      } else {
+        periodName = 'Periodo';
+      }
+    }
+
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('period_id', periodId)
+      .order('comercio', { ascending: true });
+
+    if (error) throw error;
+    if (!records || records.length === 0) {
+      alert('No hay registros para exportar en este periodo.');
+      return;
+    }
+
+    const rows = records.map(r => {
+      const totalFulf = r.total_fulfillment || 0;
+      const abonoFulf = r.abono_fulfillment || 0;
+      const totalEnv = r.enviame || 0;
+      const abonoEnv = r.abono_enviame || 0;
+      const totalGeneral = totalFulf + totalEnv;
+      const totalPagado = abonoFulf + abonoEnv;
+      const saldoPendiente = totalGeneral - totalPagado;
+
+      let estadoGeneral = 'Saldo Pendiente';
+      const hasAtraso = r.pago_fulfillment === 'Atrasado' || r.pago_enviame === 'Atrasado';
+      if (hasAtraso) {
+        estadoGeneral = 'Atrasado';
+      } else if (totalGeneral > 0 && saldoPendiente <= 0) {
+        estadoGeneral = 'Pagado / Al Día';
+      } else if (totalGeneral === 0) {
+        estadoGeneral = 'Sin Movimientos';
+      }
+
+      return {
+        'Comercio': r.comercio,
+        'Total Fulfillment': totalFulf,
+        'Abono Fulfillment': abonoFulf,
+        'Estado Pago Fulfillment': r.pago_fulfillment || '-',
+        'Factura Fulfillment': r.factura_fulfillment || '-',
+        'N° Factura Fulfillment': r.num_factura || '-',
+        'Total Envíame': totalEnv,
+        'Abono Envíame': abonoEnv,
+        'Estado Pago Envíame': r.pago_enviame || '-',
+        'Factura Envíame': r.factura_enviame || '-',
+        'N° Factura Envíame': r.num_factura_enviame || '-',
+        'TOTAL GENERAL FACTURADO': totalGeneral,
+        'TOTAL PAGADO (ABONOS)': totalPagado,
+        'SALDO PENDIENTE': saldoPendiente,
+        'ESTADO GENERAL': estadoGeneral
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Resumen Totales');
+    const filename = `Resumen_Totales_${periodName.replace(/\s+/g, '_')}.xlsx`;
+    XLSX.writeFile(wb, filename);
+  } catch (err) {
+    console.error('Error exporting summary to Excel:', err);
+    alert('Error al exportar resumen a Excel: ' + err.message);
   }
 };
 
@@ -35358,6 +36025,15 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   }
   
   saveField(recordId, fieldName, val);
+  if (['pago_fulfillment', 'pago_enviame'].includes(fieldName) && row) {
+    const container = row.closest('div[id^="period-body-"]');
+    if (container) {
+      const pId = container.id.replace('period-body-', '');
+      if (window.syncBillingSummaryFromInputRows) {
+        window.syncBillingSummaryFromInputRows(pId);
+      }
+    }
+  }
 };
 
 window.saveMoneyField = function(recordId, fieldName, inputEl) {
@@ -35403,6 +36079,9 @@ window.saveField = async function(recordId, fieldName, fieldValue) {
           const pId = container.id.replace('period-body-', '');
           if (window.updateBillingFooterTotals) {
             window.updateBillingFooterTotals(pId);
+          }
+          if (window.syncBillingSummaryFromInputRows) {
+            window.syncBillingSummaryFromInputRows(pId);
           }
         }
       }
@@ -47077,7 +47756,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
         if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
+        if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
         let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
         if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
@@ -47097,6 +47776,9 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
           let statusText = s.status || '';
           if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
             statusText = s.raw_data[23];
+          }
+          if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+            gStatus = 'SIN MOVIMIENTO';
           }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             const rawStatus = statusText.toLowerCase().trim();
@@ -47123,6 +47805,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'optiroute_orders') {
+              if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+                gStatus = 'SIN MOVIMIENTO';
+              } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+                gStatus = 'ALERTA';
               }
             }
           }
@@ -47189,6 +47879,9 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             statusText = order.raw_lightdata_data.raw_data[23];
           }
         }
+        if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+          gStatus = 'SIN MOVIMIENTO';
+        }
         if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
           const rawStatus = statusText.toLowerCase().trim();
           if (s.source_table === 'lightdata_envios') {
@@ -47214,6 +47907,14 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
               gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'optiroute_orders') {
+            if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+              gStatus = 'SIN MOVIMIENTO';
+            } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+              gStatus = 'ALERTA';
             }
           }
         }

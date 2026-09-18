@@ -3927,6 +3927,7 @@ async function renderInventory() {
     const selectFields = `
       id,
       sku,
+      barcode,
       name,
       comercio,
       stock_critico,
@@ -3944,6 +3945,7 @@ async function renderInventory() {
     const selectFallback = `
       id,
       sku,
+      barcode,
       name,
       comercio,
       stock_critico,
@@ -7587,7 +7589,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
     if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
     if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-    if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
+    if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
     return shipCommerce === orderCommerce;
   });
@@ -7632,6 +7634,9 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     if (shipment.raw_data && shipment.raw_data[23]) statusText = shipment.raw_data[23];
     else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
   }
+  if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+    globStatus = 'SIN MOVIMIENTO';
+  }
   if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
     const rawStatus = statusText.toLowerCase().trim();
     if (shipment.source_table === 'lightdata_envios') {
@@ -7657,6 +7662,14 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
         globStatus = 'ALERTA';
       } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
         globStatus = 'SIN MOVIMIENTO';
+      }
+    } else if (shipment.source_table === 'optiroute_orders') {
+      if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+        globStatus = 'SIN MOVIMIENTO';
+      } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+        globStatus = 'DESPACHADO';
+      } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+        globStatus = 'ALERTA';
       }
     }
   }
@@ -8871,7 +8884,7 @@ window.applyClientWmsFiltersAndRender = function() {
       if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
       if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
       if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios') return true;
+      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
       return shipCommerce === orderCommerce;
     });
@@ -8919,6 +8932,9 @@ window.applyClientWmsFiltersAndRender = function() {
               statusText = order.raw_lightdata_data.raw_data[23];
             }
           }
+          if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+            gStatus = 'SIN MOVIMIENTO';
+          }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             const rawStatus = statusText.toLowerCase().trim();
             if (s.source_table === 'lightdata_envios') {
@@ -8944,6 +8960,14 @@ window.applyClientWmsFiltersAndRender = function() {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
+              }
+            } else if (s.source_table === 'optiroute_orders') {
+              if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+                gStatus = 'SIN MOVIMIENTO';
+              } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+                gStatus = 'ALERTA';
               }
             }
           }
@@ -9250,6 +9274,9 @@ window.applyClientWmsFiltersAndRender = function() {
             statusText = order.raw_lightdata_data.raw_data[23];
           }
         }
+        if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+          globStatus = 'SIN MOVIMIENTO';
+        }
         if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
           const rawStatusLower = statusText.toLowerCase().trim();
           if (shipment.source_table === 'lightdata_envios') {
@@ -9275,6 +9302,14 @@ window.applyClientWmsFiltersAndRender = function() {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
               globStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (shipment.source_table === 'optiroute_orders') {
+            if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+              globStatus = 'SIN MOVIMIENTO';
+            } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
+              globStatus = 'ALERTA';
             }
           }
         }
@@ -9314,6 +9349,9 @@ window.applyClientWmsFiltersAndRender = function() {
           statusText = order.raw_lightdata_data.raw_data[23];
         }
       }
+      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+        globStatus = 'SIN MOVIMIENTO';
+      }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatusLower = statusText.toLowerCase().trim();
         if (shipment.source_table === 'lightdata_envios') {
@@ -9339,6 +9377,14 @@ window.applyClientWmsFiltersAndRender = function() {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
+          }
+        } else if (shipment.source_table === 'optiroute_orders') {
+          if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
+            globStatus = 'ALERTA';
           }
         }
       }
@@ -23495,10 +23541,20 @@ window.viewDeclarationDetail = async function(id) {
       incidentsHtml = `
         <div style="margin-bottom: 1.5rem; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 10px; padding: 1.25rem;">
           <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: var(--color-danger); display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-family);">
-            <i class="ri-error-warning-line" style="font-size: 1.2rem;"></i> Detalle de Incidencias en Recepción
+            <i class="ri-error-warning-line" style="font-size: 1.2rem;"></i> Detalle de Discrepancias / Incidencias en Recepción
           </h4>
           <ol style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main); font-size: 0.9rem; font-family: var(--font-family);">
-            ${incidents.map(inc => `<li style="margin-bottom: 0.35rem;">${inc}</li>`).join('')}
+            ${incidents.map(inc => {
+              if (typeof inc === 'string') {
+                return `<li style="margin-bottom: 0.35rem;">${inc}</li>`;
+              } else if (typeof inc === 'object' && inc !== null) {
+                const skuPart = inc.sku && inc.sku !== '-' ? `<strong style="font-family: monospace;">${inc.sku}</strong>${inc.name ? ` (${inc.name})` : ''}: ` : '';
+                const typePart = inc.type ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: var(--color-danger); font-size: 0.75rem; padding: 2px 6px; margin-right: 4px;">${inc.type}</span> ` : '';
+                const reasonPart = inc.reason || inc.comment || inc.notes || 'Sin detalles';
+                return `<li style="margin-bottom: 0.35rem;">${typePart}${skuPart}${reasonPart}</li>`;
+              }
+              return '';
+            }).join('')}
           </ol>
         </div>
       `;
@@ -37956,7 +38012,7 @@ async function openRequestInventoryModal(commerce, onComplete) {
                   <th id="req-inv-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
                     <input type="checkbox" id="req-inv-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
                   </th>
-                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
+                  <th style="padding: 0.4rem 0.6rem; width: 130px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.4rem 0.6rem;">Nombre</th>
                   <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
                 </tr>
@@ -38012,7 +38068,8 @@ async function openRequestInventoryModal(commerce, onComplete) {
       if (!searchFilter) return true;
       const sku = (p.sku || '').toLowerCase();
       const name = (p.name || '').toLowerCase();
-      return sku.includes(searchFilter) || name.includes(searchFilter);
+      const barcode = (p.barcode || p.codigo_barra || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter) || barcode.includes(searchFilter);
     });
 
     const tbody = document.getElementById('req-inv-preview-tbody');
@@ -38065,7 +38122,10 @@ async function openRequestInventoryModal(commerce, onComplete) {
               <input type="checkbox" class="req-inv-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
             ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
           </td>
-          <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 0.4rem 0.6rem;">
+            <div style="font-weight: 600; font-family: monospace;">${p.sku}</div>
+            ${(p.barcode || p.codigo_barra) ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace;">CB: ${p.barcode || p.codigo_barra}</div>` : ''}
+          </td>
           <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
           <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         </tr>
@@ -38485,8 +38545,13 @@ async function cancelClientInventoryRequest(requestId, commerce) {
   }
 }
 
-function openViewInventoryRequestDetailModal(req) {
+async function openViewInventoryRequestDetailModal(req) {
   if (!req) return;
+
+  // Enriquecer códigos de barra faltantes antes de mostrar los detalles
+  if (typeof window.enrichInventoryProductsBarcodes === 'function') {
+    await window.enrichInventoryProductsBarcodes(req);
+  }
 
   let modal = document.getElementById('modal-view-inventory-request-detail');
   if (modal) modal.remove();
@@ -38518,12 +38583,18 @@ function openViewInventoryRequestDetailModal(req) {
       }
     }
 
+    const barcode = p.barcode || p.codigo_barra || '';
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border);">
         <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
-        <td style="padding: 0.5rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
-        <td style="padding: 0.5rem 0.6rem; font-family: monospace; color: var(--color-text-muted);">${p.barcode || '-'}</td>
-        <td style="padding: 0.5rem 0.6rem;">${p.name}</td>
+        <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
+          <div style="font-weight: 600; font-family: monospace; color: var(--color-text-main);">${p.sku || '-'}</div>
+          <div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+            ${(barcode && barcode !== '-') ? `<span style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">CB:</span> ${barcode}` : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">Sin CB</span>'}
+          </div>
+        </td>
+        <td style="padding: 0.5rem 0.6rem;">${p.name || 'Sin nombre'}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; background: var(--color-bg);">${counted}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center;">${diffHtml}</td>
@@ -38657,8 +38728,7 @@ function openViewInventoryRequestDetailModal(req) {
               <thead>
                 <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.725rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
                   <th style="padding: 0.5rem 0.6rem; width: 30px; text-align: center;">#</th>
-                  <th style="padding: 0.5rem 0.6rem;">SKU</th>
-                  <th style="padding: 0.5rem 0.6rem;">Cód. Barras</th>
+                  <th style="padding: 0.5rem 0.6rem; width: 140px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.5rem 0.6rem;">Producto</th>
                   <th style="padding: 0.5rem 0.6rem; text-align: center;">Stock Sist.</th>
                   <th style="padding: 0.5rem 0.6rem; text-align: center;">Conteo Real</th>
@@ -38667,7 +38737,7 @@ function openViewInventoryRequestDetailModal(req) {
                 </tr>
               </thead>
               <tbody>
-                ${trs.length > 0 ? trs : '<tr><td colspan="8" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Sin productos.</td></tr>'}
+                ${trs.length > 0 ? trs : '<tr><td colspan="7" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Sin productos.</td></tr>'}
               </tbody>
             </table>
           </div>
