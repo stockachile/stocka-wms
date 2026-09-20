@@ -41507,6 +41507,9 @@ window.renderCatalogBulkActionsBar = function(commerce) {
         <button onclick="window.clearCatalogSelection('${commerce}')" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
       </div>
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <button onclick="window.bulkSetDimensionsModal('${commerce}')" class="btn" style="background: #8b5cf6; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(139, 92, 246, 0.25);" title="Asignar Largo, Ancho, Alto o Volumen Masivo a los items seleccionados">
+          <i class="ri-ruler-2-line"></i> Asignar Medidas / Volumen
+        </button>
         <button onclick="window.bulkSetVirtualStatus('${commerce}', true)" class="btn" style="background: #10b981; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
           <i class="ri-computer-line"></i> Marcar como Virtual
         </button>
@@ -41530,6 +41533,296 @@ window.clearCatalogSelection = function(commerce) {
   if (cbAll) cbAll.checked = false;
   document.querySelectorAll('.catalog-row-checkbox').forEach(cb => cb.checked = false);
   window.renderCatalogBulkActionsBar(commerce);
+};
+
+window.bulkSetDimensionsModal = async function(commerce) {
+  const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
+  if (selectedIds.length === 0) {
+    Swal.fire({
+      title: 'Atención',
+      text: 'No has seleccionado ningún producto del catálogo.',
+      icon: 'warning',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    return;
+  }
+
+  const modalHtml = `
+    <div style="text-align: left; font-family: inherit;">
+      <p style="color: var(--color-text-muted); font-size: 0.875rem; margin-top: -0.5rem; margin-bottom: 1.25rem; line-height: 1.4;">
+        Asigna medidas (Largo × Ancho × Alto), volumen y/o peso masivamente a los <strong style="color: var(--color-primary);">${selectedIds.length} producto(s)</strong> seleccionados.
+      </p>
+
+      <!-- Selector de Método -->
+      <div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <label style="flex: 1; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
+          <input type="radio" name="bulk-dim-method" value="dims" checked style="accent-color: #8b5cf6;">
+          <span>Por Dimensiones (cm)</span>
+        </label>
+        <label style="flex: 1; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
+          <input type="radio" name="bulk-dim-method" value="vol" style="accent-color: #8b5cf6;">
+          <span>Por Volumen Directo (m³)</span>
+        </label>
+      </div>
+
+      <!-- Sección Medidas (Largo x Ancho x Alto) -->
+      <div id="bulk-dim-dims-container" style="display: block; margin-bottom: 1.25rem;">
+        <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.4rem; text-transform: uppercase;">
+          Dimensiones Físicas (cm)
+        </label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Largo (cm)</label>
+            <input type="number" id="bulk-dim-length" step="any" min="0" placeholder="Ej: 30" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-size: 0.9rem; box-sizing: border-box;">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Ancho (cm)</label>
+            <input type="number" id="bulk-dim-width" step="any" min="0" placeholder="Ej: 20" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-size: 0.9rem; box-sizing: border-box;">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Alto (cm)</label>
+            <input type="number" id="bulk-dim-height" step="any" min="0" placeholder="Ej: 10" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-size: 0.9rem; box-sizing: border-box;">
+          </div>
+        </div>
+        
+        <div style="margin-top: 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px dashed rgba(139, 92, 246, 0.35); border-radius: var(--radius-md); padding: 0.6rem 0.85rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-calculator-line" style="color: #8b5cf6; font-size: 1.1rem;"></i> Volumen unitario resultante:
+          </span>
+          <strong id="bulk-dim-calc-preview" style="color: #7c3aed; font-size: 0.95rem;">0.00000 m³</strong>
+        </div>
+      </div>
+
+      <!-- Sección Volumen Directo -->
+      <div id="bulk-dim-vol-container" style="display: none; margin-bottom: 1.25rem;">
+        <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.4rem; text-transform: uppercase;">
+          Volumen Unitario (m³)
+        </label>
+        <div style="position: relative;">
+          <input type="number" id="bulk-dim-volumen" step="any" min="0" placeholder="Ej: 0.00600" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-size: 0.9rem; box-sizing: border-box;">
+          <span style="position: absolute; right: 12px; top: 9px; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">m³</span>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.3rem;">
+          Ingresa directamente los metros cúbicos por unidad (ej: 0.00010 m³).
+        </span>
+      </div>
+
+      <!-- Peso Unitario (Opcional) -->
+      <div style="margin-bottom: 1.25rem;">
+        <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.4rem; text-transform: uppercase;">
+          Peso Unitario (kg) <span style="font-weight: 400; text-transform: none; font-size: 0.75rem;">(Opcional)</span>
+        </label>
+        <div style="position: relative;">
+          <input type="number" id="bulk-dim-weight" step="any" min="0" placeholder="Ej: 0.50 (dejar vacío para no modificar)" class="form-input" style="width: 100%; height: 38px; padding: 0.4rem 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-size: 0.9rem; box-sizing: border-box;">
+          <span style="position: absolute; right: 12px; top: 9px; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">kg</span>
+        </div>
+      </div>
+
+      <!-- Opción de sobreescritura -->
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem 1rem;">
+        <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; font-size: 0.85rem; color: var(--color-text-main);">
+          <input type="checkbox" id="bulk-dim-overwrite" checked style="margin-top: 0.15rem; accent-color: var(--color-primary);">
+          <div>
+            <span style="font-weight: 600; display: block;">Sobreescribir productos que ya tengan medidas</span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.1rem; line-height: 1.3;">
+              Si desmarcas esta casilla, solo se aplicará a los productos seleccionados que actualmente no tengan dimensiones ni volumen definidos.
+            </span>
+          </div>
+        </label>
+      </div>
+    </div>
+  `;
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;"><i class="ri-ruler-2-line" style="color: #8b5cf6;"></i> Asignar Dimensiones / Volumen</div>',
+    html: modalHtml,
+    width: '540px',
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar Masivamente',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#8b5cf6',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)',
+    didOpen: () => {
+      const methodRadios = document.querySelectorAll('input[name="bulk-dim-method"]');
+      const dimsContainer = document.getElementById('bulk-dim-dims-container');
+      const volContainer = document.getElementById('bulk-dim-vol-container');
+      const inputLength = document.getElementById('bulk-dim-length');
+      const inputWidth = document.getElementById('bulk-dim-width');
+      const inputHeight = document.getElementById('bulk-dim-height');
+      const calcPreview = document.getElementById('bulk-dim-calc-preview');
+
+      methodRadios.forEach(r => {
+        r.addEventListener('change', (e) => {
+          if (e.target.value === 'dims') {
+            dimsContainer.style.display = 'block';
+            volContainer.style.display = 'none';
+          } else {
+            dimsContainer.style.display = 'none';
+            volContainer.style.display = 'block';
+          }
+        });
+      });
+
+      const updateCalc = () => {
+        const l = parseFloat(inputLength.value) || 0;
+        const w = parseFloat(inputWidth.value) || 0;
+        const h = parseFloat(inputHeight.value) || 0;
+        if (l > 0 && w > 0 && h > 0) {
+          const raw = (l * w * h) / 1000000;
+          const vol = window.roundUpVolume ? window.roundUpVolume(raw) : raw;
+          calcPreview.textContent = `${vol.toFixed(5)} m³`;
+        } else {
+          calcPreview.textContent = '0.00000 m³';
+        }
+      };
+
+      inputLength.addEventListener('input', updateCalc);
+      inputWidth.addEventListener('input', updateCalc);
+      inputHeight.addEventListener('input', updateCalc);
+    },
+    preConfirm: () => {
+      const method = document.querySelector('input[name="bulk-dim-method"]:checked')?.value || 'dims';
+      const lVal = document.getElementById('bulk-dim-length')?.value;
+      const wVal = document.getElementById('bulk-dim-width')?.value;
+      const hVal = document.getElementById('bulk-dim-height')?.value;
+      const volVal = document.getElementById('bulk-dim-volumen')?.value;
+      const weightVal = document.getElementById('bulk-dim-weight')?.value;
+      const overwrite = document.getElementById('bulk-dim-overwrite')?.checked || false;
+
+      let length = (lVal !== undefined && lVal !== '') ? parseFloat(lVal) : null;
+      let width = (wVal !== undefined && wVal !== '') ? parseFloat(wVal) : null;
+      let height = (hVal !== undefined && hVal !== '') ? parseFloat(hVal) : null;
+      let volumen = null;
+      let weight = (weightVal !== undefined && weightVal !== '') ? parseFloat(weightVal) : null;
+
+      if (method === 'dims') {
+        const anyDimFilled = (length !== null || width !== null || height !== null);
+        if (anyDimFilled) {
+          if (length === null || width === null || height === null || length <= 0 || width <= 0 || height <= 0) {
+            Swal.showValidationMessage('Debes ingresar las 3 dimensiones (Largo, Ancho, Alto mayores a 0) o cambiar al modo Volumen Directo.');
+            return false;
+          }
+          const raw = (length * width * height) / 1000000;
+          volumen = window.roundUpVolume ? window.roundUpVolume(raw) : raw;
+        }
+      } else {
+        if (volVal !== undefined && volVal !== '') {
+          const parsedVol = parseFloat(volVal);
+          if (isNaN(parsedVol) || parsedVol <= 0) {
+            Swal.showValidationMessage('El volumen debe ser un número mayor a 0.');
+            return false;
+          }
+          volumen = window.roundUpVolume ? window.roundUpVolume(parsedVol) : parsedVol;
+        }
+      }
+
+      if (volumen === null && weight === null) {
+        Swal.showValidationMessage('Debes ingresar al menos las dimensiones/volumen o el peso a asignar.');
+        return false;
+      }
+
+      return { method, length, width, height, volumen, weight, overwrite };
+    }
+  });
+
+  if (!formValues) return;
+
+  const { method, length, width, height, volumen, weight, overwrite } = formValues;
+
+  Swal.fire({
+    title: 'Aplicando medidas...',
+    text: 'Por favor espera un momento...',
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    let targetIds = selectedIds;
+
+    if (!overwrite) {
+      const { data: prodsToCheck, error: fetchErr } = await supabase
+        .from('products')
+        .select('id, length, width, height, volumen')
+        .in('id', selectedIds);
+
+      if (fetchErr) throw fetchErr;
+
+      const filtered = (prodsToCheck || []).filter(p => {
+        const hasDims = (p.length && p.length > 0) || (p.width && p.width > 0) || (p.height && p.height > 0);
+        const hasVol = (p.volumen !== null && p.volumen !== undefined && p.volumen > 0);
+        return !hasDims && !hasVol;
+      });
+
+      targetIds = filtered.map(p => p.id);
+
+      if (targetIds.length === 0) {
+        Swal.fire({
+          title: 'Información',
+          text: 'Ninguno de los productos seleccionados requiere asignación (todos ya contaban con medidas o volumen y la opción de sobreescritura no estaba marcada).',
+          icon: 'info',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+    }
+
+    const updatePayload = {};
+    if (method === 'dims' && length !== null) {
+      updatePayload.length = length;
+      updatePayload.width = width;
+      updatePayload.height = height;
+      updatePayload.largo = length;
+      updatePayload.ancho = width;
+      updatePayload.alto = height;
+      updatePayload.volumen = volumen;
+    } else if (method === 'vol' && volumen !== null) {
+      updatePayload.volumen = volumen;
+    }
+
+    if (weight !== null) {
+      updatePayload.weight = weight;
+      updatePayload.peso = weight;
+    }
+
+    // Actualizar en lotes de 200
+    const batchSize = 200;
+    for (let i = 0; i < targetIds.length; i += batchSize) {
+      const batch = targetIds.slice(i, i + batchSize);
+      const { error: updErr } = await supabase
+        .from('products')
+        .update(updatePayload)
+        .in('id', batch);
+
+      if (updErr) throw updErr;
+    }
+
+    Swal.fire({
+      title: '¡Medidas asignadas!',
+      text: `Se actualizaron correctamente ${targetIds.length} producto(s).`,
+      icon: 'success',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+
+    if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+    if (typeof renderCatalog === 'function') {
+      renderCatalog();
+    } else if (window.renderCatalog) {
+      window.renderCatalog();
+    }
+  } catch (err) {
+    console.error('Error in bulkSetDimensionsModal:', err);
+    Swal.fire({
+      title: 'Error',
+      text: 'Ocurrió un error al actualizar las medidas: ' + err.message,
+      icon: 'error',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }
 };
 
 window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
