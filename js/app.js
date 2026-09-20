@@ -3345,11 +3345,7 @@ async function renderCatalog() {
                 <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Catálogo General de Productos (Master)</h3>
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Productos físicos almacenados y controlados en el WMS.</p>
               </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <div style="position: relative; margin-right: 0.5rem;">
-                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                  <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
-                </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 ${importBtn}
                 ${importNewBtn}
                 ${excelActionsDropdown}
@@ -3357,6 +3353,80 @@ async function renderCatalog() {
                 ${createBtn}
               </div>
             </div>
+
+            <!-- Barra de Filtros Avanzados del Catálogo -->
+            <div id="catalog-filters-bar" style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 0.85rem 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem; flex: 1; min-width: 300px;">
+                <!-- Buscador rápido -->
+                <div style="position: relative; min-width: 220px; flex: 1; max-width: 300px;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU, nombre, barra..." style="width: 100%; padding-left: 2.25rem; padding-right: 0.75rem; height: 36px; font-size: 0.825rem; border-radius: var(--radius-md);">
+                </div>
+
+                <!-- Filtro Medidas / Dimensiones -->
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <label for="catalog-filter-dimensions" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; white-space: nowrap;">
+                    <i class="ri-ruler-2-line"></i> Medidas:
+                  </label>
+                  <select id="catalog-filter-dimensions" class="form-input" style="height: 36px; font-size: 0.825rem; padding: 0.35rem 0.65rem; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="all">Todas las medidas</option>
+                    <option value="with_dimensions">Con medidas / volumen</option>
+                    <option value="without_dimensions">Sin medidas ni volumen</option>
+                    <option value="missing_with_stock">⚠️ Sin medidas (con stock)</option>
+                  </select>
+                </div>
+
+                <!-- Filtro Estado -->
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <label for="catalog-filter-status" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; white-space: nowrap;">
+                    <i class="ri-toggle-line"></i> Estado:
+                  </label>
+                  <select id="catalog-filter-status" class="form-input" style="height: 36px; font-size: 0.825rem; padding: 0.35rem 0.65rem; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="all">Todos los estados</option>
+                    <option value="active">Activos</option>
+                    <option value="archived">Archivados / Inactivos</option>
+                  </select>
+                </div>
+
+                <!-- Filtro Tipo -->
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <label for="catalog-filter-type" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; white-space: nowrap;">
+                    <i class="ri-price-tag-3-line"></i> Tipo:
+                  </label>
+                  <select id="catalog-filter-type" class="form-input" style="height: 36px; font-size: 0.825rem; padding: 0.35rem 0.65rem; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="all">Todos los tipos</option>
+                    <option value="physical">Físicos</option>
+                    <option value="virtual">Virtuales</option>
+                    <option value="pack">Packs / Combos</option>
+                  </select>
+                </div>
+
+                <!-- Filtro Stock -->
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <label for="catalog-filter-stock" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; white-space: nowrap;">
+                    <i class="ri-archive-line"></i> Stock:
+                  </label>
+                  <select id="catalog-filter-stock" class="form-input" style="height: 36px; font-size: 0.825rem; padding: 0.35rem 0.65rem; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="all">Todo el inventario</option>
+                    <option value="in_stock">Con stock (&gt;0)</option>
+                    <option value="out_of_stock">Sin stock (0)</option>
+                  </select>
+                </div>
+
+                <!-- Botón Limpiar Filtros -->
+                <button type="button" id="btn-catalog-clear-filters" onclick="window.clearCatalogMasterFilters()" style="display: none; height: 36px; padding: 0 0.75rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); background: transparent; border: 1px dashed var(--color-border); border-radius: var(--radius-md); cursor: pointer; align-items: center; gap: 0.35rem; transition: all 0.2s ease;" title="Restablecer todos los filtros">
+                  <i class="ri-filter-off-line"></i> Limpiar
+                </button>
+              </div>
+
+              <!-- Contador de resultados -->
+              <div>
+                <span id="catalog-filter-count-badge" style="display: inline-flex; align-items: center; padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.2); background: rgba(59, 130, 246, 0.08); color: var(--color-primary); white-space: nowrap;">
+                  Total: 0 productos
+                </span>
+              </div>
+            </div>
+
             <div class="table-responsive" style="overflow-x: auto; width: 100%;">
               <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
                 <thead>
@@ -28964,6 +29034,165 @@ function showWmsWarningInModal(formId) {
   }
 }
 
+window.applyCatalogMasterFilters = function() {
+  const searchInput = document.getElementById('catalog-master-search');
+  const dimSelect = document.getElementById('catalog-filter-dimensions');
+  const statusSelect = document.getElementById('catalog-filter-status');
+  const typeSelect = document.getElementById('catalog-filter-type');
+  const stockSelect = document.getElementById('catalog-filter-stock');
+  const clearBtn = document.getElementById('btn-catalog-clear-filters');
+  const countBadge = document.getElementById('catalog-filter-count-badge');
+  const cbAll = document.getElementById('catalog-select-all');
+
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const dimFilter = dimSelect?.value || 'all';
+  const statusFilter = statusSelect?.value || 'all';
+  const typeFilter = typeSelect?.value || 'all';
+  const stockFilter = stockSelect?.value || 'all';
+
+  const isFiltered = query !== '' || dimFilter !== 'all' || statusFilter !== 'all' || typeFilter !== 'all' || stockFilter !== 'all';
+  if (clearBtn) {
+    clearBtn.style.display = isFiltered ? 'inline-flex' : 'none';
+  }
+
+  const rows = document.querySelectorAll('#catalog-master-tbody tr[data-product-row-id]');
+  let visibleCount = 0;
+  const totalCount = rows.length;
+
+  rows.forEach(row => {
+    // 1. Buscador texto
+    let matchesSearch = true;
+    if (query) {
+      const sku = (row.getAttribute('data-sku') || '').toLowerCase();
+      const name = (row.getAttribute('data-name') || '').toLowerCase();
+      const barcode = (row.getAttribute('data-barcode') || '').toLowerCase();
+      const alias = (row.getAttribute('data-alias') || '').toLowerCase();
+      matchesSearch = sku.includes(query) || name.includes(query) || barcode.includes(query) || alias.includes(query) || row.textContent.toLowerCase().includes(query);
+    }
+
+    // 2. Medidas / Dimensiones
+    let matchesDims = true;
+    const hasDims = row.getAttribute('data-has-dims') === '1';
+    const currentStock = parseInt(row.getAttribute('data-current-stock') || '0', 10);
+    if (dimFilter === 'with_dimensions') {
+      matchesDims = hasDims;
+    } else if (dimFilter === 'without_dimensions') {
+      matchesDims = !hasDims;
+    } else if (dimFilter === 'missing_with_stock') {
+      matchesDims = !hasDims && (currentStock > 0);
+    }
+
+    // 3. Estado
+    let matchesStatus = true;
+    const status = (row.getAttribute('data-status') || 'active').toLowerCase();
+    if (statusFilter === 'active') {
+      matchesStatus = status !== 'archived';
+    } else if (statusFilter === 'archived') {
+      matchesStatus = status === 'archived';
+    }
+
+    // 4. Tipo
+    let matchesType = true;
+    const isVirtual = row.getAttribute('data-is-virtual') === '1';
+    const isPack = row.getAttribute('data-is-pack') === '1';
+    if (typeFilter === 'physical') {
+      matchesType = !isVirtual && !isPack;
+    } else if (typeFilter === 'virtual') {
+      matchesType = isVirtual;
+    } else if (typeFilter === 'pack') {
+      matchesType = isPack;
+    }
+
+    // 5. Stock
+    let matchesStock = true;
+    if (stockFilter === 'in_stock') {
+      matchesStock = currentStock > 0;
+    } else if (stockFilter === 'out_of_stock') {
+      matchesStock = currentStock <= 0;
+    }
+
+    const show = matchesSearch && matchesDims && matchesStatus && matchesType && matchesStock;
+    row.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+
+  // Fila para estado sin resultados
+  let noResultsRow = document.getElementById('catalog-master-no-results-row');
+  if (visibleCount === 0 && totalCount > 0) {
+    if (!noResultsRow) {
+      const tbody = document.getElementById('catalog-master-tbody');
+      if (tbody) {
+        noResultsRow = document.createElement('tr');
+        noResultsRow.id = 'catalog-master-no-results-row';
+        noResultsRow.innerHTML = `
+          <td colspan="15" style="padding: 2.5rem 1rem; text-align: center; color: var(--color-text-muted);">
+            <div style="font-size: 1.5rem; margin-bottom: 0.5rem;"><i class="ri-search-eye-line"></i></div>
+            <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; color: var(--color-text-main);">No se encontraron productos coincidentes</div>
+            <div style="font-size: 0.8rem;">Prueba modificando o restableciendo los filtros seleccionados.</div>
+          </td>
+        `;
+        tbody.appendChild(noResultsRow);
+      }
+    } else {
+      noResultsRow.style.display = '';
+    }
+  } else if (noResultsRow) {
+    noResultsRow.style.display = 'none';
+  }
+
+  // Actualizar contador
+  if (countBadge) {
+    if (isFiltered) {
+      countBadge.textContent = `Mostrando ${visibleCount} de ${totalCount} productos`;
+      countBadge.style.background = 'rgba(139, 92, 246, 0.1)';
+      countBadge.style.color = '#7c3aed';
+      countBadge.style.borderColor = 'rgba(139, 92, 246, 0.25)';
+    } else {
+      countBadge.textContent = `Total: ${totalCount} productos`;
+      countBadge.style.background = 'rgba(59, 130, 246, 0.08)';
+      countBadge.style.color = 'var(--color-primary)';
+      countBadge.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+    }
+  }
+
+  // Sincronizar select-all
+  if (cbAll) {
+    const visibleCheckboxes = Array.from(document.querySelectorAll('#catalog-master-tbody .catalog-row-checkbox')).filter(cb => {
+      const r = cb.closest('tr');
+      return r && r.style.display !== 'none' && r.id !== 'catalog-master-no-results-row';
+    });
+    cbAll.checked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
+  }
+};
+
+window.clearCatalogMasterFilters = function() {
+  const searchInput = document.getElementById('catalog-master-search');
+  const dimSelect = document.getElementById('catalog-filter-dimensions');
+  const statusSelect = document.getElementById('catalog-filter-status');
+  const typeSelect = document.getElementById('catalog-filter-type');
+  const stockSelect = document.getElementById('catalog-filter-stock');
+
+  if (searchInput) searchInput.value = '';
+  if (dimSelect) dimSelect.value = 'all';
+  if (statusSelect) statusSelect.value = 'all';
+  if (typeSelect) typeSelect.value = 'all';
+  if (stockSelect) stockSelect.value = 'all';
+
+  window.applyCatalogMasterFilters();
+};
+
+window.filterCatalogMissingWithStock = function() {
+  const dimSelect = document.getElementById('catalog-filter-dimensions');
+  if (dimSelect) {
+    dimSelect.value = 'missing_with_stock';
+  }
+  window.applyCatalogMasterFilters();
+  const filtersBar = document.getElementById('catalog-filters-bar');
+  if (filtersBar) {
+    filtersBar.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+};
+
 function renderMasterCatalogRows(products) {
   const tbody = document.getElementById('catalog-master-tbody');
   if (!tbody) return;
@@ -29211,8 +29440,25 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}${aliasBadge}</td>`;
 
+    const hasDims = Boolean(
+      (item.length && parseFloat(item.length) > 0) ||
+      (item.width && parseFloat(item.width) > 0) ||
+      (item.height && parseFloat(item.height) > 0) ||
+      (item.volumen !== null && item.volumen !== undefined && parseFloat(item.volumen) > 0)
+    );
+
     return `
-      <tr data-product-row-id="${item.id}">
+      <tr data-product-row-id="${item.id}"
+          data-sku="${escapeHtml(item.sku || '')}"
+          data-name="${escapeHtml(item.name || '')}"
+          data-barcode="${escapeHtml(item.barcode || '')}"
+          data-alias="${escapeHtml(item.alias || '')}"
+          data-status="${(item.status || 'active').toLowerCase()}"
+          data-has-dims="${hasDims ? '1' : '0'}"
+          data-current-stock="${currentStock}"
+          data-is-virtual="${item.is_virtual ? '1' : '0'}"
+          data-is-pack="${item.is_pack ? '1' : '0'}"
+          data-origin="${platformLower}">
         ${checkboxCell}
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
         <td style="padding: 0.45rem 0.75rem;"><strong>${escapeHtml(item.sku)}</strong></td>
@@ -29232,15 +29478,9 @@ function renderMasterCatalogRows(products) {
     `;
   }).join('');
 
-  // Preservar filtro de búsqueda si existe un término ingresado
-  const masterSearch = document.getElementById('catalog-master-search');
-  if (masterSearch && masterSearch.value.trim()) {
-    const q = masterSearch.value.toLowerCase().trim();
-    const rows = tbody.querySelectorAll('tr');
-    rows.forEach(row => {
-      const text = row.textContent.toLowerCase();
-      row.style.display = text.includes(q) ? '' : 'none';
-    });
+  // Aplicar filtros avanzados del catálogo
+  if (typeof window.applyCatalogMasterFilters === 'function') {
+    window.applyCatalogMasterFilters();
   }
 
   // Manejo de checkboxes de selección masiva
@@ -29979,16 +30219,33 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
-  // 2. Search box for Master Catalog
+  // 2. Search and Advanced Filters for Master Catalog
   const masterSearch = document.getElementById('catalog-master-search');
   if (masterSearch) {
-    masterSearch.addEventListener('input', (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      const rows = document.querySelectorAll('#catalog-master-tbody tr');
-      rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(q) ? '' : 'none';
+    masterSearch.addEventListener('input', () => {
+      if (typeof window.applyCatalogMasterFilters === 'function') {
+        window.applyCatalogMasterFilters();
+      }
+    });
+  }
+
+  ['catalog-filter-dimensions', 'catalog-filter-status', 'catalog-filter-type', 'catalog-filter-stock'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        if (typeof window.applyCatalogMasterFilters === 'function') {
+          window.applyCatalogMasterFilters();
+        }
       });
+    }
+  });
+
+  const clearFiltersBtn = document.getElementById('btn-catalog-clear-filters');
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', () => {
+      if (typeof window.clearCatalogMasterFilters === 'function') {
+        window.clearCatalogMasterFilters();
+      }
     });
   }
 
