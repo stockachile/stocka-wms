@@ -320,7 +320,44 @@ async function syncShopifyProducts(integration: any): Promise<number> {
           imageUrl = variantImage ? variantImage.src : product.images[0].src;
         }
 
-        const skuClean = (variant.sku || variant.id.toString()).trim();
+        const rawSku = (variant.sku || "").trim();
+        const variantIdStr = variant.id ? variant.id.toString() : "";
+        const skuClean = rawSku || variantIdStr;
+        if (!skuClean) continue;
+
+        // Si la variante tiene un SKU real, limpiar cualquier registro huérfano provisional previo
+        if (rawSku && variantIdStr && rawSku !== variantIdStr) {
+          try {
+            await supabase
+              .from("synced_products")
+              .delete()
+              .eq("comercio", integration.comercio)
+              .eq("platform", "Shopify")
+              .eq("sku", variantIdStr);
+
+            const { data: ghostProd } = await supabase
+              .from("products")
+              .select("id")
+              .eq("sku", variantIdStr)
+              .eq("comercio", integration.comercio)
+              .maybeSingle();
+
+            if (ghostProd) {
+              const { data: ghostInv } = await supabase
+                .from("inventory")
+                .select("quantity")
+                .eq("product_id", ghostProd.id);
+
+              const totalStock = (ghostInv || []).reduce((acc: any, i: any) => acc + (i.quantity || 0), 0);
+              if (totalStock <= 0) {
+                await supabase.from("inventory").delete().eq("product_id", ghostProd.id);
+                await supabase.from("products").delete().eq("id", ghostProd.id);
+              }
+            }
+          } catch (cleanErr) {
+            console.warn("Aviso al limpiar huérfano en OAuth sync:", cleanErr);
+          }
+        }
 
         const productDataToUpsert = {
           comercio: integration.comercio,
@@ -329,7 +366,8 @@ async function syncShopifyProducts(integration: any): Promise<number> {
           name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
           image_url: imageUrl || null,
           status: productStatus,
-          price: parseFloat(variant.price) || 0
+          price: parseFloat(variant.price) || 0,
+          barcode: variant.barcode || null
         };
 
         const { error: upsertErr } = await supabase
@@ -357,6 +395,9 @@ async function syncShopifyProducts(integration: any): Promise<number> {
             image_url: productDataToUpsert.image_url,
             status: productDataToUpsert.status,
             price: productDataToUpsert.price,
+            barcode: variant.barcode || null,
+            shopify_variant_id: variantIdStr || null,
+            shopify_product_id: product.id ? product.id.toString() : null,
             description: "Importado automáticamente de Shopify"
           }]);
         }

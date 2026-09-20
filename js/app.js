@@ -3830,6 +3830,10 @@ async function openEditProductModal(prodId) {
     if (sendBarInput) {
       sendBarInput.checked = product.send_barcode_to_picker || false;
     }
+    const barcodeWmsInput = document.getElementById('edit-prod-barcode-wms');
+    if (barcodeWmsInput) barcodeWmsInput.value = product.barcode_wms || '';
+    const sendBarcodeWmsInput = document.getElementById('edit-prod-send-barcode-wms');
+    if (sendBarcodeWmsInput) sendBarcodeWmsInput.checked = product.send_barcode_wms_to_picker !== false;
     document.getElementById('edit-prod-alias').value = product.alias || '';
     const sendAliasInput = document.getElementById('edit-prod-send-alias');
     if (sendAliasInput) {
@@ -13866,6 +13870,16 @@ async function renderIntegrations() {
     editHeight.addEventListener('input', handleInput);
   }
 
+  const editProdBarcodeWms = document.getElementById('edit-prod-barcode-wms');
+  const editProdSendBarcodeWms = document.getElementById('edit-prod-send-barcode-wms');
+  if (editProdBarcodeWms && editProdSendBarcodeWms) {
+    editProdBarcodeWms.addEventListener('input', (e) => {
+      if (e.target.value.trim().length > 0) {
+        editProdSendBarcodeWms.checked = true;
+      }
+    });
+  }
+
   // Guardar Cambios Editar Producto
   document.getElementById('form-edit-product').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -13911,6 +13925,8 @@ async function renderIntegrations() {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
       const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
+      const barcodeWms = document.getElementById('edit-prod-barcode-wms')?.value?.trim() || null;
+      const sendBarcodeWms = document.getElementById('edit-prod-send-barcode-wms')?.checked ?? true;
       const alias = document.getElementById('edit-prod-alias').value.trim() || null;
       const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
       const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
@@ -13946,6 +13962,8 @@ async function renderIntegrations() {
           name,
           barcode,
           send_barcode_to_picker: sendBarcode,
+          barcode_wms: barcodeWms,
+          send_barcode_wms_to_picker: sendBarcodeWms,
           alias,
           send_alias_to_picker: sendAlias,
           color: colorVal,
@@ -29066,8 +29084,9 @@ window.applyCatalogMasterFilters = function() {
       const sku = (row.getAttribute('data-sku') || '').toLowerCase();
       const name = (row.getAttribute('data-name') || '').toLowerCase();
       const barcode = (row.getAttribute('data-barcode') || '').toLowerCase();
+      const barcodeWms = (row.getAttribute('data-barcode-wms') || '').toLowerCase();
       const alias = (row.getAttribute('data-alias') || '').toLowerCase();
-      matchesSearch = sku.includes(query) || name.includes(query) || barcode.includes(query) || alias.includes(query) || row.textContent.toLowerCase().includes(query);
+      matchesSearch = sku.includes(query) || name.includes(query) || barcode.includes(query) || barcodeWms.includes(query) || alias.includes(query) || row.textContent.toLowerCase().includes(query);
     }
 
     // 2. Medidas / Dimensiones
@@ -29220,8 +29239,8 @@ function renderMasterCatalogRows(products) {
       valA = (a.name || '').toString().toLowerCase();
       valB = (b.name || '').toString().toLowerCase();
     } else if (sortCol === 'barcode') {
-      valA = (a.barcode || '').toString().toLowerCase();
-      valB = (b.barcode || '').toString().toLowerCase();
+      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().toLowerCase();
+      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().toLowerCase();
     } else if (sortCol === 'stock') {
       valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
       valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
@@ -29391,19 +29410,41 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.45rem 0.75rem;">${volumenHtml}</td>`;
 
-    const sendBarcodeBadge = item.send_barcode_to_picker
-      ? ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras enviado al Picker"><i class="ri-barcode-box-line"></i> Picker</span>`
+    const hasCbarWms = Boolean(item.barcode_wms && String(item.barcode_wms).trim());
+    const sendWmsToPicker = item.send_barcode_wms_to_picker !== false;
+    const sendOriginToPicker = Boolean(item.send_barcode_to_picker);
+
+    let pickerBarcodeBadge = '';
+    if (hasCbarWms && sendWmsToPicker) {
+      pickerBarcodeBadge = ` <span class="badge" style="background-color: #2563eb; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="CBAR WMS enviado al Picker para escaneo"><i class="ri-barcode-box-line"></i> Picker (WMS)</span>`;
+    } else if (sendOriginToPicker && item.barcode) {
+      pickerBarcodeBadge = ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras de origen enviado al Picker"><i class="ri-barcode-box-line"></i> Picker (Origen)</span>`;
+    }
+
+    const cbarWmsHtml = hasCbarWms
+      ? `<div style="font-size: 0.75rem; color: #2563eb; font-weight: 600; margin-top: 0.18rem; display: flex; align-items: center; gap: 0.2rem;" title="Código de Barras WMS"><i class="ri-barcode-box-line"></i> WMS: ${escapeHtml(item.barcode_wms)}</div>`
       : '';
 
     const barcodeCell = window.catalogQuickEditMode
-      ? `<td style="padding: 0.5rem 1rem;">
-           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-           <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
-             <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
-             <span>Al Picker</span>
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+             <div>
+               <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Origen" style="width: 120px; padding: 0.2rem 0.4rem; height: 26px; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);" title="Código de barras recibido desde origen">
+               <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: 0.7rem; color: var(--color-text-muted);">
+                 <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: 13px; height: 13px;">
+                 <span>Origen al Picker</span>
+               </div>
+             </div>
+             <div style="border-top: 1px dashed var(--color-border); padding-top: 0.25rem;">
+               <input type="text" class="quick-edit-barcode-wms form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode_wms || '')}" value="${escapeHtml(item.barcode_wms || '')}" placeholder="CBAR WMS" style="width: 120px; padding: 0.2rem 0.4rem; height: 26px; font-size: 0.8rem; background: rgba(37, 99, 235, 0.05); color: #1d4ed8; font-weight: 600; border: 1px solid rgba(37, 99, 235, 0.3); border-radius: var(--radius-sm);" title="Código de barras interno WMS">
+               <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: 0.7rem; color: #2563eb;">
+                 <input type="checkbox" class="quick-edit-send-barcode-wms" data-id="${item.id}" data-old="${item.send_barcode_wms_to_picker !== false ? 'true' : 'false'}" ${item.send_barcode_wms_to_picker !== false ? 'checked' : ''} style="cursor: pointer; margin: 0; width: 13px; height: 13px;">
+                 <span>CBAR al Picker</span>
+               </div>
+             </div>
            </div>
          </td>`
-      : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
+      : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${cbarWmsHtml}${pickerBarcodeBadge}</td>`;
 
     const statusCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.45rem 0.75rem; text-align: center;">
@@ -29452,6 +29493,7 @@ function renderMasterCatalogRows(products) {
           data-sku="${escapeHtml(item.sku || '')}"
           data-name="${escapeHtml(item.name || '')}"
           data-barcode="${escapeHtml(item.barcode || '')}"
+          data-barcode-wms="${escapeHtml(item.barcode_wms || '')}"
           data-alias="${escapeHtml(item.alias || '')}"
           data-status="${(item.status || 'active').toLowerCase()}"
           data-has-dims="${hasDims ? '1' : '0'}"
@@ -29565,6 +29607,18 @@ function renderMasterCatalogRows(products) {
       window.renderCatalogBulkActionsBar(commerce);
     });
   });
+
+  if (window.catalogQuickEditMode) {
+    tbody.querySelectorAll('.quick-edit-barcode-wms').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const prodId = e.target.getAttribute('data-id');
+        const cbWms = tbody.querySelector(`.quick-edit-send-barcode-wms[data-id="${prodId}"]`);
+        if (cbWms && e.target.value.trim().length > 0) {
+          cbWms.checked = true;
+        }
+      });
+    });
+  }
 
   window.renderCatalogBulkActionsBar(commerce);
 }
@@ -30423,7 +30477,30 @@ function setupCatalogListeners(commerce, mainPlatform) {
             if (p.sku) existingMap.set(String(p.sku).trim().toUpperCase(), p);
           });
 
-          const productsToInsert = syncedProds.map(sp => {
+          // Filtrar registros provisionales de ID de variante de Shopify que ya tengan su versión con SKU real
+          const variantIdRegex = /^5\d{13,14}$/;
+          const cleanSyncedProds = syncedProds.filter(sp => {
+            const s = String(sp.sku || '').trim();
+            if (variantIdRegex.test(s)) {
+              const hasRealTwin = syncedProds.some(o => {
+                const os = String(o.sku || '').trim();
+                return os !== s && !variantIdRegex.test(os) && (
+                  (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                  (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+                );
+              }) || Array.from(existingMap.values()).some(o => {
+                const os = String(o.sku || '').trim();
+                return os !== s && !variantIdRegex.test(os) && (
+                  (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                  (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+                );
+              });
+              return !hasRealTwin;
+            }
+            return true;
+          });
+
+          const productsToInsert = cleanSyncedProds.map(sp => {
             const cleanSku = String(sp.sku || '').trim().toUpperCase();
             const existing = existingMap.get(cleanSku);
 
@@ -30517,17 +30594,38 @@ function setupCatalogListeners(commerce, mainPlatform) {
         }
 
         const wmsProds = typeof window.fetchAllSupabaseRows === 'function'
-          ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
-          : (await supabase.from('products').select('sku').eq('comercio', commerce)).data;
+          ? await window.fetchAllSupabaseRows('products', 'sku, barcode, name', q => q.eq('comercio', commerce))
+          : (await supabase.from('products').select('sku, barcode, name').eq('comercio', commerce)).data;
 
         const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
 
         const seenNewSkus = new Set();
         const newSyncedProds = [];
 
+        const variantIdRegex = /^5\d{13,14}$/;
         for (const sp of syncedProds) {
           const sku = String(sp.sku || '').trim().toUpperCase();
-          if (sku && !wmsSkus.has(sku) && !seenNewSkus.has(sku)) {
+          if (!sku) continue;
+
+          // Si el SKU es un ID de variante provisional de Shopify y ya existe un producto con el mismo código de barras o nombre con SKU real, omitirlo
+          if (variantIdRegex.test(sku)) {
+            const hasRealTwin = (wmsProds || []).some(o => {
+              const os = String(o.sku || '').trim();
+              return os !== sku && !variantIdRegex.test(os) && (
+                (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+              );
+            }) || syncedProds.some(o => {
+              const os = String(o.sku || '').trim().toUpperCase();
+              return os !== sku && !variantIdRegex.test(os) && (
+                (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+              );
+            });
+            if (hasRealTwin) continue;
+          }
+
+          if (!wmsSkus.has(sku) && !seenNewSkus.has(sku)) {
             seenNewSkus.add(sku);
             newSyncedProds.push(sp);
           }
@@ -31617,6 +31715,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
+          const barWmsInput = document.querySelector(`.quick-edit-barcode-wms[data-id="${prodId}"]`);
+          const oldBarcodeWms = barWmsInput ? barWmsInput.getAttribute('data-old') || '' : '';
+          const newBarcodeWms = barWmsInput ? barWmsInput.value.trim() || '' : '';
+
+          const sendBarWmsInput = document.querySelector(`.quick-edit-send-barcode-wms[data-id="${prodId}"]`);
+          const oldSendBarWms = sendBarWmsInput ? sendBarWmsInput.getAttribute('data-old') === 'true' : true;
+          const newSendBarWms = sendBarWmsInput ? sendBarWmsInput.checked : true;
+
           const aliasInput = document.querySelector(`.quick-edit-alias[data-id="${prodId}"]`);
           const oldAlias = aliasInput ? aliasInput.getAttribute('data-old') || '' : '';
           const newAlias = aliasInput ? aliasInput.value.trim() || '' : '';
@@ -31629,7 +31735,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
           const newStatus = statusInput ? statusInput.value : 'active';
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldBarcodeWms !== newBarcodeWms || oldSendBarWms !== newSendBarWms || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
             changes.push({
               prodId,
               oldStock,
@@ -31646,6 +31752,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
               newBarcode,
               oldSendBar,
               newSendBar,
+              oldBarcodeWms,
+              newBarcodeWms,
+              oldSendBarWms,
+              newSendBarWms,
               oldStatus,
               newStatus,
               oldAlias,
@@ -31703,6 +31813,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
                 send_barcode_to_picker: ch.newSendBar,
+                barcode_wms: ch.newBarcodeWms || null,
+                send_barcode_wms_to_picker: ch.newSendBarWms,
                 alias: ch.newAlias || null,
                 send_alias_to_picker: ch.newSendAlias,
                 status: ch.newStatus

@@ -1601,6 +1601,17 @@ window.getOrderNoteText = function(order) {
   return '';
 };
 
+// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
+window.resolvePickerSku = function(prod, order, commerceStrict) {
+  const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
+  const originBarcode = prod?.barcode && String(prod.barcode).trim();
+  const sendWms = prod?.send_barcode_wms_to_picker !== false;
+  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
+  if (cbarWms && sendWms) return cbarWms;
+  if (sendOrigin && originBarcode) return originBarcode;
+  return (prod?.sku || order?.sku || 'SKU-TEMP');
+};
+
 // Helper para construir la observación que se envía al Picker en active_orders (campo observation / Nota)
 window.buildPickerObservation = function(order, prodDescription) {
   const note = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
@@ -1809,7 +1820,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -3845,7 +3856,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
-        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -10872,8 +10883,9 @@ window.applyCatalogMasterFilters = function() {
       const sku = (row.getAttribute('data-sku') || '').toLowerCase();
       const name = (row.getAttribute('data-name') || '').toLowerCase();
       const barcode = (row.getAttribute('data-barcode') || '').toLowerCase();
+      const barcodeWms = (row.getAttribute('data-barcode-wms') || '').toLowerCase();
       const alias = (row.getAttribute('data-alias') || '').toLowerCase();
-      matchesSearch = sku.includes(query) || name.includes(query) || barcode.includes(query) || alias.includes(query) || row.textContent.toLowerCase().includes(query);
+      matchesSearch = sku.includes(query) || name.includes(query) || barcode.includes(query) || barcodeWms.includes(query) || alias.includes(query) || row.textContent.toLowerCase().includes(query);
     }
 
     // 2. Medidas / Dimensiones
@@ -11026,8 +11038,8 @@ function renderMasterCatalogRows(products) {
       valA = (a.name || '').toString().toLowerCase();
       valB = (b.name || '').toString().toLowerCase();
     } else if (sortCol === 'barcode') {
-      valA = (a.barcode || '').toString().toLowerCase();
-      valB = (b.barcode || '').toString().toLowerCase();
+      valA = ((a.barcode_wms && a.barcode_wms.trim()) || a.barcode || '').toString().toLowerCase();
+      valB = ((b.barcode_wms && b.barcode_wms.trim()) || b.barcode || '').toString().toLowerCase();
     } else if (sortCol === 'stock') {
       valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
       valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
@@ -11199,8 +11211,19 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.75rem 1.5rem;">${volumenHtml}</td>`;
 
-    const sendBarcodeBadge = item.send_barcode_to_picker
-      ? ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras enviado al Picker"><i class="ri-barcode-box-line"></i> Picker</span>`
+    const hasCbarWms = Boolean(item.barcode_wms && String(item.barcode_wms).trim());
+    const sendWmsToPicker = item.send_barcode_wms_to_picker !== false;
+    const sendOriginToPicker = Boolean(item.send_barcode_to_picker);
+
+    let pickerBarcodeBadge = '';
+    if (hasCbarWms && sendWmsToPicker) {
+      pickerBarcodeBadge = ` <span class="badge" style="background-color: #2563eb; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="CBAR WMS enviado al Picker para escaneo"><i class="ri-barcode-box-line"></i> Picker (WMS)</span>`;
+    } else if (sendOriginToPicker && item.barcode) {
+      pickerBarcodeBadge = ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras de origen enviado al Picker"><i class="ri-barcode-box-line"></i> Picker (Origen)</span>`;
+    }
+
+    const cbarWmsHtml = hasCbarWms
+      ? `<div style="font-size: 0.75rem; color: #2563eb; font-weight: 600; margin-top: 0.18rem; display: flex; align-items: center; gap: 0.2rem;" title="Código de Barras WMS"><i class="ri-barcode-box-line"></i> WMS: ${escapeHtml(item.barcode_wms)}</div>`
       : '';
 
     const strictBadge = item.picking_match_strict
@@ -11208,14 +11231,25 @@ function renderMasterCatalogRows(products) {
       : '';
 
     const barcodeCell = window.catalogQuickEditMode
-      ? `<td style="padding: 0.5rem 1rem;">
-           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-           <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
-             <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
-             <span>Al Picker</span>
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+             <div>
+               <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Origen" style="width: 120px; padding: 0.2rem 0.4rem; height: 26px; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);" title="Código de barras recibido desde origen">
+               <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: 0.7rem; color: var(--color-text-muted);">
+                 <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: 13px; height: 13px;">
+                 <span>Origen al Picker</span>
+               </div>
+             </div>
+             <div style="border-top: 1px dashed var(--color-border); padding-top: 0.25rem;">
+               <input type="text" class="quick-edit-barcode-wms form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode_wms || '')}" value="${escapeHtml(item.barcode_wms || '')}" placeholder="CBAR WMS" style="width: 120px; padding: 0.2rem 0.4rem; height: 26px; font-size: 0.8rem; background: rgba(37, 99, 235, 0.05); color: #1d4ed8; font-weight: 600; border: 1px solid rgba(37, 99, 235, 0.3); border-radius: var(--radius-sm);" title="Código de barras interno WMS">
+               <div style="display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: 0.7rem; color: #2563eb;">
+                 <input type="checkbox" class="quick-edit-send-barcode-wms" data-id="${item.id}" data-old="${item.send_barcode_wms_to_picker !== false ? 'true' : 'false'}" ${item.send_barcode_wms_to_picker !== false ? 'checked' : ''} style="cursor: pointer; margin: 0; width: 13px; height: 13px;">
+                 <span>CBAR al Picker</span>
+               </div>
+             </div>
            </div>
          </td>`
-      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}${strictBadge}</td>`;
+      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${cbarWmsHtml}${pickerBarcodeBadge}${strictBadge}</td>`;
 
     const isChecked = window.catalogSelectedProductIds.has(item.id) ? 'checked' : '';
     const checkboxCell = `<td style="padding: 0.75rem 1.5rem; text-align: center; width: 40px;">
@@ -11281,6 +11315,7 @@ function renderMasterCatalogRows(products) {
           data-sku="${escapeHtml(item.sku || '')}"
           data-name="${escapeHtml(item.name || '')}"
           data-barcode="${escapeHtml(item.barcode || '')}"
+          data-barcode-wms="${escapeHtml(item.barcode_wms || '')}"
           data-alias="${escapeHtml(item.alias || '')}"
           data-status="${(item.status || 'active').toLowerCase()}"
           data-has-dims="${hasDims ? '1' : '0'}"
@@ -11391,6 +11426,18 @@ function renderMasterCatalogRows(products) {
       window.renderCatalogBulkActionsBar(commerce);
     });
   });
+
+  if (window.catalogQuickEditMode) {
+    tbody.querySelectorAll('.quick-edit-barcode-wms').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const prodId = e.target.getAttribute('data-id');
+        const cbWms = tbody.querySelector(`.quick-edit-send-barcode-wms[data-id="${prodId}"]`);
+        if (cbWms && e.target.value.trim().length > 0) {
+          cbWms.checked = true;
+        }
+      });
+    });
+  }
 
   window.renderCatalogBulkActionsBar(commerce);
 }
@@ -12449,7 +12496,30 @@ function setupCatalogListeners(commerce, mainPlatform) {
             if (p.sku) existingMap.set(String(p.sku).trim().toUpperCase(), p);
           });
 
-          const productsToInsert = syncedProds.map(sp => {
+          // Filtrar registros provisionales de ID de variante de Shopify que ya tengan su versión con SKU real
+          const variantIdRegex = /^5\d{13,14}$/;
+          const cleanSyncedProds = syncedProds.filter(sp => {
+            const s = String(sp.sku || '').trim();
+            if (variantIdRegex.test(s)) {
+              const hasRealTwin = syncedProds.some(o => {
+                const os = String(o.sku || '').trim();
+                return os !== s && !variantIdRegex.test(os) && (
+                  (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                  (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+                );
+              }) || Array.from(existingMap.values()).some(o => {
+                const os = String(o.sku || '').trim();
+                return os !== s && !variantIdRegex.test(os) && (
+                  (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                  (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+                );
+              });
+              return !hasRealTwin;
+            }
+            return true;
+          });
+
+          const productsToInsert = cleanSyncedProds.map(sp => {
             const cleanSku = String(sp.sku || '').trim().toUpperCase();
             const existing = existingMap.get(cleanSku);
 
@@ -12477,6 +12547,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               lot_number: existing?.lot_number || null,
               alias: existing?.alias || null,
               send_barcode_to_picker: existing?.send_barcode_to_picker ?? false,
+              barcode_wms: existing?.barcode_wms || null,
+              send_barcode_wms_to_picker: existing?.send_barcode_wms_to_picker ?? true,
               send_alias_to_picker: existing?.send_alias_to_picker ?? false,
               color: existing?.color || null,
               talla: existing?.talla || null,
@@ -12548,17 +12620,38 @@ function setupCatalogListeners(commerce, mainPlatform) {
         }
 
         const wmsProds = typeof window.fetchAllSupabaseRows === 'function'
-          ? await window.fetchAllSupabaseRows('products', 'sku', q => q.eq('comercio', commerce))
-          : (await supabase.from('products').select('sku').eq('comercio', commerce)).data;
+          ? await window.fetchAllSupabaseRows('products', 'sku, barcode, name', q => q.eq('comercio', commerce))
+          : (await supabase.from('products').select('sku, barcode, name').eq('comercio', commerce)).data;
 
         const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
 
         const seenNewSkus = new Set();
         const newSyncedProds = [];
 
+        const variantIdRegex = /^5\d{13,14}$/;
         for (const sp of syncedProds) {
           const sku = String(sp.sku || '').trim().toUpperCase();
-          if (sku && !wmsSkus.has(sku) && !seenNewSkus.has(sku)) {
+          if (!sku) continue;
+
+          // Si el SKU es un ID de variante provisional de Shopify y ya existe un producto con el mismo código de barras o nombre con SKU real, omitirlo
+          if (variantIdRegex.test(sku)) {
+            const hasRealTwin = (wmsProds || []).some(o => {
+              const os = String(o.sku || '').trim();
+              return os !== sku && !variantIdRegex.test(os) && (
+                (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+              );
+            }) || syncedProds.some(o => {
+              const os = String(o.sku || '').trim().toUpperCase();
+              return os !== sku && !variantIdRegex.test(os) && (
+                (sp.barcode && o.barcode && String(sp.barcode).trim() === String(o.barcode).trim()) ||
+                (sp.name && o.name && sp.name.trim().toLowerCase() === o.name.trim().toLowerCase())
+              );
+            });
+            if (hasRealTwin) continue;
+          }
+
+          if (!wmsSkus.has(sku) && !seenNewSkus.has(sku)) {
             seenNewSkus.add(sku);
             newSyncedProds.push(sp);
           }
@@ -13145,6 +13238,14 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
+          const barWmsInput = document.querySelector(`.quick-edit-barcode-wms[data-id="${prodId}"]`);
+          const oldBarcodeWms = barWmsInput ? barWmsInput.getAttribute('data-old') || '' : '';
+          const newBarcodeWms = barWmsInput ? barWmsInput.value.trim() || '' : '';
+
+          const sendBarWmsInput = document.querySelector(`.quick-edit-send-barcode-wms[data-id="${prodId}"]`);
+          const oldSendBarWms = sendBarWmsInput ? sendBarWmsInput.getAttribute('data-old') === 'true' : true;
+          const newSendBarWms = sendBarWmsInput ? sendBarWmsInput.checked : true;
+
           const aliasInput = document.querySelector(`.quick-edit-alias[data-id="${prodId}"]`);
           const oldAlias = aliasInput ? aliasInput.getAttribute('data-old') || '' : '';
           const newAlias = aliasInput ? aliasInput.value.trim() || '' : '';
@@ -13157,7 +13258,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
           const newStatus = statusInput ? statusInput.value : 'active';
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldBarcodeWms !== newBarcodeWms || oldSendBarWms !== newSendBarWms || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
             changes.push({
               prodId,
               oldStock,
@@ -13174,6 +13275,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
               newBarcode,
               oldSendBar,
               newSendBar,
+              oldBarcodeWms,
+              newBarcodeWms,
+              oldSendBarWms,
+              newSendBarWms,
               oldStatus,
               newStatus,
               oldAlias,
@@ -13231,6 +13336,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
                 send_barcode_to_picker: ch.newSendBar,
+                barcode_wms: ch.newBarcodeWms || null,
+                send_barcode_wms_to_picker: ch.newSendBarWms,
                 alias: ch.newAlias || null,
                 send_alias_to_picker: ch.newSendAlias,
                 status: ch.newStatus
@@ -20550,12 +20657,28 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
 async function renderAdminCatalog() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
-    <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-      <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
-        <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)
-      </label>
-      <div id="eq-admin-client-dropdown-container"></div>
-      <div id="catalog-admin-stats-container" style="margin-top: 1.5rem; display: none;"></div>
+    <style>
+      #eq-admin-client-dropdown-container > div:first-child {
+        padding: 0.45rem 0.75rem !important;
+        font-size: 0.85rem !important;
+        min-height: 38px;
+        box-sizing: border-box;
+      }
+      @media (max-width: 1100px) {
+        #catalog-admin-stats-container {
+          border-left: none !important;
+          padding-left: 0 !important;
+        }
+      }
+    </style>
+    <div class="catalog-admin-header-bar" style="margin-bottom: 1.25rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; position: relative; z-index: 20;">
+      <div style="flex: 0 0 250px; min-width: 220px; max-width: 280px;">
+        <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem; color: var(--color-text-main); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;">
+          <i class="ri-user-settings-line" style="color: var(--color-primary); font-size: 0.85rem;"></i>Seleccionar Cliente (Comercio)
+        </label>
+        <div id="eq-admin-client-dropdown-container"></div>
+      </div>
+      <div id="catalog-admin-stats-container" style="flex: 1 1 0; min-width: 0; display: none; border-left: 1px solid var(--color-border); padding-left: 1rem;"></div>
     </div>
     <div id="eq-admin-workspace" style="display: none;">
     </div>
@@ -20637,9 +20760,9 @@ async function renderAdminCatalogWorkspace(commerce) {
   if (statsContainer) {
     statsContainer.style.display = 'block';
     statsContainer.innerHTML = `
-      <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; width: 100%;">
-        <div style="flex: 1 1 220px; height: 76px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 0.85rem;">
-          <i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem; font-size: 1.2rem;"></i> Cargando estadísticas...
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; width: 100%; align-items: center;">
+        <div style="flex: 1 1 180px; height: 56px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 0.82rem;">
+          <i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem; font-size: 1.1rem;"></i> Cargando estadísticas...
         </div>
       </div>
     `;
@@ -20737,55 +20860,55 @@ async function renderAdminCatalogWorkspace(commerce) {
       const pendingIncidents = incidents.filter(i => i.status === 'pendiente').length;
 
       statsContainer.innerHTML = `
-        <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; width: 100%;">
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; width: 100%; align-items: center;">
           <!-- Tarjeta SKUs -->
-          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
-            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary);">
+          <div style="flex: 1 1 180px; min-width: 170px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.65rem; box-shadow: var(--shadow-sm); min-height: 56px; height: 56px; box-sizing: border-box; transition: all 0.25s ease;">
+            <div style="width: 36px; height: 36px; min-width: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary);">
               <i class="ri-barcode-line"></i>
             </div>
-            <div>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">SKUs en Catálogo</div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
-                ${totalSkus} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">(${skusWithStock} con stock > 0)</span>
+            <div style="min-width: 0; overflow: hidden;">
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">SKUs en Catálogo</div>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.1rem; line-height: 1.2; white-space: nowrap;">
+                ${totalSkus} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">(${skusWithStock} con stock > 0)</span>
               </div>
             </div>
           </div>
 
           <!-- Tarjeta Packs -->
-          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
-            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+          <div style="flex: 1 1 130px; min-width: 120px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.65rem; box-shadow: var(--shadow-sm); min-height: 56px; height: 56px; box-sizing: border-box; transition: all 0.25s ease;">
+            <div style="width: 36px; height: 36px; min-width: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
               <i class="ri-stack-line"></i>
             </div>
-            <div>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Packs / Combos</div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+            <div style="min-width: 0; overflow: hidden;">
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Packs / Combos</div>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.1rem; line-height: 1.2;">
                 ${totalPacks}
               </div>
             </div>
           </div>
 
           <!-- Tarjeta Virtuales -->
-          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
-            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(16, 185, 129, 0.1); color: #10b981;">
+          <div style="flex: 1 1 130px; min-width: 120px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.65rem; box-shadow: var(--shadow-sm); min-height: 56px; height: 56px; box-sizing: border-box; transition: all 0.25s ease;">
+            <div style="width: 36px; height: 36px; min-width: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(16, 185, 129, 0.1); color: #10b981;">
               <i class="ri-computer-line"></i>
             </div>
-            <div>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Artículos Virtuales</div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+            <div style="min-width: 0; overflow: hidden;">
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Artículos Virtuales</div>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.1rem; line-height: 1.2;">
                 ${totalVirtual}
               </div>
             </div>
           </div>
 
           <!-- Tarjeta Incidencias -->
-          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
-            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
+          <div style="flex: 1 1 170px; min-width: 160px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.65rem; box-shadow: var(--shadow-sm); min-height: 56px; height: 56px; box-sizing: border-box; transition: all 0.25s ease;">
+            <div style="width: 36px; height: 36px; min-width: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
               <i class="ri-alert-line"></i>
             </div>
-            <div>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Incidencias</div>
-              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
-                ${pendingIncidents} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">pendientes (${totalIncidents} tot.)</span>
+            <div style="min-width: 0; overflow: hidden;">
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Incidencias</div>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.1rem; line-height: 1.2; white-space: nowrap;">
+                ${pendingIncidents} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">pendientes (${totalIncidents} tot.)</span>
               </div>
             </div>
           </div>
@@ -25991,11 +26114,11 @@ function setupUploadEventListeners() {
 }
 
 function downloadSampleTemplate() {
-  const headers = ['sku', 'Nombre', 'Codigo de barras', 'tipo', 'color', 'variable 1', 'variable 2', 'talla', 'largo', 'ancho', 'alto', 'volumen'];
+  const headers = ['sku', 'Nombre', 'Codigo de barras', 'Codigo de barras WMS', 'tipo', 'color', 'variable 1', 'variable 2', 'talla', 'largo', 'ancho', 'alto', 'volumen'];
   const rows = [
-    ['CAM-BLANCA-M', 'Camiseta Algodon Blanca M', '7701234567890', 'Ropa', 'Blanco', 'Algodon', 'Manga Corta', 'M', '30', '25', '2', ''],
-    ['ZAP-RUN-42', 'Zapatilla Deportiva Running 42', '7709876543210', 'Calzado', 'Negro', 'Running', 'Suela Goma', '42', '32', '20', '12', ''],
-    ['CAJA-GRANDE', 'Caja de Carton Grande', '', 'Embalaje', 'Cafe', 'Corrugado', '', 'Unica', '1.0', '0.8', '0.6', '0.48']
+    ['CAM-BLANCA-M', 'Camiseta Algodon Blanca M', '7701234567890', '', 'Ropa', 'Blanco', 'Algodon', 'Manga Corta', 'M', '30', '25', '2', ''],
+    ['ZAP-RUN-42', 'Zapatilla Deportiva Running 42', '7709876543210', 'WMS-ZAP-42', 'Calzado', 'Negro', 'Running', 'Suela Goma', '42', '32', '20', '12', ''],
+    ['CAJA-GRANDE', 'Caja de Carton Grande', '', '', 'Embalaje', 'Cafe', 'Corrugado', '', 'Unica', '1.0', '0.8', '0.6', '0.48']
   ];
   
   // Create CSV format with BOM for Spanish accents
@@ -26089,7 +26212,7 @@ async function loadExistingMerchantSkus() {
     if (matchedProfile) {
       const { data: existingProducts } = await supabase
         .from('products')
-        .select('sku, barcode, color, talla, variable_1, variable_2, options, length, width, height, volumen')
+        .select('sku, barcode, barcode_wms, send_barcode_wms_to_picker, color, talla, variable_1, variable_2, options, length, width, height, volumen')
         .eq('comercio', selectedMerchantSigla);
 
       if (existingProducts) {
@@ -26135,8 +26258,9 @@ function normalizeRowKeys(row) {
     if (Object.prototype.hasOwnProperty.call(row, key)) {
       const normKey = key.trim().toLowerCase()
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s+/g, '_');
-      
+        .replace(/[^a-z0-9_]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "");
       normalized[normKey] = row[key];
     }
   }
@@ -26156,6 +26280,7 @@ function mapRowToProduct(row, dimensionUnit) {
   const sku = findValue(['sku', 'cod_articulo', 'codigo_articulo', 'ref', 'codigo']).toString().trim();
   const name = findValue(['nombre', 'name', 'nombre_producto', 'title', 'titulo', 'descripcion_producto']).toString().trim();
   const barcode = findValue(['codigo_de_barras', 'codigo_barras', 'barcode', 'barras', 'cod_barras', 'ean', 'upc', 'cod_barra']).toString().trim();
+  const barcode_wms = findValue(['codigo_de_barras_wms', 'codigo_barras_wms', 'barcode_wms', 'cbar_wms', 'barras_wms', 'cod_barras_wms', 'wms_barcode', 'wms_cbar', 'cbar_interno']).toString().trim();
   
   const type = findValue(['tipo', 'type', 'categoria', 'category', 'clase', 'rubro']).toString().trim();
   const color = findValue(['color', 'colour', 'tono', 'color_item']).toString().trim();
@@ -26197,6 +26322,7 @@ function mapRowToProduct(row, dimensionUnit) {
     sku,
     name,
     barcode: barcode || null,
+    barcode_wms: barcode_wms || null,
     type: type || null,
     color: color || null,
     variable_1: variable_1 || null,
@@ -26270,7 +26396,11 @@ function renderPreviewTable() {
         <td>${statusHtml}</td>
         <td style="font-weight: 700; color: var(--color-dark);">${p.sku}</td>
         <td>${p.name}</td>
-        <td>${p.barcode || '-'}</td>
+        <td>
+          ${p.barcode ? `<div><span style="color: var(--color-text-muted); font-size: 0.75rem;">Origen:</span> ${p.barcode}</div>` : ''}
+          ${p.barcode_wms ? `<div><span style="color: #2563eb; font-weight: 600; font-size: 0.75rem;">WMS:</span> <span style="font-family: monospace; color: #1d4ed8; font-weight: 600;">${p.barcode_wms}</span></div>` : ''}
+          ${(!p.barcode && !p.barcode_wms) ? '-' : ''}
+        </td>
         <td>${p.type || '-'}</td>
         <td>${p.color || '-'}</td>
         <td>${variablesHtml}</td>
@@ -26388,6 +26518,8 @@ async function saveProductsToSupabase() {
         sku: p.sku,
         name: p.name,
         barcode: p.barcode || existing?.barcode || null,
+        barcode_wms: p.barcode_wms || existing?.barcode_wms || null,
+        send_barcode_wms_to_picker: existing?.send_barcode_wms_to_picker !== false,
         type: p.type,
         color: finalColor,
         variable_1: finalVar1,
@@ -47134,6 +47266,10 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-name').value = product.name;
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
     document.getElementById('edit-prod-send-barcode').checked = product.send_barcode_to_picker || false;
+    const barcodeWmsInput = document.getElementById('edit-prod-barcode-wms');
+    if (barcodeWmsInput) barcodeWmsInput.value = product.barcode_wms || '';
+    const sendBarcodeWmsInput = document.getElementById('edit-prod-send-barcode-wms');
+    if (sendBarcodeWmsInput) sendBarcodeWmsInput.checked = product.send_barcode_wms_to_picker !== false;
     document.getElementById('edit-prod-picking-strict').checked = product.picking_match_strict || false;
     document.getElementById('edit-prod-alias').value = product.alias || '';
     const sendAliasInput = document.getElementById('edit-prod-send-alias');
@@ -47295,6 +47431,16 @@ function initProductFormListeners() {
     editHeight.addEventListener('input', handleInput);
   }
 
+  const editProdBarcodeWms = document.getElementById('edit-prod-barcode-wms');
+  const editProdSendBarcodeWms = document.getElementById('edit-prod-send-barcode-wms');
+  if (editProdBarcodeWms && editProdSendBarcodeWms) {
+    editProdBarcodeWms.addEventListener('input', (e) => {
+      if (e.target.value.trim().length > 0) {
+        editProdSendBarcodeWms.checked = true;
+      }
+    });
+  }
+
   const formNew = document.getElementById('form-new-product');
   if (formNew) {
     formNew.addEventListener('submit', async (e) => {
@@ -47428,6 +47574,8 @@ function initProductFormListeners() {
       const name = document.getElementById('edit-prod-name').value;
       const barcode = document.getElementById('edit-prod-barcode').value || null;
       const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
+      const barcodeWms = document.getElementById('edit-prod-barcode-wms')?.value?.trim() || null;
+      const sendBarcodeWms = document.getElementById('edit-prod-send-barcode-wms')?.checked ?? true;
       const alias = document.getElementById('edit-prod-alias').value.trim() || null;
       const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
 
@@ -47490,6 +47638,9 @@ function initProductFormListeners() {
             sku,
             name,
             barcode,
+            send_barcode_to_picker: sendBarcode,
+            barcode_wms: barcodeWms,
+            send_barcode_wms_to_picker: sendBarcodeWms,
             alias,
             send_alias_to_picker: sendAlias,
             color: colorVal,
@@ -47509,7 +47660,6 @@ function initProductFormListeners() {
             lot_number: lot,
             is_pack: isPack,
             is_virtual: isVirtual,
-            send_barcode_to_picker: sendBarcode,
             status: statusVal,
             picking_match_strict: document.getElementById('edit-prod-picking-strict')?.checked || false
           })
@@ -48643,7 +48793,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
+        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -48858,7 +49008,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: window.resolvePickerSku(prod, order, commerceStrict),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: colorVal ? String(colorVal).trim() : null,
       color_bg: colorBg || null,
@@ -48922,7 +49072,7 @@ window.sendSingleOrderToPicker = async function(order) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
-        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', order.id);
       if (freshItems && freshItems.length > 0) {
         items = freshItems;
@@ -48974,7 +49124,7 @@ window.sendSingleOrderToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: window.resolvePickerSku(prod, order, commerceStrict),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: colorVal ? String(colorVal).trim() : null,
       color_bg: colorBg || null,
@@ -51797,7 +51947,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     const { data: orderItems, error: itemsErr } = await supabase
       .from('order_items')
-      .select('*, products(id, sku, name, price, barcode, send_barcode_to_picker, picking_match_strict)')
+      .select('*, products(id, sku, name, price, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict)')
       .eq('order_id', orderId);
 
     if (itemsErr) throw itemsErr;
@@ -52248,7 +52398,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {

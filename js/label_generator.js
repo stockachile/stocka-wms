@@ -184,6 +184,44 @@ import supabase from './supabase.js';
   }
 
   /**
+   * Resolves the string code to encode on a barcode label based on the selected dataSource.
+   * Priority logic:
+   * - 'barcode_wms': item.barcode_wms -> item.barcode -> item.sku
+   * - 'barcode': item.barcode -> item.sku
+   * - 'sku' (or default): item.sku
+   */
+  function resolveLabelCode(item, dataSource) {
+    if (!item) return '';
+    if (dataSource === 'barcode_wms') {
+      return (item.barcode_wms && item.barcode_wms.trim()) || (item.barcode && item.barcode.trim()) || (item.sku || '');
+    }
+    if (dataSource === 'barcode') {
+      return (item.barcode && item.barcode.trim()) || (item.sku || '');
+    }
+    return item.sku || '';
+  }
+
+  function getLabelCodeSourceBadge(item, dataSource) {
+    if (!item) return '';
+    if (dataSource === 'barcode_wms') {
+      if (item.barcode_wms && item.barcode_wms.trim()) {
+        return ' <span style="font-size:0.7rem;color:#2563eb;font-weight:600;" title="Código de barras WMS">(WMS)</span>';
+      }
+      if (item.barcode && item.barcode.trim()) {
+        return ' <span style="font-size:0.7rem;color:var(--color-primary);" title="Fallback a código de barras de origen">(Origen)</span>';
+      }
+      return ' <span style="font-size:0.7rem;color:var(--color-warning);" title="Fallback a SKU">(SKU)</span>';
+    }
+    if (dataSource === 'barcode') {
+      if (item.barcode && item.barcode.trim()) {
+        return ' <span style="font-size:0.7rem;color:var(--color-primary);" title="Código de barras de origen">(Origen)</span>';
+      }
+      return ' <span style="font-size:0.7rem;color:var(--color-warning);" title="Fallback a SKU">(SKU)</span>';
+    }
+    return '';
+  }
+
+  /**
    * Generates a Code128 vector barcode SVG and returns its HTML string.
    * Utilizes JsBarcode.
    */
@@ -461,11 +499,12 @@ import supabase from './supabase.js';
             <div>
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Origen del Código</label>
               <select id="global-label-source" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
-                <option value="sku" selected>Usar SKU del Producto</option>
-                <option value="barcode">Usar Campo "Código de Barras" del Catálogo</option>
+                <option value="barcode_wms" selected>Prioridad WMS (CBAR WMS > CBAR Origen > SKU)</option>
+                <option value="barcode">Código de Barras de Origen (CBAR Origen > SKU)</option>
+                <option value="sku">Usar SKU del Producto</option>
               </select>
               <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
-                * Si un producto no posee código de barra en catálogo, se utilizará su SKU.
+                * Selección del valor para el código de barras. Si el campo no está definido, aplicará fallback automático a SKU.
               </span>
             </div>
 
@@ -2655,7 +2694,9 @@ import supabase from './supabase.js';
       // Filter local catalog
       const matches = localCatalogProducts.filter(p => 
         (p.sku || '').toLowerCase().includes(val) || 
-        (p.name || '').toLowerCase().includes(val)
+        (p.name || '').toLowerCase().includes(val) ||
+        (p.barcode || '').toLowerCase().includes(val) ||
+        (p.barcode_wms || '').toLowerCase().includes(val)
       ).slice(0, 10); // Limit to top 10
 
       if (matches.length === 0) {
@@ -2663,11 +2704,16 @@ import supabase from './supabase.js';
       } else {
         dropdown.innerHTML = matches.map(p => {
           const qty = p.inventory && p.inventory[0] ? p.inventory[0].quantity : 0;
+          const barcodeDetail = p.barcode_wms 
+            ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:#2563eb;font-family:monospace;">[WMS: ${escapeHtml(p.barcode_wms)}]</span>`
+            : (p.barcode ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:var(--color-text-muted);font-family:monospace;">[${escapeHtml(p.barcode)}]</span>` : '');
+
           return `
             <div class="label-search-item" data-id="${p.id}" style="padding:0.6rem 0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);display:flex;justify-content:space-between;align-items:center;transition:background 0.15s;font-size:0.85rem;">
               <div>
                 <strong style="color:var(--color-text-main);">${escapeHtml(p.sku)}</strong>
                 <span style="color:var(--color-text-muted);margin-left:0.5rem;font-size:0.8rem;">${escapeHtml(p.name)}</span>
+                ${barcodeDetail}
               </div>
               <span class="badge" style="font-size:0.75rem;background:rgba(59,130,246,0.08);color:var(--color-primary);padding:0.15rem 0.4rem;border-radius:4px;">Stock: ${qty}</span>
             </div>
@@ -2695,6 +2741,7 @@ import supabase from './supabase.js';
             sku: prod.sku,
             name: prod.name,
             barcode: prod.barcode || '',
+            barcode_wms: prod.barcode_wms || '',
             qty: 1
           });
         }
@@ -2754,6 +2801,7 @@ import supabase from './supabase.js';
               sku: p.sku,
               name: p.name,
               barcode: p.barcode || '',
+              barcode_wms: p.barcode_wms || '',
               qty: qty
             };
           });
@@ -3358,7 +3406,7 @@ import supabase from './supabase.js';
     const size = document.getElementById('global-label-size')?.value || '5x2.5';
     const template = document.getElementById('global-label-template')?.value || 'name+barcode';
     const withHumanReadable = document.getElementById('global-label-readable')?.checked || false;
-    const dataSource = document.getElementById('global-label-source')?.value || 'sku';
+    const dataSource = document.getElementById('global-label-source')?.value || 'barcode_wms';
 
     // Sum physical copies
     const totalCopies = printQueue.reduce((acc, item) => acc + item.qty, 0);
@@ -3386,14 +3434,14 @@ import supabase from './supabase.js';
 
     // Render queue list rows
     tbody.innerHTML = printQueue.map((item, index) => {
-      const codeVal = (dataSource === 'sku' || !item.barcode) ? item.sku : item.barcode;
+      const codeVal = resolveLabelCode(item, dataSource);
+      const badgeHtml = getLabelCodeSourceBadge(item, dataSource);
       return `
         <tr style="border-bottom:1px solid var(--color-border);background:var(--color-surface);vertical-align:middle;">
           <td style="padding:0.75rem 0.8rem;font-weight:500;color:var(--color-text-main);">${escapeHtml(item.name)}</td>
           <td style="padding:0.75rem 0.8rem;color:var(--color-text-muted);font-family:monospace;font-size:0.8rem;">${escapeHtml(item.sku)}</td>
           <td style="padding:0.75rem 0.8rem;text-align:center;font-family:monospace;color:var(--color-primary);font-size:0.8rem;">
-            ${escapeHtml(codeVal)}
-            ${(!item.barcode && dataSource === 'barcode') ? ' <span style="font-size:0.7rem;color:var(--color-warning);">(SKU temporal)</span>' : ''}
+            ${escapeHtml(codeVal)}${badgeHtml}
           </td>
           <td style="padding:0.75rem 0.8rem;text-align:center;">
             <div style="display:inline-flex;align-items:center;gap:0.35rem;border:1px solid var(--color-border);border-radius:4px;padding:0.15rem 0.35rem;background:var(--color-bg);">
@@ -3452,7 +3500,7 @@ import supabase from './supabase.js';
       return;
     }
 
-    const valueToEncode = (options.dataSource === 'sku' || !item.barcode) ? item.sku : item.barcode;
+    const valueToEncode = resolveLabelCode(item, options.dataSource);
     const barcodeSVG = window.generateBarcodeSVG(valueToEncode, options.withHumanReadable, options.size);
 
     // Apply exact proportions for the simulated sticker inside the box
@@ -3552,6 +3600,7 @@ import supabase from './supabase.js';
 
     const defaultSku = product.sku || '';
     const defaultBarcode = product.barcode || '';
+    const defaultBarcodeWms = product.barcode_wms || '';
 
     // HTML Structure inside the SweetAlert2 modal
     const swalHtml = `
@@ -3585,9 +3634,14 @@ import supabase from './supabase.js';
         <div>
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Origen del Código de Barras</label>
           <select id="swal-label-source" class="swal2-select" style="width: 100%; margin: 0; font-size: 0.875rem; height: 42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
-            <option value="sku" selected>Usar SKU del Producto (${escapeHtml(defaultSku)})</option>
-            <option value="barcode" ${!defaultBarcode ? 'disabled' : ''}>
-              ${defaultBarcode ? `Usar Campo Código (${escapeHtml(defaultBarcode)})` : 'Código no definido en catálogo'}
+            <option value="barcode_wms" ${defaultBarcodeWms ? 'selected' : (defaultBarcode ? '' : 'selected')}>
+              ${defaultBarcodeWms ? `Código de Barras WMS (${escapeHtml(defaultBarcodeWms)})` : 'Prioridad WMS (no asignado - fallback)'}
+            </option>
+            <option value="barcode" ${!defaultBarcodeWms && defaultBarcode ? 'selected' : ''} ${!defaultBarcode ? 'disabled' : ''}>
+              ${defaultBarcode ? `Código de Origen (${escapeHtml(defaultBarcode)})` : 'Código de Origen (no definido)'}
+            </option>
+            <option value="sku" ${!defaultBarcodeWms && !defaultBarcode ? 'selected' : ''}>
+              Usar SKU del Producto (${escapeHtml(defaultSku)})
             </option>
           </select>
         </div>
@@ -3656,7 +3710,7 @@ import supabase from './supabase.js';
           const withHumanReadable = readableCb.checked;
           const dataSource = sourceSelect.value;
 
-          const codeVal = (dataSource === 'sku' || !defaultBarcode) ? defaultSku : defaultBarcode;
+          const codeVal = resolveLabelCode(product, dataSource);
           const barcodeSVG = window.generateBarcodeSVG(codeVal, withHumanReadable, size);
 
           let w = '200px'; let h = '100px';
@@ -3744,6 +3798,7 @@ import supabase from './supabase.js';
           sku: product.sku,
           name: product.name,
           barcode: product.barcode || '',
+          barcode_wms: product.barcode_wms || '',
           qty: opts.qty
         }];
         window.printLabels(singleQueue, opts);
@@ -3754,6 +3809,7 @@ import supabase from './supabase.js';
           sku: product.sku,
           name: product.name,
           barcode: product.barcode || '',
+          barcode_wms: product.barcode_wms || '',
           qty: opts.qty
         }];
         window.showZPLModal(singleQueue, opts);
@@ -3784,7 +3840,7 @@ import supabase from './supabase.js';
     }
     
     queue.forEach(item => {
-      const codeVal = (options.dataSource === 'sku' || !item.barcode) ? item.sku : item.barcode;
+      const codeVal = resolveLabelCode(item, options.dataSource);
       const isReadable = options.withHumanReadable ? 'Y' : 'N';
       
       const cleanName = (item.name || '').substring(0, 80).replace(/[\^\~]/g, ''); 
@@ -3930,7 +3986,7 @@ import supabase from './supabase.js';
     let labelPagesHTML = '';
 
     queue.forEach(item => {
-      const codeVal = (options.dataSource === 'sku' || !item.barcode) ? item.sku : item.barcode;
+      const codeVal = resolveLabelCode(item, options.dataSource);
       const barcodeSVG = window.generateBarcodeSVG(codeVal, options.withHumanReadable, options.size);
 
       // Render copies for physical printing pages
@@ -6677,6 +6733,7 @@ import supabase from './supabase.js';
             const catalogProd = localCatalogProducts.find(cp => (cp.sku || '').toUpperCase() === p.sku.toUpperCase());
             const finalName = p.name || (catalogProd ? catalogProd.name : 'Producto del Ingreso');
             const finalBarcode = p.barcode || (catalogProd ? catalogProd.barcode : '');
+            const finalBarcodeWms = p.barcode_wms || (catalogProd ? catalogProd.barcode_wms : '');
             const finalId = catalogProd ? catalogProd.id : p.sku;
 
             const existing = printQueue.find(item => item.sku.toUpperCase() === p.sku.toUpperCase());
@@ -6688,6 +6745,7 @@ import supabase from './supabase.js';
                 sku: p.sku,
                 name: finalName,
                 barcode: finalBarcode,
+                barcode_wms: finalBarcodeWms,
                 qty: targetQty
               });
             }

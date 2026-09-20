@@ -523,14 +523,28 @@
             <input type="text" id="edit-prod-name" class="form-input">
           </div>
           <div class="form-group">
-            <label class="form-label">Código de Barras</label>
+            <label class="form-label">Código de Barras (Origen)</label>
             <input type="text" id="edit-prod-barcode" class="form-input" placeholder="Ej. 779123456789">
+            <small class="text-muted" style="font-size: 0.72rem; display: block; margin-top: 0.2rem;">Código de barras recibido desde la plataforma externa (ej. Shopify).</small>
           </div>
-          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem;">
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; margin-bottom: 0.75rem;">
             <input type="checkbox" id="edit-prod-send-barcode" style="width: auto; cursor: pointer; margin: 0;">
-            <label for="edit-prod-send-barcode" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
-              Enviar código de barras al Picker (en lugar del SKU)
+            <label for="edit-prod-send-barcode" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal; font-size: 0.82rem;">
+              Enviar código de origen al Picker (si no hay CBAR WMS)
             </label>
+          </div>
+          <div class="form-group" style="background: rgba(37, 99, 235, 0.03); border: 1px solid rgba(37, 99, 235, 0.2); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 0.75rem;">
+            <label class="form-label" style="font-weight: 600; color: #1d4ed8; margin-bottom: 0.25rem;">Código de Barras WMS (CBAR WMS)</label>
+            <input type="text" id="edit-prod-barcode-wms" class="form-input" placeholder="Opcional. Si no se define, se asume igual al de origen" style="background: #fff; border: 1px solid rgba(37, 99, 235, 0.4);">
+            <small class="text-muted" style="font-size: 0.72rem; display: block; margin-top: 0.25rem; color: #475569;">
+              Código especial asignado por el WMS. Si se define, por defecto se enviará al Picker para el escaneo de preparación.
+            </small>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+              <input type="checkbox" id="edit-prod-send-barcode-wms" style="width: auto; cursor: pointer; margin: 0;">
+              <label for="edit-prod-send-barcode-wms" class="form-label" style="margin: 0; cursor: pointer; font-weight: 600; font-size: 0.82rem; color: #1d4ed8;">
+                Enviar CBAR WMS al Picker (Activo por defecto)
+              </label>
+            </div>
           </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem;">
             <input type="checkbox" id="edit-prod-picking-strict" style="width: auto; cursor: pointer; margin: 0;">

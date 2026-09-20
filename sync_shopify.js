@@ -537,6 +537,8 @@ async function syncProducts(integration) {
       const products = data.products || [];
       console.log(`Se encontraron ${products.length} productos base en la página ${pageCount}.`);
 
+      const orphanVariantIdsToClean = [];
+
       for (const product of products) {
         // Intentar obtener la imagen principal del producto
         let imageUrl = null;
@@ -547,9 +549,15 @@ async function syncProducts(integration) {
         }
 
         for (const variant of product.variants) {
-          let variantSku = variant.sku || (variant.id ? String(variant.id) : '');
-          let cleanSku = variantSku.trim();
+          const rawSku = (variant.sku || '').trim();
+          const variantIdStr = variant.id ? String(variant.id) : '';
+          let cleanSku = rawSku || variantIdStr;
           if (!cleanSku) continue;
+
+          // Si la variante tiene SKU real asignado, marcar el ID de variante para limpieza de registros provisionales
+          if (rawSku && variantIdStr && rawSku !== variantIdStr) {
+            orphanVariantIdsToClean.push(variantIdStr);
+          }
 
           const upperSku = cleanSku.toUpperCase();
           if (seenSkus.has(upperSku)) {
@@ -592,6 +600,46 @@ async function syncProducts(integration) {
         const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
         if (nextMatch) {
           url = nextMatch[1];
+        }
+      }
+    }
+
+    // Limpiar huérfanos con SKU de ID de variante previo
+    if (orphanVariantIdsToClean.length > 0) {
+      console.log(`Verificando y limpiando posibles SKUs provisionales huérfanos (${orphanVariantIdsToClean.length})...`);
+      for (let i = 0; i < orphanVariantIdsToClean.length; i += 100) {
+        const chunk = orphanVariantIdsToClean.slice(i, i + 100);
+        await supabase
+          .from('synced_products')
+          .delete()
+          .eq('comercio', integration.comercio)
+          .eq('platform', 'Shopify')
+          .in('sku', chunk);
+
+        const { data: ghosts } = await supabase
+          .from('products')
+          .select('id, sku')
+          .eq('comercio', integration.comercio)
+          .in('sku', chunk);
+
+        if (ghosts && ghosts.length > 0) {
+          const ghostIds = ghosts.map(g => g.id);
+          const { data: invs } = await supabase
+            .from('inventory')
+            .select('product_id, quantity')
+            .in('product_id', ghostIds);
+
+          const stockMap = new Map();
+          (invs || []).forEach(inv => {
+            stockMap.set(inv.product_id, (stockMap.get(inv.product_id) || 0) + (inv.quantity || 0));
+          });
+
+          const idsToDelete = ghostIds.filter(id => (stockMap.get(id) || 0) <= 0);
+          if (idsToDelete.length > 0) {
+            await supabase.from('inventory').delete().in('product_id', idsToDelete);
+            await supabase.from('products').delete().in('id', idsToDelete);
+            console.log(`   🧹 Limpiados ${idsToDelete.length} productos huérfanos con SKU provisional en products.`);
+          }
         }
       }
     }

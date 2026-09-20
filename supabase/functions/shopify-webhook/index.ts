@@ -769,10 +769,50 @@ async function handleProductSave(merchantId, comercio, product) {
       }
     }
 
+    const rawSku = (variant.sku || "").trim();
+    const variantIdStr = variant.id ? variant.id.toString() : "";
+    const effectiveSku = rawSku || variantIdStr;
+    if (!effectiveSku) continue;
+
+    // Si la variante tiene un SKU real, limpiar cualquier registro huérfano provisional previo
+    if (rawSku && variantIdStr && rawSku !== variantIdStr) {
+      try {
+        await supabase
+          .from("synced_products")
+          .delete()
+          .eq("comercio", comercio)
+          .eq("platform", "Shopify")
+          .eq("sku", variantIdStr);
+
+        const { data: ghostProd } = await supabase
+          .from("products")
+          .select("id")
+          .eq("comercio", comercio)
+          .eq("sku", variantIdStr)
+          .maybeSingle();
+
+        if (ghostProd) {
+          const { data: ghostInv } = await supabase
+            .from("inventory")
+            .select("quantity")
+            .eq("product_id", ghostProd.id);
+
+          const totalStock = (ghostInv || []).reduce((acc, i) => acc + (i.quantity || 0), 0);
+          if (totalStock <= 0) {
+            await supabase.from("inventory").delete().eq("product_id", ghostProd.id);
+            await supabase.from("products").delete().eq("id", ghostProd.id);
+            console.log(`Variante huérfana ID ${variantIdStr} eliminada de products al recibirse SKU real ${rawSku}.`);
+          }
+        }
+      } catch (cleanErr) {
+        console.warn("Aviso al limpiar SKU provisional de variante:", cleanErr);
+      }
+    }
+
     const productDataToUpsert = {
       comercio: comercio,
       platform: "Shopify",
-      sku: variant.sku || variant.id.toString(),
+      sku: effectiveSku,
       name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
       image_url: varImageUrl,
       status: product.status,
@@ -785,9 +825,9 @@ async function handleProductSave(merchantId, comercio, product) {
       .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
 
     if (error) {
-      console.error(`Error al insertar/actualizar variante de producto SKU ${variant.sku} en synced_products:`, error);
+      console.error(`Error al insertar/actualizar variante de producto SKU ${effectiveSku} en synced_products:`, error);
     } else {
-      console.log(`Variante SKU ${variant.sku} sincronizada con éxito en tiempo real en synced_products.`);
+      console.log(`Variante SKU ${effectiveSku} sincronizada con éxito en tiempo real en synced_products.`);
     }
   }
 }
