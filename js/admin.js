@@ -1459,7 +1459,7 @@ window.getOrderPaymentBadgeHtml = function(order) {
     return `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refund-line"></i> Reembolsado</span>`;
   }
   if (['partially_paid', 'parcialmente_pagado'].includes(rawFin)) {
-    return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> Parcialmente Pagado</span>`;
+    return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-time-line"></i> Parcialmente Pagado</span>`;
   }
   if (['authorized', 'autorizado'].includes(rawFin)) {
     return `<span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> Autorizado</span>`;
@@ -1467,7 +1467,7 @@ window.getOrderPaymentBadgeHtml = function(order) {
   if (['voided', 'anulado', 'cancelado'].includes(rawFin)) {
     return `<span style="background: var(--badge-danger-bg); color: var(--badge-danger-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Anulado</span>`;
   }
-  return `<span style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
+  return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
 };
 
 // Helper para verificar si un ítem de un pedido está eliminado/anulado/cancelado (ej. devuelto o reembolsado en Shopify)
@@ -5673,33 +5673,38 @@ window.applyWmsFiltersAndRender = function() {
     let payTag = '';
     let payBg = '#e5e7eb';
     let payColor = '#4b5563';
+    let payBorder = 'none';
     let payIcon = 'ri-money-dollar-circle-line';
     if (payStatus === 'paid' || payStatus === 'authorized') {
       payTag = 'PAGADO';
       payBg = '#d1fae5';
       payColor = '#065f46';
+      payBorder = '1px solid #a7f3d0';
       payIcon = 'ri-checkbox-circle-line';
     } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
       payTag = 'PAGO PENDIENTE';
-      payBg = '#fef3c7';
-      payColor = '#92400e';
+      payBg = '#991b1b';
+      payColor = '#ffffff';
+      payBorder = '1px solid #7f1d1d';
       payIcon = 'ri-error-warning-line';
     } else if (payStatus === 'partially_refunded' || payStatus === 'parcialmente_reembolsado') {
       payTag = 'PARCIALMENTE REEMBOLSADO';
       payBg = '#fee2e2';
       payColor = '#991b1b';
+      payBorder = '1px solid #fecaca';
       payIcon = 'ri-refund-line';
     } else if (payStatus === 'refunded' || payStatus === 'voided') {
       payTag = 'REEMBOLSADO';
       payBg = '#fee2e2';
       payColor = '#991b1b';
+      payBorder = '1px solid #fecaca';
       payIcon = 'ri-refund-line';
     } else if (order.payment_status) {
       payTag = order.payment_status.toUpperCase();
     }
     if (payTag) {
       const isPayActive = selectedTag === payTag;
-      paymentBadgeHtml = `<span class="badge wms-order-tag-badge ${isPayActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${payTag}', event)" style="background-color: ${payBg}; color: ${payColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isPayActive ? `outline: 2px solid ${payColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Estado de pago: ${payTag} (Clic para filtrar)"><i class="${payIcon}"></i> ${payTag}</span>`;
+      paymentBadgeHtml = `<span class="badge wms-order-tag-badge ${isPayActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${payTag}', event)" style="background-color: ${payBg}; color: ${payColor}; ${payBorder !== 'none' ? `border: ${payBorder};` : ''} font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isPayActive ? `outline: 2px solid ${payColor === '#ffffff' ? '#991b1b' : payColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Estado de pago: ${payTag} (Clic para filtrar)"><i class="${payIcon}"></i> ${payTag}</span>`;
     }
 
     // 2. Alerta de Cancelado (Shopify o estado WMS) o Devolución
@@ -15068,6 +15073,23 @@ function renderAdminInventoryRequestsTableBody() {
 
     const skusCount = r.total_skus || (r.products_list || []).length;
 
+    const isFinalized = (r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined));
+    const isClientSigned = !!(r.signed_at || r.signed_by);
+    const isAdminSigned = !!(r.admin_signed_at || r.admin_signed_by);
+
+    let signatureBadges = '';
+    if (isFinalized) {
+      const clientLabel = isClientSigned
+        ? `<span style="font-size: 0.68rem; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Cliente firmó de conformidad el ${r.signed_at ? new Date(r.signed_at).toLocaleDateString('es-CL') : ''}"><i class="ri-checkbox-circle-fill"></i> Cliente Firmó</span>`
+        : `<span style="font-size: 0.68rem; font-weight: 700; color: #b45309; background: #fefce8; border: 1px solid #fef08a; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Pendiente firma del cliente"><i class="ri-time-line"></i> Pend. Cliente</span>`;
+      
+      const adminLabel = isAdminSigned
+        ? `<span style="font-size: 0.68rem; font-weight: 700; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 2px;" title="Certificado por Supervisor"><i class="ri-shield-check-fill"></i> Sup. OK</span>`
+        : '';
+
+      signatureBadges = `<div style="margin-top: 3px; display: flex; flex-direction: column; gap: 2px; align-items: center;">${clientLabel}${adminLabel}</div>`;
+    }
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor=''">
         <td style="padding: 1rem 1.25rem; font-weight: 700; font-family: monospace; color: #6366f1;">
@@ -15097,6 +15119,7 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           ${statusBadge}
+          ${signatureBadges}
         </td>
         <td style="padding: 1rem 1.25rem; font-size: 0.85rem; color: var(--color-text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.requested_by || ''}">
           ${r.requested_by || 'Cliente WMS'}
@@ -15109,6 +15132,9 @@ function renderAdminInventoryRequestsTableBody() {
             </button>
             <!-- Botón Informe Oficial de Resultados (PDF) si está finalizada o tiene conteos -->
             ${(r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined)) ? `
+              <button class="btn btn-outline btn-sm btn-admin-sign-req" data-id="${r.id}" title="${isAdminSigned ? 'Acta Certificada Digitalmente por Supervisor (Clic para volver a firmar)' : 'Certificar / Firmar Acta como Supervisor STOCKA'}" style="padding: 0.35rem 0.55rem; border-color: ${isAdminSigned ? '#10b981' : '#059669'}; color: ${isAdminSigned ? '#059669' : '#047857'}; background: ${isAdminSigned ? 'rgba(16, 185, 129, 0.08)' : 'transparent'}; cursor: pointer;">
+                <i class="ri-quill-pen-line"></i>
+              </button>
               <button class="btn btn-outline btn-sm btn-admin-report-pdf" data-id="${r.id}" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer;">
                 <i class="ri-file-chart-line"></i>
               </button>
@@ -15138,6 +15164,20 @@ function renderAdminInventoryRequestsTableBody() {
   }).join('');
 
   // Vincular event listeners a los botones de acción
+  tbody.querySelectorAll('.btn-admin-sign-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req && typeof window.openInventoryDigitalSignatureModal === 'function') {
+        window.openInventoryDigitalSignatureModal({
+          req: req,
+          signerType: 'admin',
+          onSigned: () => renderAdminInventoryRequestsTable()
+        });
+      }
+    });
+  });
+
   tbody.querySelectorAll('.btn-admin-respond-req').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const reqId = e.currentTarget.getAttribute('data-id');
@@ -15566,6 +15606,8 @@ async function openAdminManageInventoryRequestModal(req) {
 
   const folio = req.folio || req.id.substring(0, 8);
   const products = Array.isArray(req.products_list) ? JSON.parse(JSON.stringify(req.products_list)) : [];
+  const isClientSigned = !!(req.signed_at || req.signed_by);
+  const isAdminSigned = !!(req.admin_signed_at || req.admin_signed_by);
 
   modal = document.createElement('div');
   modal.id = 'modal-admin-manage-inventory-request';
@@ -15670,6 +15712,78 @@ async function openAdminManageInventoryRequestModal(req) {
           </div>
         ` : ''}
 
+        <!-- Card de Trazabilidad y Firmas de Conformidad (Supervisor y Cliente) -->
+        <div style="background: var(--color-bg); border: 1.5px solid ${isAdminSigned && isClientSigned ? '#10b981' : 'var(--color-border)'}; border-radius: var(--radius-md); padding: 1rem 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-shield-check-line" style="font-size: 1.3rem; color: #059669;"></i>
+              <strong style="color: var(--color-text-main); font-size: 0.95rem;">
+                Trazabilidad y Firmas de Conformidad del Acta
+              </strong>
+            </div>
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <span class="badge ${isAdminSigned ? 'badge-success' : 'badge-warning'}" style="font-size: 0.75rem; font-weight: 700;">
+                ${isAdminSigned ? '✓ Supervisor Firmó' : '⏳ Pend. Supervisor'}
+              </span>
+              <span class="badge ${isClientSigned ? 'badge-success' : 'badge-warning'}" style="font-size: 0.75rem; font-weight: 700;">
+                ${isClientSigned ? '✓ Cliente Firmó' : '⏳ Pend. Cliente'}
+              </span>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <!-- Firma Supervisor -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <strong style="color: #065f46;"><i class="ri-user-star-line"></i> Supervisor STOCKA:</strong>
+                ${isAdminSigned ? '<span style="color: #10b981; font-weight: 700; font-size: 0.75rem;">CERTIFICADO</span>' : '<span style="color: #d97706; font-size: 0.75rem;">Sin firmar</span>'}
+              </div>
+              ${isAdminSigned ? `
+                <div style="color: var(--color-text-muted); font-size: 0.8rem; line-height: 1.4;">
+                  <div>Firmado por: <strong style="color: var(--color-text-main);">${req.admin_signed_by || 'Supervisor'}</strong></div>
+                  <div>Fecha: <strong>${new Date(req.admin_signed_at).toLocaleString('es-CL')}</strong></div>
+                  ${(req.admin_signature_data && req.admin_signature_data.startsWith('data:image/')) ? `
+                    <div style="margin-top: 6px; background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid #e2e8f0; display: inline-block;">
+                      <img src="${req.admin_signature_data}" style="max-height: 32px; display: block;" alt="Firma Supervisor">
+                    </div>
+                  ` : ''}
+                </div>
+              ` : `
+                <div style="color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem;">
+                  Certifica y sella digitalmente los conteos físicos para formalizar el acta oficial de auditoría.
+                </div>
+                <button type="button" class="btn btn-sm btn-admin-sign-now" style="background: #059669; border-color: #059669; color: #fff; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                  <i class="ri-quill-pen-line"></i> Firmar Acta como Supervisor
+                </button>
+              `}
+            </div>
+
+            <!-- Firma Cliente -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.75rem; font-size: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <strong style="color: #1e40af;"><i class="ri-user-line"></i> Cliente / Solicitante:</strong>
+                ${isClientSigned ? '<span style="color: #10b981; font-weight: 700; font-size: 0.75rem;">CONFORME</span>' : '<span style="color: #d97706; font-size: 0.75rem;">Pendiente</span>'}
+              </div>
+              ${isClientSigned ? `
+                <div style="color: var(--color-text-muted); font-size: 0.8rem; line-height: 1.4;">
+                  <div>Firmado por: <strong style="color: var(--color-text-main);">${req.signed_by || req.comercio}</strong> ${req.signed_rut ? `(RUT: <strong>${req.signed_rut}</strong>)` : ''}</div>
+                  ${req.signed_role ? `<div>Cargo: <strong>${req.signed_role}</strong></div>` : ''}
+                  <div>Fecha: <strong>${new Date(req.signed_at).toLocaleString('es-CL')}</strong></div>
+                  ${(req.signed_signature_data && req.signed_signature_data.startsWith('data:image/')) ? `
+                    <div style="margin-top: 6px; background: #fff; padding: 4px 8px; border-radius: 4px; border: 1px solid #e2e8f0; display: inline-block;">
+                      <img src="${req.signed_signature_data}" style="max-height: 32px; display: block;" alt="Firma Cliente">
+                    </div>
+                  ` : ''}
+                </div>
+              ` : `
+                <div style="color: var(--color-text-muted); font-size: 0.8rem;">
+                  El cliente dispone de un plazo de 7 días corridos desde el término de la auditoría para visar de conformidad.
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+
         <!-- TABLA DE CONTEO Y DISCREPANCIAS -->
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
@@ -15706,6 +15820,9 @@ async function openAdminManageInventoryRequestModal(req) {
 
       <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-sign-admin" style="border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; cursor: pointer;" title="Certificar acta con firma digital">
+            <i class="ri-quill-pen-line"></i> ${isAdminSigned ? 'Re-firmar Acta (Sup.)' : 'Firmar Acta Digital'}
+          </button>
           <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-report-pdf" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
             <i class="ri-file-chart-line"></i> Informe de Resultados (PDF)
           </button>
@@ -15853,6 +15970,44 @@ async function openAdminManageInventoryRequestModal(req) {
     if (typeof window.generateInventoryReportExcel === 'function') {
       window.generateInventoryReportExcel(updated);
     }
+  });
+
+  // Firma Digital de Supervisor desde el Modal de Gestión
+  const handleAdminSign = () => {
+    const currentProducts = extractUpdatedProductsList();
+    const currentSupervisor = document.getElementById('manage-req-supervisor')?.value.trim() || req.completed_by || '';
+    const currentNotes = document.getElementById('manage-req-admin-notes')?.value.trim() || req.admin_notes || '';
+    const currentStatus = document.getElementById('manage-req-status')?.value || req.status;
+
+    const updatedContextReq = {
+      ...req,
+      status: currentStatus,
+      completed_by: currentSupervisor,
+      admin_notes: currentNotes,
+      products_list: currentProducts
+    };
+
+    if (typeof window.openInventoryDigitalSignatureModal === 'function') {
+      window.openInventoryDigitalSignatureModal({
+        req: updatedContextReq,
+        signerType: 'admin',
+        onSigned: async (updatedReq) => {
+          modal.remove();
+          if (typeof renderAdminInventoryRequestsWorkspace === 'function') {
+            await renderAdminInventoryRequestsWorkspace();
+          }
+          if (typeof updateAdminInventoryRequestsTabBadge === 'function') {
+            updateAdminInventoryRequestsTabBadge();
+          }
+          const refreshed = (window.cachedAdminInventoryRequests || []).find(x => x.id === req.id) || updatedReq;
+          openAdminManageInventoryRequestModal(refreshed);
+        }
+      });
+    }
+  };
+
+  modal.querySelectorAll('.btn-admin-sign-now, #btn-manage-sign-admin').forEach(btn => {
+    btn.addEventListener('click', handleAdminSign);
   });
 
   // Descargas PDF y Excel de Hoja de Terreno desde el modal

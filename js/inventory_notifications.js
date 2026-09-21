@@ -258,6 +258,49 @@
           </p>
         ` : ''}
       `;
+    } else if (event === 'act_signed') {
+      subject = `🖋️ [${folio}] Acta de Inventario Firmada de Conformidad - ${comercio}`;
+      headerBg = 'linear-gradient(135deg, #065f46, #059669)';
+      headerIcon = '🖋️';
+      title = 'Acta de Inventario Firmada Digitalmente';
+      subtitle = `El solicitante / representante de ${comercio} ha firmado de conformidad el acta del folio ${folio}.`;
+
+      const signerName = req.signed_by || 'Representante del Comercio';
+      const signerRut = req.signed_rut || '';
+      const signerRole = req.signed_role || 'Representante Legal / Operaciones';
+      const signedAtFormatted = req.signed_at ? new Date(req.signed_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
+
+      specificContentHtml = `
+        <div style="background: #ecfdf5; border: 1.5px solid #a7f3d0; border-radius: 8px; padding: 18px 20px; margin-bottom: 22px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 22px;">✅</span>
+            <strong style="color: #065f46; font-size: 15px;">Firma Electrónica Registrada Exitosamente</strong>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #064e3b; margin-bottom: 12px;">
+            <tr>
+              <td style="padding: 4px 0; font-weight: 700; width: 35%;">Firmante:</td>
+              <td style="padding: 4px 0;">${signerName}</td>
+            </tr>
+            ${signerRut ? `
+            <tr>
+              <td style="padding: 4px 0; font-weight: 700;">RUT / ID:</td>
+              <td style="padding: 4px 0;">${signerRut}</td>
+            </tr>
+            ` : ''}
+            <tr>
+              <td style="padding: 4px 0; font-weight: 700;">Cargo / Rol:</td>
+              <td style="padding: 4px 0;">${signerRole}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; font-weight: 700;">Fecha y Hora:</td>
+              <td style="padding: 4px 0;">${signedAtFormatted}</td>
+            </tr>
+          </table>
+          <div style="background: #ffffff; padding: 12px 14px; border-radius: 6px; border: 1px solid #d1fae5; font-size: 12px; color: #047857; line-height: 1.5;">
+            <strong>Hito de Trazabilidad Establecido:</strong> Con esta firma, ambas partes dan por válidos y aprobados los resultados de la toma física de inventario como base definitiva de stock para futuros movimientos, considerándose todo lo previo como saldado y conforme.
+          </div>
+        </div>
+      `;
     }
 
     const html = `
@@ -383,7 +426,7 @@
       // - Al crear la solicitud: avisar a solicitante y a stockachile@gmail.com
       // - Al responder el cliente: avisar a operaciones
       // - Al finalizar o rechazar: copia a operaciones
-      const shouldBccOps = (event === 'created' || event === 'client_replied' || event === 'completed' || event === 'rejected');
+      const shouldBccOps = (event === 'created' || event === 'client_replied' || event === 'completed' || event === 'rejected' || event === 'act_signed');
 
       // Si no se encontró ningún correo de cliente, enviar directo a operaciones
       if (recipientsSet.size === 0) {
@@ -438,6 +481,7 @@
           let inAppMsg = subject;
           if (event === 'info_requested') inAppMsg = `Información requerida para solicitud ${folio}: "${adminResponse.substring(0, 100)}..."`;
           else if (event === 'completed') inAppMsg = `Inventario ${folio} finalizado. Tienes 7 días para presentar alcances y firmar conformidad.`;
+          else if (event === 'act_signed') inAppMsg = `Acta de inventario ${folio} firmada digitalmente de conformidad por ${req.signed_by || comercio}.`;
 
           const { data: profiles } = await client
             .from('profiles')

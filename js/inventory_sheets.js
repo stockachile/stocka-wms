@@ -773,37 +773,81 @@ window.generateInventoryReportPdf = async function(req) {
       </div>
 
       <!-- SECCIÓN DE FIRMAS Y VISTO BUENO -->
-      <div style="page-break-inside: avoid; border-top: 1px solid #cbd5e1; padding-top: 8px; margin-top: 8px;">
-        <table style="width: 100%; border-collapse: collapse; font-size: 7.5pt;">
-          <tr>
-            <td style="width: 48%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 5px; vertical-align: top; background-color: #ffffff;">
-              <div style="font-weight: 700; color: #0f172a; margin-bottom: 22px; text-transform: uppercase; font-size: 7pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
-                Supervisor de Bodega / Auditor STOCKA
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 3px; color: #475569; font-size: 7pt;">
-                <div>Nombre: <strong>${completedBy}</strong></div>
-                <div>Fecha Validación: <strong>${formattedCompletedDate}</strong></div>
-                <div style="margin-top: 12px;">Firma V°B°: _________________________________________</div>
-              </div>
-            </td>
-            <td style="width: 4%;"></td>
-            <td style="width: 48%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 5px; vertical-align: top; background-color: #ffffff;">
-              <div style="font-weight: 700; color: #0f172a; margin-bottom: 22px; text-transform: uppercase; font-size: 7pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
-                Representante / Administración del Comercio
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 3px; color: #475569; font-size: 7pt;">
-                <div>Nombre / Comercio: <strong>${comercio}</strong></div>
-                <div>Fecha Recepción: ____/____/________</div>
-                <div style="margin-top: 12px;">Firma Conforme: ______________________________________</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-        
-        <div style="text-align: center; margin-top: 8px; font-size: 6.8pt; color: #94a3b8;">
-          STOCKA WMS • Informe Oficial de Auditoría y Cuadratura de Inventario Físico • Generado electrónicamente
+      ${(() => {
+        const isClientSigned = !!(req.signed_at || req.signed_by);
+        const clientSignedDate = req.signed_at ? new Date(req.signed_at).toLocaleString('es-CL', {
+          day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : '';
+        const clientSignerName = req.signed_by || comercio;
+        const clientSignerRut = req.signed_rut ? ` • RUT: ${req.signed_rut}` : '';
+        const clientSignerRole = req.signed_role ? ` • Cargo: ${req.signed_role}` : '';
+        const clientSigImg = (req.signed_signature_data && req.signed_signature_data.startsWith('data:image/'))
+          ? `<div style="text-align: center; margin: 4px 0;"><img src="${req.signed_signature_data}" style="max-height: 38px; max-width: 180px; object-fit: contain;" alt="Firma Digital Cliente"></div>`
+          : '';
+
+        const isAdminSigned = !!(req.admin_signed_at || req.admin_signed_by);
+        const adminSignedDate = req.admin_signed_at ? new Date(req.admin_signed_at).toLocaleString('es-CL', {
+          day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : formattedCompletedDate;
+        const adminSignerName = req.admin_signed_by || completedBy;
+        const adminSigImg = (req.admin_signature_data && req.admin_signature_data.startsWith('data:image/'))
+          ? `<div style="text-align: center; margin: 4px 0;"><img src="${req.admin_signature_data}" style="max-height: 38px; max-width: 180px; object-fit: contain;" alt="Firma Digital Supervisor"></div>`
+          : '';
+
+        return `
+        <div style="page-break-inside: avoid; border-top: 1px solid #cbd5e1; padding-top: 8px; margin-top: 8px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 7.5pt;">
+            <tr>
+              <!-- Recuadro Supervisor STOCKA -->
+              <td style="width: 48%; padding: 8px 10px; border: 1px solid ${isAdminSigned ? '#10b981' : '#cbd5e1'}; border-radius: 5px; vertical-align: top; background-color: ${isAdminSigned ? '#f0fdf4' : '#ffffff'};">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid ${isAdminSigned ? '#a7f3d0' : '#e2e8f0'}; padding-bottom: 3px; margin-bottom: 8px;">
+                  <span style="font-weight: 700; color: #0f172a; text-transform: uppercase; font-size: 7pt;">Supervisor de Bodega / Auditor STOCKA</span>
+                  ${isAdminSigned ? '<span style="background: #dcfce7; color: #15803d; font-size: 6.5pt; font-weight: 800; padding: 1px 5px; border-radius: 3px; border: 1px solid #86efac;">✓ CERTIFICADO DIGITAL</span>' : ''}
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 3px; color: #475569; font-size: 7pt;">
+                  <div>Nombre: <strong>${adminSignerName}</strong></div>
+                  <div>Fecha Validación: <strong>${adminSignedDate}</strong></div>
+                  ${isAdminSigned ? `
+                    ${adminSigImg}
+                    <div style="font-size: 6.5pt; color: #166534; font-family: monospace; margin-top: 4px; border-top: 1px dashed #86efac; padding-top: 2px;">
+                      V°B° STOCKA Validado Electrónicamente (ID: ${folio})
+                    </div>
+                  ` : `
+                    <div style="margin-top: 14px;">Firma V°B°: _________________________________________</div>
+                  `}
+                </div>
+              </td>
+              <td style="width: 4%;"></td>
+              <!-- Recuadro Cliente / Comercio -->
+              <td style="width: 48%; padding: 8px 10px; border: 1px solid ${isClientSigned ? '#059669' : '#cbd5e1'}; border-radius: 5px; vertical-align: top; background-color: ${isClientSigned ? '#ecfdf5' : '#ffffff'};">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid ${isClientSigned ? '#a7f3d0' : '#e2e8f0'}; padding-bottom: 3px; margin-bottom: 8px;">
+                  <span style="font-weight: 700; color: #0f172a; text-transform: uppercase; font-size: 7pt;">Representante / Administración del Comercio</span>
+                  ${isClientSigned ? '<span style="background: #10b981; color: #ffffff; font-size: 6.5pt; font-weight: 800; padding: 1px 6px; border-radius: 3px;">✓ FIRMA ELECTRÓNICA VÁLIDA</span>' : ''}
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 3px; color: #475569; font-size: 7pt;">
+                  <div>Nombre / Comercio: <strong>${comercio}</strong></div>
+                  ${isClientSigned ? `
+                    <div>Firmante: <strong>${clientSignerName}</strong>${clientSignerRut}${clientSignerRole}</div>
+                    <div>Fecha y Hora Firma: <strong>${clientSignedDate}</strong></div>
+                    ${clientSigImg}
+                    <div style="font-size: 6.5pt; color: #047857; font-family: monospace; margin-top: 4px; border-top: 1px dashed #6ee7b7; padding-top: 2px;">
+                      Conformidad Aprobada: Hito definitivo de trazabilidad acordado.
+                    </div>
+                  ` : `
+                    <div>Fecha Recepción: ____/____/________</div>
+                    <div style="margin-top: 14px;">Firma Conforme: ______________________________________</div>
+                  `}
+                </div>
+              </td>
+            </tr>
+          </table>
+          
+          <div style="text-align: center; margin-top: 8px; font-size: 6.8pt; color: #94a3b8;">
+            STOCKA WMS • Informe Oficial de Auditoría y Cuadratura de Inventario Físico • Generado electrónicamente
+          </div>
         </div>
-      </div>
+        `;
+      })()}
     </div>
   `;
 
@@ -1370,3 +1414,340 @@ window.generateProductDimensionsExcel = function(options) {
 
   XLSX.writeFile(wb, filename);
 };
+
+/**
+ * Modal interactivo para la Firma Electrónica Digital de Actas de Inventario Físico
+ * Permite firma manuscrita sobre canvas táctil/mouse o certificación con RUT y Cargo.
+ * @param {Object} options
+ * @param {Object} options.req - Objeto de solicitud de inventario
+ * @param {string} [options.signerType='client'] - 'client' | 'admin'
+ * @param {Function} [options.onSigned] - Callback tras firma exitosa
+ */
+window.openInventoryDigitalSignatureModal = function(options = {}) {
+  const { req, signerType = 'client', onSigned } = options;
+  if (!req) {
+    alert('Error: Datos de la solicitud no especificados.');
+    return;
+  }
+
+  let modal = document.getElementById('modal-inventory-digital-signature');
+  if (modal) modal.remove();
+
+  const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 8)}`;
+  const comercio = req.comercio || 'Comercio';
+  const isAdmin = signerType === 'admin';
+
+  let defaultName = '';
+  if (isAdmin) {
+    defaultName = req.completed_by || window.currentUserName || window.currentUserEmail || 'Supervisor STOCKA';
+  } else {
+    defaultName = req.signed_by || req.requested_by || window.currentUserName || window.currentUserEmail || '';
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'modal-inventory-digital-signature';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '100000';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 620px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface, #ffffff); border: 1px solid var(--color-border, #e2e8f0); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2); overflow: hidden; max-height: 90vh;">
+      
+      <!-- HEADER -->
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border, #e2e8f0); background: ${isAdmin ? 'linear-gradient(135deg, #1e1b4b, #312e81)' : 'linear-gradient(135deg, #064e3b, #059669)'}; color: #ffffff; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; text-transform: uppercase; font-weight: 800; background: rgba(255,255,255,0.18); padding: 2px 8px; border-radius: 4px; letter-spacing: 0.5px; margin-bottom: 4px;">
+            <i class="ri-shield-check-line"></i> Firma Electrónica Oficial
+          </div>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; display: flex; align-items: center; gap: 0.5rem;">
+            ${isAdmin ? 'Certificación de Cierre de Inventario' : 'Firma de Conformidad de Inventario'}
+          </h3>
+          <p style="margin: 2px 0 0 0; font-size: 0.8rem; opacity: 0.9;">
+            Folio <strong>${folio}</strong> • ${comercio}
+          </p>
+        </div>
+        <button type="button" class="modal-close" style="color: #ffffff; font-size: 1.5rem; background: none; border: none; cursor: pointer; line-height: 1;" onclick="document.getElementById('modal-inventory-digital-signature').remove()">&times;</button>
+      </div>
+
+      <!-- BODY -->
+      <div style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem; font-size: 0.85rem; color: var(--color-text-main, #1e293b);">
+        
+        <!-- DECLARACIÓN LEGAL / HITO DE TRAZABILIDAD -->
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid #10b981; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.8rem; line-height: 1.45; color: #065f46;">
+          <strong style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem; font-size: 0.85rem;">
+            <i class="ri-scales-3-line" style="font-size: 1rem;"></i> Cláusula de Validez y Trazabilidad Vinculante:
+          </strong>
+          ${isAdmin ? `
+            "Al firmar como Supervisor/Auditor de STOCKA, certifico que la toma física ha sido ejecutada de acuerdo con los protocolos de bodega, registrando fielmente las existencias reales para la cuadratura del sistema."
+          ` : `
+            "Al firmar electrónicamente, el solicitante/comercio declara su total conformidad con los resultados del conteo físico, acordando que esta acta constituye el <strong>último punto e hito oficial de inventario para efectos de trazabilidad</strong> en WMS STOCKA, considerándose todo lo previo como <strong>saldado y aprobado</strong>."
+          `}
+        </div>
+
+        <!-- DATOS DEL FIRMANTE -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
+          <div>
+            <label style="display: block; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted, #64748b); margin-bottom: 0.25rem;">
+              Nombre Completo *
+            </label>
+            <input type="text" id="sig-input-name" class="form-control" value="${defaultName}" placeholder="Nombre y Apellidos" style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px;">
+          </div>
+          <div>
+            <label style="display: block; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted, #64748b); margin-bottom: 0.25rem;">
+              RUT / Documento de Identidad
+            </label>
+            <input type="text" id="sig-input-rut" class="form-control" value="${req.signed_rut || ''}" placeholder="Ej: 12.345.678-9" style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px;">
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <label style="display: block; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted, #64748b); margin-bottom: 0.25rem;">
+              Cargo / Relación con el Comercio
+            </label>
+            <input type="text" id="sig-input-role" class="form-control" value="${req.signed_role || (isAdmin ? 'Supervisor de Bodega STOCKA' : 'Representante / Operaciones')}" placeholder="Ej: Representante Legal / Encargado de Bodega" style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; font-size: 0.85rem; border: 1px solid var(--color-border, #cbd5e1); border-radius: 6px;">
+          </div>
+        </div>
+
+        <!-- CANVAS DE FIRMA DIGITAL -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label style="font-weight: 700; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted, #64748b);">
+              Trazar Firma Manuscrita (Táctil o Mouse)
+            </label>
+            <button type="button" id="btn-clear-inv-signature" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; border-color: #cbd5e1; color: #64748b; background: transparent; cursor: pointer;">
+              <i class="ri-eraser-line"></i> Limpiar
+            </button>
+          </div>
+          <div style="position: relative; border: 2px dashed #94a3b8; border-radius: 8px; background: #fafafa; overflow: hidden; height: 140px; display: flex; align-items: center; justify-content: center;">
+            <canvas id="inv-signature-pad" width="560" height="140" style="width: 100%; height: 140px; cursor: crosshair; touch-action: none; display: block;"></canvas>
+            <span id="inv-signature-placeholder" style="position: absolute; color: #94a3b8; font-size: 0.85rem; pointer-events: none; user-select: none;">
+              <i class="ri-edit-line"></i> Dibuja tu firma aquí usando el dedo o mouse
+            </span>
+          </div>
+          <small style="color: var(--color-text-muted, #64748b); font-size: 0.75rem; margin-top: 0.25rem; display: block;">
+            * Si prefieres validación con sello electrónico sin trazo manual, completa tu Nombre y RUT arriba.
+          </small>
+        </div>
+
+        <!-- CHECKBOX OBLIGATORIO DE CONFORMIDAD -->
+        <div style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.65rem; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+          <input type="checkbox" id="sig-check-accept" style="margin-top: 0.2rem; cursor: pointer; width: 16px; height: 16px;">
+          <label for="sig-check-accept" style="cursor: pointer; font-size: 0.8rem; line-height: 1.4; color: var(--color-text-main, #1e293b); font-weight: 500;">
+            He revisado los resultados del inventario físico y confirmo electrónicamente mi conformidad con el acta emitida.
+          </label>
+        </div>
+
+      </div>
+
+      <!-- FOOTER -->
+      <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border, #e2e8f0); background: var(--color-surface, #ffffff); display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-inventory-digital-signature').remove()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+          Cancelar
+        </button>
+        <button type="button" id="btn-submit-inv-digital-signature" class="btn btn-primary" style="background: #059669; border-color: #059669; color: #ffffff; padding: 0.5rem 1.25rem; font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+          <i class="ri-quill-pen-line"></i> Firmar y Registrar Conformidad
+        </button>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Inicializar Canvas
+  const canvas = modal.querySelector('#inv-signature-pad');
+  const placeholder = modal.querySelector('#inv-signature-placeholder');
+  const btnClear = modal.querySelector('#btn-clear-inv-signature');
+  const btnSubmit = modal.querySelector('#btn-submit-inv-digital-signature');
+  let isDrawing = false;
+  let hasDrawn = false;
+
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    function getCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function onStart(e) {
+      isDrawing = true;
+      hasDrawn = true;
+      if (placeholder) placeholder.style.display = 'none';
+      const pos = getCoords(e);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      if (e.touches && e.cancelable) e.preventDefault();
+    }
+
+    function onMove(e) {
+      if (!isDrawing) return;
+      if (e.touches && e.cancelable) e.preventDefault();
+      const pos = getCoords(e);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function onEnd() {
+      if (isDrawing) {
+        isDrawing = false;
+      }
+    }
+
+    canvas.addEventListener('mousedown', onStart);
+    canvas.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+
+    canvas.addEventListener('touchstart', onStart, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+
+    if (btnClear) {
+      btnClear.addEventListener('click', () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasDrawn = false;
+        if (placeholder) placeholder.style.display = 'block';
+      });
+    }
+  }
+
+  // Submit Listener
+  if (btnSubmit) {
+    btnSubmit.addEventListener('click', async () => {
+      const name = (modal.querySelector('#sig-input-name')?.value || '').trim();
+      const rut = (modal.querySelector('#sig-input-rut')?.value || '').trim();
+      const role = (modal.querySelector('#sig-input-role')?.value || '').trim();
+      const accepted = modal.querySelector('#sig-check-accept')?.checked;
+
+      if (!name) {
+        alert('Por favor ingresa tu Nombre Completo.');
+        return;
+      }
+
+      if (!accepted) {
+        alert('Debes marcar la casilla confirmando tu conformidad con el acta para poder firmar.');
+        return;
+      }
+
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Registrando firma...';
+
+      try {
+        const nowIso = new Date().toISOString();
+        let sigData = null;
+        if (hasDrawn && canvas) {
+          sigData = canvas.toDataURL('image/png');
+        }
+
+        // Armar payload según sea admin o cliente
+        let updatePayload = { updated_at: nowIso };
+        if (isAdmin) {
+          updatePayload.admin_signed_at = nowIso;
+          updatePayload.admin_signed_by = name;
+          if (sigData) updatePayload.admin_signature_data = sigData;
+        } else {
+          updatePayload.signed_at = nowIso;
+          updatePayload.signed_by = name;
+          updatePayload.signed_rut = rut;
+          updatePayload.signed_role = role;
+          if (sigData) updatePayload.signed_signature_data = sigData;
+        }
+
+        const supabaseClient = (typeof supabase !== 'undefined' && supabase.from) ? supabase : (window.supabaseClient || null);
+        if (!supabaseClient) {
+          throw new Error('Cliente de base de datos no disponible.');
+        }
+
+        let { data: updatedData, error: updErr } = await supabaseClient
+          .from('inventory_requests')
+          .update(updatePayload)
+          .eq('id', req.id)
+          .select()
+          .single();
+
+        if (updErr) {
+          console.warn('[DigitalSignature] Fallback al guardar firma:', updErr);
+          // Fallback en admin_notes si las columnas extendidas no estuviesen disponibles
+          const sigNote = `[FIRMA DIGITAL ${isAdmin ? 'SUPERVISOR' : 'CLIENTE'} ${new Date().toLocaleString('es-CL')}]: Firmado por ${name} (${role || 'Titular'}, RUT: ${rut || 'N/A'})`;
+          const combinedNotes = `${req.admin_notes || ''}\n${sigNote}`.trim();
+          
+          const fallbackPayload = {
+            admin_notes: combinedNotes,
+            signed_at: nowIso,
+            signed_by: name,
+            updated_at: nowIso
+          };
+
+          const fallbackRes = await supabaseClient
+            .from('inventory_requests')
+            .update(fallbackPayload)
+            .eq('id', req.id)
+            .select()
+            .single();
+
+          if (fallbackRes.error) throw fallbackRes.error;
+          updatedData = fallbackRes.data || { ...req, ...fallbackPayload };
+        }
+
+        const finalReq = updatedData || { ...req, ...updatePayload };
+
+        // Enviar notificación por correo
+        if (window.sendInventoryRequestNotification) {
+          await window.sendInventoryRequestNotification({
+            event: 'act_signed',
+            req: finalReq
+          }).catch(e => console.warn('[DigitalSignature] Error enviando correo de firma:', e));
+        }
+
+        modal.remove();
+
+        // Diálogo de éxito con opción de descargar PDF firmado de inmediato
+        if (typeof Swal !== 'undefined') {
+          Swal.fire({
+            icon: 'success',
+            title: '¡Acta Firmada Exitosamente!',
+            html: `
+              <div style="font-size: 0.9rem; text-align: left; margin-top: 0.5rem;">
+                <p><strong>Folio:</strong> <code style="color: #059669; font-weight: bold;">${folio}</code></p>
+                <p><strong>Firmante:</strong> ${name} ${rut ? `(${rut})` : ''}</p>
+                <p><strong>Fecha y Hora:</strong> ${new Date(nowIso).toLocaleString('es-CL')}</p>
+                <p style="color: #047857; background: #ecfdf5; padding: 10px; border-radius: 6px; border: 1px solid #a7f3d0; font-size: 0.8rem; margin-top: 0.75rem;">
+                  ✓ El hito de trazabilidad ha sido suscrito de conformidad y el PDF oficial ahora contiene tu firma electrónica.
+                </p>
+              </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: '<i class="ri-file-chart-line"></i> Descargar PDF Firmado',
+            cancelButtonText: 'Cerrar',
+            confirmButtonColor: '#059669'
+          }).then((res) => {
+            if (res.isConfirmed && typeof window.generateInventoryReportPdf === 'function') {
+              window.generateInventoryReportPdf(finalReq);
+            }
+          });
+        } else {
+          alert('¡Acta firmada exitosamente de conformidad!');
+        }
+
+        if (typeof onSigned === 'function') {
+          onSigned(finalReq);
+        }
+
+      } catch (err) {
+        console.error('[DigitalSignature] Error al firmar acta:', err);
+        alert('Error al registrar la firma digital: ' + (err.message || err));
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="ri-quill-pen-line"></i> Firmar y Registrar Conformidad';
+      }
+    });
+  }
+};
+
