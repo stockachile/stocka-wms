@@ -115,6 +115,17 @@ function buildPickerObservation(order, defaultObs) {
   }
 }
 
+// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
+function resolvePickerSku(prod, order, commerceStrict) {
+  const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
+  const originBarcode = prod?.barcode && String(prod.barcode).trim();
+  const sendWms = prod?.send_barcode_wms_to_picker !== false;
+  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
+  if (cbarWms && sendWms) return cbarWms;
+  if (sendOrigin && originBarcode) return originBarcode;
+  return (prod?.sku || order?.sku || 'SKU-TEMP');
+}
+
 async function run() {
   console.log(`[${new Date().toISOString()}] Iniciando sincronización bidireccional WMS <-> Picker...`);
 
@@ -153,7 +164,7 @@ async function run() {
         raw_paris_data,
         raw_ripley_data,
         raw_walmart_data,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -226,11 +237,11 @@ async function run() {
 
         // Estructurar ítems de WMS para comparar
         const wmsItemsMap = {};
+        const commerceName = String(wmsOrder.comercio || '').trim().toUpperCase();
+        const commerceStrict = strictComerciosSet.has(commerceName);
         wmsOrder.order_items.forEach(oi => {
           if (oi.products?.is_virtual) return;
-          const sku = (oi.products?.send_barcode_to_picker && oi.products?.barcode)
-            ? oi.products.barcode.trim().toUpperCase()
-            : (oi.products?.sku || '').trim().toUpperCase();
+          const sku = resolvePickerSku(oi.products, wmsOrder, commerceStrict).trim().toUpperCase();
           if (sku) {
             wmsItemsMap[sku] = (wmsItemsMap[sku] || 0) + (parseInt(oi.quantity, 10) || 0);
           }
@@ -305,7 +316,7 @@ async function run() {
               order_number: orderNo,
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
+              sku: resolvePickerSku(prod, wmsOrder, commerceStrict),
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
               color: colorVal ? String(colorVal).trim() : null,
               color_bg: opt.color_bg || null,
@@ -458,9 +469,7 @@ async function run() {
               order_number: orderNo,
               agenda: wmsOrder.agenda || (isRetiro ? 'RETIRO' : 'STK'),
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode)
-                ? prod.barcode
-                : (prod.sku || 'SKU-TEMP'),
+              sku: resolvePickerSku(prod, wmsOrder, commerceStrict),
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim())
                 ? prod.alias.trim()
                 : (prod.name || 'Producto WMS'),

@@ -673,6 +673,7 @@ app.listen(PORT, () => {
       // D. Sincronización y auto-recuperación (Self-Healing) WMS <-> Picker cada 5 minutos
       if (syncCycleCounter % 5 === 0) {
         try {
+          delete require.cache[require.resolve('../sync_to_picker')];
           const syncPicker = require('../sync_to_picker');
           if (syncPicker && syncPicker.runSyncToPicker) {
             await syncPicker.runSyncToPicker();

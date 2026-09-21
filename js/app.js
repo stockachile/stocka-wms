@@ -3361,6 +3361,7 @@ async function renderCatalog() {
                 ${importBtn}
                 ${importNewBtn}
                 ${excelActionsDropdown}
+                <div id="client-catalog-export-container"></div>
                 ${quickEditBtnHtml}
                 ${createBtn}
               </div>
@@ -4160,9 +4161,7 @@ async function renderInventory() {
             <button id="btn-refresh-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: rgba(99, 102, 241, 0.05); cursor: pointer; border-radius: var(--radius-md); font-weight: 600;" title="Actualizar y refrescar datos de stock">
               <i class="ri-refresh-line" id="icon-refresh-inventory"></i> Actualizar
             </button>
-            <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-download-2-line"></i> Exportar CSV
-            </button>
+            <div id="client-inventory-export-container"></div>
             <button id="btn-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-upload-2-line"></i> Asignar Stock Masivo
             </button>
@@ -4311,10 +4310,20 @@ async function renderInventory() {
       });
     }
 
-    // Inicializar listener de exportación CSV
-    const exportBtn = document.getElementById('btn-export-inventory');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', exportInventoryToCsv);
+    // Inicializar dropdown de exportación avanzada (Excel, PDF, CSV)
+    if (window.WmsExportManager) {
+      window.WmsExportManager.renderDropdown('client-inventory-export-container', {
+        moduleType: 'inventory',
+        getCommerce: () => window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'comercio'),
+        getAllData: () => applyInventoryFiltersAndSort(true, true),
+        getFilteredData: () => applyInventoryFiltersAndSort(true, false),
+        getSelectedData: () => {
+          const checked = Array.from(document.querySelectorAll('#inventory-tbody .inventory-row-checkbox:checked'));
+          const selectedIds = new Set(checked.map(cb => cb.getAttribute('data-prod-id')));
+          const allRows = applyInventoryFiltersAndSort(true, true);
+          return allRows.filter(r => selectedIds.has(r.id));
+        }
+      });
     }
 
     const bulkStockBtn = document.getElementById('btn-bulk-stock-assign');
@@ -4423,7 +4432,7 @@ async function renderInventory() {
 // FUNCIONES AUXILIARES: BUSCADOR, ORDENAMIENTO Y EXPORTACIÓN
 // ----------------------------------------------------
 
-function applyInventoryFiltersAndSort(flat = false) {
+function applyInventoryFiltersAndSort(flat = false, ignoreFilters = false) {
   const products = (window.cachedInventoryProducts || []).filter(p => p.status !== 'archived');
   const search = (window.inventorySearchQuery || '').toLowerCase().trim();
   
@@ -4528,28 +4537,30 @@ function applyInventoryFiltersAndSort(flat = false) {
   });
 
   // Filtrado
-  if (search) {
-    rows = rows.filter(r => 
-      r.sku.toLowerCase().includes(search) || 
-      r.name.toLowerCase().includes(search)
-    );
+  if (!ignoreFilters) {
+    if (search) {
+      rows = rows.filter(r => 
+        r.sku.toLowerCase().includes(search) || 
+        r.name.toLowerCase().includes(search)
+      );
+    }
+
+    if (window.inventoryTypeFilter) {
+      rows = rows.filter(r => r.product_type === window.inventoryTypeFilter);
+    }
+
+    // Filtrar por checkboxes de status
+    const showInStock = window.inventoryFilterInStock !== false;
+    const showLowStock = window.inventoryFilterLowStock !== false;
+    const showOutOfStock = window.inventoryFilterOutOfStock !== false;
+
+    rows = rows.filter(r => {
+      if (r.status === 'En Stock' && !showInStock) return false;
+      if (r.status === 'Bajo Stock' && !showLowStock) return false;
+      if (r.status === 'Agotado' && !showOutOfStock) return false;
+      return true;
+    });
   }
-
-  if (window.inventoryTypeFilter) {
-    rows = rows.filter(r => r.product_type === window.inventoryTypeFilter);
-  }
-
-  // Filtrar por checkboxes de status
-  const showInStock = window.inventoryFilterInStock !== false;
-  const showLowStock = window.inventoryFilterLowStock !== false;
-  const showOutOfStock = window.inventoryFilterOutOfStock !== false;
-
-  rows = rows.filter(r => {
-    if (r.status === 'En Stock' && !showInStock) return false;
-    if (r.status === 'Bajo Stock' && !showLowStock) return false;
-    if (r.status === 'Agotado' && !showOutOfStock) return false;
-    return true;
-  });
 
   // Ordenamiento
   const col = window.inventorySortColumn || 'name';
@@ -30220,6 +30231,27 @@ function setupCatalogListeners(commerce, mainPlatform) {
   const btnHelp = document.getElementById('btn-catalog-help');
   if (btnHelp) {
     btnHelp.addEventListener('click', openCatalogHelpDrawer);
+  }
+
+  // 0.1 Inicializar dropdown de exportación avanzada (Excel, PDF, CSV) para catálogo
+  if (window.WmsExportManager) {
+    window.WmsExportManager.renderDropdown('client-catalog-export-container', {
+      moduleType: 'catalog',
+      getCommerce: () => commerce || window.activeIntegrationCommerce || 'comercio',
+      getAllData: () => window.currentMasterProducts || [],
+      getFilteredData: () => {
+        const visibleRows = Array.from(document.querySelectorAll('#catalog-master-tbody tr[data-product-row-id]')).filter(r => r.style.display !== 'none');
+        const visibleIds = new Set(visibleRows.map(r => r.getAttribute('data-product-row-id')));
+        const all = window.currentMasterProducts || [];
+        return all.filter(p => visibleIds.has(p.id));
+      },
+      getSelectedData: () => {
+        const checked = Array.from(document.querySelectorAll('#catalog-master-tbody .catalog-row-checkbox:checked'));
+        const selectedIds = new Set(checked.map(cb => cb.getAttribute('data-id')));
+        const all = window.currentMasterProducts || [];
+        return all.filter(p => selectedIds.has(p.id));
+      }
+    });
   }
 
   // 1. Tab switching

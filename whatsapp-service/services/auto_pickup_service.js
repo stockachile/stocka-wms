@@ -57,6 +57,17 @@ const AUTO_PICKUP_DELAY_MINUTES = parseInt(process.env.AUTO_PICKUP_DELAY_MINUTES
 // Archivo persistente para evitar repetir alertas de quiebre de stock sobre el mismo pedido
 const SHORTAGE_LOG_FILE = path.join(__dirname, '../shortage_alerts_sent.json');
 
+// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
+function resolvePickerSku(prod, order, commerceStrict = false) {
+  const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
+  const originBarcode = prod?.barcode && String(prod.barcode).trim();
+  const sendWms = prod?.send_barcode_wms_to_picker !== false;
+  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
+  if (cbarWms && sendWms) return cbarWms;
+  if (sendOrigin && originBarcode) return originBarcode;
+  return (prod?.sku || order?.sku || 'SKU-TEMP');
+}
+
 function loadShortageAlertsMap() {
   try {
     if (fs.existsSync(SHORTAGE_LOG_FILE)) {
@@ -238,8 +249,8 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
         quantity,
         warehouse_id,
         products (
-          id, sku, name, price, image_url, options, is_virtual, barcode, 
-          send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker,
+          id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms,
+          send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker,
           color, talla, variable_1, variable_2
         )
       )
@@ -503,7 +514,7 @@ async function autoProcessSinglePickupOrder(orderId, options = {}) {
       order_number: orderNo,
       agenda: 'RETIRO',
       quantity: parseInt(oi.quantity, 10) || 1,
-      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
+      sku: resolvePickerSku(prod, order, prod.picking_match_strict),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
       color: colorVal ? String(colorVal).trim() : null,
       color_bg: opt.color_bg || null,

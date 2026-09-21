@@ -63,6 +63,17 @@ function generateTrackingCode(sigla, externalOrderNumber, orderId) {
   return `${sigla}${cleanOrderNum}`;
 }
 
+// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
+function resolvePickerSku(prod, order, commerceStrict = false) {
+  const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
+  const originBarcode = prod?.barcode && String(prod.barcode).trim();
+  const sendWms = prod?.send_barcode_wms_to_picker !== false;
+  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
+  if (cbarWms && sendWms) return cbarWms;
+  if (sendOrigin && originBarcode) return originBarcode;
+  return (prod?.sku || order?.sku || 'SKU-TEMP');
+}
+
 const SUPPORTED_COMUNAS = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
   'huechuraba', 'independencia', 'la cisterna', 'la florida', 'la granja',
@@ -234,7 +245,7 @@ async function sendSingleOrderToPicker(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: resolvePickerSku(prod, order, commerceStrict),
       name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: colorVal ? String(colorVal).trim() : null,
       color_bg: opt.color_bg || null,
@@ -335,7 +346,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
+    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -728,7 +739,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
