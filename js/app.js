@@ -3256,6 +3256,18 @@ async function renderCatalog() {
           <button class="excel-dropdown-btn" id="btn-download-volumes-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para volúmenes (m³)">
             <i class="ri-download-2-line"></i> Plantilla Volúmenes
           </button>
+          
+          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
+          
+          <div style="position: relative;">
+            <button class="excel-dropdown-btn" id="btn-trigger-import-barcode-wms" style="color: #2563eb;">
+              <i class="ri-barcode-box-line"></i> Importar Códigos WMS
+            </button>
+            <input type="file" id="catalog-import-barcode-wms-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+          <button class="excel-dropdown-btn" id="btn-download-barcode-wms-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo / catálogo para códigos de barra WMS (CBAR WMS)">
+            <i class="ri-download-2-line"></i> Plantilla Códigos WMS
+          </button>
         </div>
       </div>
     `;
@@ -31664,6 +31676,222 @@ function setupCatalogListeners(commerce, mainPlatform) {
         } catch (err) {
           console.error(err);
           alert('Error al importar volúmenes: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
+
+  // 6.7.3. Trigger file input for WMS Barcode import
+  const btnTriggerImportBarcodeWms = document.getElementById('btn-trigger-import-barcode-wms');
+  if (btnTriggerImportBarcodeWms) {
+    btnTriggerImportBarcodeWms.addEventListener('click', () => {
+      const activeFileInput = document.getElementById('catalog-import-barcode-wms-excel');
+      if (activeFileInput) activeFileInput.click();
+    });
+  }
+
+  // Descargar planilla de ejemplo / catálogo para importación de Códigos de Barra WMS (CBAR WMS)
+  const btnDownloadBarcodeWmsTemplate = document.getElementById('btn-download-barcode-wms-template');
+  if (btnDownloadBarcodeWmsTemplate) {
+    btnDownloadBarcodeWmsTemplate.addEventListener('click', () => {
+      const headers = [['SKU', 'Nombre_Referencial', 'Codigo_Barras_WMS']];
+      const prodsList = (window.currentMasterProducts && window.currentMasterProducts.length > 0)
+        ? window.currentMasterProducts
+        : ((typeof masterProducts !== 'undefined' && Array.isArray(masterProducts)) ? masterProducts : []);
+      const activeProds = prodsList.filter(p => p.status !== 'archived');
+
+      const rowsData = activeProds.length > 0
+        ? activeProds.map(p => [p.sku, p.name || '', p.barcode_wms || ''])
+        : [
+            ['EJEMPLO-SKU-001', 'Polera Algodón Blanco / S', 'WMS-78010001'],
+            ['EJEMPLO-SKU-002', 'Polera Algodón Blanco / M', 'WMS-78010002'],
+            ['EJEMPLO-SKU-003', 'Polera Algodón Negro / L', 'WMS-78010003']
+          ];
+
+      const wsData = headers.concat(rowsData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 22 }, { wch: 42 }, { wch: 28 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Codigos_WMS');
+      const cleanComName = String(commerce || 'comercio').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      XLSX.writeFile(wb, `plantilla_codigos_wms_${cleanComName}.xlsx`);
+    });
+  }
+
+  const fileImportBarcodeWms = document.getElementById('catalog-import-barcode-wms-excel');
+  if (fileImportBarcodeWms) {
+    const newFileInput = fileImportBarcodeWms.cloneNode(true);
+    fileImportBarcodeWms.parentNode.replaceChild(newFileInput, fileImportBarcodeWms);
+    
+    newFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (excelRows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          // Identificar columnas: sku y codigo_barras_wms
+          const sample = excelRows[0];
+          let colSku = '';
+          let colCbarWms = '';
+
+          const keys = Object.keys(sample);
+          for (const key of keys) {
+            const lower = key.toLowerCase().trim().replace(/[\s_-]+/g, '_');
+            if (['sku', 'codigo', 'codigo_articulo', 'cod_articulo', 'ref'].includes(lower)) {
+              colSku = key;
+            } else if ([
+              'codigo_barras_wms', 'codigo_de_barras_wms', 'barcode_wms', 'cbar_wms', 
+              'barras_wms', 'cod_barras_wms', 'wms_barcode', 'wms_cbar', 'cbar_interno', 
+              'codigo_wms', 'cod_wms', 'cbarwms', 'cbar'
+            ].includes(lower)) {
+              colCbarWms = key;
+            }
+          }
+
+          // Si no encontró por keywords específicas de WMS, buscar variantes genéricas de código de barras
+          if (!colCbarWms) {
+            for (const key of keys) {
+              const lower = key.toLowerCase().trim().replace(/[\s_-]+/g, '_');
+              if (key !== colSku && [
+                'codigo_de_barras', 'codigo_barras', 'barcode', 'barras', 'cod_barras', 'ean', 'upc', 'cod_barra'
+              ].includes(lower)) {
+                colCbarWms = key;
+                break;
+              }
+            }
+          }
+
+          // Si aún no se detecta y solo hay 2 columnas en la hoja, la que no es SKU es la del código
+          if (!colCbarWms && keys.length === 2 && colSku) {
+            colCbarWms = keys.find(k => k !== colSku);
+          }
+
+          if (!colSku || !colCbarWms) {
+            alert('Error: Columnas no encontradas. El archivo debe contener al menos las columnas "SKU" y "Codigo_Barras_WMS" (o "CBAR WMS").');
+            return;
+          }
+
+          const dbProducts = await window.fetchAllSupabaseRows(
+            'products', 
+            'id, sku, name, barcode_wms, send_barcode_wms_to_picker', 
+            q => q.eq('comercio', commerce)
+          );
+
+          const productMap = new Map();
+          if (dbProducts) {
+            dbProducts.forEach(p => {
+              if (p.sku) productMap.set(String(p.sku).trim().toLowerCase(), p);
+            });
+          }
+
+          const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          const seenCbarInFile = new Map();
+          const previewRows = [];
+
+          for (let i = 0; i < excelRows.length; i++) {
+            const row = excelRows[i];
+            const skuVal = String(row[colSku] || '').trim();
+            const rawCbar = row[colCbarWms];
+            const cbarVal = (rawCbar !== undefined && rawCbar !== null) ? String(rawCbar).trim() : '';
+
+            const prod = skuVal ? productMap.get(skuVal.toLowerCase()) : null;
+            const oldCbarText = prod?.barcode_wms 
+              ? `<span style="font-family: monospace; color: #2563eb; font-weight: 600;">${esc(prod.barcode_wms)}</span>` 
+              : '<span style="color:var(--color-text-muted);">(Sin CBAR WMS)</span>';
+
+            let status = 'ok';
+            let message = '';
+
+            if (!skuVal) {
+              status = 'error';
+              message = 'Línea vacía o SKU ausente';
+            } else if (!prod) {
+              status = 'error';
+              message = 'El SKU no existe en el catálogo de este comercio';
+            } else if (!cbarVal) {
+              status = 'error';
+              message = 'Código de barras WMS vacío';
+            } else if (seenCbarInFile.has(cbarVal.toLowerCase())) {
+              status = 'error';
+              message = `Código WMS repetido en planilla (duplicado con SKU ${seenCbarInFile.get(cbarVal.toLowerCase())})`;
+            }
+
+            if (status === 'ok') {
+              seenCbarInFile.set(cbarVal.toLowerCase(), skuVal);
+            }
+
+            previewRows.push({
+              sku: skuVal || 'N/A',
+              name: prod ? prod.name : null,
+              oldValue: oldCbarText,
+              newValue: status === 'ok' 
+                ? `<span style="color: #16a34a; font-weight: 600; font-family: monospace;">${esc(cbarVal)}</span>` 
+                : `<span style="color: var(--color-danger);">${esc(cbarVal || '(Vacío)')}</span>`,
+              status,
+              message,
+              prodId: prod ? prod.id : null,
+              barcode_wms: cbarVal,
+              send_barcode_wms_to_picker: prod?.send_barcode_wms_to_picker !== false
+            });
+          }
+
+          // Lanzar modal de vista previa
+          window.showStockAndDimensionsPreviewModal({
+            title: 'Vista Previa: Carga Masiva de Códigos de Barras WMS (CBAR WMS)',
+            headers: ['SKU', 'Nombre', 'CBAR WMS Actual', 'CBAR WMS Nuevo', 'Estado', 'Detalle'],
+            rows: previewRows,
+            onConfirm: async (validRows) => {
+              let updatedCount = 0;
+              const batchSize = 50;
+
+              for (let i = 0; i < validRows.length; i += batchSize) {
+                const chunk = validRows.slice(i, i + batchSize);
+                const updatePromises = chunk.map(async (r) => {
+                  const { error } = await supabase
+                    .from('products')
+                    .update({
+                      barcode_wms: r.barcode_wms,
+                      send_barcode_wms_to_picker: r.send_barcode_wms_to_picker !== false
+                    })
+                    .eq('id', r.prodId);
+
+                  if (error) throw error;
+                  updatedCount++;
+                });
+
+                await Promise.all(updatePromises);
+              }
+
+              if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                  icon: 'success',
+                  title: '¡Carga Exitosa!',
+                  text: `Se actualizaron los códigos de barras WMS de ${updatedCount} productos correctamente.`,
+                  confirmButtonColor: '#2563eb'
+                });
+              } else {
+                alert(`¡Éxito! Se actualizaron los códigos de barras WMS de ${updatedCount} productos correctamente.`);
+              }
+              renderCatalog();
+            }
+          });
+
+        } catch (err) {
+          console.error(err);
+          alert('Error al importar códigos de barras WMS: ' + err.message);
         }
       };
       reader.readAsArrayBuffer(file);
