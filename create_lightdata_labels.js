@@ -211,8 +211,23 @@ async function sendSingleOrderToPicker(order) {
     const opt = prod.options || {};
     const colorVal = prod.color || opt.color || null;
     const tallaVal = prod.talla || opt.talla || opt.size || null;
-    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
-    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+    let mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    let cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+    const v1Str = String(mangaVal || '').toUpperCase().trim();
+    const v2Str = String(cuelloVal || '').toUpperCase().trim();
+    const isManga = val => val.includes('LARGA') || val.includes('CORTA') || val.includes('MANGA') || val.includes('M LARGA') || val.includes('M. LARGA');
+    const isCuello = val => val.includes('CUELLO') || val.includes('REDONDO') || val.includes('POLO') || val.includes('V-NECK') || val.includes('CUELLO V');
+
+    if (isManga(v2Str) && !isManga(v1Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    } else if (isCuello(v1Str) && !isCuello(v2Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    }
 
     payloads.push({
       sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',

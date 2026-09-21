@@ -49357,7 +49357,22 @@ window.propagateOrderUpdateToPicker = async function(order) {
     return;
   }
 
-  const items = order.order_items || [];
+  let items = order.order_items || [];
+  if (order.id) {
+    try {
+      const { data: freshItems } = await supabase
+        .from('order_items')
+        .select('quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .eq('order_id', order.id);
+      if (freshItems && freshItems.length > 0) {
+        items = freshItems;
+        order.order_items = freshItems;
+      }
+    } catch (e) {
+      console.warn("No se pudieron recargar items para propagateOrderUpdateToPicker", orderNumber, e);
+    }
+  }
+
   const physicalItems = items.filter(item => !item.products?.is_virtual);
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
@@ -49369,8 +49384,23 @@ window.propagateOrderUpdateToPicker = async function(order) {
     const opt = prod.options || {};
     const colorVal = prod.color || opt.color || null;
     const tallaVal = prod.talla || opt.talla || opt.size || null;
-    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
-    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+    let mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    let cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+    const v1Str = String(mangaVal || '').toUpperCase().trim();
+    const v2Str = String(cuelloVal || '').toUpperCase().trim();
+    const isManga = val => val.includes('LARGA') || val.includes('CORTA') || val.includes('MANGA') || val.includes('M LARGA') || val.includes('M. LARGA');
+    const isCuello = val => val.includes('CUELLO') || val.includes('REDONDO') || val.includes('POLO') || val.includes('V-NECK') || val.includes('CUELLO V');
+
+    if (isManga(v2Str) && !isManga(v1Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    } else if (isCuello(v1Str) && !isCuello(v2Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    }
 
     let colorBg = opt.color_bg || null;
     let colorText = opt.color_text || null;
@@ -49447,7 +49477,7 @@ window.sendSingleOrderToPicker = async function(order) {
     .eq('order_number', orderNumber);
 
   let items = order.order_items || [];
-  if (items.length === 0 && order.id) {
+  if (order.id) {
     try {
       const { data: freshItems } = await supabase
         .from('order_items')
@@ -49485,8 +49515,23 @@ window.sendSingleOrderToPicker = async function(order) {
     const opt = prod.options || {};
     const colorVal = prod.color || opt.color || null;
     const tallaVal = prod.talla || opt.talla || opt.size || null;
-    const mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
-    const cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+    let mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+    let cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+    const v1Str = String(mangaVal || '').toUpperCase().trim();
+    const v2Str = String(cuelloVal || '').toUpperCase().trim();
+    const isManga = val => val.includes('LARGA') || val.includes('CORTA') || val.includes('MANGA') || val.includes('M LARGA') || val.includes('M. LARGA');
+    const isCuello = val => val.includes('CUELLO') || val.includes('REDONDO') || val.includes('POLO') || val.includes('V-NECK') || val.includes('CUELLO V');
+
+    if (isManga(v2Str) && !isManga(v1Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    } else if (isCuello(v1Str) && !isCuello(v2Str)) {
+      const tmp = mangaVal;
+      mangaVal = cuelloVal;
+      cuelloVal = tmp;
+    }
 
     let colorBg = opt.color_bg || null;
     let colorText = opt.color_text || null;
@@ -59519,6 +59564,16 @@ async function saveAllPendingVariantChanges(commerce) {
           const inMaster = window.adminMasterProducts.find(p => p.id === productId);
           if (inMaster) Object.assign(inMaster, payload);
         }
+        if (window.loadedOrders) {
+          window.loadedOrders.forEach(o => {
+            (o.order_items || []).forEach(oi => {
+              if (oi.product_id === productId || oi.products?.id === productId) {
+                if (!oi.products) oi.products = {};
+                Object.assign(oi.products, payload);
+              }
+            });
+          });
+        }
         savedCount++;
       }));
     }
@@ -59940,6 +59995,16 @@ async function importVariantsFromExcel(file, commerce) {
           if (window.adminMasterProducts) {
             const inMaster = window.adminMasterProducts.find(p => p.id === product.id);
             if (inMaster) Object.assign(inMaster, payload);
+          }
+          if (window.loadedOrders) {
+            window.loadedOrders.forEach(o => {
+              (o.order_items || []).forEach(oi => {
+                if (oi.product_id === product.id || oi.products?.id === product.id) {
+                  if (!oi.products) oi.products = {};
+                  Object.assign(oi.products, payload);
+                }
+              });
+            });
           }
 
           if (state.pendingChanges) {

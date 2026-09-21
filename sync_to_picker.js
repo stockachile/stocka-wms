@@ -153,7 +153,7 @@ async function run() {
         raw_paris_data,
         raw_ripley_data,
         raw_walmart_data,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -278,6 +278,26 @@ async function run() {
           physicalItems.forEach(oi => {
             const prod = oi.products || {};
             const opt = prod.options || {};
+            const colorVal = prod.color || opt.color || null;
+            const tallaVal = opt.talla || opt.size || prod.talla || null;
+            let mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+            let cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+            const v1Str = String(mangaVal || '').toUpperCase().trim();
+            const v2Str = String(cuelloVal || '').toUpperCase().trim();
+            const isManga = val => val.includes('LARGA') || val.includes('CORTA') || val.includes('MANGA') || val.includes('M LARGA') || val.includes('M. LARGA');
+            const isCuello = val => val.includes('CUELLO') || val.includes('REDONDO') || val.includes('POLO') || val.includes('V-NECK') || val.includes('CUELLO V');
+
+            if (isManga(v2Str) && !isManga(v1Str)) {
+              const tmp = mangaVal;
+              mangaVal = cuelloVal;
+              cuelloVal = tmp;
+            } else if (isCuello(v1Str) && !isCuello(v2Str)) {
+              const tmp = mangaVal;
+              mangaVal = cuelloVal;
+              cuelloVal = tmp;
+            }
+
             const commerceName = String(wmsOrder.comercio || '').trim().toUpperCase();
             const commerceStrict = strictComerciosSet.has(commerceName);
             payloads.push({
@@ -287,12 +307,12 @@ async function run() {
               quantity: parseInt(oi.quantity, 10) || 1,
               sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
-              color: prod.color || opt.color || null,
+              color: colorVal ? String(colorVal).trim() : null,
               color_bg: opt.color_bg || null,
               color_text: opt.color_text || null,
-              talla: opt.talla || opt.size || prod.talla || null,
-              manga: opt.manga || null,
-              cuello: opt.cuello || null,
+              talla: tallaVal ? String(tallaVal).trim() : null,
+              manga: mangaVal ? String(mangaVal).trim() : null,
+              cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) : (wmsOrder.tracking_number || ''),
               operator: wmsOrder.operador || '',
@@ -413,6 +433,26 @@ async function run() {
           physicalItems.forEach(oi => {
             const prod = oi.products || {};
             const opt = prod.options || {};
+            const colorVal = prod.color || opt.color || null;
+            const tallaVal = opt.talla || opt.size || prod.talla || null;
+            let mangaVal = prod.variable_1 || opt.var1 || opt.manga || null;
+            let cuelloVal = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+            const v1Str = String(mangaVal || '').toUpperCase().trim();
+            const v2Str = String(cuelloVal || '').toUpperCase().trim();
+            const isManga = val => val.includes('LARGA') || val.includes('CORTA') || val.includes('MANGA') || val.includes('M LARGA') || val.includes('M. LARGA');
+            const isCuello = val => val.includes('CUELLO') || val.includes('REDONDO') || val.includes('POLO') || val.includes('V-NECK') || val.includes('CUELLO V');
+
+            if (isManga(v2Str) && !isManga(v1Str)) {
+              const tmp = mangaVal;
+              mangaVal = cuelloVal;
+              cuelloVal = tmp;
+            } else if (isCuello(v1Str) && !isCuello(v2Str)) {
+              const tmp = mangaVal;
+              mangaVal = cuelloVal;
+              cuelloVal = tmp;
+            }
+
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || defaultSucursal,
               order_number: orderNo,
@@ -424,12 +464,12 @@ async function run() {
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim())
                 ? prod.alias.trim()
                 : (prod.name || 'Producto WMS'),
-              color: prod.color || opt.color || null,
+              color: colorVal ? String(colorVal).trim() : null,
               color_bg: opt.color_bg || null,
               color_text: opt.color_text || null,
-              talla: opt.talla || opt.size || prod.talla || null,
-              manga: opt.manga || null,
-              cuello: opt.cuello || null,
+              talla: tallaVal ? String(tallaVal).trim() : null,
+              manga: mangaVal ? String(mangaVal).trim() : null,
+              cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK')
                 ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo)
