@@ -37537,15 +37537,23 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
       <div style="display: flex; flex-direction: column; gap: 0.35rem;">
         ${r.enviame_pdfs.map(pdf => {
           const isExcel = (pdf.name && pdf.name.toLowerCase().includes('excel')) || (pdf.url && pdf.url.toLowerCase().includes('.xlsx'));
+          const isReport = (pdf.name && pdf.name.toLowerCase().includes('reporte')) || (pdf.url && pdf.url.toLowerCase().includes('.json'));
+          const icon = isExcel ? 'ri-file-excel-2-fill' : (isReport ? 'ri-line-chart-fill' : 'ri-file-pdf-fill');
+          const color = isExcel ? '#10b981' : (isReport ? '#9c27b0' : '#ef4444');
+          const bg = isExcel ? 'rgba(16, 185, 129, 0.1)' : (isReport ? 'rgba(156, 39, 176, 0.1)' : 'rgba(239, 68, 68, 0.1)');
+          const label = isExcel ? 'Detalle Excel' : (isReport ? 'Reporte Interactivo' : 'Desglose PDF');
+          const safeName = (pdf.name || 'Documento Envíame').replace(/'/g, "\\'");
           return `
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.8rem;">
-              <span style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
-                <i class="${isExcel ? 'ri-file-excel-2-fill' : 'ri-file-pdf-fill'}" style="color: ${isExcel ? '#10b981' : '#ef4444'};"></i>
-                ${pdf.name || 'Documento Envíame'}
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.8rem;">
+              <span style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
+                <span style="width: 24px; height: 24px; border-radius: 4px; background: ${bg}; color: ${color}; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <i class="${icon}" style="font-size: 0.95rem;"></i>
+                </span>
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${pdf.name}">${pdf.name || 'Documento Envíame'}</span>
               </span>
-              <a href="${pdf.url}" target="_blank" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">
-                <i class="ri-external-link-line"></i> Ver
-              </a>
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${safeName}', '${pdf.url}')" style="padding: 0.15rem 0.45rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-eye-line"></i> Ver
+              </button>
             </div>
           `;
         }).join('')}
@@ -37736,10 +37744,10 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
             </div>
             ${r.factura_fulfillment_pdf_url ? `
               <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
-                <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF</span>
-                <a href="${r.factura_fulfillment_pdf_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">
-                  Descargar <i class="ri-download-line"></i>
-                </a>
+                <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF Fulfillment</span>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_fulfillment_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-eye-line"></i> Ver / Descargar
+                </button>
               </div>
             ` : ''}
           </div>
@@ -37857,9 +37865,9 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
             ${r.factura_enviame_pdf_url ? `
               <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
                 <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF Envíame</span>
-                <a href="${r.factura_enviame_pdf_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">
-                  Descargar <i class="ri-download-line"></i>
-                </a>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${(r.comercio || '').replace(/'/g, "\\'")}', '${r.factura_enviame_pdf_url}')" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-eye-line"></i> Ver / Descargar
+                </button>
               </div>
             ` : ''}
           </div>
@@ -44266,6 +44274,16 @@ window.openDocPreviewModal = async function(name, url) {
     if (typeof window.openInteractiveEnviameReportModal === 'function') {
       window.openInteractiveEnviameReportModal(url, name);
       return;
+    } else {
+      try {
+        await import('./enviame_billing_importer.js');
+        if (typeof window.openInteractiveEnviameReportModal === 'function') {
+          window.openInteractiveEnviameReportModal(url, name);
+          return;
+        }
+      } catch (err) {
+        console.warn('Could not dynamically load enviame_billing_importer:', err);
+      }
     }
   }
   if (url && (url.toLowerCase().includes('.xlsx') || name.toLowerCase().includes('excel'))) {

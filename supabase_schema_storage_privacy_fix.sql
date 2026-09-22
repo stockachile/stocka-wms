@@ -1,5 +1,6 @@
--- WMS STOCKA - SQL Migration to secure storage bucket payment_receipts
--- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
+-- WMS STOCKA - Storage bucket payment_receipts configuration
+-- Asegurar que el bucket payment_receipts existe y es publico para lectura de desgloses,
+-- reportes interactivos, planillas Excel y facturas emitidas.
 
 -- 1. Asegurar la existencia de la función helper is_admin()
 CREATE OR REPLACE FUNCTION is_admin() RETURNS BOOLEAN AS $$
@@ -9,27 +10,21 @@ CREATE OR REPLACE FUNCTION is_admin() RETURNS BOOLEAN AS $$
   );
 $$ LANGUAGE sql SECURITY DEFINER;
 
--- 2. Cambiar el bucket payment_receipts a privado
+-- 2. Asegurar que el bucket payment_receipts es público para lectura de URLs directas
 UPDATE storage.buckets
-SET public = false
+SET public = true
 WHERE id = 'payment_receipts';
 
--- En caso de que se intente crear nuevamente en el futuro, nos aseguramos que se mantenga privado (public = false)
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('payment_receipts', 'payment_receipts', false)
-ON CONFLICT (id) DO UPDATE SET public = false;
+VALUES ('payment_receipts', 'payment_receipts', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
 
--- 3. Eliminar la política RLS insegura previa (que permitía acceso a cualquiera)
+-- 3. Eliminar políticas previas restrictivas
+DROP POLICY IF EXISTS "Permitir ver comprobantes autorizados" ON storage.objects;
 DROP POLICY IF EXISTS "Permitir ver comprobantes a cualquiera" ON storage.objects;
 
--- 4. Crear política RLS de descarga restringida y segura
--- Permitir descargar comprobantes si el usuario es el dueño (el cargador original del archivo) o es administrador
-CREATE POLICY "Permitir ver comprobantes autorizados" ON storage.objects
-    FOR SELECT TO authenticated
-    USING (
-      bucket_id = 'payment_receipts' 
-      AND (
-        auth.uid() = owner 
-        OR is_admin()
-      )
-    );
+-- 4. Permitir lectura pública de objetos en payment_receipts
+CREATE POLICY "Permitir ver comprobantes a cualquiera" ON storage.objects
+    FOR SELECT TO public
+    USING (bucket_id = 'payment_receipts');
+
