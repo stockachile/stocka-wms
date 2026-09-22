@@ -32048,6 +32048,12 @@ window.setTargetManageStatus = function(targetStatus, actionType) {
     statusInput.value = targetStatus;
   }
 
+  // Limpiar alertas de error previas al cambiar de acción o etapa
+  const alertContainer = document.getElementById('modal-dec-alert-container');
+  if (alertContainer) {
+    alertContainer.innerHTML = '';
+  }
+
   const currentStep = getStageStepNumber(currentStatus);
   const targetStep = getStageStepNumber(targetStatus);
 
@@ -33818,7 +33824,15 @@ document.addEventListener('submit', async (e) => {
       renderDeclarationsAdmin();
     } catch (err) {
       console.error('Error updating stock reception:', err);
-      alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al guardar cambios: ${err.message}</div>`;
+      let errorMsg = err.message || 'Error desconocido';
+      if (errorMsg.includes('stock_declarations_status_check')) {
+        if (status === 'Recepción Parcial') {
+          errorMsg = `El estado "Recepción Parcial" aún no ha sido habilitado en la base de datos de Supabase. Para habilitarlo, debes ejecutar el script SQL <code>supabase_schema_declarations_recepcion_parcial.sql</code> en el SQL Editor de Supabase.`;
+        } else {
+          errorMsg = `El estado seleccionado ("${status}") no está permitido por la restricción de estados en Supabase (stock_declarations_status_check).`;
+        }
+      }
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al guardar cambios: ${errorMsg}</div>`;
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Guardar Cambios';
@@ -58216,6 +58230,668 @@ window.showOnboardingStatusConfigModal = function() {
   });
 };
 
+// =========================================================================
+// ONBOARDING CHECKLIST CONFIGURATION & COMMERCE PROGRESS FUNCTIONS
+// =========================================================================
+
+const ONBOARDING_CHECKLIST_CONFIG_KEY = 'stocka_onboarding_checklist_items_v1';
+
+const DEFAULT_ONBOARDING_CHECKLIST_ITEMS = [
+  { id: 'wms_account', label: 'Creación y Activación en WMS', description: 'Comercio creado en el sistema, sigla de 3 letras asignada y credenciales activas', isDefault: true },
+  { id: 'integrations', label: 'Integración de Canales de Venta', description: 'Canales vinculados (Shopify, Mercado Libre, Falabella, WooCommerce, etc.)', isDefault: true },
+  { id: 'catalog_ready', label: 'Carga y Homologación de Catálogo', description: 'Catálogo de productos cargado, SKUs homologados y dimensiones registradas', isDefault: true },
+  { id: 'shipping_configured', label: 'Configuración de Couriers y Envíos', description: 'ID de Envíame configurado, zonas de cobertura y bodegas habilitadas', isDefault: true },
+  { id: 'stock_declared', label: 'Recepción y Declaración de Stock Inicial', description: 'Inbound inicial recepcionado, contabilizado y almacenado en bodega', isDefault: true },
+  { id: 'training_done', label: 'Capacitación Operacional y KAM', description: 'Sesión de inducción operativa completada y KAM asignado al comercio', isDefault: true }
+];
+
+window.getOnboardingChecklistItems = function() {
+  try {
+    const raw = localStorage.getItem(ONBOARDING_CHECKLIST_CONFIG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn('Error al leer configuración de checklist:', e);
+  }
+  return [...DEFAULT_ONBOARDING_CHECKLIST_ITEMS];
+};
+
+window.saveOnboardingChecklistItems = function(items) {
+  try {
+    localStorage.setItem(ONBOARDING_CHECKLIST_CONFIG_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error('Error al guardar configuración de checklist:', e);
+  }
+};
+
+window.findCacRecordForRequest = function(req, cacList) {
+  if (!cacList || !Array.isArray(cacList)) return null;
+  const nameToMatch = (req.nombre_fantasia || '').trim().toUpperCase();
+  const razonToMatch = (req.razon_social || '').trim().toUpperCase();
+  const cleanReqRut = (req.rut_empresa || '').replace(/[^0-9kK]/g, '').toLowerCase();
+
+  // 1. Coincidencia por nombre comercial
+  let found = cacList.find(c => {
+    const comName = (c.comercio || '').trim().toUpperCase();
+    return comName === nameToMatch || (nameToMatch && comName.includes(nameToMatch)) || (nameToMatch && nameToMatch.includes(comName));
+  });
+  if (found) return found;
+
+  // 2. Coincidencia por RUT
+  if (cleanReqRut) {
+    found = cacList.find(c => {
+      const cleanRut = (c.rut || '').replace(/[^0-9kK]/g, '').toLowerCase();
+      return cleanRut && cleanRut === cleanReqRut;
+    });
+    if (found) return found;
+  }
+
+  // 3. Coincidencia por razón social
+  if (razonToMatch) {
+    found = cacList.find(c => {
+      const comRazon = (c.razon_social || '').trim().toUpperCase();
+      return comRazon && (comRazon === razonToMatch || comRazon.includes(razonToMatch));
+    });
+    if (found) return found;
+  }
+
+  return null;
+};
+
+window.getCommerceChecklist = function(req, cacList) {
+  const items = window.getOnboardingChecklistItems();
+  const cac = window.findCacRecordForRequest(req, cacList || window.cachedAdminCacList);
+
+  const localKey = `stocka_commerce_checklist_${req.id}`;
+  let localData = null;
+  try {
+    const rawLocal = localStorage.getItem(localKey);
+    if (rawLocal) localData = JSON.parse(rawLocal);
+  } catch (e) {}
+
+  const rawChecklist = cac?.onboarding_checklist || localData || {};
+
+  let completedCount = 0;
+  const itemStates = {};
+
+  items.forEach(item => {
+    const val = rawChecklist[item.id];
+    const isCompleted = val === true || (typeof val === 'object' && val !== null && val.completed === true);
+    itemStates[item.id] = isCompleted;
+    if (isCompleted) {
+      completedCount++;
+    }
+  });
+
+  const totalCount = items.length;
+  const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  return {
+    items,
+    itemStates,
+    rawChecklist,
+    completedCount,
+    totalCount,
+    percent,
+    isComplete: totalCount > 0 && completedCount === totalCount,
+    cacRecord: cac
+  };
+};
+
+window.saveCommerceChecklist = async function(req, updatedStates, cacRecord) {
+  const localKey = `stocka_commerce_checklist_${req.id}`;
+  try {
+    localStorage.setItem(localKey, JSON.stringify(updatedStates));
+  } catch (e) {}
+
+  try {
+    const existingChecklist = cacRecord?.onboarding_checklist || {};
+    const mergedChecklist = {
+      ...existingChecklist,
+      ...updatedStates,
+      updated_at: new Date().toISOString()
+    };
+
+    if (cacRecord?.comercio) {
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .update({
+          onboarding_checklist: mergedChecklist,
+          updated_at: new Date().toISOString()
+        })
+        .eq('comercio', cacRecord.comercio);
+
+      if (error) {
+        console.warn('Aviso al actualizar onboarding_checklist en Supabase:', error);
+      } else {
+        cacRecord.onboarding_checklist = mergedChecklist;
+      }
+    }
+
+    if (window.cachedAdminCacList) {
+      const target = window.findCacRecordForRequest(req, window.cachedAdminCacList);
+      if (target) {
+        target.onboarding_checklist = mergedChecklist;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error al persistir checklist del comercio:', err);
+    return false;
+  }
+};
+
+window.showOnboardingChecklistConfigModal = function() {
+  const oldModal = document.getElementById('onboarding-checklist-config-modal');
+  if (oldModal) oldModal.remove();
+
+  let currentItems = window.getOnboardingChecklistItems();
+  let editingId = null;
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'onboarding-checklist-config-modal';
+  modal.style.zIndex = '2200';
+
+  const renderChecklistItemsHtml = () => {
+    return currentItems.map((item, idx) => {
+      const isEditing = editingId === item.id;
+      if (isEditing) {
+        return `
+          <div class="checklist-config-item" style="display: flex; flex-direction: column; gap: 0.5rem; padding: 0.85rem; background: var(--color-surface); border: 2px solid var(--color-primary); border-radius: var(--radius-sm);">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-primary);">Editando Punto #${idx + 1} (${item.id}):</div>
+            <input type="text" id="edit-item-label-${item.id}" class="form-input" value="${(item.label || '').replace(/"/g, '&quot;')}" placeholder="Título del requisito *" style="font-size: 0.85rem;" required>
+            <input type="text" id="edit-item-desc-${item.id}" class="form-input" value="${(item.description || '').replace(/"/g, '&quot;')}" placeholder="Descripción breve (opcional)" style="font-size: 0.8rem;">
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem;">
+              <button type="button" class="btn btn-outline btn-sm btn-cancel-edit-item" data-id="${item.id}" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">Cancelar</button>
+              <button type="button" class="btn btn-primary btn-sm btn-save-edit-item" data-id="${item.id}" style="font-size: 0.75rem; padding: 0.25rem 0.75rem;">Guardar Cambios</button>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="checklist-config-item" style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.85rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex: 1; min-width: 0;">
+            <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+              <button type="button" class="btn-move-item-up" data-idx="${idx}" ${idx === 0 ? 'disabled style="opacity:0.3;cursor:not-allowed;background:none;border:none;padding:0;"' : 'style="background:none;border:none;padding:0;cursor:pointer;color:var(--color-text-muted);line-height:1;"'} title="Subir orden">
+                <i class="ri-arrow-up-s-line" style="font-size: 1rem;"></i>
+              </button>
+              <button type="button" class="btn-move-item-down" data-idx="${idx}" ${idx === currentItems.length - 1 ? 'disabled style="opacity:0.3;cursor:not-allowed;background:none;border:none;padding:0;"' : 'style="background:none;border:none;padding:0;cursor:pointer;color:var(--color-text-muted);line-height:1;"'} title="Bajar orden">
+                <i class="ri-arrow-down-s-line" style="font-size: 1rem;"></i>
+              </button>
+            </div>
+            <span style="font-size: 0.78rem; font-weight: 700; background: rgba(94, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; flex-shrink: 0;">#${idx + 1}</span>
+            <div style="overflow: hidden; text-overflow: ellipsis; flex: 1;">
+              <div style="font-weight: 600; font-size: 0.86rem; color: var(--color-text-main); line-height: 1.3;">${item.label}</div>
+              ${item.description ? `<div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.1rem; line-height: 1.2;">${item.description}</div>` : ''}
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0;">
+            <button type="button" class="btn btn-outline btn-sm btn-edit-item" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" title="Editar punto">
+              <i class="ri-edit-line"></i>
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-delete-item" data-id="${item.id}" data-label="${(item.label || '').replace(/"/g, '&quot;')}" style="color: var(--color-danger); border-color: rgba(220,38,38,0.3); padding: 0.25rem 0.5rem; font-size: 0.75rem;" title="Eliminar punto">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  };
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 650px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 1.15rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-list-check-3" style="font-size: 1.4rem; color: #a855f7;"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: white;">Configurar Checklist de Onboarding</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.8);">Requisitos y pasos operativos a validar para cada nuevo comercio completado.</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-checklist-config" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--color-surface);">
+        <!-- Lista de Puntos Actuales -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+            <label class="form-label" style="font-weight: 700; margin: 0; font-size: 0.9rem;">Puntos Activos del Checklist (${currentItems.length}):</label>
+            <button type="button" id="btn-reset-default-checklist" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; color: var(--color-text-muted);">
+              <i class="ri-refresh-line"></i> Restablecer Predeterminados
+            </button>
+          </div>
+          <div id="checklist-config-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 260px; overflow-y: auto; padding-right: 0.25rem;">
+            ${renderChecklistItemsHtml()}
+          </div>
+        </div>
+
+        <!-- Formulario para Agregar Nuevo Punto -->
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1.25rem;">
+          <h4 style="margin: 0 0 0.85rem 0; font-size: 0.92rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-add-circle-line"></i> Añadir Nuevo Punto al Checklist
+          </h4>
+          <form id="form-add-checklist-item" style="display: flex; flex-direction: column; gap: 0.75rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="new-checklist-label" style="font-weight: 600; font-size: 0.82rem;">Título / Tarea del Punto <span style="color: var(--color-danger)">*</span></label>
+              <input type="text" id="new-checklist-label" class="form-input" placeholder="ej: Firma de Mandato de Facturación, Prueba de Despacho..." required style="font-size: 0.85rem;">
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="new-checklist-desc" style="font-weight: 600; font-size: 0.82rem;">Descripción / Detalle (Opcional)</label>
+              <input type="text" id="new-checklist-desc" class="form-input" placeholder="ej: Detalle de la comprobación o responsable a cargo..." style="font-size: 0.82rem;">
+            </div>
+
+            <div style="text-align: right; margin-top: 0.25rem;">
+              <button type="submit" class="btn btn-primary" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                <i class="ri-add-line"></i> Guardar y Añadir Punto
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: var(--color-surface);">
+        <button type="button" class="btn btn-outline" id="btn-close-checklist-config-footer">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 250);
+  };
+
+  document.getElementById('btn-close-checklist-config').addEventListener('click', closeModal);
+  document.getElementById('btn-close-checklist-config-footer').addEventListener('click', closeModal);
+
+  const refreshList = () => {
+    const listEl = document.getElementById('checklist-config-list-container');
+    if (listEl) {
+      listEl.innerHTML = renderChecklistItemsHtml();
+      attachEvents();
+    }
+  };
+
+  const attachEvents = () => {
+    modal.querySelectorAll('.btn-move-item-up').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+        if (idx > 0) {
+          const temp = currentItems[idx];
+          currentItems[idx] = currentItems[idx - 1];
+          currentItems[idx - 1] = temp;
+          window.saveOnboardingChecklistItems(currentItems);
+          refreshList();
+          window.renderOnboardingAdmin();
+        }
+      });
+    });
+
+    modal.querySelectorAll('.btn-move-item-down').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-idx'), 10);
+        if (idx < currentItems.length - 1) {
+          const temp = currentItems[idx];
+          currentItems[idx] = currentItems[idx + 1];
+          currentItems[idx + 1] = temp;
+          window.saveOnboardingChecklistItems(currentItems);
+          refreshList();
+          window.renderOnboardingAdmin();
+        }
+      });
+    });
+
+    modal.querySelectorAll('.btn-edit-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        editingId = btn.getAttribute('data-id');
+        refreshList();
+      });
+    });
+
+    modal.querySelectorAll('.btn-cancel-edit-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        editingId = null;
+        refreshList();
+      });
+    });
+
+    modal.querySelectorAll('.btn-save-edit-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const labelInput = document.getElementById(`edit-item-label-${id}`);
+        const descInput = document.getElementById(`edit-item-desc-${id}`);
+        const newLabel = (labelInput?.value || '').trim();
+        const newDesc = (descInput?.value || '').trim();
+
+        if (!newLabel) {
+          alert('El título del requisito no puede estar vacío.');
+          return;
+        }
+
+        const item = currentItems.find(it => it.id === id);
+        if (item) {
+          item.label = newLabel;
+          item.description = newDesc;
+          window.saveOnboardingChecklistItems(currentItems);
+        }
+        editingId = null;
+        refreshList();
+        window.renderOnboardingAdmin();
+      });
+    });
+
+    modal.querySelectorAll('.btn-delete-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const label = btn.getAttribute('data-label');
+        if (confirm(`¿Deseas eliminar el punto "${label}" del checklist?`)) {
+          currentItems = currentItems.filter(it => it.id !== id);
+          window.saveOnboardingChecklistItems(currentItems);
+          refreshList();
+          window.renderOnboardingAdmin();
+        }
+      });
+    });
+  };
+
+  attachEvents();
+
+  document.getElementById('btn-reset-default-checklist')?.addEventListener('click', () => {
+    if (confirm('¿Restablecer el checklist a los 6 puntos predeterminados del sistema?')) {
+      currentItems = [...DEFAULT_ONBOARDING_CHECKLIST_ITEMS];
+      window.saveOnboardingChecklistItems(currentItems);
+      editingId = null;
+      refreshList();
+      window.renderOnboardingAdmin();
+    }
+  });
+
+  document.getElementById('form-add-checklist-item')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const labelInput = document.getElementById('new-checklist-label');
+    const descInput = document.getElementById('new-checklist-desc');
+    const label = (labelInput?.value || '').trim();
+    const description = (descInput?.value || '').trim();
+
+    if (!label) return;
+
+    const id = label
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '') || `item_${Date.now()}`;
+
+    if (currentItems.some(it => it.id === id || it.label.toLowerCase() === label.toLowerCase())) {
+      alert('Ya existe un punto en el checklist con ese nombre.');
+      return;
+    }
+
+    currentItems.push({
+      id,
+      label,
+      description,
+      isDefault: false
+    });
+
+    window.saveOnboardingChecklistItems(currentItems);
+    labelInput.value = '';
+    if (descInput) descInput.value = '';
+    refreshList();
+    window.renderOnboardingAdmin();
+  });
+};
+
+window.showCommerceChecklistModal = function(req, cacList) {
+  const oldModal = document.getElementById('commerce-checklist-modal');
+  if (oldModal) oldModal.remove();
+
+  const activeCacList = cacList || window.cachedAdminCacList || [];
+  let checklistInfo = window.getCommerceChecklist(req, activeCacList);
+  const currentStates = { ...checklistInfo.itemStates };
+  const commerceName = checklistInfo.cacRecord?.comercio || req.nombre_fantasia || req.razon_social || 'Comercio';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'commerce-checklist-modal';
+  modal.style.zIndex = '2150';
+
+  const getProgressStyles = (completed, total) => {
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    if (pct === 100) {
+      return {
+        color: '#16a34a',
+        bg: 'rgba(22, 163, 74, 0.1)',
+        badgeBg: '#16a34a',
+        badgeText: '¡Onboarding Completado!',
+        badgeIcon: 'ri-checkbox-circle-fill'
+      };
+    } else if (pct >= 50) {
+      return {
+        color: '#6366f1',
+        bg: 'rgba(99, 102, 241, 0.1)',
+        badgeBg: '#6366f1',
+        badgeText: 'En Progreso',
+        badgeIcon: 'ri-loader-2-line'
+      };
+    } else if (pct > 0) {
+      return {
+        color: '#d97706',
+        bg: 'rgba(245, 158, 11, 0.1)',
+        badgeBg: '#d97706',
+        badgeText: 'En Inicio',
+        badgeIcon: 'ri-progress-2-line'
+      };
+    }
+    return {
+      color: '#64748b',
+      bg: 'rgba(100, 116, 139, 0.1)',
+      badgeBg: '#64748b',
+      badgeText: 'Pendiente',
+      badgeIcon: 'ri-time-line'
+    };
+  };
+
+  const renderProgressBannerHtml = (completed, total) => {
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const style = getProgressStyles(completed, total);
+
+    return `
+      <div style="background: ${style.bg}; border: 1px solid ${style.color}; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.65rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.5rem; font-weight: 800; color: ${style.color};">${pct}%</span>
+            <div>
+              <strong style="font-size: 0.88rem; color: var(--color-text-main); display: block;">Avance del Checklist</strong>
+              <span style="font-size: 0.78rem; color: var(--color-text-muted);">${completed} de ${total} puntos completados</span>
+            </div>
+          </div>
+          <span class="badge" style="background: ${style.badgeBg}; color: white; font-size: 0.78rem; font-weight: 600; padding: 0.3rem 0.65rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="${style.badgeIcon}"></i> ${style.badgeText}
+          </span>
+        </div>
+        <div style="width: 100%; height: 9px; background: rgba(0,0,0,0.08); border-radius: 99px; overflow: hidden;">
+          <div id="commerce-modal-progressbar" style="width: ${pct}%; height: 100%; background: ${style.color}; border-radius: 99px; transition: width 0.3s ease, background-color 0.3s ease;"></div>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderItemsListHtml = () => {
+    return checklistInfo.items.map((item) => {
+      const isChecked = !!currentStates[item.id];
+      return `
+        <div class="commerce-checklist-row" data-id="${item.id}" style="display: flex; align-items: flex-start; gap: 0.85rem; padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid ${isChecked ? 'rgba(22, 163, 74, 0.35)' : 'var(--color-border)'}; background: ${isChecked ? 'rgba(22, 163, 74, 0.04)' : 'var(--color-bg)'}; cursor: pointer; transition: all 0.2s ease;">
+          <input type="checkbox" id="check-item-${item.id}" class="checklist-item-input" data-id="${item.id}" ${isChecked ? 'checked' : ''} style="width: 18px; height: 18px; margin-top: 0.2rem; cursor: pointer; accent-color: #16a34a;">
+          <div style="flex: 1;">
+            <div style="font-weight: 600; font-size: 0.88rem; color: ${isChecked ? '#15803d' : 'var(--color-text-main)'}; display: flex; align-items: center; gap: 0.4rem;">
+              <span>${item.label}</span>
+              ${isChecked ? '<i class="ri-checkbox-circle-fill" style="color: #16a34a; font-size: 0.95rem;"></i>' : ''}
+            </div>
+            ${item.description ? `<div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">${item.description}</div>` : ''}
+          </div>
+          <span style="font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.45rem; border-radius: 4px; background: ${isChecked ? 'rgba(22, 163, 74, 0.12)' : 'rgba(100, 116, 139, 0.1)'}; color: ${isChecked ? '#16a34a' : '#64748b'}; flex-shrink: 0;">
+            ${isChecked ? 'Completado' : 'Pendiente'}
+          </span>
+        </div>
+      `;
+    }).join('');
+  };
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 650px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 1.15rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-checkbox-multiple-line" style="font-size: 1.4rem; color: #38bdf8;"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: white;">Checklist de Onboarding: ${commerceName}</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.8);">
+              ${req.razon_social ? `Razón Social: ${req.razon_social}` : ''} ${req.rut_empresa ? ` | RUT: ${req.rut_empresa}` : ''}
+            </p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-commerce-checklist" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface);">
+        <!-- Banner de Avance -->
+        <div id="commerce-checklist-banner-container">
+          ${renderProgressBannerHtml(checklistInfo.completedCount, checklistInfo.totalCount)}
+        </div>
+
+        <!-- Acciones Rápidas -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 0.25rem;">
+          <span style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Tareas de Configuración:</span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="btn-check-all-items" class="btn btn-outline btn-sm" style="font-size: 0.74rem; padding: 0.25rem 0.55rem;">
+              <i class="ri-check-double-line"></i> Marcar Todos
+            </button>
+            <button type="button" id="btn-uncheck-all-items" class="btn btn-outline btn-sm" style="font-size: 0.74rem; padding: 0.25rem 0.55rem; color: var(--color-text-muted);">
+              <i class="ri-close-line"></i> Desmarcar Todos
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista de Items -->
+        <div id="commerce-checklist-items-container" style="display: flex; flex-direction: column; gap: 0.6rem; max-height: 340px; overflow-y: auto; padding-right: 0.25rem;">
+          ${renderItemsListHtml()}
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface);">
+        <span id="commerce-checklist-save-status" style="font-size: 0.78rem; color: #16a34a; font-weight: 600; display: none;">
+          <i class="ri-check-line"></i> Guardado automáticamente
+        </span>
+        <div style="margin-left: auto;">
+          <button type="button" class="btn btn-primary" id="btn-close-commerce-checklist-footer" style="font-size: 0.82rem; padding: 0.4rem 1.25rem;">
+            Listo / Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 250);
+  };
+
+  document.getElementById('btn-close-commerce-checklist').addEventListener('click', closeModal);
+  document.getElementById('btn-close-commerce-checklist-footer').addEventListener('click', closeModal);
+
+  const updateModalAndPersist = async () => {
+    let completedCount = 0;
+    checklistInfo.items.forEach(it => {
+      if (currentStates[it.id]) completedCount++;
+    });
+
+    const bannerContainer = document.getElementById('commerce-checklist-banner-container');
+    if (bannerContainer) {
+      bannerContainer.innerHTML = renderProgressBannerHtml(completedCount, checklistInfo.totalCount);
+    }
+
+    const itemsContainer = document.getElementById('commerce-checklist-items-container');
+    if (itemsContainer) {
+      itemsContainer.innerHTML = renderItemsListHtml();
+      attachItemEvents();
+    }
+
+    const saveStatus = document.getElementById('commerce-checklist-save-status');
+    if (saveStatus) {
+      saveStatus.style.display = 'inline-flex';
+      saveStatus.style.alignItems = 'center';
+      saveStatus.style.gap = '0.25rem';
+      setTimeout(() => {
+        if (saveStatus) saveStatus.style.display = 'none';
+      }, 2000);
+    }
+
+    await window.saveCommerceChecklist(req, currentStates, checklistInfo.cacRecord);
+
+    const pill = document.querySelector(`#onboarding-requests-table tr[data-req-id="${req.id}"] .onboarding-checklist-pill`);
+    if (pill) {
+      const pct = checklistInfo.totalCount > 0 ? Math.round((completedCount / checklistInfo.totalCount) * 100) : 0;
+      const styles = getProgressStyles(completedCount, checklistInfo.totalCount);
+      pill.style.borderColor = styles.color;
+      pill.style.background = styles.bg;
+      pill.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.35rem; font-size: 0.76rem; font-weight: 700; color: ${styles.color};">
+          <span style="display: flex; align-items: center; gap: 0.25rem;">
+            <i class="${styles.badgeIcon}"></i>
+            <span>${completedCount}/${checklistInfo.totalCount}</span>
+          </span>
+          <span>${pct}%</span>
+        </div>
+        <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.08); border-radius: 99px; overflow: hidden;">
+          <div style="width: ${pct}%; height: 100%; background: ${styles.color}; border-radius: 99px; transition: width 0.3s ease;"></div>
+        </div>
+      `;
+    }
+  };
+
+  const attachItemEvents = () => {
+    modal.querySelectorAll('.commerce-checklist-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        const id = row.getAttribute('data-id');
+        if (e.target.tagName !== 'INPUT') {
+          currentStates[id] = !currentStates[id];
+        } else {
+          currentStates[id] = e.target.checked;
+        }
+        updateModalAndPersist();
+      });
+    });
+  };
+
+  attachItemEvents();
+
+  document.getElementById('btn-check-all-items')?.addEventListener('click', () => {
+    checklistInfo.items.forEach(it => {
+      currentStates[it.id] = true;
+    });
+    updateModalAndPersist();
+  });
+
+  document.getElementById('btn-uncheck-all-items')?.addEventListener('click', () => {
+    checklistInfo.items.forEach(it => {
+      currentStates[it.id] = false;
+    });
+    updateModalAndPersist();
+  });
+};
+
 // Función para Eliminar Solicitud de Onboarding
 window.deleteOnboardingRequest = async function(reqId, commerceName) {
   const nameToDisplay = commerceName || 'esta solicitud';
@@ -58400,12 +59076,20 @@ async function renderOnboardingAdmin() {
   `;
 
   try {
-    const { data: requests, error } = await supabase
-      .from('onboarding_requests')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const [requestsRes, cacRes] = await Promise.all([
+      supabase
+        .from('onboarding_requests')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('comercios_adicional_config')
+        .select('comercio, rut, razon_social, onboarding_checklist')
+    ]);
 
-    if (error) throw error;
+    if (requestsRes.error) throw requestsRes.error;
+    const requests = requestsRes.data;
+    const cacList = cacRes.data || [];
+    window.cachedAdminCacList = cacList;
 
     const allStatuses = window.getOnboardingStatuses();
     const pendingCount = (requests || []).filter(r => (r.status || '').toLowerCase() === 'pending').length;
@@ -58424,6 +59108,9 @@ async function renderOnboardingAdmin() {
             <i class="ri-git-pull-request-line" style="color: var(--color-accent); font-size: 1.35rem;"></i> Solicitudes de Alta Comercial
           </h4>
           <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-outline" id="btn-open-checklist-config" style="padding: 0.45rem 0.85rem; font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;" title="Configurar puntos y tareas del checklist de onboarding">
+              <i class="ri-list-check-3" style="color: #7c3aed;"></i> Configurar Checklist
+            </button>
             <button class="btn btn-outline" id="btn-open-status-config" style="padding: 0.45rem 0.85rem; font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;" title="Configurar opciones del desplegable de estado">
               <i class="ri-settings-3-line" style="color: #6366f1;"></i> Configurar Estados
             </button>
@@ -58507,13 +59194,14 @@ async function renderOnboardingAdmin() {
                 <th>Razón Social</th>
                 <th>RUT Empresa</th>
                 <th>Contacto</th>
-                <th style="min-width: 140px;">Estado</th>
+                <th style="min-width: 135px;">Estado</th>
+                <th style="min-width: 155px; text-align: center;">Checklist Avance</th>
                 <th style="text-align: center; width: 140px;">Acciones</th>
               </tr>
             </thead>
             <tbody id="onboarding-requests-tbody">
               <tr>
-                <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando registros...</td>
+                <td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando registros...</td>
               </tr>
             </tbody>
           </table>
@@ -58530,6 +59218,10 @@ async function renderOnboardingAdmin() {
 
     document.getElementById('btn-open-status-config')?.addEventListener('click', () => {
       window.showOnboardingStatusConfigModal();
+    });
+
+    document.getElementById('btn-open-checklist-config')?.addEventListener('click', () => {
+      window.showOnboardingChecklistConfigModal();
     });
 
     // Función interna para renderizar registros según búsqueda y estado
@@ -58582,7 +59274,7 @@ async function renderOnboardingAdmin() {
       if (filtered.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+            <td colspan="8" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
               <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.6;"></i>
               No se encontraron solicitudes que coincidan con los filtros seleccionados.
             </td>
@@ -58610,6 +59302,51 @@ async function renderOnboardingAdmin() {
           return `<option value="${st.id}" ${isSelected ? 'selected' : ''}>${st.label}</option>`;
         }).join('');
 
+        const isApproved = (r.status || '').toLowerCase() === 'approved';
+        const checklistInfo = window.getCommerceChecklist(r, cacList);
+
+        let checklistCellHtml = '';
+        if (isApproved) {
+          let progressColor = '#64748b';
+          let progressBg = 'rgba(100, 116, 139, 0.08)';
+          let progressIcon = 'ri-checkbox-blank-circle-line';
+
+          if (checklistInfo.isComplete) {
+            progressColor = '#16a34a';
+            progressBg = 'rgba(22, 163, 74, 0.1)';
+            progressIcon = 'ri-checkbox-circle-fill';
+          } else if (checklistInfo.percent >= 50) {
+            progressColor = '#6366f1';
+            progressBg = 'rgba(99, 102, 241, 0.1)';
+            progressIcon = 'ri-progress-4-line';
+          } else if (checklistInfo.percent > 0) {
+            progressColor = '#d97706';
+            progressBg = 'rgba(245, 158, 11, 0.1)';
+            progressIcon = 'ri-progress-2-line';
+          }
+
+          checklistCellHtml = `
+            <div class="onboarding-checklist-pill" data-id="${r.id}" style="display: inline-flex; flex-direction: column; align-items: center; gap: 0.25rem; cursor: pointer; padding: 0.3rem 0.65rem; border-radius: 6px; border: 1px solid ${progressColor}; background: ${progressBg}; transition: all 0.2s ease; min-width: 120px;" title="Clic para ver y gestionar checklist de este comercio">
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 0.35rem; font-size: 0.76rem; font-weight: 700; color: ${progressColor};">
+                <span style="display: flex; align-items: center; gap: 0.25rem;">
+                  <i class="${progressIcon}"></i>
+                  <span>${checklistInfo.completedCount}/${checklistInfo.totalCount}</span>
+                </span>
+                <span>${checklistInfo.percent}%</span>
+              </div>
+              <div style="width: 100%; height: 5px; background: rgba(0,0,0,0.08); border-radius: 99px; overflow: hidden;">
+                <div style="width: ${checklistInfo.percent}%; height: 100%; background: ${progressColor}; border-radius: 99px; transition: width 0.3s ease;"></div>
+              </div>
+            </div>
+          `;
+        } else {
+          checklistCellHtml = `
+            <span class="badge" style="background: rgba(148, 163, 184, 0.12); color: #64748b; font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 500; border: 1px dashed rgba(148, 163, 184, 0.35);" title="El checklist de operaciones se activa al completar la aprobación">
+              <i class="ri-time-line"></i> Pre-alta
+            </span>
+          `;
+        }
+
         return `
           <tr data-req-id="${r.id}">
             <td style="font-weight: 500; white-space: nowrap; font-size: 0.82rem;">${dateStr}</td>
@@ -58625,6 +59362,9 @@ async function renderOnboardingAdmin() {
                 ${statusOptionsHtml}
               </select>
             </td>
+            <td style="text-align: center; vertical-align: middle;">
+              ${checklistCellHtml}
+            </td>
             <td style="text-align: center; white-space: nowrap;">
               <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
                 <button class="btn btn-outline btn-sm btn-view-onboarding" data-id="${r.id}" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" title="Ver expediente completo">
@@ -58638,6 +59378,17 @@ async function renderOnboardingAdmin() {
           </tr>
         `;
       }).join('');
+
+      // Eventos a píldoras de checklist de avance
+      tbody.querySelectorAll('.onboarding-checklist-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const reqId = pill.getAttribute('data-id');
+          const selectedReq = requests.find(r => r.id === reqId);
+          if (selectedReq) {
+            window.showCommerceChecklistModal(selectedReq, cacList);
+          }
+        });
+      });
 
       // Eventos a botones "Ver Detalle"
       tbody.querySelectorAll('.btn-view-onboarding').forEach(btn => {
@@ -58737,6 +59488,7 @@ window.renderOnboardingAdmin = renderOnboardingAdmin;
 
 function showOnboardingDetailModal(req) {
   const isPending = (req.status || '').toLowerCase() === 'pending';
+  const isApproved = (req.status || '').toLowerCase() === 'approved';
   const statusConf = window.getOnboardingStatusConfig(req.status || 'pending');
   const allStatuses = window.getOnboardingStatuses();
   
@@ -58779,6 +59531,53 @@ function showOnboardingDetailModal(req) {
     `;
   }
 
+  // Generar sección de checklist si el comercio está aprobado
+  const checklistInfo = window.getCommerceChecklist(req, window.cachedAdminCacList);
+  let detailChecklistHtml = '';
+  if (isApproved) {
+    let progressColor = '#64748b';
+    if (checklistInfo.isComplete) {
+      progressColor = '#16a34a';
+    } else if (checklistInfo.percent >= 50) {
+      progressColor = '#6366f1';
+    } else if (checklistInfo.percent > 0) {
+      progressColor = '#d97706';
+    }
+
+    detailChecklistHtml = `
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.15rem 1.25rem; border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-list-check-3" style="color: ${progressColor}; font-size: 1.3rem;"></i>
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Checklist de Operaciones y Activación</h4>
+              <span style="font-size: 0.76rem; color: var(--color-text-muted);">${checklistInfo.completedCount} de ${checklistInfo.totalCount} tareas completadas (${checklistInfo.percent}%)</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-detail-manage-checklist" style="font-size: 0.76rem; padding: 0.25rem 0.65rem; border-color: ${progressColor}; color: ${progressColor};">
+            <i class="ri-edit-line"></i> Gestionar Checklist
+          </button>
+        </div>
+        <div style="width: 100%; height: 7px; background: rgba(0,0,0,0.08); border-radius: 99px; overflow: hidden;">
+          <div style="width: ${checklistInfo.percent}%; height: 100%; background: ${progressColor}; border-radius: 99px; transition: width 0.3s ease;"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; margin-top: 0.25rem;">
+          ${checklistInfo.items.map(item => {
+            const isChecked = !!checklistInfo.itemStates[item.id];
+            return `
+              <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.65rem; border-radius: 6px; border: 1px solid ${isChecked ? 'rgba(22, 163, 74, 0.35)' : 'var(--color-border)'}; background: ${isChecked ? 'rgba(22, 163, 74, 0.05)' : 'var(--color-bg)'};">
+                <i class="${isChecked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${isChecked ? '#16a34a' : 'var(--color-text-muted)'}; font-size: 1rem; flex-shrink: 0;"></i>
+                <div style="font-size: 0.78rem; font-weight: 600; color: ${isChecked ? '#15803d' : 'var(--color-text-main)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.label}">
+                  ${item.label}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 840px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
       <div class="modal-header" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
@@ -58806,6 +59605,9 @@ function showOnboardingDetailModal(req) {
             </select>
           </div>
         </div>
+
+        <!-- Checklist de Operaciones y Puesta en Marcha (si está aprobado) -->
+        ${detailChecklistHtml}
 
         <!-- Estado Rejection Reason si aplica -->
         ${req.status === 'rejected' ? `
@@ -58961,6 +59763,11 @@ function showOnboardingDetailModal(req) {
         cc: (req.email_facturacion && req.email_facturacion !== req.email) ? req.email_facturacion : ''
       });
     }
+  });
+
+  // Botón para abrir gestión interactiva de checklist desde el detalle
+  document.getElementById('btn-detail-manage-checklist')?.addEventListener('click', () => {
+    window.showCommerceChecklistModal(req, window.cachedAdminCacList);
   });
 
   if (isPending) {
@@ -59136,10 +59943,12 @@ function showOnboardingApproveConfigModal(req) {
           contrato_url: definitiveContractUrl,
           contrato_storage_path: definitiveStoragePath,
           onboarding_checklist: {
+            wms_account: true,
             integrations: false,
             catalog_ready: false,
             shipping_configured: false,
             stock_declared: false,
+            training_done: false,
             sku_guide: false,
             dismissed: false
           }
