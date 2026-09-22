@@ -241,6 +241,163 @@
       justify-content: space-between;
       align-items: center;
     }
+    /* Ingresos de Stock 2.0: Stepper & Stage Transition Styles */
+    .stage-stepper-wrapper {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.25rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .stage-stepper-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.85rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--color-border);
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .stage-stepper-track {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      gap: 0.25rem;
+    }
+    .stage-step-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.2s ease;
+      min-width: 0;
+    }
+    .stage-step-node {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--color-bg);
+      border: 2px solid var(--color-border);
+      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      font-weight: 700;
+      transition: all 0.25s ease;
+      position: relative;
+      margin-bottom: 0.4rem;
+    }
+    .stage-step-item:hover .stage-step-node {
+      border-color: var(--color-primary);
+      transform: translateY(-2px);
+    }
+    .stage-step-item.completed .stage-step-node {
+      background: var(--color-success);
+      border-color: var(--color-success);
+      color: #fff;
+    }
+    .stage-step-item.active-current .stage-step-node {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgba(95, 6, 250, 0.2);
+    }
+    .stage-step-item.target-dest .stage-step-node {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25);
+      animation: pulse-step-target 1.5s infinite;
+    }
+    @keyframes pulse-step-target {
+      0% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2); }
+      50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.35); }
+      100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2); }
+    }
+    .stage-step-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .stage-step-item.active-current .stage-step-label {
+      color: var(--color-primary);
+      font-weight: 700;
+    }
+    .stage-step-item.target-dest .stage-step-label {
+      color: #d97706;
+      font-weight: 700;
+    }
+    .stage-step-sublabel {
+      font-size: 0.68rem;
+      color: var(--color-text-muted);
+      opacity: 0.8;
+      display: none;
+    }
+    @media (min-width: 768px) {
+      .stage-step-sublabel {
+        display: block;
+      }
+    }
+    .stage-step-line {
+      flex: 1;
+      height: 3px;
+      background: var(--color-border);
+      margin: 0 -4px 1.4rem -4px;
+      z-index: 1;
+      transition: background 0.25s ease;
+    }
+    .stage-step-line.completed {
+      background: var(--color-success);
+    }
+    .stage-action-card {
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 0.9rem 1.1rem;
+      background: var(--color-bg);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      position: relative;
+    }
+    .stage-action-card:hover {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .stage-action-card.selected-action {
+      border-color: var(--color-primary);
+      background: rgba(95, 6, 250, 0.05);
+      box-shadow: 0 0 0 1px var(--color-primary);
+    }
+    .stage-action-card.action-advance.selected-action {
+      border-color: var(--color-success);
+      background: rgba(16, 185, 129, 0.07);
+      box-shadow: 0 0 0 1px var(--color-success);
+    }
+    .stage-action-card.action-stay.selected-action {
+      border-color: var(--color-primary);
+      background: rgba(95, 6, 250, 0.06);
+      box-shadow: 0 0 0 1px var(--color-primary);
+    }
+    .stage-action-card.action-rollback.selected-action {
+      border-color: #d97706;
+      background: rgba(245, 158, 11, 0.08);
+      box-shadow: 0 0 0 1px #d97706;
+    }
   </style>
   <!-- Excel / CSV Parser (SheetJS) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1362,6 +1519,11 @@
         <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem;">
           <div id="modal-dec-alert-container"></div>
           
+          <!-- Stepper Visual Interactivo de Etapas (Ingresos 2.0) -->
+          <div id="manage-dec-stepper-container" style="margin-bottom: 1.25rem;">
+            <!-- Renderizado dinámico de etapas y progreso -->
+          </div>
+          
           <!-- Grid Informativo del Ingreso -->
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
             <!-- Column 1: Logística y Origen -->
@@ -1571,9 +1733,37 @@
           <!-- Campo oculto de Estado -->
           <input type="hidden" id="manage-dec-status" required>
           
-          <!-- Selector Dinámico de Estado -->
+          <!-- Selector Dinámico de Estado y Transiciones Bidireccionales (Ingresos 2.0) -->
           <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-git-commit-line" style="color: var(--color-primary);"></i> Avance del Proceso de Recepción *</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+              <label class="form-label" style="font-weight: 700; margin-bottom: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--color-text-main);">
+                <i class="ri-git-commit-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Control de Etapa de Recepción
+              </label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span id="manage-dec-current-status-badge" class="badge" style="font-size: 0.78rem; padding: 4px 8px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Estado actual: Creada</span>
+                <button type="button" id="btn-toggle-manual-stage" class="btn btn-outline" onclick="window.toggleManualStageSelect()" style="font-size: 0.72rem; padding: 0.25rem 0.6rem; height: auto; line-height: 1.2; display: inline-flex; align-items: center; gap: 0.25rem;" title="Cambiar a modo selección manual directa">
+                  <i class="ri-equalizer-line"></i> Modo Libre
+                </button>
+              </div>
+            </div>
+
+            <!-- Selector manual desplegable (oculto por defecto) -->
+            <div id="manage-dec-manual-select-container" style="display: none; background: var(--color-bg); padding: 0.85rem; border-radius: 8px; border: 1px dashed var(--color-primary); margin-bottom: 1rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase;">Selección Directa de Etapa (Admin)</span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted);">Permite saltar directamente a cualquier etapa</span>
+              </div>
+              <select id="manage-dec-manual-status-select" class="form-input" style="font-size: 0.85rem; font-weight: 600;" onchange="window.handleManualStatusDropdownChange(this.value)">
+                <option value="Creada">1. Creada (Declaración inicial)</option>
+                <option value="Bodega Asignada">2. Bodega Asignada</option>
+                <option value="En Recepción - Pendiente Conteo">3. En Recepción - Pendiente Conteo</option>
+                <option value="En proceso de conteo/clasificación">4. En proceso de conteo/clasificación</option>
+                <option value="Recibido Conforme">5. Recibido Conforme (100% Carga Completa)</option>
+                <option value="Recepción Parcial">5. Recepción Parcial (Saldo en espera)</option>
+                <option value="Recibido con Incidencias">5. Recibido con Incidencias (Cierre con observaciones)</option>
+              </select>
+            </div>
+
             <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
               <!-- Botones dinámicos generados por JS -->
             </div>
@@ -1685,6 +1875,8 @@
           </div>
 
           <div class="form-group" style="margin-top: 1.25rem;">
+            <!-- Indicador Dinámico de la Acción Seleccionada (Ingresos 2.0) -->
+            <div id="manage-dec-stage-action-indicator" style="margin-bottom: 0.65rem;"></div>
             <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance</label>
             <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)"></textarea>
           </div>

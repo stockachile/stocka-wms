@@ -142,147 +142,258 @@ serve(async (req) => {
       });
     }
 
-    // 4. Conciliar ítems de forma inteligente si NO ha sido editado en el WMS
+    // 4. Conciliar ítems de forma inteligente protegiendo ajustes manuales a nivel granular
     let deletedCount = 0;
     const deletedSkusSet = new Set<string>();
     const lineItems = shopifyOrder.line_items || [];
+
+    // Obtener reglas de ediciones manuales si el pedido fue modificado en WMS
+    let manualEdits: {
+      deleted_skus: string[];
+      added_skus: string[];
+      modified_quantities: Record<string, number>;
+    } = { deleted_skus: [], added_skus: [], modified_quantities: {} };
+
+    if (isWmsItemsEdited) {
+      if (existingRaw.wms_manual_edits) {
+        manualEdits = {
+          deleted_skus: existingRaw.wms_manual_edits.deleted_skus || [],
+          added_skus: existingRaw.wms_manual_edits.added_skus || [],
+          modified_quantities: existingRaw.wms_manual_edits.modified_quantities || {}
+        };
+      } else {
+        // Fallback: parsear desde order_audit_logs para retrocompatibilidad
+        try {
+          const { data: logs } = await supabase
+            .from("order_audit_logs")
+            .select("details")
+            .eq("order_id", order.id)
+            .eq("action", "Modificación de Ítems")
+            .order("created_at", { ascending: true });
+
+          if (logs && logs.length > 0) {
+            const delSet = new Set<string>();
+            const addSet = new Set<string>();
+            const modMap: Record<string, number> = {};
+
+            logs.forEach((log: any) => {
+              const changes = log.details?.changes || [];
+              changes.forEach((ch: string) => {
+                const delMatch = ch.match(/Eliminado SKU\s+([^:]+)/i);
+                if (delMatch) {
+                  const sku = delMatch[1].trim();
+                  delSet.add(sku);
+                  addSet.delete(sku);
+                  delete modMap[sku];
+                }
+                const addMatch = ch.match(/Agregado SKU\s+([^:]+):.*\(Cant:\s*(\d+)\)/i);
+                if (addMatch) {
+                  const sku = addMatch[1].trim();
+                  const qty = parseInt(addMatch[2], 10);
+                  addSet.add(sku);
+                  delSet.delete(sku);
+                  modMap[sku] = qty;
+                }
+                const modMatch = ch.match(/Modificado SKU\s+([^:]+):.*de cantidad\s+\d+\s+a\s+(\d+)/i);
+                if (modMatch) {
+                  const sku = modMatch[1].trim();
+                  const qty = parseInt(modMatch[2], 10);
+                  modMap[sku] = qty;
+                }
+              });
+            });
+
+            manualEdits = {
+              deleted_skus: Array.from(delSet),
+              added_skus: Array.from(addSet),
+              modified_quantities: modMap
+            };
+          }
+        } catch (auditErr) {
+          console.warn("Aviso consultando audit logs para manual edits:", auditErr);
+        }
+      }
+    }
+
+    const manualDeletedSet = new Set((manualEdits.deleted_skus || []).map((s: string) => s.trim().toLowerCase()));
+    const manualAddedSet = new Set((manualEdits.added_skus || []).map((s: string) => s.trim().toLowerCase()));
+    const protectedManualLogs: string[] = [];
+    const appliedChangesLogs: string[] = [];
+
     const activeItems = lineItems.filter((item: any) => {
       const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-      return effectiveQty > 0;
+      if (effectiveQty <= 0) return false;
+      const cleanSku = (item.sku || "").trim().toLowerCase();
+      const fallbackSku = (item.variant_id?.toString() || item.id?.toString() || "").trim().toLowerCase();
+      if (manualDeletedSet.has(cleanSku) || manualDeletedSet.has(fallbackSku)) {
+        protectedManualLogs.push(`SKU ${item.sku || fallbackSku} (${item.title}) se mantiene eliminado por ajuste manual en WMS.`);
+        return false;
+      }
+      return true;
     });
-    const totalUnits = activeItems.reduce((sum: number, item: any) => {
+
+    // Cargar equivalencias de SKU para este comercio
+    const skuMap: Record<string, string> = {};
+    try {
+      const { data: equivalences } = await supabase
+        .from("sku_equivalences")
+        .select("platform_sku, master_sku, platform")
+        .eq("comercio", order.comercio);
+      if (equivalences) {
+        equivalences.forEach((e: any) => {
+          if (e.platform_sku && (e.platform === "Todas" || e.platform === "Shopify")) {
+            skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
+          }
+        });
+      }
+    } catch (_) {}
+
+    // Identificar SKUs eliminados desde Shopify
+    const deletedShopifyItems = lineItems.filter((item: any) => {
       const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-      return sum + Number(effectiveQty || 0);
-    }, 0);
+      return effectiveQty <= 0;
+    });
 
-    if (!isWmsItemsEdited) {
-      // Cargar equivalencias de SKU para este comercio
-      const skuMap: Record<string, string> = {};
-      try {
-        const { data: equivalences } = await supabase
-          .from("sku_equivalences")
-          .select("platform_sku, master_sku, platform")
-          .eq("comercio", order.comercio);
-        if (equivalences) {
-          equivalences.forEach((e: any) => {
-            if (e.platform_sku && (e.platform === "Todas" || e.platform === "Shopify")) {
-              skuMap[e.platform_sku.trim().replace(/\s+/g, "")] = e.master_sku.trim();
-            }
-          });
-        }
-      } catch (_) {}
+    deletedShopifyItems.forEach((item: any) => {
+      const sku = (item.sku || "").trim();
+      if (sku) deletedSkusSet.add(sku);
+      else if (item.title || item.name) deletedSkusSet.add((item.title || item.name).trim());
+    });
 
-      // Identificar SKUs eliminados desde Shopify
-      const deletedShopifyItems = lineItems.filter((item: any) => {
-        const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-        return effectiveQty <= 0;
-      });
+    // Cargar bodega por defecto
+    const { data: whRel } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", order.merchant_id || integ.merchant_id)
+      .limit(1)
+      .maybeSingle();
+    const warehouseId = whRel?.warehouse_id || null;
 
-      deletedShopifyItems.forEach((item: any) => {
-        const sku = (item.sku || "").trim();
-        if (sku) deletedSkusSet.add(sku);
-        else if (item.title || item.name) deletedSkusSet.add((item.title || item.name).trim());
-      });
+    // 1. Obtener order_items actuales en BD incluyendo SKU para identificar eliminados y agrupar por product_id
+    const { data: existingOrderItems } = await supabase
+      .from("order_items")
+      .select("id, product_id, quantity, warehouse_id, products(sku, name, price)")
+      .eq("order_id", order.id);
 
-      // Cargar bodega por defecto
-      const { data: whRel } = await supabase
-        .from("merchants_warehouses")
-        .select("warehouse_id")
-        .eq("merchant_id", order.merchant_id || integ.merchant_id)
-        .limit(1)
-        .maybeSingle();
-      const warehouseId = whRel?.warehouse_id || null;
+    const existingByProduct = new Map<string, any[]>();
+    (existingOrderItems || []).forEach((i: any) => {
+      if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
+      existingByProduct.get(i.product_id)!.push(i);
+    });
 
-      // 1. Obtener order_items actuales en BD incluyendo SKU para identificar eliminados y agrupar por product_id
-      const { data: existingOrderItems } = await supabase
-        .from("order_items")
-        .select("id, product_id, quantity, warehouse_id, products(sku, name)")
-        .eq("order_id", order.id);
+    // 2. Consolidar cantidades esperadas por product_id (agrupando líneas repetidas del mismo SKU)
+    const expectedQuantities = new Map<string, number>();
 
-      const existingByProduct = new Map<string, any[]>();
-      (existingOrderItems || []).forEach((i: any) => {
-        if (!existingByProduct.has(i.product_id)) existingByProduct.set(i.product_id, []);
-        existingByProduct.get(i.product_id)!.push(i);
-      });
+    for (const item of activeItems) {
+      let effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
+      const cleanSku = (item.sku || "").trim().replace(/\s+/g, "");
+      const mappedSku = skuMap[cleanSku] || cleanSku;
+      const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : "NO-SKU");
+      const searchSku = mappedSku || fallbackSku;
 
-      // 2. Consolidar cantidades esperadas por product_id (agrupando líneas repetidas del mismo SKU)
-      const expectedQuantities = new Map<string, number>();
-
-      for (const item of activeItems) {
-        const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;
-        const cleanSku = (item.sku || "").trim().replace(/\s+/g, "");
-        const mappedSku = skuMap[cleanSku] || cleanSku;
-        const fallbackSku = item.variant_id ? String(item.variant_id) : (item.id ? String(item.id) : "NO-SKU");
-        const searchSku = mappedSku || fallbackSku;
-
-        let { data: prod } = await supabase
-          .from("products")
-          .select("id")
-          .eq("sku", searchSku)
-          .eq("comercio", order.comercio)
-          .maybeSingle();
-
-        if (!prod) {
-          const { data: newProd } = await supabase
-            .from("products")
-            .insert([{
-              merchant_id: integ.merchant_id,
-              comercio: order.comercio,
-              sku: searchSku,
-              name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
-              price: item.price ? parseFloat(item.price) : 0,
-              status: "active"
-            }])
-            .select("id")
-            .single();
-          prod = newProd;
-        }
-
-        if (prod) {
-          const currentQty = expectedQuantities.get(prod.id) || 0;
-          expectedQuantities.set(prod.id, currentQty + effectiveQty);
+      // Verificar si hay cantidad modificada manualmente en WMS
+      const cleanLower = cleanSku.toLowerCase();
+      const varLower = (item.variant_id?.toString() || '').toLowerCase();
+      for (const [mSku, mQty] of Object.entries(manualEdits.modified_quantities || {})) {
+        const mLower = mSku.trim().toLowerCase();
+        if (mLower === cleanLower || mLower === varLower) {
+          effectiveQty = mQty;
+          protectedManualLogs.push(`SKU ${searchSku} mantiene cantidad manual WMS (${mQty}) en lugar de Shopify (${item.current_quantity || item.quantity}).`);
+          break;
         }
       }
 
-      // 3. Conciliar contra existingOrderItems consolidando duplicados
-      for (const [prodId, expQty] of expectedQuantities.entries()) {
-        const rows = existingByProduct.get(prodId) || [];
-        if (rows.length === 0) {
+      let { data: prod } = await supabase
+        .from("products")
+        .select("id, sku, name")
+        .eq("sku", searchSku)
+        .eq("comercio", order.comercio)
+        .maybeSingle();
+
+      if (!prod) {
+        const { data: newProd } = await supabase
+          .from("products")
+          .insert([{
+            merchant_id: integ.merchant_id,
+            comercio: order.comercio,
+            sku: searchSku,
+            name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
+            price: item.price ? parseFloat(item.price) : 0,
+            status: "active"
+          }])
+          .select("id, sku, name")
+          .single();
+        prod = newProd;
+      }
+
+      if (prod) {
+        const currentQty = expectedQuantities.get(prod.id) || 0;
+        expectedQuantities.set(prod.id, currentQty + effectiveQty);
+      }
+    }
+
+    // Preservar productos agregados manualmente en WMS que no vienen en Shopify
+    for (const [prodId, rows] of existingByProduct.entries()) {
+      const pSku = (rows[0]?.products?.sku || "").trim();
+      const pSkuLower = pSku.toLowerCase();
+      if (manualAddedSet.has(pSkuLower) && !expectedQuantities.has(prodId)) {
+        const manualQty = manualEdits.modified_quantities[pSku] || rows[0]?.quantity || 1;
+        expectedQuantities.set(prodId, manualQty);
+        protectedManualLogs.push(`Item "${rows[0]?.products?.name}" (SKU: ${pSku}) se preserva por haber sido agregado manualmente en WMS.`);
+      }
+    }
+
+    // Identificar cambios aplicados desde Shopify vs existentes en WMS
+    for (const [prodId, expQty] of expectedQuantities.entries()) {
+      const rows = existingByProduct.get(prodId) || [];
+      if (rows.length === 0) {
+        appliedChangesLogs.push(`Añadido desde Shopify: ${expQty} ud(s)`);
+      } else if (rows[0].quantity !== expQty) {
+        appliedChangesLogs.push(`Cantidad actualizada: de ${rows[0].quantity} a ${expQty} ud(s)`);
+      }
+    }
+
+    // 3. Conciliar contra existingOrderItems consolidando duplicados
+    for (const [prodId, expQty] of expectedQuantities.entries()) {
+      const rows = existingByProduct.get(prodId) || [];
+      if (rows.length === 0) {
+        await supabase
+          .from("order_items")
+          .insert([{
+            order_id: order.id,
+            product_id: prodId,
+            warehouse_id: warehouseId,
+            quantity: expQty,
+          }]);
+      } else {
+        const primaryRow = rows[0];
+        if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
           await supabase
             .from("order_items")
-            .insert([{
-              order_id: order.id,
-              product_id: prodId,
-              warehouse_id: warehouseId,
+            .update({
               quantity: expQty,
-            }]);
-        } else {
-          const primaryRow = rows[0];
-          if (primaryRow.quantity !== expQty || (warehouseId && primaryRow.warehouse_id !== warehouseId)) {
-            await supabase
-              .from("order_items")
-              .update({
-                quantity: expQty,
-                warehouse_id: warehouseId || primaryRow.warehouse_id,
-              })
-              .eq("id", primaryRow.id);
-          }
-          if (rows.length > 1) {
-            for (let k = 1; k < rows.length; k++) {
-              await supabase.from("order_items").delete().eq("id", rows[k].id);
-            }
+              warehouse_id: warehouseId || primaryRow.warehouse_id,
+            })
+            .eq("id", primaryRow.id);
+        }
+        if (rows.length > 1) {
+          for (let k = 1; k < rows.length; k++) {
+            await supabase.from("order_items").delete().eq("id", rows[k].id);
           }
         }
       }
+    }
 
-      // 4. Eliminar de order_items aquellos productos que ya no están activos
-      for (const [prodId, rows] of existingByProduct.entries()) {
-        if (!expectedQuantities.has(prodId)) {
-          for (const row of rows) {
-            await supabase.from("order_items").delete().eq("id", row.id);
-            deletedCount++;
-            const pSku = row.products?.sku;
-            if (pSku) deletedSkusSet.add(pSku.trim());
+    // 4. Eliminar de order_items aquellos productos que ya no están activos
+    for (const [prodId, rows] of existingByProduct.entries()) {
+      if (!expectedQuantities.has(prodId)) {
+        for (const row of rows) {
+          await supabase.from("order_items").delete().eq("id", row.id);
+          deletedCount++;
+          const pSku = row.products?.sku;
+          if (pSku) {
+            deletedSkusSet.add(pSku.trim());
+            appliedChangesLogs.push(`Eliminado por Shopify: SKU ${pSku.trim()} (${row.quantity} ud)`);
           }
         }
       }
@@ -300,6 +411,11 @@ serve(async (req) => {
       ? `(SKU eliminados: ${deletedSkusList.join(", ")})` 
       : `(Sin SKU eliminados)`;
 
+    let totalUpdatedUnits = 0;
+    for (const qty of expectedQuantities.values()) {
+      totalUpdatedUnits += qty;
+    }
+
     // 5. Actualizar el pedido en orders respetando las ediciones manuales en WMS
     const newTotal = isWmsItemsEdited
       ? Number(order.total_value)
@@ -307,18 +423,19 @@ serve(async (req) => {
 
     const updatedPayload: Record<string, any> = {
       payment_status: shopifyOrder.financial_status || order.payment_status,
+      cantidad: totalUpdatedUnits,
       raw_shopify_data: {
         ...shopifyOrder,
         line_items: isWmsItemsEdited ? (existingRaw.line_items || shopifyOrder.line_items) : shopifyOrder.line_items,
         ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
         ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
-        ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
+        ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {}),
+        ...(existingRaw.wms_manual_edits ? { wms_manual_edits: existingRaw.wms_manual_edits } : {})
       }
     };
 
     if (!isWmsItemsEdited) {
       updatedPayload.total_value = newTotal;
-      updatedPayload.cantidad = totalUnits;
     }
 
     if (!isWmsShippingEdited) {
@@ -341,31 +458,40 @@ serve(async (req) => {
       .eq("id", order.id);
 
     // 6. Notificar a WhatsApp grupo "Gestión Stocka"
-    const formattedPrice = newTotal.toLocaleString("es-CL");
-    const waMsg = `ℹ️ *Pedido Re-sincronizado desde Shopify*\n\n` +
+    const formattedPrice = Number(order.total_value || newTotal).toLocaleString("es-CL");
+    let waMsg = `ℹ️ *Pedido Re-sincronizado desde Shopify*\n\n` +
       `🏪 *Comercio:* ${order.comercio}\n` +
       `📦 *Pedido:* ${order.external_order_number || order.id}\n` +
       `🏷️ *Estado WMS:* En procesamiento\n` +
-      `💰 *Total:* $${formattedPrice} (${isWmsItemsEdited ? (order.cantidad || totalUnits) : totalUnits} uds.)\n` +
-      (isWmsItemsEdited 
-        ? `🛡️ *Nota:* Ítems y cantidades protegidos por edición manual en WMS.\n` 
-        : `🛒 *SKU activos:* ${activeItems.length} ${deletedSkusText}\n`);
+      `💰 *Total:* $${formattedPrice} (${totalUpdatedUnits} uds.)\n` +
+      `🛒 *SKU activos:* ${expectedQuantities.size} ${deletedSkusText}\n\n`;
 
-    notifyWhatsAppGestion(waMsg).catch(() => {});
+    if (appliedChangesLogs.length > 0) {
+      waMsg += `📋 *Cambios aplicados desde Shopify:*\n` + appliedChangesLogs.map(c => `• ${c}`).join('\n') + '\n\n';
+    }
 
-    const respMessage = isWmsItemsEdited
-      ? `Pedido ${order.external_order_number || order.id} actualizado desde Shopify. Los ítems se mantuvieron protegidos porque fueron modificados previamente en el WMS.`
-      : `Pedido ${order.external_order_number || order.id} actualizado exitosamente desde Shopify.`;
+    if (protectedManualLogs.length > 0) {
+      waMsg += `🛡️ *Ajustes manuales WMS protegidos:*\n` + protectedManualLogs.map(p => `• ${p}`).join('\n') + '\n\n';
+    }
+
+    notifyWhatsAppGestion(waMsg.trim()).catch(() => {});
+
+    let respMessage = `Pedido ${order.external_order_number || order.id} re-sincronizado exitosamente desde Shopify.`;
+    if (protectedManualLogs.length > 0) {
+      respMessage += ` Se protegieron los ajustes manuales previos de bodega.`;
+    }
 
     return new Response(JSON.stringify({
       success: true,
-      activeItemsCount: activeItems.length,
-      totalUnits: isWmsItemsEdited ? (order.cantidad || totalUnits) : totalUnits,
+      activeItemsCount: expectedQuantities.size,
+      totalUnits: totalUpdatedUnits,
       deletedItemsCount: deletedCount,
       deletedSkus: deletedSkusList,
       totalValue: newTotal,
       paymentStatus: updatedPayload.payment_status,
       wmsItemsProtected: isWmsItemsEdited,
+      protectedActions: protectedManualLogs,
+      appliedChanges: appliedChangesLogs,
       message: respMessage
     }), {
       status: 200,

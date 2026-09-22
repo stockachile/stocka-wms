@@ -1758,7 +1758,7 @@ window.resyncShopifyOrder = async function(orderId) {
   const isItemsEdited = order.raw_shopify_data?.wms_items_edited === true;
   let confirmMsg = `¿Deseas consultar y conciliar las últimas modificaciones del pedido ${order.external_order_number || order.id} directamente desde Shopify?`;
   if (isItemsEdited) {
-    confirmMsg += `\n\n(Nota: Los ítems y cantidades editados manualmente en el WMS se mantendrán protegidos y prevalecerán).`;
+    confirmMsg += `\n\n(Nota: Los ítems y cantidades editados manualmente en el WMS se mantendrán protegidos, y los productos agregados o cancelados en Shopify que no interfieran se sincronizarán).`;
   }
   if (!confirm(confirmMsg)) return;
 
@@ -31735,120 +31735,439 @@ window.renderDeclarationsAdmin = async function() {
 
 let currentDeclarationIncidents = [];
 
-function renderStatusActionButtons(currentStatus) {
-  const container = document.getElementById('manage-dec-actions-buttons');
-  const statusInput = document.getElementById('manage-dec-status');
-  const submitBtn = document.querySelector('#form-manage-declaration button[type="submit"]');
-  if (!container || !statusInput) return;
-  
-  container.innerHTML = '';
-  statusInput.value = currentStatus; // Initialize with current status by default
+// =========================================================================
+// INGRESOS DE STOCK 2.0: PIPELINE, STEPPER VISUAL Y CONTROLADOR BIDIRECCIONAL
+// =========================================================================
 
-  let actionsHtml = '';
-  
-  if (currentStatus === 'Creada') {
-    actionsHtml = `
-      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
-        Estado actual: <strong style="color: var(--color-primary);">${currentStatus}</strong>. Siguiente paso:
-      </div>
-      <button type="button" class="btn btn-primary btn-status-action" data-status="Bodega Asignada" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 8px;">
-        <i class="ri-map-pin-line" style="font-size: 1.1rem;"></i> Marcar como: Bodega Asignada
-      </button>
+const INBOUND_STAGES_PIPELINE = [
+  { id: 'Creada', step: 1, label: '1. Creada', shortLabel: 'Creada', sublabel: 'Declaración cliente', icon: 'ri-file-list-3-line' },
+  { id: 'Bodega Asignada', step: 2, label: '2. Bodega Asignada', shortLabel: 'Bodega Asignada', sublabel: 'Destino asignado', icon: 'ri-building-line' },
+  { id: 'En Recepción - Pendiente Conteo', step: 3, label: '3. En Recepción', shortLabel: 'En Recepción', sublabel: 'Llegada / Andén', icon: 'ri-truck-line' },
+  { id: 'En proceso de conteo/clasificación', step: 4, label: '4. En Conteo', shortLabel: 'En Conteo', sublabel: 'Clasif. y medidas', icon: 'ri-calculator-line' },
+  { id: 'FINAL', step: 5, label: '5. Cierre', shortLabel: 'Cierre', sublabel: 'Conforme / Incidencias', icon: 'ri-checkbox-circle-line' }
+];
+
+function getStageStepNumber(status) {
+  if (status === 'Creada') return 1;
+  if (status === 'Bodega Asignada') return 2;
+  if (status === 'En Recepción - Pendiente Conteo') return 3;
+  if (status === 'En proceso de conteo/clasificación') return 4;
+  if (['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(status)) return 5;
+  return 1;
+}
+
+function getPreviousStageStatus(status) {
+  if (status === 'Bodega Asignada') return 'Creada';
+  if (status === 'En Recepción - Pendiente Conteo') return 'Bodega Asignada';
+  if (status === 'En proceso de conteo/clasificación') return 'En Recepción - Pendiente Conteo';
+  if (['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(status)) return 'En proceso de conteo/clasificación';
+  return null;
+}
+
+function getNextStageStatus(status) {
+  if (status === 'Creada') return 'Bodega Asignada';
+  if (status === 'Bodega Asignada') return 'En Recepción - Pendiente Conteo';
+  if (status === 'En Recepción - Pendiente Conteo') return 'En proceso de conteo/clasificación';
+  return null;
+}
+
+window.renderDeclarationStepper = function(currentStatus, targetStatus) {
+  const container = document.getElementById('manage-dec-stepper-container');
+  if (!container) return;
+
+  const currentStep = getStageStepNumber(currentStatus);
+  const targetStep = getStageStepNumber(targetStatus || currentStatus);
+  const isMoving = targetStatus && targetStatus !== currentStatus;
+  const isAdvancing = isMoving && (targetStep >= currentStep);
+  const isRollback = isMoving && (targetStep < currentStep);
+
+  let transitionBadge = '';
+  if (isAdvancing) {
+    transitionBadge = `
+      <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem;">
+        <i class="ri-arrow-right-line"></i> Avanzando a: ${targetStatus}
+      </span>
     `;
-  } else if (currentStatus === 'Bodega Asignada') {
-    actionsHtml = `
-      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
-        Estado actual: <strong style="color: var(--color-primary);">${currentStatus}</strong>. Siguiente paso:
-      </div>
-      <button type="button" class="btn btn-primary btn-status-action" data-status="En Recepción - Pendiente Conteo" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 8px;">
-        <i class="ri-play-circle-line" style="font-size: 1.1rem;"></i> Marcar como: En Recepción - Pendiente Conteo
-      </button>
-    `;
-  } else if (currentStatus === 'En Recepción - Pendiente Conteo') {
-    actionsHtml = `
-      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
-        Estado actual: <strong style="color: var(--color-warning);">${currentStatus}</strong>. Siguiente paso:
-      </div>
-      <button type="button" class="btn btn-primary btn-status-action" data-status="En proceso de conteo/clasificación" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background-color: var(--color-warning); border-color: var(--color-warning); border-radius: 8px; color: black;">
-        <i class="ri-swap-box-line" style="font-size: 1.1rem;"></i> Marcar como: En proceso de conteo/clasificación
-      </button>
-    `;
-  } else if (currentStatus === 'En proceso de conteo/clasificación' || currentStatus === 'Recepción Parcial') {
-    const isPartial = currentStatus === 'Recepción Parcial';
-    actionsHtml = `
-      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
-        Estado actual: <strong style="color: ${isPartial ? '#d97706' : 'var(--color-accent)'};">${currentStatus}</strong>. ${isPartial ? 'Ajusta las cantidades físicas y selecciona el siguiente avance del ingreso:' : 'Selecciona el resultado de la recepción:'}
-      </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem;">
-        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido Conforme" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); border-radius: 8px;">
-          <i class="ri-checkbox-circle-line" style="font-size: 1.5rem;"></i>
-          <span style="font-weight: 700;">Recibido Conforme</span>
-          <span style="font-size: 0.7rem; opacity: 0.85;">(100% Carga Completa)</span>
-        </button>
-        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recepción Parcial" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; border-radius: 8px;">
-          <i class="ri-pie-chart-2-line" style="font-size: 1.5rem;"></i>
-          <span style="font-weight: 700;">Recepción Parcial</span>
-          <span style="font-size: 0.7rem; opacity: 0.85;">(Saldo en espera)</span>
-        </button>
-        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido con Incidencias" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); border-radius: 8px;">
-          <i class="ri-error-warning-line" style="font-size: 1.5rem;"></i>
-          <span style="font-weight: 700;">Recibido con Incidencias</span>
-          <span style="font-size: 0.7rem; opacity: 0.85;">(Cierre con faltantes)</span>
-        </button>
-      </div>
+  } else if (isRollback) {
+    transitionBadge = `
+      <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem;">
+        <i class="ri-arrow-left-line"></i> Retrocediendo a: ${targetStatus}
+      </span>
     `;
   } else {
-    actionsHtml = `
-      <div style="text-align: center; padding: 0.5rem 0; color: var(--color-text-muted); font-size: 0.9rem;">
-        <i class="ri-checkbox-multiple-line" style="font-size: 2rem; color: var(--color-success); display: block; margin-bottom: 0.5rem;"></i>
-        Este ingreso ya se encuentra finalizado en estado:<br>
-        <strong style="color: var(--color-text-main); font-size: 1rem;">${currentStatus}</strong>.
+    transitionBadge = `
+      <span class="badge" style="background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border); font-size: 0.75rem; font-weight: 600;">
+        Manteniendo en: ${currentStatus}
+      </span>
+    `;
+  }
+
+  let html = `
+    <div class="stage-stepper-wrapper">
+      <div class="stage-stepper-header">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-main); letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-route-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Ruta del Ingreso de Stock
+          </span>
+          <span class="badge" style="background: rgba(95, 6, 250, 0.1); color: var(--color-primary); font-weight: 700; font-size: 0.75rem;">
+            📍 Etapa Actual: ${currentStatus}
+          </span>
+        </div>
+        <div>
+          ${transitionBadge}
+        </div>
+      </div>
+
+      <div class="stage-stepper-track">
+  `;
+
+  INBOUND_STAGES_PIPELINE.forEach((pipe, idx) => {
+    const isCompleted = pipe.step < currentStep;
+    const isCurrent = pipe.step === currentStep;
+    const isTarget = isMoving && (pipe.step === targetStep);
+
+    let itemClasses = 'stage-step-item';
+    if (isCompleted) itemClasses += ' completed';
+    if (isCurrent) itemClasses += ' active-current';
+    if (isTarget) itemClasses += ' target-dest';
+
+    let iconHtml = `<i class="${pipe.icon}"></i>`;
+    if (isCompleted) {
+      iconHtml = '<i class="ri-check-line"></i>';
+    }
+
+    let statusTooltip = `Etapa ${pipe.label}`;
+    if (isCurrent) statusTooltip += ' (Etapa Actual)';
+    if (isTarget) statusTooltip += ' (Nueva Etapa Seleccionada)';
+
+    html += `
+      <div class="${itemClasses}" onclick="window.onStepperStepClick(${pipe.step}, '${pipe.id}')" title="${statusTooltip}">
+        <div class="stage-step-node">
+          ${iconHtml}
+        </div>
+        <div class="stage-step-label">${pipe.shortLabel}</div>
+        <div class="stage-step-sublabel">${pipe.sublabel}</div>
+      </div>
+    `;
+
+    if (idx < INBOUND_STAGES_PIPELINE.length - 1) {
+      const lineCompleted = pipe.step < currentStep;
+      html += `<div class="stage-step-line ${lineCompleted ? 'completed' : ''}"></div>`;
+    }
+  });
+
+  html += `
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+};
+
+window.onStepperStepClick = function(step, stageId) {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+  
+  if (step === 5) {
+    if (['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(dec.status)) {
+      window.setTargetManageStatus(dec.status, 'stay');
+    } else {
+      window.setTargetManageStatus('Recibido Conforme', 'advance');
+    }
+  } else {
+    const currentStep = getStageStepNumber(dec.status);
+    const actionType = step > currentStep ? 'advance' : (step < currentStep ? 'rollback' : 'stay');
+    window.setTargetManageStatus(stageId, actionType);
+  }
+};
+
+window.renderStageTransitionController = function(dec, targetStatus) {
+  const container = document.getElementById('manage-dec-actions-buttons');
+  const badgeEl = document.getElementById('manage-dec-current-status-badge');
+  const manualSelectEl = document.getElementById('manage-dec-manual-status-select');
+  if (!container || !dec) return;
+
+  const currentStatus = dec.status;
+  const activeTarget = targetStatus || currentStatus;
+
+  if (badgeEl) {
+    badgeEl.textContent = `Estado actual: ${currentStatus}`;
+  }
+  if (manualSelectEl) {
+    manualSelectEl.value = activeTarget;
+  }
+
+  let html = '';
+
+  // Header explicativo
+  html += `
+    <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); letter-spacing: 0.5px; margin-bottom: 0.35rem;">
+      ¿Qué deseas realizar en esta recepción? (Selecciona una acción):
+    </div>
+  `;
+
+  // 1. ACCIÓN: AVANZAR ETAPA
+  const nextStatus = getNextStageStatus(currentStatus);
+  const isCountingPhase = currentStatus === 'En proceso de conteo/clasificación' || currentStatus === 'Recepción Parcial';
+  const isFinalized = currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias';
+
+  if (nextStatus) {
+    const isSelected = activeTarget === nextStatus;
+    let descText = 'Avanza al siguiente paso del proceso operativo.';
+    if (nextStatus === 'Bodega Asignada') descText = 'Asigna la bodega destino para la recepción de la carga.';
+    if (nextStatus === 'En Recepción - Pendiente Conteo') descText = 'Registra la llegada de la carga a bodega e inicia la fase de recepción.';
+    if (nextStatus === 'En proceso de conteo/clasificación') descText = 'Comienza la apertura de bultos, conteo físico y toma de medidas.';
+
+    html += `
+      <div class="stage-action-card action-advance ${isSelected ? 'selected-action' : ''}" onclick="window.setTargetManageStatus('${nextStatus}', 'advance')">
+        <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(16, 185, 129, 0.12); color: var(--color-success); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-arrow-right-circle-line"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <strong style="color: var(--color-text-main); font-size: 0.9rem;">Avanzar a: ${nextStatus}</strong>
+            <span class="badge" style="background: var(--color-success); color: #fff; font-size: 0.68rem; padding: 2px 6px;">Siguiente Paso</span>
+            ${isSelected ? '<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); font-size: 0.68rem; font-weight: 700;">✓ Seleccionado</span>' : ''}
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px;">
+            ${descText}
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (isCountingPhase) {
+    html += `
+      <div style="background: rgba(95, 6, 250, 0.03); border: 1px dashed var(--color-border); border-radius: 8px; padding: 0.85rem;">
+        <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.55rem; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-flag-line" style="color: var(--color-primary);"></i> Selecciona el Cierre o Resultado de la Recepción:
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.65rem;">
+          
+          <button type="button" class="btn btn-outline stage-action-card action-advance ${activeTarget === 'Recibido Conforme' ? 'selected-action' : ''}" 
+                  onclick="window.setTargetManageStatus('Recibido Conforme', 'advance')" 
+                  style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0.85rem 0.6rem; gap: 0.3rem; border-radius: 8px; border-color: ${activeTarget === 'Recibido Conforme' ? 'var(--color-success)' : 'var(--color-border)'}; height: auto;">
+            <i class="ri-checkbox-circle-line" style="font-size: 1.5rem; color: var(--color-success);"></i>
+            <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Recibido Conforme</span>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">(100% Carga Completa)</span>
+            ${activeTarget === 'Recibido Conforme' ? '<span class="badge" style="background: var(--color-success); color: white; font-size: 0.65rem; margin-top: 2px;">✓ Seleccionado</span>' : ''}
+          </button>
+
+          <button type="button" class="btn btn-outline stage-action-card action-advance ${activeTarget === 'Recepción Parcial' ? 'selected-action' : ''}" 
+                  onclick="window.setTargetManageStatus('Recepción Parcial', 'advance')" 
+                  style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0.85rem 0.6rem; gap: 0.3rem; border-radius: 8px; border-color: ${activeTarget === 'Recepción Parcial' ? '#d97706' : 'var(--color-border)'}; height: auto;">
+            <i class="ri-pie-chart-2-line" style="font-size: 1.5rem; color: #d97706;"></i>
+            <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Recepción Parcial</span>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">(Saldo en espera)</span>
+            ${activeTarget === 'Recepción Parcial' ? '<span class="badge" style="background: #d97706; color: white; font-size: 0.65rem; margin-top: 2px;">✓ Seleccionado</span>' : ''}
+          </button>
+
+          <button type="button" class="btn btn-outline stage-action-card action-advance ${activeTarget === 'Recibido con Incidencias' ? 'selected-action' : ''}" 
+                  onclick="window.setTargetManageStatus('Recibido con Incidencias', 'advance')" 
+                  style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0.85rem 0.6rem; gap: 0.3rem; border-radius: 8px; border-color: ${activeTarget === 'Recibido con Incidencias' ? 'var(--color-danger)' : 'var(--color-border)'}; height: auto;">
+            <i class="ri-error-warning-line" style="font-size: 1.5rem; color: var(--color-danger);"></i>
+            <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Con Incidencias</span>
+            <span style="font-size: 0.7rem; color: var(--color-text-muted);">(Diferencias o daños)</span>
+            ${activeTarget === 'Recibido con Incidencias' ? '<span class="badge" style="background: var(--color-danger); color: white; font-size: 0.65rem; margin-top: 2px;">✓ Seleccionado</span>' : ''}
+          </button>
+
+        </div>
+      </div>
+    `;
+  } else if (isFinalized) {
+    html += `
+      <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 0.85rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-checkbox-circle-fill" style="color: var(--color-success); font-size: 1.4rem;"></i>
+          <div>
+            <span style="font-size: 0.88rem; font-weight: 700; color: var(--color-text-main);">Ingreso Finalizado en: ${currentStatus}</span>
+            <div style="font-size: 0.76rem; color: var(--color-text-muted);">Puedes actualizar notas o facturación, o usar la opción "Retroceder" abajo si requieres reabrir el conteo.</div>
+          </div>
+        </div>
       </div>
     `;
   }
-  
-  container.innerHTML = actionsHtml;
 
+  // 2. ACCIÓN: PERMANECER EN LA ETAPA ACTUAL
+  const isStaySelected = activeTarget === currentStatus;
+  html += `
+    <div class="stage-action-card action-stay ${isStaySelected ? 'selected-action' : ''}" onclick="window.setTargetManageStatus('${currentStatus}', 'stay')">
+      <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(95, 6, 250, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0;">
+        <i class="ri-pause-circle-line"></i>
+      </div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <strong style="color: var(--color-text-main); font-size: 0.88rem;">Mantener en: "${currentStatus}"</strong>
+          <span class="badge" style="background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.68rem; padding: 2px 6px;">Sin cambio de etapa</span>
+          ${isStaySelected ? '<span class="badge" style="background: rgba(95, 6, 250, 0.15); color: var(--color-primary); font-weight: 700; font-size: 0.68rem;">✓ Seleccionado</span>' : ''}
+        </div>
+        <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 2px;">
+          Guarda cambios en medidas de productos, bodega asignada, costos, notas o facturación sin cambiar la etapa del ingreso.
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 3. ACCIÓN: RETROCEDER ETAPA (Habilitado si no es Creada)
+  const prevStatus = getPreviousStageStatus(currentStatus);
+  if (prevStatus) {
+    const isRollbackSelected = activeTarget === prevStatus;
+    let rollbackDesc = `Regresa el ingreso a "${prevStatus}" para corregir datos o continuar el proceso.`;
+    if (isFinalized) {
+      rollbackDesc = 'Reabre este ingreso a la fase de conteo. Las unidades físicas sumadas serán revertidas temporalmente del inventario.';
+    }
+
+    html += `
+      <div class="stage-action-card action-rollback ${isRollbackSelected ? 'selected-action' : ''}" onclick="window.setTargetManageStatus('${prevStatus}', 'rollback')">
+        <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(245, 158, 11, 0.12); color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-arrow-left-circle-line"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <strong style="color: var(--color-text-main); font-size: 0.88rem;">Retroceder a: ${prevStatus}</strong>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.68rem; padding: 2px 6px;">Paso Anterior</span>
+            ${isRollbackSelected ? '<span class="badge" style="background: #d97706; color: white; font-weight: 700; font-size: 0.68rem;">✓ Seleccionado</span>' : ''}
+          </div>
+          <div style="font-size: 0.76rem; color: var(--color-text-muted); margin-top: 2px;">
+            ${rollbackDesc}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+};
+
+window.setTargetManageStatus = function(targetStatus, actionType) {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+
+  const currentStatus = dec.status;
+  const statusInput = document.getElementById('manage-dec-status');
+  if (statusInput) {
+    statusInput.value = targetStatus;
+  }
+
+  const currentStep = getStageStepNumber(currentStatus);
+  const targetStep = getStageStepNumber(targetStatus);
+
+  if (!actionType) {
+    if (targetStatus === currentStatus) actionType = 'stay';
+    else if (targetStep < currentStep) actionType = 'rollback';
+    else actionType = 'advance';
+  }
+
+  // 1. Re-renderizar Stepper
+  window.renderDeclarationStepper(currentStatus, targetStatus);
+
+  // 2. Re-renderizar Controller
+  window.renderStageTransitionController(dec, targetStatus);
+
+  // 3. Notificar campos dependientes
+  handleManageStatusChange(targetStatus);
+
+  // 4. Actualizar Indicador Dinámico sobre el Comentario
+  const indicatorEl = document.getElementById('manage-dec-stage-action-indicator');
+  const commentInput = document.getElementById('manage-dec-stage-comment');
+
+  if (indicatorEl) {
+    if (actionType === 'stay') {
+      indicatorEl.innerHTML = `
+        <div style="background: rgba(95, 6, 250, 0.05); border: 1px solid rgba(95, 6, 250, 0.2); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: var(--color-primary); font-weight: 600;">
+            <i class="ri-information-line" style="font-size: 1.05rem;"></i>
+            Acción: <strong>Mantener en "${currentStatus}"</strong> (Guardar cambios sin avanzar de etapa)
+          </span>
+          <span style="font-size: 0.73rem; color: var(--color-text-muted);">No habrá cambio de etapa</span>
+        </div>
+      `;
+      if (commentInput) {
+        commentInput.placeholder = 'Describe las modificaciones o notas agregadas a esta etapa...';
+      }
+    } else if (actionType === 'advance') {
+      indicatorEl.innerHTML = `
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: var(--color-success); font-weight: 700;">
+            <i class="ri-arrow-right-circle-line" style="font-size: 1.1rem;"></i>
+            Acción: Avanzar de "${currentStatus}" ➔ "${targetStatus}"
+          </span>
+          <span class="badge" style="background: var(--color-success); color: white; font-size: 0.7rem; font-weight: 700;">Avanzar Etapa</span>
+        </div>
+      `;
+      if (commentInput) {
+        commentInput.placeholder = `Describe qué ocurrió o se realizó al avanzar a "${targetStatus}"... (ej: Carga recibida en andén, se inicia conteo)`;
+      }
+    } else if (actionType === 'rollback') {
+      indicatorEl.innerHTML = `
+        <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; gap: 0.5rem; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; color: #d97706; font-weight: 700;">
+            <i class="ri-arrow-left-circle-line" style="font-size: 1.1rem;"></i>
+            Acción: Retroceder de "${currentStatus}" ➔ "${targetStatus}"
+          </span>
+          <span class="badge" style="background: #d97706; color: white; font-size: 0.7rem; font-weight: 700;">Retroceder Etapa</span>
+        </div>
+      `;
+      if (commentInput) {
+        commentInput.placeholder = `Explica el motivo del retroceso o reapertura de la etapa (ej: Error en conteo, reabriendo para verificar discrepancias)...`;
+      }
+    }
+  }
+
+  // 5. Actualizar Texto e Ícono del Botón de Guardado
+  const submitBtn = document.querySelector('#form-manage-declaration button[type="submit"]') || document.getElementById('btn-save-manage-declaration');
   if (submitBtn) {
     submitBtn.style.display = 'inline-flex';
     submitBtn.style.alignItems = 'center';
     submitBtn.style.gap = '0.4rem';
-    if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias') {
-      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios / Facturación';
-    } else if (currentStatus === 'Recepción Parcial') {
-      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Recepción Parcial';
-    } else {
-      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+
+    if (actionType === 'stay') {
+      submitBtn.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios (Mantener en ${targetStatus})`;
+      submitBtn.style.backgroundColor = 'var(--color-primary)';
+      submitBtn.style.borderColor = 'var(--color-primary)';
+      submitBtn.style.color = 'white';
+    } else if (actionType === 'advance') {
+      if (['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(targetStatus)) {
+        submitBtn.innerHTML = `<i class="ri-check-double-line"></i> Finalizar Recepción (${targetStatus})`;
+        submitBtn.style.backgroundColor = targetStatus === 'Recibido Conforme' ? 'var(--color-success)' : (targetStatus === 'Recepción Parcial' ? '#d97706' : 'var(--color-danger)');
+        submitBtn.style.borderColor = submitBtn.style.backgroundColor;
+        submitBtn.style.color = 'white';
+      } else {
+        submitBtn.innerHTML = `<i class="ri-arrow-right-line"></i> Guardar y Avanzar a: ${targetStatus}`;
+        submitBtn.style.backgroundColor = 'var(--color-success)';
+        submitBtn.style.borderColor = 'var(--color-success)';
+        submitBtn.style.color = 'white';
+      }
+    } else if (actionType === 'rollback') {
+      submitBtn.innerHTML = `<i class="ri-arrow-left-line"></i> Guardar y Retroceder a: ${targetStatus}`;
+      submitBtn.style.backgroundColor = '#d97706';
+      submitBtn.style.borderColor = '#d97706';
+      submitBtn.style.color = 'white';
     }
   }
+};
 
-  container.querySelectorAll('.btn-status-action').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      const targetStatus = btn.getAttribute('data-status');
-      
-      if (btn.classList.contains('btn-status-choice')) {
-        container.querySelectorAll('.btn-status-choice').forEach(b => {
-          b.style.backgroundColor = 'transparent';
-          const bSt = b.getAttribute('data-status');
-          b.style.color = bSt === 'Recibido Conforme' ? 'var(--color-success)' : (bSt === 'Recepción Parcial' ? '#d97706' : 'var(--color-danger)');
-        });
-        const activeColor = targetStatus === 'Recibido Conforme' 
-          ? 'rgba(16, 185, 129, 0.12)' 
-          : (targetStatus === 'Recepción Parcial' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.12)');
-        btn.style.backgroundColor = activeColor;
-      }
-      
-      statusInput.value = targetStatus;
-      handleManageStatusChange(targetStatus);
-    });
-  });
+window.toggleManualStageSelect = function() {
+  const container = document.getElementById('manage-dec-manual-select-container');
+  const btn = document.getElementById('btn-toggle-manual-stage');
+  if (!container) return;
+  const isHidden = container.style.display === 'none' || !container.style.display;
+  container.style.display = isHidden ? 'block' : 'none';
+  if (btn) {
+    btn.innerHTML = isHidden ? '<i class="ri-close-line"></i> Cerrar Modo Libre' : '<i class="ri-equalizer-line"></i> Modo Libre';
+  }
+};
 
-  const singleActionBtn = container.querySelector('.btn-status-action:not(.btn-status-choice)');
-  if (singleActionBtn) {
-    singleActionBtn.click();
-  } else {
-    handleManageStatusChange(currentStatus);
+window.handleManualStatusDropdownChange = function(status) {
+  if (status) {
+    window.setTargetManageStatus(status, null);
+  }
+};
+
+// Legacy alias to maintain compatibility
+function renderStatusActionButtons(currentStatus) {
+  const dec = window.currentDeclarationEditing;
+  if (dec) {
+    window.setTargetManageStatus(currentStatus, 'stay');
   }
 }
 
@@ -32613,8 +32932,8 @@ window.manageDeclaration = async function(id) {
       billingNotesEl.value = dec.billing_notes || '';
     }
 
-    // Renderizar botones de acción según el estado actual de la declaración
-    renderStatusActionButtons(dec.status);
+    // Inicializar Stepper y Transición de Etapas Bidireccional (Ingresos 2.0)
+    window.setTargetManageStatus(dec.status, 'stay');
 
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';
@@ -32886,12 +33205,17 @@ document.addEventListener('submit', async (e) => {
     }
 
     if (!stageComment) {
-      if (status === 'Recepción Parcial') {
+      const currentEditingStatus = window.currentDeclarationEditing?.status || '';
+      if (status === currentEditingStatus) {
+        stageComment = `Actualización de notas / datos en etapa: ${status}`;
+      } else if (getStageStepNumber(status) < getStageStepNumber(currentEditingStatus)) {
+        stageComment = `Retroceso de etapa de ${currentEditingStatus} a: ${status}`;
+      } else if (status === 'Recepción Parcial') {
         stageComment = 'Recepción parcial de stock registrada';
       } else if (status === 'Recibido Conforme' || status === 'Recibido con Incidencias') {
-        stageComment = 'Actualización de facturación / notas de recepción por Admin';
+        stageComment = `Cierre de recepción: ${status}`;
       } else {
-        stageComment = `Actualización de estado / datos: ${status}`;
+        stageComment = `Avance de etapa a: ${status}`;
       }
     }
 
@@ -33027,11 +33351,100 @@ document.addEventListener('submit', async (e) => {
         
       if (fetchError) throw fetchError;
       
+      const prevStatus = latestDec.status;
+      const prevStep = getStageStepNumber(prevStatus);
+      const newStep = getStageStepNumber(status);
+      const isRollback = newStep < prevStep;
+      const isStay = status === prevStatus;
+      const isAdvance = newStep > prevStep;
+
+      // Si retrocede desde una etapa de recepción cerrada (Recibido Conforme, Recepción Parcial, Recibido con Incidencias),
+      // confirmar y revertir stock físico si ya se había sumado
+      if (isRollback && ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(prevStatus)) {
+        const hasStockAdded = (latestDec.products_list || []).some(p => (parseInt(p.qty_inventory_added, 10) || 0) > 0);
+        if (hasStockAdded) {
+          const confirmRollback = await Swal.fire({
+            title: '¿Confirmar retroceso de etapa?',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem; line-height: 1.5;">
+                <p>Este ingreso se encontraba en <strong>${prevStatus}</strong> y pasará a <strong>${status}</strong>.</p>
+                <p>Las unidades físicas que ya habían sido acreditadas en el inventario serán revertidas de forma segura para permitir un nuevo conteo sin duplicidad de stock.</p>
+                <p style="color: #d97706; font-weight: 700; margin-top: 0.5rem;">¿Deseas continuar con el retroceso?</p>
+              </div>
+            `,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, retroceder y revertir',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#d97706'
+          });
+
+          if (!confirmRollback.isConfirmed) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Guardar Cambios';
+            return;
+          }
+
+          // Ejecutar reversa de inventario físico
+          const targetWarehouseId = latestDec.warehouse_id || warehouseId;
+          if (targetWarehouseId) {
+            for (const item of (latestDec.products_list || [])) {
+              const addedQty = parseInt(item.qty_inventory_added, 10) || 0;
+              if (addedQty > 0 && item.sku) {
+                try {
+                  const { data: prod } = await supabase
+                    .from('products')
+                    .select('id')
+                    .eq('comercio', latestDec.comercio)
+                    .ilike('sku', item.sku.trim())
+                    .limit(1)
+                    .maybeSingle();
+
+                  if (prod && prod.id) {
+                    const { data: inv } = await supabase
+                      .from('inventory')
+                      .select('id, quantity')
+                      .eq('product_id', prod.id)
+                      .eq('warehouse_id', targetWarehouseId)
+                      .maybeSingle();
+
+                    if (inv) {
+                      const newQty = Math.max(0, (inv.quantity || 0) - addedQty);
+                      await supabase
+                        .from('inventory')
+                        .update({ quantity: newQty })
+                        .eq('id', inv.id);
+
+                      await supabase
+                        .from('movements')
+                        .insert([{
+                          product_id: prod.id,
+                          warehouse_id: targetWarehouseId,
+                          type: 'out',
+                          quantity: addedQty,
+                          reference_doc: `Reversa por retroceso de Ingreso (${prevStatus} -> ${status}): ${latestDec.title}`
+                        }]);
+                    }
+                  }
+                } catch (revertErr) {
+                  console.error('Error revirtiendo inventario al retroceder:', revertErr);
+                }
+              }
+              item.qty_inventory_added = 0;
+            }
+          }
+        }
+      }
+
+      let actionTag = '[ACTUALIZACIÓN]';
+      if (isAdvance) actionTag = '[AVANCE]';
+      if (isRollback) actionTag = '[RETROCESO]';
+
       const existingHistory = latestDec.history || [];
       const newHistoryEntry = {
         status: status,
         timestamp: new Date().toISOString(),
-        comment: stageComment
+        comment: `${actionTag} ${stageComment}`
       };
       const updatedHistory = [...existingHistory, newHistoryEntry];
  
@@ -33097,8 +33510,13 @@ document.addEventListener('submit', async (e) => {
         updateData.labeling_qty_confirmed = labelingQtyConfirmed;
       }
  
-      if (status === 'Bodega Asignada') {
+      if (warehouseId) {
         updateData.warehouse_id = warehouseId;
+      }
+      if (isRollback && ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(prevStatus)) {
+        if (updateData.products_list) {
+          updateData.products_list.forEach(p => { p.qty_inventory_added = 0; });
+        }
       }
 
       let { error } = await supabase
@@ -33354,7 +33772,22 @@ document.addEventListener('submit', async (e) => {
               });
             }
           }
-          // 3.5 Cualquier otra actualización de estado
+          // 3.5 Retroceso de etapa
+          else if (isRollback) {
+            const notifTitle = 'Ingreso de Stock Retrocedido para Corrección';
+            let commentText = stageComment ? ` Motivo: "${stageComment}"` : '';
+            const notifMsg = `Tu ingreso de stock "${title}" ha sido retrocedido a la etapa: "${status}".${commentText}`;
+            await notifyCommerceUsers(comercio, notifTitle, notifMsg);
+          }
+          // 3.6 Actualización de notas o datos dentro de la misma etapa
+          else if (isStay) {
+            if (stageComment && stageComment.trim() && !stageComment.startsWith('Actualización de notas') && !stageComment.startsWith('Actualización de datos')) {
+              const notifTitle = 'Actualización en Ingreso de Stock';
+              const notifMsg = `Se registró una observación en tu ingreso de stock "${title}" (Etapa: ${status}): "${stageComment}"`;
+              await notifyCommerceUsers(comercio, notifTitle, notifMsg);
+            }
+          }
+          // 3.7 Cualquier otra actualización de estado
           else {
             const notifTitle = 'Actualización de Estado de Ingreso';
             let commentText = stageComment ? ` Comentario: "${stageComment}"` : '';
@@ -33366,7 +33799,17 @@ document.addEventListener('submit', async (e) => {
         console.error('Error al enviar notificaciones:', notifErr);
       }
 
-      alert('Recepción de ingreso actualizada correctamente y se notificó al usuario.');
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'success',
+          title: '¡Recepción Actualizada!',
+          text: `El ingreso ha sido guardado exitosamente en etapa: ${status}`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } else {
+        alert('Recepción de ingreso actualizada correctamente.');
+      }
       document.getElementById('modal-manage-declaration').classList.remove('active');
       window.currentDeclarationProductsEditing = null;
       window.currentDeclarationProductsEditing_id = null;
@@ -34388,57 +34831,496 @@ function injectBillingStyles() {
       background: var(--color-surface);
       outline: none;
     }
-    .billing-select {
+    /* Input Fecha Límite Estilizado */
+    .billing-limit-input {
+      background: rgba(0, 0, 0, 0.04);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      padding: 0.25rem 0.45rem;
+      font-size: 0.78rem;
+      color: var(--color-text-main);
+      width: 125px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    [data-theme="dark"] .billing-limit-input {
+      background: rgba(255, 255, 255, 0.05);
+      color-scheme: dark;
+    }
+    .billing-limit-input:hover {
+      border-color: var(--color-primary);
+    }
+    .billing-limit-input:focus {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+
+    /* Celdas de Monto con Formato y Botón Copiar */
+    .amount-cell {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      width: 100%;
+      max-width: 105px;
+    }
+    .amount-cell .billing-input {
+      padding-right: 22px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-align: right;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.03);
+    }
+    [data-theme="dark"] .amount-cell .billing-input {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .amount-cell .billing-input:hover {
+      border-color: var(--color-primary);
+      background: var(--color-bg);
+    }
+    .amount-cell .billing-input:focus {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+    .amount-cell .copy-amount-btn {
+      position: absolute;
+      right: 3px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
       border: none;
-      border-radius: var(--radius-sm);
-      padding: 0.25rem 0.5rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      padding: 2px;
+      font-size: 0.78rem;
+      opacity: 0.35;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .amount-cell:hover .copy-amount-btn {
+      opacity: 0.9;
+    }
+    .amount-cell .copy-amount-btn:hover {
+      color: var(--color-primary);
+      transform: translateY(-50%) scale(1.15);
+      opacity: 1;
+    }
+
+    /* Selectores de Estado tipo Badge interactivo */
+    .billing-select {
+      border: 1px solid var(--color-border);
+      border-radius: 9999px;
+      padding: 0.32rem 1.45rem 0.32rem 0.75rem;
       font-size: 0.75rem;
       font-weight: 600;
       cursor: pointer;
       width: 100%;
+      min-width: 115px;
       outline: none;
-      text-align-last: center;
-      transition: all 0.2s;
+      text-align: center;
+      transition: all 0.2s ease;
       appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='12' height='12' fill='%2364748b'%3E%3Cpath d='M12 15l-4-4h8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.5rem center;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
     }
-    .status-green { background-color: rgba(16, 185, 129, 0.15) !important; color: #065f46 !important; border: 1px solid rgba(16, 185, 129, 0.3) !important; }
-    .status-green-light { background-color: rgba(52, 211, 153, 0.15) !important; color: #047857 !important; border: 1px solid rgba(52, 211, 153, 0.3) !important; }
-    .status-gray { background-color: rgba(148, 163, 184, 0.15) !important; color: #475569 !important; border: 1px solid rgba(148, 163, 184, 0.3) !important; }
-    .status-blue { background-color: rgba(59, 130, 246, 0.15) !important; color: #1e40af !important; border: 1px solid rgba(59, 130, 246, 0.3) !important; }
-    .status-purple { background-color: rgba(139, 92, 246, 0.15) !important; color: #5b21b6 !important; border: 1px solid rgba(139, 92, 246, 0.3) !important; }
-    .status-yellow { background-color: rgba(245, 158, 11, 0.15) !important; color: #854d0e !important; border: 1px solid rgba(245, 158, 11, 0.3) !important; }
-    .status-red { background-color: rgba(239, 68, 68, 0.15) !important; color: #991b1b !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; }
-    .status-teal { background-color: rgba(20, 184, 166, 0.15) !important; color: #115e59 !important; border: 1px solid rgba(20, 184, 166, 0.3) !important; }
-    .status-cyan { background-color: rgba(6, 182, 212, 0.15) !important; color: #075985 !important; border: 1px solid rgba(6, 182, 212, 0.3) !important; }
+    .billing-select:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      filter: brightness(1.04);
+      transform: translateY(-1px);
+    }
+
+    .status-green { background-color: rgba(16, 185, 129, 0.15) !important; color: #047857 !important; border: 1px solid rgba(16, 185, 129, 0.4) !important; }
+    .status-green-light { background-color: rgba(52, 211, 153, 0.12) !important; color: #065f46 !important; border: 1px solid rgba(52, 211, 153, 0.3) !important; }
+    .status-gray { background-color: rgba(148, 163, 184, 0.14) !important; color: #334155 !important; border: 1px solid rgba(148, 163, 184, 0.3) !important; }
+    .status-blue { background-color: rgba(59, 130, 246, 0.15) !important; color: #1d4ed8 !important; border: 1px solid rgba(59, 130, 246, 0.4) !important; }
+    .status-purple { background-color: rgba(139, 92, 246, 0.15) !important; color: #6d28d9 !important; border: 1px solid rgba(139, 92, 246, 0.4) !important; }
+    .status-yellow { background-color: rgba(245, 158, 11, 0.15) !important; color: #b45309 !important; border: 1px solid rgba(245, 158, 11, 0.4) !important; }
+    .status-red { background-color: rgba(239, 68, 68, 0.15) !important; color: #b91c1c !important; border: 1px solid rgba(239, 68, 68, 0.4) !important; }
+    .status-teal { background-color: rgba(20, 184, 166, 0.15) !important; color: #0f766e !important; border: 1px solid rgba(20, 184, 166, 0.4) !important; }
+    .status-cyan { background-color: rgba(6, 182, 212, 0.15) !important; color: #0369a1 !important; border: 1px solid rgba(6, 182, 212, 0.4) !important; }
 
     /* Dark mode overrides for status badges */
-    [data-theme="dark"] .status-green { background-color: rgba(16, 185, 129, 0.18) !important; color: #6ee7b7 !important; border-color: rgba(16, 185, 129, 0.35) !important; }
-    [data-theme="dark"] .status-green-light { background-color: rgba(52, 211, 153, 0.18) !important; color: #6ee7b7 !important; border-color: rgba(52, 211, 153, 0.35) !important; }
-    [data-theme="dark"] .status-gray { background-color: rgba(148, 163, 184, 0.12) !important; color: #cbd5e1 !important; border-color: rgba(148, 163, 184, 0.25) !important; }
-    [data-theme="dark"] .status-blue { background-color: rgba(59, 130, 246, 0.18) !important; color: #93c5fd !important; border-color: rgba(59, 130, 246, 0.35) !important; }
-    [data-theme="dark"] .status-purple { background-color: rgba(139, 92, 246, 0.18) !important; color: #c4b5fd !important; border-color: rgba(139, 92, 246, 0.35) !important; }
-    [data-theme="dark"] .status-yellow { background-color: rgba(245, 158, 11, 0.18) !important; color: #fcd34d !important; border-color: rgba(245, 158, 11, 0.35) !important; }
-    [data-theme="dark"] .status-red { background-color: rgba(239, 68, 68, 0.18) !important; color: #fca5a5 !important; border-color: rgba(239, 68, 68, 0.35) !important; }
-    [data-theme="dark"] .status-teal { background-color: rgba(20, 184, 166, 0.18) !important; color: #5eead4 !important; border-color: rgba(20, 184, 166, 0.35) !important; }
-    [data-theme="dark"] .status-cyan { background-color: rgba(6, 182, 212, 0.18) !important; color: #67e8f9 !important; border-color: rgba(6, 182, 212, 0.35) !important; }
+    [data-theme="dark"] .status-green { background-color: rgba(16, 185, 129, 0.2) !important; color: #34d399 !important; border-color: rgba(16, 185, 129, 0.45) !important; }
+    [data-theme="dark"] .status-green-light { background-color: rgba(52, 211, 153, 0.15) !important; color: #6ee7b7 !important; border-color: rgba(52, 211, 153, 0.35) !important; }
+    [data-theme="dark"] .status-gray { background-color: rgba(148, 163, 184, 0.14) !important; color: #cbd5e1 !important; border-color: rgba(148, 163, 184, 0.3) !important; }
+    [data-theme="dark"] .status-blue { background-color: rgba(59, 130, 246, 0.2) !important; color: #60a5fa !important; border-color: rgba(59, 130, 246, 0.45) !important; }
+    [data-theme="dark"] .status-purple { background-color: rgba(139, 92, 246, 0.2) !important; color: #a78bfa !important; border-color: rgba(139, 92, 246, 0.45) !important; }
+    [data-theme="dark"] .status-yellow { background-color: rgba(245, 158, 11, 0.2) !important; color: #fbbf24 !important; border-color: rgba(245, 158, 11, 0.45) !important; }
+    [data-theme="dark"] .status-red { background-color: rgba(239, 68, 68, 0.2) !important; color: #f87171 !important; border-color: rgba(239, 68, 68, 0.45) !important; }
+    [data-theme="dark"] .status-teal { background-color: rgba(20, 184, 166, 0.2) !important; color: #2dd4bf !important; border-color: rgba(20, 184, 166, 0.45) !important; }
+    [data-theme="dark"] .status-cyan { background-color: rgba(6, 182, 212, 0.2) !important; color: #38bdf8 !important; border-color: rgba(6, 182, 212, 0.45) !important; }
 
-    /* Dark mode for billing selects and inputs */
     .billing-select option {
       background: var(--color-surface);
       color: var(--color-text-main);
-      padding: 0.35rem 0.5rem;
+      padding: 0.4rem 0.6rem;
+      font-weight: 500;
     }
     [data-theme="dark"] .billing-select {
       color-scheme: dark;
     }
-    [data-theme="dark"] .billing-input {
-      color-scheme: dark;
+
+    /* Badge para fecha de pago recibido sin desajustar altura */
+    .payment-date-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      margin-top: 0.25rem;
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      width: 100%;
+      box-sizing: border-box;
+      justify-content: center;
     }
-    [data-theme="dark"] .billing-input[type="date"],
-    [data-theme="dark"] .billing-input[type="number"] {
+    .billing-compact-date {
+      border: none !important;
+      background: transparent !important;
+      font-size: 0.72rem !important;
+      color: var(--color-text-main) !important;
+      padding: 0 !important;
+      width: 95px !important;
+      text-align: center;
+      cursor: pointer;
+    }
+    [data-theme="dark"] .billing-compact-date {
       color-scheme: dark;
     }
 
+    /* Grupo de Botones de Acción Estilizado */
+    .billing-actions-group {
+      display: inline-flex;
+      align-items: center;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    .billing-action-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-size: 0.95rem;
+      position: relative;
+    }
+
+    .billing-action-btn:hover {
+      transform: scale(1.08);
+    }
+
+    .billing-action-btn.btn-gestor {
+      color: #8b5cf6;
+    }
+    .billing-action-btn.btn-gestor:hover {
+      background: rgba(139, 92, 246, 0.15);
+      color: #a78bfa;
+    }
+
+    .billing-action-btn.btn-attachment {
+      color: var(--color-text-muted);
+    }
+    .billing-action-btn.btn-attachment.has-files {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+    }
+    .billing-action-btn.btn-attachment:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--color-text-main);
+    }
+
+    .billing-action-btn.btn-email {
+      color: var(--color-primary);
+    }
+    .billing-action-btn.btn-email.sent {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.12);
+    }
+    .billing-action-btn.btn-email:hover {
+      background: rgba(99, 102, 241, 0.15);
+    }
+
+    .billing-action-btn.btn-obs {
+      color: var(--color-text-muted);
+    }
+    .billing-action-btn.btn-obs.pending {
+      color: #d97706;
+      background: rgba(217, 119, 6, 0.15);
+    }
+    .billing-action-btn.btn-obs.resolved {
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.1);
+    }
+    .billing-action-btn.btn-obs:hover {
+      background: rgba(217, 119, 6, 0.12);
+      color: #f59e0b;
+    }
+
+    .billing-action-btn.btn-delete {
+      color: #ef4444;
+    }
+    .billing-action-btn.btn-delete:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+    }
+
+    .action-btn-dot {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+    }
+    .action-btn-dot.active {
+      background: #10b981;
+    }
+    .action-btn-dot.pending,
+    .action-btn-dot.pending-dot {
+      background: #f59e0b;
+    }
+
+    /* Tabla y Cabecera */
+    .billing-table thead th {
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      font-size: 0.73rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.75rem 0.65rem;
+      border-bottom: 2px solid var(--color-border);
+      white-space: nowrap;
+    }
+
+    .billing-table tbody tr {
+      transition: background-color 0.15s ease;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .billing-table tbody tr:hover {
+      background-color: rgba(99, 102, 241, 0.04);
+    }
+
+    .billing-table td {
+      padding: 0.6rem 0.65rem;
+      vertical-align: middle;
+      border-bottom: 1px solid var(--color-border);
+    }
+
+
+    /* Barra Superior de Control de Facturas (Año, Orden) */
+    .billing-control-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 0.65rem 1rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .billing-year-pills {
+      display: inline-flex;
+      gap: 0.35rem;
+      background: var(--color-bg);
+      padding: 0.25rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+    }
+
+    .billing-year-pill {
+      background: transparent;
+      border: none;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s ease;
+    }
+
+    .billing-year-pill:hover {
+      color: var(--color-text-main);
+      background: rgba(0, 0, 0, 0.05);
+    }
+    [data-theme="dark"] .billing-year-pill:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .billing-year-pill.active {
+      background: var(--color-primary);
+      color: #ffffff !important;
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+    }
+
+    .billing-year-pill .year-active-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      margin-left: 2px;
+    }
+    .billing-year-pill.active .year-active-dot {
+      background: #ffffff;
+    }
+
+    /* Tira de Pestañas de Periodos / Meses ocupando el ancho de la pantalla */
+    .billing-periods-tab-strip {
+      display: flex;
+      gap: 0.5rem;
+      width: 100%;
+      overflow-x: auto;
+      padding: 0.25rem 0.15rem 0.6rem 0.15rem;
+      margin-bottom: 1.25rem;
+      scrollbar-width: thin;
+    }
+
+    .billing-month-tab {
+      flex: 1 1 0;
+      min-width: 110px;
+      background: var(--color-surface);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 0.65rem 0.6rem;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      transition: all 0.2s ease;
+      user-select: none;
+      text-align: center;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .billing-month-tab:hover {
+      border-color: var(--color-primary);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+    }
+
+    .billing-month-tab.active {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.18);
+      position: relative;
+    }
+
+    .billing-month-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1.5px;
+      left: 15%;
+      right: 15%;
+      height: 3px;
+      background: var(--color-primary);
+      border-radius: 3px 3px 0 0;
+    }
+
+    .billing-month-tab.is-period-activo {
+      border-left: 3.5px solid #10b981;
+    }
+
+    .billing-month-tab .tab-month-name {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .billing-month-tab.active .tab-month-name {
+      color: var(--color-primary);
+    }
+
+    .billing-month-tab .tab-status-pill {
+      font-size: 0.67rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    .tab-status-pill.activo {
+      background: rgba(16, 185, 129, 0.15);
+      color: #059669;
+    }
+    [data-theme="dark"] .tab-status-pill.activo {
+      background: rgba(16, 185, 129, 0.22);
+      color: #34d399;
+    }
+
+    .tab-status-pill.en_proceso {
+      background: rgba(245, 158, 11, 0.15);
+      color: #d97706;
+    }
+    [data-theme="dark"] .tab-status-pill.en_proceso {
+      background: rgba(245, 158, 11, 0.22);
+      color: #fbbf24;
+    }
+
+    .tab-status-pill.proximo {
+      background: rgba(148, 163, 184, 0.15);
+      color: #64748b;
+    }
+    [data-theme="dark"] .tab-status-pill.proximo {
+      background: rgba(148, 163, 184, 0.22);
+      color: #94a3b8;
+    }
+
+    .tab-status-pill .status-indicator-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .billing-period-selected-header {
+      padding: 0.85rem 1.25rem;
+      background: var(--color-surface);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border);
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
 
     .billing-period-card {
       background: var(--color-surface);
@@ -34725,6 +35607,345 @@ function injectBillingStyles() {
       background-color: white;
       transition: .3s;
       border-radius: 50%;
+    }
+
+    /* Quick Triage Bar Strip */
+    .billing-triage-strip {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.25rem;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      overflow-x: auto;
+      scrollbar-width: thin;
+      flex-wrap: wrap;
+    }
+    .triage-strip-title {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      margin-right: 0.25rem;
+      white-space: nowrap;
+    }
+    .billing-triage-pill {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      padding: 0.32rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .billing-triage-pill:hover {
+      border-color: var(--color-primary);
+      color: var(--color-text-main);
+      transform: translateY(-1px);
+    }
+    .triage-pill-count {
+      background: rgba(0, 0, 0, 0.07);
+      color: var(--color-text-main);
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.1rem 0.42rem;
+      border-radius: 9999px;
+      line-height: 1;
+    }
+    [data-theme="dark"] .triage-pill-count {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .billing-triage-pill.active {
+      background: var(--color-primary) !important;
+      color: #ffffff !important;
+      border-color: var(--color-primary) !important;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+    }
+    .billing-triage-pill.active .triage-pill-count {
+      background: rgba(255, 255, 255, 0.25) !important;
+      color: #ffffff !important;
+    }
+    .billing-triage-pill.pill-saldo.active {
+      background: #d97706 !important;
+      border-color: #d97706 !important;
+      box-shadow: 0 2px 8px rgba(217, 119, 6, 0.35);
+    }
+    .billing-triage-pill.pill-atraso.active {
+      background: #dc2626 !important;
+      border-color: #dc2626 !important;
+      box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+    }
+    .billing-triage-pill.pill-por-facturar.active {
+      background: #8b5cf6 !important;
+      border-color: #8b5cf6 !important;
+      box-shadow: 0 2px 8px rgba(139, 92, 246, 0.35);
+    }
+    .billing-triage-pill.pill-desglose.active {
+      background: #0284c7 !important;
+      border-color: #0284c7 !important;
+      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+    }
+    .billing-triage-pill.pill-al-dia.active {
+      background: #059669 !important;
+      border-color: #059669 !important;
+      box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+    }
+
+    /* Compound Table Cells */
+    .cell-commerce-block .commerce-name-title {
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--color-text-main);
+      letter-spacing: 0.01em;
+    }
+    .cell-financial-block .amount-cell {
+      max-width: 140px;
+    }
+    .cell-financial-block .financial-row {
+      background: rgba(0, 0, 0, 0.015);
+      border-radius: 4px;
+      padding: 1px 3px;
+    }
+    [data-theme="dark"] .cell-financial-block .financial-row {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .badge-saldo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.72rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      width: fit-content;
+      margin-top: 0.15rem;
+    }
+    .badge-saldo-paid {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    [data-theme="dark"] .badge-saldo-paid {
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    .badge-saldo-partial {
+      background: rgba(245, 158, 11, 0.12);
+      color: #b45309;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    [data-theme="dark"] .badge-saldo-partial {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border-color: rgba(245, 158, 11, 0.4);
+    }
+    .badge-saldo-pending {
+      background: rgba(239, 68, 68, 0.12);
+      color: #b91c1c;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    [data-theme="dark"] .badge-saldo-pending {
+      background: rgba(239, 68, 68, 0.18);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+    .badge-saldo-zero {
+      background: rgba(148, 163, 184, 0.12);
+      color: #64748b;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+    [data-theme="dark"] .badge-saldo-zero {
+      background: rgba(148, 163, 184, 0.18);
+      color: #cbd5e1;
+      border-color: rgba(148, 163, 184, 0.4);
+    }
+    .billing-folio-input {
+      background: rgba(0, 0, 0, 0.03) !important;
+      border: 1px solid var(--color-border) !important;
+      border-radius: 6px !important;
+      font-weight: 600 !important;
+      height: 26px;
+      transition: all 0.2s;
+    }
+    [data-theme="dark"] .billing-folio-input {
+      background: rgba(255, 255, 255, 0.04) !important;
+      border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+    .billing-folio-input:hover {
+      border-color: var(--color-primary) !important;
+    }
+    .billing-folio-input:focus {
+      border-color: var(--color-primary) !important;
+      background: var(--color-surface) !important;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+      outline: none;
+    }
+
+    /* Filas Clickeables e Inspector de Detalle */
+    .billing-clickable-row {
+      cursor: pointer;
+      transition: background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .billing-clickable-row:hover > td {
+      background-color: rgba(99, 102, 241, 0.045) !important;
+    }
+    [data-theme="dark"] .billing-clickable-row:hover > td {
+      background-color: rgba(99, 102, 241, 0.09) !important;
+    }
+    .billing-row-inspect-hint {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      color: var(--color-primary);
+      opacity: 0.25;
+      transition: all 0.2s ease;
+      margin-left: 0.35rem;
+      vertical-align: middle;
+    }
+    .billing-clickable-row:hover .billing-row-inspect-hint {
+      opacity: 1;
+      background: rgba(99, 102, 241, 0.12);
+      transform: scale(1.1);
+    }
+
+    /* Modal Detalle de Comercio */
+    .billing-detail-modal-dialog {
+      max-width: 860px !important;
+      width: 95% !important;
+      max-height: 92vh !important;
+      display: flex !important;
+      flex-direction: column !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      background: var(--color-surface) !important;
+      border-radius: 12px !important;
+      border: 1px solid var(--color-border) !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+    }
+    .billing-detail-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.15rem 1.5rem;
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .billing-detail-tabs-bar {
+      display: flex;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border);
+      padding: 0.35rem 1.25rem 0 1.25rem;
+      gap: 0.5rem;
+      overflow-x: auto;
+    }
+    .billing-detail-tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 0.65rem 1.15rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .billing-detail-tab-btn:hover {
+      color: var(--color-text-main);
+      background: rgba(0, 0, 0, 0.03);
+    }
+    [data-theme="dark"] .billing-detail-tab-btn:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .billing-detail-tab-btn.active {
+      color: var(--color-primary);
+      border-bottom-color: var(--color-primary);
+      background: var(--color-surface);
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
+      font-weight: 700;
+    }
+    .billing-detail-tab-pane {
+      display: none;
+      padding: 1.5rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .billing-detail-tab-pane.active {
+      display: block;
+    }
+    .billing-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .billing-detail-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md, 8px);
+      padding: 1.15rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .billing-detail-card-header {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-muted);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      border-bottom: 1px solid var(--color-border);
+      padding-bottom: 0.6rem;
+    }
+    .billing-kpi-metric-box {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md, 8px);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .billing-kpi-metric-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-text-muted);
+    }
+    .billing-kpi-metric-number {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--color-text-main);
+      line-height: 1.2;
+    }
+    .billing-kpi-metric-sub {
+      font-size: 0.72rem;
+      color: var(--color-text-muted);
     }
   `;
   document.head.appendChild(style);
@@ -35711,35 +36932,44 @@ window.filterObservationsGrid = function() {
   container.innerHTML = html;
 };
 
-window.getPeriodSortKey = function(p) {
-  let year = p.period_year;
-  let month = p.period_month;
-  if (!year || !month) {
-    const parts = (p.name || '').trim().split(/\s+/);
-    const monthMap = {
-      'ENERO': 1, 'ENE': 1,
-      'FEBRERO': 2, 'FEB': 2,
-      'MARZO': 3, 'MAR': 3,
-      'ABRIL': 4, 'ABR': 4,
-      'MAYO': 5, 'MAY': 5,
-      'JUNIO': 6, 'JUN': 6,
-      'JULIO': 7, 'JUL': 7,
-      'AGOSTO': 8, 'AGO': 8,
-      'SEPTIEMBRE': 9, 'SEP': 9, 'SETIEMBRE': 9,
-      'OCTUBRE': 10, 'OCT': 10,
-      'NOVIEMBRE': 11, 'NOV': 11,
-      'DICIEMBRE': 12, 'DIC': 12
-    };
-    if (parts.length >= 2) {
-      const mStr = parts[0].toUpperCase();
-      month = month || monthMap[mStr] || 1;
-      year = year || parseInt(parts[1], 10) || 2026;
-    } else {
-      month = month || 1;
-      year = year || 2026;
-    }
+window.cachedBillingPeriods = [];
+window.selectedBillingYear = null;
+window.selectedBillingPeriodId = null;
+
+window.getBillingPeriodYear = function(p) {
+  if (p && p.period_year) return parseInt(p.period_year, 10);
+  const match = ((p && p.name) || '').match(/\b(20\d\d)\b/);
+  if (match) return parseInt(match[1], 10);
+  return new Date().getFullYear();
+};
+
+window.getBillingPeriodMonth = function(p) {
+  if (p && p.period_month) return parseInt(p.period_month, 10);
+  const parts = ((p && p.name) || '').trim().toUpperCase();
+  const monthMap = {
+    'ENERO': 1, 'ENE': 1,
+    'FEBRERO': 2, 'FEB': 2,
+    'MARZO': 3, 'MAR': 3,
+    'ABRIL': 4, 'ABR': 4,
+    'MAYO': 5, 'MAY': 5,
+    'JUNIO': 6, 'JUN': 6,
+    'JULIO': 7, 'JUL': 7,
+    'AGOSTO': 8, 'AGO': 8,
+    'SEPTIEMBRE': 9, 'SEP': 9, 'SETIEMBRE': 9,
+    'OCTUBRE': 10, 'OCT': 10,
+    'NOVIEMBRE': 11, 'NOV': 11,
+    'DICIEMBRE': 12, 'DIC': 12
+  };
+  for (const [key, val] of Object.entries(monthMap)) {
+    if (parts.includes(key)) return val;
   }
-  return (year || 2026) * 100 + (month || 1);
+  return 1;
+};
+
+window.getPeriodSortKey = function(p) {
+  const y = window.getBillingPeriodYear(p);
+  const m = window.getBillingPeriodMonth(p);
+  return (y || 2026) * 100 + (m || 1);
 };
 
 window.sortBillingPeriodsList = function(periodsList, sortOption) {
@@ -35770,24 +37000,52 @@ window.sortBillingPeriodsList = function(periodsList, sortOption) {
 
 window.handleBillingPeriodSortChange = function(sortValue) {
   localStorage.setItem('wms_billing_period_sort', sortValue);
-  loadBillingPeriods();
+  window.renderBillingPeriodsControlView();
 };
 
-window.expandAllBillingPeriods = async function() {
-  const cards = document.querySelectorAll('.billing-period-card');
-  for (const card of cards) {
-    if (!card.classList.contains('active')) {
-      const periodId = card.getAttribute('data-period-id');
-      await togglePeriodCollapse(periodId, card);
+window.selectBillingYear = function(year) {
+  window.selectedBillingYear = Number(year);
+  localStorage.setItem('wms_billing_selected_year', year);
+  window.selectedBillingPeriodId = null; // Reiniciar para que elija el activo o más reciente del nuevo año
+  window.renderBillingPeriodsControlView();
+};
+
+window.selectBillingPeriodTab = async function(periodId) {
+  if (window.selectedBillingPeriodId === periodId) return;
+  
+  window.selectedBillingPeriodId = periodId;
+  
+  // Actualizar clases activas en las pestañas
+  document.querySelectorAll('.billing-month-tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  const currentTab = document.getElementById(`billing-month-tab-${periodId}`);
+  if (currentTab) {
+    currentTab.classList.add('active');
+  }
+
+  const periods = window.cachedBillingPeriods || [];
+  const selectedPeriod = periods.find(p => p.id === periodId);
+  const container = document.getElementById('active-period-container');
+
+  if (selectedPeriod && container) {
+    container.innerHTML = renderSelectedPeriodCard(selectedPeriod);
+    const bodyElement = document.getElementById(`period-body-${selectedPeriod.id}`);
+    if (bodyElement) {
+      await loadBillingRecords(selectedPeriod.id, bodyElement);
     }
   }
 };
 
-window.collapseAllBillingPeriods = function() {
-  const cards = document.querySelectorAll('.billing-period-card');
-  cards.forEach(card => {
-    card.classList.remove('active');
-  });
+window.expandAllBillingPeriods = function() {};
+window.collapseAllBillingPeriods = function() {};
+window.handlePeriodHeaderClick = function(periodId) {};
+
+window.togglePeriodCollapse = async function(periodId, cardElement) {
+  const body = document.getElementById(`period-body-${periodId}`);
+  if (body) {
+    await loadBillingRecords(periodId, body);
+  }
 };
 
 async function loadBillingPeriods() {
@@ -35813,52 +37071,8 @@ async function loadBillingPeriods() {
       return;
     }
     
-    const currentSort = localStorage.getItem('wms_billing_period_sort') || 'chrono_desc';
-
-    // Agrupar periodos según el estado y aplicar el orden seleccionado
-    const activePeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'activo'), currentSort);
-    const inProcessPeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'en_proceso'), currentSort);
-    const upcomingPeriods = window.sortBillingPeriodsList(periods.filter(p => p.status === 'proximo'), currentSort);
-    
-    let html = `
-      <div class="periods-toolbar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.35rem; color: var(--color-primary); font-weight: 600; font-size: 0.88rem;">
-            <i class="ri-sort-desc" style="font-size: 1.15rem;"></i>
-            <span>Ordenar Periodos:</span>
-          </div>
-          <select id="billing-period-sort-select" class="form-input" style="font-size: 0.82rem; padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); width: auto; margin: 0;" onchange="window.handleBillingPeriodSortChange(this.value)">
-            <option value="chrono_desc" ${currentSort === 'chrono_desc' ? 'selected' : ''}>📅 Más reciente primero (Cronológico Descendente)</option>
-            <option value="chrono_asc" ${currentSort === 'chrono_asc' ? 'selected' : ''}>📅 Más antiguo primero (Cronológico Ascendente)</option>
-            <option value="name_asc" ${currentSort === 'name_asc' ? 'selected' : ''}>🔤 Alfabético (A - Z)</option>
-            <option value="name_desc" ${currentSort === 'name_desc' ? 'selected' : ''}>🔤 Alfabético (Z - A)</option>
-            <option value="created_desc" ${currentSort === 'created_desc' ? 'selected' : ''}>🕒 Creados recientemente</option>
-          </select>
-        </div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button class="btn btn-outline btn-sm" onclick="window.expandAllBillingPeriods()" style="font-size: 0.8rem; padding: 0.3rem 0.65rem;" title="Expandir todos los periodos"><i class="ri-expand-vertical-line"></i> Expandir todos</button>
-          <button class="btn btn-outline btn-sm" onclick="window.collapseAllBillingPeriods()" style="font-size: 0.8rem; padding: 0.3rem 0.65rem;" title="Colapsar todos los periodos"><i class="ri-collapse-vertical-line"></i> Colapsar todos</button>
-        </div>
-      </div>
-    `;
-    
-    // 1. Periodo Activo
-    html += renderPeriodGroupSection('Periodo Activo', activePeriods, 'activo');
-    
-    // 2. En Proceso
-    html += renderPeriodGroupSection('En Proceso', inProcessPeriods, 'en_proceso');
-    
-    // 3. Próximos Periodos
-    html += renderPeriodGroupSection('Próximos Periodos', upcomingPeriods, 'proximo');
-    
-    container.innerHTML = html;
-    
-    // Expandir automáticamente el primer periodo activo si existe, de lo contrario el primero en proceso
-    const firstPeriodCard = container.querySelector('.billing-period-card');
-    if (firstPeriodCard) {
-      const periodId = firstPeriodCard.getAttribute('data-period-id');
-      togglePeriodCollapse(periodId, firstPeriodCard);
-    }
+    window.cachedBillingPeriods = periods;
+    await window.renderBillingPeriodsControlView();
     
   } catch (err) {
     console.error('Error loading billing periods:', err);
@@ -35871,84 +37085,1043 @@ async function loadBillingPeriods() {
 }
 window.loadBillingPeriods = loadBillingPeriods;
 
-function renderPeriodGroupSection(title, list, groupStatus) {
-  if (list.length === 0) return '';
-  
-  let listHtml = '';
-  list.forEach(p => {
-    listHtml += `
-      <div class="billing-period-card" id="period-card-${p.id}" data-period-id="${p.id}">
-        <div class="billing-period-header" onclick="handlePeriodHeaderClick('${p.id}')">
-          <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <i class="ri-arrow-right-s-line collapse-icon" style="font-size: 1.25rem; color: var(--color-text-muted);"></i>
-            <span style="font-weight: 600; color: var(--color-text-main); font-size: 1rem;">${p.name}</span>
-            <span class="badge ${p.status === 'activo' ? 'badge-success' : p.status === 'en_proceso' ? 'badge-warning' : 'badge-neutral'}" style="text-transform: uppercase; font-size: 0.7rem; padding: 0.15rem 0.4rem;">
-              ${p.status === 'activo' ? 'Activo' : p.status === 'en_proceso' ? 'En Proceso' : 'Próximo'}
-            </span>
+window.renderBillingPeriodsControlView = async function() {
+  const container = document.getElementById('periods-list-container');
+  if (!container) return;
+
+  const periods = window.cachedBillingPeriods || [];
+  if (periods.length === 0) {
+    await loadBillingPeriods();
+    return;
+  }
+
+  // 1. Obtener todos los años disponibles a partir de los periodos
+  const yearsSet = new Set();
+  periods.forEach(p => {
+    const y = window.getBillingPeriodYear(p);
+    if (y) yearsSet.add(y);
+  });
+  if (yearsSet.size === 0) yearsSet.add(new Date().getFullYear());
+  const availableYears = Array.from(yearsSet).sort((a, b) => b - a);
+
+  // 2. Determinar año seleccionado
+  let selectedYear = window.selectedBillingYear;
+  if (!selectedYear || !availableYears.includes(Number(selectedYear))) {
+    // Si hay un periodo activo ('activo'), preferir su año
+    const activePeriod = periods.find(p => p.status === 'activo');
+    if (activePeriod) {
+      selectedYear = window.getBillingPeriodYear(activePeriod);
+    } else {
+      const savedYear = parseInt(localStorage.getItem('wms_billing_selected_year'), 10);
+      if (savedYear && availableYears.includes(savedYear)) {
+        selectedYear = savedYear;
+      } else {
+        selectedYear = availableYears[0];
+      }
+    }
+  }
+  selectedYear = Number(selectedYear);
+  window.selectedBillingYear = selectedYear;
+  localStorage.setItem('wms_billing_selected_year', selectedYear);
+
+  // 3. Filtrar periodos para el año seleccionado
+  const periodsForYear = periods.filter(p => window.getBillingPeriodYear(p) === selectedYear);
+
+  // 4. Ordenar periodos del año seleccionado
+  const currentSort = localStorage.getItem('wms_billing_period_sort') || 'chrono_desc';
+  const sortedPeriods = window.sortBillingPeriodsList(periodsForYear, currentSort);
+
+  // 5. Determinar periodo seleccionado dentro del año
+  let selectedPeriodId = window.selectedBillingPeriodId;
+  let selectedPeriod = periodsForYear.find(p => p.id === selectedPeriodId);
+
+  if (!selectedPeriod && periodsForYear.length > 0) {
+    // Preferir periodo activo del año si existe
+    selectedPeriod = periodsForYear.find(p => p.status === 'activo');
+    // Si no, el primero según el orden actual
+    if (!selectedPeriod) {
+      selectedPeriod = sortedPeriods[0];
+    }
+    selectedPeriodId = selectedPeriod ? selectedPeriod.id : null;
+  }
+  window.selectedBillingPeriodId = selectedPeriodId;
+
+  // 6. Construir Barra Superior con Selector de Año
+  let yearPillsHtml = '';
+  availableYears.forEach(y => {
+    const hasActivePeriod = periods.some(p => window.getBillingPeriodYear(p) === y && p.status === 'activo');
+    const isYearSelected = y === selectedYear;
+    yearPillsHtml += `
+      <button class="billing-year-pill ${isYearSelected ? 'active' : ''}" onclick="window.selectBillingYear(${y})" title="Ver periodos del año ${y}">
+        <span>${y}</span>
+        ${hasActivePeriod ? '<span class="year-active-dot" title="Tiene periodo activo"></span>' : ''}
+      </button>
+    `;
+  });
+
+  let html = `
+    <!-- Barra Superior: Selector de Año y Orden -->
+    <div class="billing-control-top-bar">
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">
+          <i class="ri-calendar-line" style="color: var(--color-primary); font-size: 1.15rem;"></i>
+          <span>Año:</span>
+        </div>
+        <div class="billing-year-pills">
+          ${yearPillsHtml}
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+          <i class="ri-file-list-3-line" style="margin-right: 2px;"></i> ${periodsForYear.length} ${periodsForYear.length === 1 ? 'periodo' : 'periodos'} en ${selectedYear}
+        </span>
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;"><i class="ri-sort-desc"></i> Orden:</label>
+          <select id="billing-period-sort-select" class="form-input" style="font-size: 0.8rem; padding: 0.25rem 0.5rem; margin: 0; width: auto;" onchange="window.handleBillingPeriodSortChange(this.value)">
+            <option value="chrono_desc" ${currentSort === 'chrono_desc' ? 'selected' : ''}>📅 Más reciente primero</option>
+            <option value="chrono_asc" ${currentSort === 'chrono_asc' ? 'selected' : ''}>📅 Más antiguo primero</option>
+            <option value="name_asc" ${currentSort === 'name_asc' ? 'selected' : ''}>🔤 Alfabético (A - Z)</option>
+            <option value="name_desc" ${currentSort === 'name_desc' ? 'selected' : ''}>🔤 Alfabético (Z - A)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openCreatePeriodModal()" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-add-line"></i> Nuevo Periodo
+        </button>
+      </div>
+    </div>
+  `;
+
+  // 7. Pestañas Horizontales de Meses/Periodos del Año Seleccionado
+  if (sortedPeriods.length === 0) {
+    html += `
+      <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted); margin-top: 1rem;">
+        <i class="ri-calendar-close-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; color: var(--color-border);"></i>
+        <p style="font-weight: 600; font-size: 1rem; margin-bottom: 0.35rem; color: var(--color-text-main);">No hay periodos registrados para el año ${selectedYear}</p>
+        <p style="font-size: 0.85rem; margin-bottom: 1.25rem;">Crea un nuevo periodo mensual para este año para comenzar a gestionar sus registros.</p>
+        <button class="btn btn-primary btn-sm" onclick="openCreatePeriodModal()"><i class="ri-add-line"></i> Crear Periodo para ${selectedYear}</button>
+      </div>
+    `;
+    container.innerHTML = html;
+    return;
+  }
+
+  let periodTabsHtml = '';
+  sortedPeriods.forEach(p => {
+    const isSelected = p.id === selectedPeriodId;
+    const isActivo = p.status === 'activo';
+    const statusLabel = isActivo ? 'Activo' : p.status === 'en_proceso' ? 'En Proceso' : 'Próximo';
+    const statusClass = p.status || 'proximo';
+    
+    // Obtener nombre del mes limpio para la pestaña (ej: "AGOSTO" en vez de "AGOSTO 2026")
+    let displayMonth = (p.name || '').replace(new RegExp('\\s*' + selectedYear + '\\s*', 'gi'), '').trim();
+    if (!displayMonth) displayMonth = p.name || 'Periodo';
+
+    periodTabsHtml += `
+      <button class="billing-month-tab ${isSelected ? 'active' : ''} ${isActivo ? 'is-period-activo' : ''}" 
+              id="billing-month-tab-${p.id}"
+              onclick="window.selectBillingPeriodTab('${p.id}')"
+              title="${p.name} (${statusLabel})">
+        <div class="tab-month-name">${displayMonth}</div>
+        <div class="tab-status-pill ${statusClass}">
+          <span class="status-indicator-dot"></span>
+          ${statusLabel}
+        </div>
+      </button>
+    `;
+  });
+
+  html += `
+    <!-- Tira de pestañas ocupando el ancho de la pantalla -->
+    <div class="billing-periods-tab-strip">
+      ${periodTabsHtml}
+    </div>
+  `;
+
+  // 8. Contenedor del Periodo Seleccionado
+  html += `
+    <div id="active-period-container">
+      ${selectedPeriod ? renderSelectedPeriodCard(selectedPeriod) : ''}
+    </div>
+  `;
+
+  container.innerHTML = html;
+
+  // 9. Cargar los registros del periodo seleccionado
+  if (selectedPeriod) {
+    const bodyElement = document.getElementById(`period-body-${selectedPeriod.id}`);
+    if (bodyElement) {
+      await loadBillingRecords(selectedPeriod.id, bodyElement);
+    }
+  }
+};
+
+function renderSelectedPeriodCard(p) {
+  const isActivo = p.status === 'activo';
+  const statusLabel = isActivo ? 'Activo' : p.status === 'en_proceso' ? 'En Proceso' : 'Próximo';
+  const badgeClass = isActivo ? 'badge-success' : p.status === 'en_proceso' ? 'badge-warning' : 'badge-neutral';
+
+  return `
+    <div class="billing-period-card active" id="period-card-${p.id}" data-period-id="${p.id}">
+      <div class="billing-period-header billing-period-selected-header" style="cursor: default;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-calendar-check-line" style="font-size: 1.35rem; color: var(--color-primary);"></i>
+            <span style="font-weight: 700; color: var(--color-text-main); font-size: 1.15rem;">${p.name}</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 1rem;" onclick="event.stopPropagation()">
-            <!-- Selector de estado del periodo -->
-            <select class="form-input" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; margin: 0; width: auto;" onchange="updatePeriodStatus('${p.id}', this.value)">
+          <span class="badge ${badgeClass}" style="text-transform: uppercase; font-size: 0.72rem; padding: 0.2rem 0.5rem; letter-spacing: 0.04em;">
+            ${isActivo ? '● Periodo Activo' : `● ${statusLabel}`}
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <!-- Selector de estado del periodo -->
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 500;">Estado:</label>
+            <select class="form-input" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; margin: 0; width: auto; font-weight: 500;" onchange="updatePeriodStatus('${p.id}', this.value)">
               <option value="activo" ${p.status === 'activo' ? 'selected' : ''}>Activo</option>
               <option value="en_proceso" ${p.status === 'en_proceso' ? 'selected' : ''}>En Proceso</option>
               <option value="proximo" ${p.status === 'proximo' ? 'selected' : ''}>Próximo</option>
             </select>
-            
-            <button class="btn btn-outline btn-sm" onclick="exportPeriodToExcel('${p.id}', '${p.name}')" title="Exportar a Excel" style="padding: 0.25rem 0.5rem;">
-              <i class="ri-file-excel-line" style="color: #16a34a; font-size: 1.1rem;"></i>
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="window.openEnviameImporterModal('${p.id}', '${p.name.replace(/'/g, "\\'")}')" title="Importar Planilla Envíame" style="padding: 0.25rem 0.5rem; border-color: #9c27b0; color: #9c27b0;">
-              <i class="ri-file-upload-line" style="font-size: 1.1rem;"></i>
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="openEditPeriodModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.period_month || 'null'}, ${p.period_year || 'null'}, '${p.status}')" title="Editar Periodo" style="padding: 0.25rem 0.5rem;">
-              <i class="ri-edit-line" style="font-size: 1.1rem;"></i>
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="openAddCommerceModal('${p.id}')" title="Añadir Comercio" style="padding: 0.25rem 0.5rem;">
-              <i class="ri-add-line" style="font-size: 1.1rem;"></i>
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="deletePeriod('${p.id}', '${p.name}')" title="Eliminar Periodo" style="padding: 0.25rem 0.5rem; border-color: var(--color-danger); color: var(--color-danger);">
-              <i class="ri-delete-bin-line" style="font-size: 1.1rem;"></i>
-            </button>
           </div>
-        </div>
-        <div class="billing-period-body" id="period-body-${p.id}">
-          <!-- Se carga dinámicamente -->
+          
+          <div style="height: 20px; width: 1px; background: var(--color-border); margin: 0 0.25rem;"></div>
+
+          <!-- Botones de Acción -->
+          <button class="btn btn-outline btn-sm" onclick="exportPeriodToExcel('${p.id}', '${p.name}')" title="Exportar a Excel" style="padding: 0.25rem 0.55rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-file-excel-line" style="color: #16a34a; font-size: 1.1rem;"></i>
+            <span>Excel</span>
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="window.openEnviameImporterModal('${p.id}', '${p.name.replace(/'/g, "\\'")}')" title="Importar Planilla Envíame" style="padding: 0.25rem 0.55rem; border-color: #9c27b0; color: #9c27b0; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-file-upload-line" style="font-size: 1.1rem;"></i>
+            <span>Importar Envíame</span>
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="openEditPeriodModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.period_month || 'null'}, ${p.period_year || 'null'}, '${p.status}')" title="Editar Periodo" style="padding: 0.25rem 0.55rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-edit-line" style="font-size: 1.1rem;"></i>
+            <span>Editar</span>
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="openAddCommerceModal('${p.id}')" title="Añadir Comercio" style="padding: 0.25rem 0.55rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-add-line" style="font-size: 1.1rem;"></i>
+            <span>Añadir Comercio</span>
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="deletePeriod('${p.id}', '${p.name}')" title="Eliminar Periodo" style="padding: 0.25rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-delete-bin-line" style="font-size: 1.1rem;"></i>
+            <span>Eliminar</span>
+          </button>
         </div>
       </div>
-    `;
-  });
-  
-  return `
-    <div style="margin-bottom: 1.5rem;">
-      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.5rem;">
-        <span style="display:inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${groupStatus === 'activo' ? 'var(--color-success)' : groupStatus === 'en_proceso' ? 'var(--color-warning)' : 'var(--color-sidebar-text)'}"></span>
-        ${title}
-      </h4>
-      ${listHtml}
+      <div class="billing-period-body" id="period-body-${p.id}" style="display: block;">
+        <div class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 1.75rem; display: block; margin-bottom: 0.5rem;"></i>
+          Cargando registros de facturación...
+        </div>
+      </div>
     </div>
   `;
 }
 
-window.handlePeriodHeaderClick = function(periodId) {
-  const card = document.getElementById(`period-card-${periodId}`);
-  if (card) {
-    togglePeriodCollapse(periodId, card);
+window.billingTriageFilters = window.billingTriageFilters || {};
+
+window.renderFinancialBadgeHtml = function(total, abono) {
+  const t = parseInt(total, 10) || 0;
+  const a = parseInt(abono, 10) || 0;
+  const saldo = t - a;
+
+  if (t === 0) {
+    return `<span class="badge-saldo badge-saldo-zero"><i class="ri-subtract-line"></i> Sin cobro ($0)</span>`;
+  }
+  if (saldo <= 0) {
+    return `<span class="badge-saldo badge-saldo-paid"><i class="ri-checkbox-circle-fill"></i> Pagado Total</span>`;
+  }
+  if (a > 0) {
+    return `<span class="badge-saldo badge-saldo-partial" title="Abonado: ${formatCLP(a)} de ${formatCLP(t)}"><i class="ri-pie-chart-2-fill"></i> Resta: <strong>${formatCLP(saldo)}</strong></span>`;
+  }
+  return `<span class="badge-saldo badge-saldo-pending" title="Saldo pendiente total"><i class="ri-error-warning-fill"></i> Saldo: <strong>${formatCLP(saldo)}</strong></span>`;
+};
+
+window.updateRowFinancialBadge = function(recordId, type) {
+  const isEnv = type === 'env';
+  const rowId = isEnv ? `row-env-${recordId}` : `row-fulf-${recordId}`;
+  const row = document.getElementById(rowId);
+  if (!row) return;
+
+  const totalInput = isEnv 
+    ? row.querySelector('input[onblur*="enviame"]') 
+    : row.querySelector('input[onblur*="total_fulfillment"]');
+  const abonoInput = isEnv 
+    ? row.querySelector('input[onblur*="abono_enviame"]') 
+    : row.querySelector('input[onblur*="abono_fulfillment"]');
+
+  const total = parseInt((totalInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const abono = parseInt((abonoInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const saldo = total - abono;
+
+  row.setAttribute(`data-total-${type}`, total);
+  row.setAttribute(`data-abono-${type}`, abono);
+  row.setAttribute(`data-saldo-${type}`, saldo);
+  row.setAttribute(`data-is-aldia-${type}`, (total > 0 && saldo <= 0) ? 'true' : 'false');
+
+  const badgeContainer = document.getElementById(`financial-badge-${type}-${recordId}`);
+  if (badgeContainer) {
+    badgeContainer.innerHTML = window.renderFinancialBadgeHtml(total, abono);
+  }
+
+  // Actualizar deadline badge si corresponde
+  const limitInput = row.querySelector('.billing-limit-input');
+  const pagoSelect = isEnv 
+    ? row.querySelector('select[onchange*="pago_enviame"]')
+    : row.querySelector('select[onchange*="pago_fulfillment"]');
+  const deadlineRow = row.querySelector('.deadline-row');
+  if (limitInput && pagoSelect && deadlineRow) {
+    const existingBadge = deadlineRow.querySelector('.deadline-badge');
+    if (existingBadge) existingBadge.remove();
+    if (window.getDeadlineBadgeHtml) {
+      const newBadgeHtml = window.getDeadlineBadgeHtml(limitInput.value, pagoSelect.value);
+      if (newBadgeHtml) {
+        deadlineRow.insertAdjacentHTML('beforeend', newBadgeHtml);
+      }
+    }
   }
 };
 
-window.togglePeriodCollapse = async function(periodId, cardElement) {
-  cardElement.classList.toggle('active');
-  const isExpanded = cardElement.classList.contains('active');
-  const body = document.getElementById(`period-body-${periodId}`);
-  
-  if (isExpanded && body) {
-    body.innerHTML = `
-      <div class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-        <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-        Cargando registros de facturación...
+window.setBillingTriageFilter = function(periodId, subtab, filterKey, btnEl) {
+  window.billingTriageFilters[`${subtab}_${periodId}`] = filterKey;
+
+  const stripId = subtab === 'fulf' ? `triage-strip-fulf-${periodId}` : `triage-strip-env-${periodId}`;
+  const strip = document.getElementById(stripId);
+  if (strip) {
+    strip.querySelectorAll('.billing-triage-pill').forEach(p => p.classList.remove('active'));
+    if (btnEl) {
+      btnEl.classList.add('active');
+    }
+  }
+
+  window.filterBillingRows(periodId);
+};
+
+window.handleBillingRowClick = function(event, recordId, periodId, defaultTab) {
+  if (event.target.closest('input, select, textarea, button, a, label, .copy-amount-btn, .row-select-fulf, .row-select-env, .billing-action-btn, .billing-actions-group')) {
+    return;
+  }
+  window.openBillingCommerceDetailModal(recordId, periodId, defaultTab);
+};
+
+window.switchCommerceDetailTab = function(tabKey, btnEl) {
+  const modal = document.getElementById('modal-billing-commerce-detail');
+  if (!modal) return;
+  modal.querySelectorAll('.billing-detail-tab-btn').forEach(btn => btn.classList.remove('active'));
+  modal.querySelectorAll('.billing-detail-tab-pane').forEach(pane => pane.classList.remove('active'));
+
+  if (btnEl) btnEl.classList.add('active');
+  const targetPane = document.getElementById(`modal-detail-pane-${tabKey}`);
+  if (targetPane) targetPane.classList.add('active');
+};
+
+window.openBillingCommerceDetailModal = async function(recordId, periodId, initialTab = 'totales') {
+  let modal = document.getElementById('modal-billing-commerce-detail');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-billing-commerce-detail';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '990';
+  modal.innerHTML = `
+    <div class="modal-content billing-detail-modal-dialog">
+      <div class="billing-detail-header">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(99, 102, 241, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-store-2-line"></i>
+          </div>
+          <div>
+            <h3 id="modal-detail-commerce-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              Cargando...
+            </h3>
+            <div id="modal-detail-sub-badges" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">
+              <span><i class="ri-loader-4-line spin"></i> Obteniendo información...</span>
+            </div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="background: none; border: none; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+
+      <div class="billing-detail-tabs-bar">
+        <button type="button" class="billing-detail-tab-btn ${initialTab === 'totales' ? 'active' : ''}" onclick="window.switchCommerceDetailTab('totales', this)" id="tab-btn-detail-totales">
+          <i class="ri-pie-chart-2-line"></i> Resumen & Totales
+        </button>
+        <button type="button" class="billing-detail-tab-btn ${initialTab === 'fulf' ? 'active' : ''}" onclick="window.switchCommerceDetailTab('fulf', this)" id="tab-btn-detail-fulf">
+          <i class="ri-box-3-line"></i> Fulfillment
+        </button>
+        <button type="button" class="billing-detail-tab-btn ${initialTab === 'env' ? 'active' : ''}" onclick="window.switchCommerceDetailTab('env', this)" id="tab-btn-detail-env">
+          <i class="ri-truck-line"></i> Envíame
+        </button>
+      </div>
+
+      <div class="modal-body" id="modal-detail-body" style="padding: 0; overflow-y: auto; flex: 1; max-height: calc(92vh - 140px);">
+        <div style="text-align: center; padding: 3.5rem 1rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 2.2rem; color: var(--color-primary); display: block; margin-bottom: 0.75rem;"></i>
+          <span>Cargando detalle del registro...</span>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    const { data: r, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('id', recordId)
+      .single();
+
+    if (error) throw error;
+
+    const { data: statusData } = await supabase
+      .from('commerce_billing_status')
+      .select('al_dia')
+      .eq('comercio', r.comercio)
+      .maybeSingle();
+
+    const alDia = statusData ? statusData.al_dia !== false : true;
+    const periods = window.cachedBillingPeriods || [];
+    const currentPeriod = periods.find(p => p.id === periodId);
+    const periodName = currentPeriod ? currentPeriod.name : 'Periodo actual';
+
+    window.renderCommerceDetailModalContent(r, periodId, periodName, alDia, initialTab);
+  } catch (err) {
+    console.error('Error opening commerce billing detail modal:', err);
+    const bodyEl = document.getElementById('modal-detail-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="padding: 2.5rem; text-align: center; color: var(--color-danger);">
+          <i class="ri-error-warning-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+          Error al cargar datos del comercio: ${err.message}
+        </div>
+      `;
+    }
+  }
+};
+
+window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDia, activeTab) {
+  const commTitle = document.getElementById('modal-detail-commerce-title');
+  const subBadges = document.getElementById('modal-detail-sub-badges');
+  const bodyEl = document.getElementById('modal-detail-body');
+  if (!bodyEl) return;
+
+  const totalFulf = r.total_fulfillment || 0;
+  const abonoFulf = r.abono_fulfillment || 0;
+  const saldoFulf = totalFulf - abonoFulf;
+
+  const totalEnv = r.enviame || 0;
+  const abonoEnv = r.abono_enviame || 0;
+  const saldoEnv = totalEnv - abonoEnv;
+
+  const totalGeneral = totalFulf + totalEnv;
+  const totalAbonado = abonoFulf + abonoEnv;
+  const saldoGeneral = totalGeneral - totalAbonado;
+  const percentRec = totalGeneral > 0 ? Math.round((totalAbonado / totalGeneral) * 100) : 0;
+
+  if (commTitle) commTitle.textContent = r.comercio;
+  if (subBadges) {
+    subBadges.innerHTML = `
+      <span style="background: rgba(99, 102, 241, 0.1); color: var(--color-primary); padding: 0.15rem 0.55rem; border-radius: 9999px; font-weight: 600;">
+        <i class="ri-calendar-line"></i> ${periodName}
+      </span>
+      <span id="modal-detail-status-pill" class="badge ${alDia ? 'badge-success' : 'badge-danger'}" style="cursor: pointer; padding: 0.2rem 0.6rem; font-size: 0.76rem;" onclick="window.toggleCommerceStatusFromModal('${r.comercio.replace(/'/g, "\\'")}', this, '${periodId}', '${r.id}')" title="Hacer clic para alternar estado">
+        <i class="${alDia ? 'ri-checkbox-circle-line' : 'ri-pause-circle-line'}"></i> ${alDia ? 'Al Día' : 'Servicio Pausado'}
+      </span>
+      <span style="color: var(--color-text-muted); font-size: 0.75rem;">ID: ${r.id.substring(0, 8)}...</span>
+    `;
+  }
+
+  let envDocsHtml = '<span style="color: var(--color-text-muted); font-size: 0.8rem;">Sin archivos adjuntos cargados.</span>';
+  if (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) {
+    envDocsHtml = `
+      <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+        ${r.enviame_pdfs.map(pdf => {
+          const isExcel = (pdf.name && pdf.name.toLowerCase().includes('excel')) || (pdf.url && pdf.url.toLowerCase().includes('.xlsx'));
+          return `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; font-size: 0.8rem;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
+                <i class="${isExcel ? 'ri-file-excel-2-fill' : 'ri-file-pdf-fill'}" style="color: ${isExcel ? '#10b981' : '#ef4444'};"></i>
+                ${pdf.name || 'Documento Envíame'}
+              </span>
+              <a href="${pdf.url}" target="_blank" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">
+                <i class="ri-external-link-line"></i> Ver
+              </a>
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
-    await loadBillingRecords(periodId, body);
+  }
+
+  bodyEl.innerHTML = `
+    <!-- TAB 1: RESUMEN & TOTALES -->
+    <div id="modal-detail-pane-totales" class="billing-detail-tab-pane ${activeTab === 'totales' ? 'active' : ''}">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="billing-kpi-metric-box">
+          <span class="billing-kpi-metric-title"><i class="ri-file-list-3-line"></i> Total Facturado</span>
+          <span class="billing-kpi-metric-number" id="modal-kpi-total-general" style="color: var(--color-primary);">${formatCLP(totalGeneral)}</span>
+          <span class="billing-kpi-metric-sub" id="modal-kpi-sub-total">Fulf: ${formatCLP(totalFulf)} | Env: ${formatCLP(totalEnv)}</span>
+        </div>
+        <div class="billing-kpi-metric-box">
+          <span class="billing-kpi-metric-title"><i class="ri-hand-coin-line"></i> Total Recaudado</span>
+          <span class="billing-kpi-metric-number" id="modal-kpi-total-recaudado" style="color: var(--color-success);">${formatCLP(totalAbonado)}</span>
+          <span class="billing-kpi-metric-sub" id="modal-kpi-sub-recaudado">${percentRec}% del total facturado</span>
+        </div>
+        <div class="billing-kpi-metric-box">
+          <span class="billing-kpi-metric-title"><i class="ri-alert-line"></i> Saldo Pendiente</span>
+          <span class="billing-kpi-metric-number" id="modal-kpi-saldo-general" style="color: ${saldoGeneral > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">${formatCLP(saldoGeneral)}</span>
+          <span class="billing-kpi-metric-sub" id="modal-kpi-sub-saldo">Fulf: ${formatCLP(saldoFulf)} | Env: ${formatCLP(saldoEnv)}</span>
+        </div>
+      </div>
+
+      <div class="billing-detail-card" style="margin-bottom: 1.5rem;">
+        <div class="billing-detail-card-header">
+          <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Desglose por Servicio
+        </div>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;">
+                <th style="text-align: left; padding: 0.5rem 0.75rem;">Servicio</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem;">Facturado</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem;">Abonado</th>
+                <th style="text-align: right; padding: 0.5rem 0.75rem;">Saldo Pendiente</th>
+                <th style="text-align: center; padding: 0.5rem 0.75rem;">Estado Pago</th>
+                <th style="text-align: center; padding: 0.5rem 0.75rem;">Factura / Folio</th>
+                <th style="text-align: center; padding: 0.5rem 0.75rem;">Acceso Rápido</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.65rem 0.75rem; font-weight: 600; color: var(--color-text-main);">
+                  <i class="ri-box-3-fill" style="color: var(--color-primary); margin-right: 0.35rem;"></i> Fulfillment
+                </td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; font-weight: 600;" id="modal-table-total-fulf">${formatCLP(totalFulf)}</td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; color: var(--color-success);" id="modal-table-abono-fulf">${formatCLP(abonoFulf)}</td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; font-weight: 700; color: ${saldoFulf > 0 ? 'var(--color-danger)' : 'var(--color-success)'};" id="modal-table-saldo-fulf">${formatCLP(saldoFulf)}</td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem;">
+                  <span class="client-badge ${getStatusClass(r.pago_fulfillment)}" id="modal-table-badge-pago-fulf">${r.pago_fulfillment || 'Por solicitar'}</span>
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem; color: var(--color-text-muted);">
+                  ${r.num_factura ? '#' + r.num_factura : '<span style="opacity: 0.6;">Sin folio</span>'}
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.switchCommerceDetailTab('fulf', document.getElementById('tab-btn-detail-fulf'))" style="font-size: 0.72rem; padding: 0.2rem 0.55rem;">
+                    Gestionar <i class="ri-arrow-right-s-line"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 0.65rem 0.75rem; font-weight: 600; color: var(--color-text-main);">
+                  <i class="ri-truck-fill" style="color: #0284c7; margin-right: 0.35rem;"></i> Envíame
+                </td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; font-weight: 600;" id="modal-table-total-env">${formatCLP(totalEnv)}</td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; color: var(--color-success);" id="modal-table-abono-env">${formatCLP(abonoEnv)}</td>
+                <td style="text-align: right; padding: 0.65rem 0.75rem; font-weight: 700; color: ${saldoEnv > 0 ? 'var(--color-danger)' : 'var(--color-success)'};" id="modal-table-saldo-env">${formatCLP(saldoEnv)}</td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem;">
+                  <span class="client-badge ${getStatusClass(r.pago_enviame)}" id="modal-table-badge-pago-env">${r.pago_enviame || 'Por solicitar'}</span>
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem; color: var(--color-text-muted);">
+                  ${r.num_factura_enviame ? '#' + r.num_factura_enviame : '<span style="opacity: 0.6;">Sin folio</span>'}
+                </td>
+                <td style="text-align: center; padding: 0.65rem 0.75rem;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.switchCommerceDetailTab('env', document.getElementById('tab-btn-detail-env'))" style="font-size: 0.72rem; padding: 0.2rem 0.55rem;">
+                    Gestionar <i class="ri-arrow-right-s-line"></i>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="billing-detail-card">
+        <div class="billing-detail-card-header">
+          <i class="ri-tools-line" style="color: var(--color-primary);"></i> Herramientas Operativas de Facturación
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+          <button type="button" class="btn btn-primary btn-sm" onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-calculator-line"></i> Abrir Gestor Oficial Stocka
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-attachment-line"></i> Documentos y Adjuntos
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-mail-send-line"></i> Notificar Correo (Brevo)
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'fulfillment')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-question-answer-line"></i> Apelaciones / Observaciones
+          </button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.modal-overlay').remove(); deleteBillingRecord('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}');" style="display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto;">
+            <i class="ri-delete-bin-line"></i> Eliminar Registro
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: FULFILLMENT -->
+    <div id="modal-detail-pane-fulf" class="billing-detail-tab-pane ${activeTab === 'fulf' ? 'active' : ''}">
+      <div class="billing-detail-grid">
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> Balance Financiero Fulfillment
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Total Facturado:</label>
+              <div class="amount-cell" style="width: 100%;">
+                <input type="text" id="modal-field-total-fulf-${r.id}" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveModalMoneyField('${r.id}', 'total_fulfillment', this, '${periodId}')" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; font-size: 0.95rem; font-weight: 700;">
+                <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.total_fulfillment || 0}', this)" title="Copiar monto">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Abono / Pago Recibido:</label>
+              <div class="amount-cell" style="width: 100%;">
+                <input type="text" id="modal-field-abono-fulf-${r.id}" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveModalMoneyField('${r.id}', 'abono_fulfillment', this, '${periodId}')" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">
+                <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_fulfillment || 0}', this)" title="Copiar abono">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </div>
+            </div>
+            <div style="margin-top: 0.25rem;">
+              <span style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem;">Estado de Deuda:</span>
+              <div id="modal-badge-saldo-fulf-${r.id}">
+                ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.total_fulfillment || 0, r.abono_fulfillment || 0) : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-file-paper-2-line" style="color: var(--color-primary);"></i> Ciclo de Facturación & Desglose
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado Desglose Operativo:</label>
+              <select id="modal-field-desglose-fulf-${r.id}" class="billing-select ${(r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment)}" onchange="window.saveModalSelectField(this, '${r.id}', 'desglose_fulfillment', '${periodId}', 'fulf')" style="width: 100%;">
+                <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
+                <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
+                <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${(r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado'}</option>
+                <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
+                <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+            </div>
+            ${r.fulfillment_link ? `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(139, 92, 246, 0.07); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 6px;">
+                <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-eye-line" style="color: #8b5cf6;"></i> Desglose Online Publicado</span>
+                <a href="${r.fulfillment_link}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem; border-color: #8b5cf6; color: #8b5cf6;">
+                  Ver Snapshot <i class="ri-external-link-line"></i>
+                </a>
+              </div>
+            ` : ''}
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado Factura:</label>
+              <select id="modal-field-factura-fulf-${r.id}" class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="window.saveModalSelectField(this, '${r.id}', 'factura_fulfillment', '${periodId}', 'fulf')" style="width: 100%;">
+                <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
+                <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
+                <option value="Emitida" ${r.factura_fulfillment === 'Emitida' ? 'selected' : ''}>Emitida</option>
+                <option value="Facturar" ${r.factura_fulfillment === 'Facturar' ? 'selected' : ''}>Facturar</option>
+                <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura #:</label>
+              <div style="position: relative; display: flex; align-items: center;">
+                <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                <input type="number" id="modal-field-folio-fulf-${r.id}" value="${r.num_factura || ''}" placeholder="Ej: 10452" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+              </div>
+            </div>
+            ${r.factura_fulfillment_pdf_url ? `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
+                <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF</span>
+                <a href="${r.factura_fulfillment_pdf_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">
+                  Descargar <i class="ri-download-line"></i>
+                </a>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-calendar-check-line" style="color: var(--color-primary);"></i> Estado de Cobro & Fechas
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado de Pago:</label>
+              <select id="modal-field-pago-fulf-${r.id}" class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="window.saveModalSelectField(this, '${r.id}', 'pago_fulfillment', '${periodId}', 'fulf')" style="width: 100%;">
+                <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+                <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
+                <option value="En espera" ${r.pago_fulfillment === 'En espera' ? 'selected' : ''}>En espera</option>
+                <option value="Atrasado" ${r.pago_fulfillment === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+                <option value="abono" ${r.pago_fulfillment === 'abono' ? 'selected' : ''}>Abono</option>
+                <option value="aprobado" ${r.pago_fulfillment === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                <option value="incobrable" ${r.pago_fulfillment === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+                <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Fecha Límite de Pago:</label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="date" id="modal-field-limite-fulf-${r.id}" value="${r.fecha_limite || ''}" class="form-input" onchange="window.saveModalField('${r.id}', 'fecha_limite', this.value, '${periodId}', 'fulf')" style="flex: 1; font-size: 0.85rem;">
+                <span id="modal-deadline-badge-fulf-${r.id}">
+                  ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment) : ''}
+                </span>
+              </div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Fecha de Pago Recibido:</label>
+              <input type="date" id="modal-field-pago-date-fulf-${r.id}" value="${r.fecha_pago_recibido_fulfillment || ''}" class="form-input" onchange="window.saveModalField('${r.id}', 'fecha_pago_recibido_fulfillment', this.value, '${periodId}', 'fulf')" style="width: 100%; font-size: 0.85rem;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'fulfillment')">
+          <i class="ri-question-answer-line"></i> Apelaciones Fulfillment
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')">
+          <i class="ri-attachment-line"></i> Adjuntos
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')">
+          <i class="ri-calculator-line"></i> Gestor Oficial Stocka
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 3: ENVÍAME -->
+    <div id="modal-detail-pane-env" class="billing-detail-tab-pane ${activeTab === 'env' ? 'active' : ''}">
+      <div class="billing-detail-grid">
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-money-dollar-circle-line" style="color: #0284c7;"></i> Balance Financiero Envíame
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Total Envíame:</label>
+              <div class="amount-cell" style="width: 100%;">
+                <input type="text" id="modal-field-total-env-${r.id}" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveModalMoneyField('${r.id}', 'enviame', this, '${periodId}')" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; font-size: 0.95rem; font-weight: 700;">
+                <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.enviame || 0}', this)" title="Copiar monto">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Abono / Pago Recibido:</label>
+              <div class="amount-cell" style="width: 100%;">
+                <input type="text" id="modal-field-abono-env-${r.id}" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="window.saveModalMoneyField('${r.id}', 'abono_enviame', this, '${periodId}')" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">
+                <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_enviame || 0}', this)" title="Copiar abono">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </div>
+            </div>
+            <div style="margin-top: 0.25rem;">
+              <span style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem;">Estado de Deuda:</span>
+              <div id="modal-badge-saldo-env-${r.id}">
+                ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.enviame || 0, r.abono_enviame || 0) : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-file-paper-2-line" style="color: #0284c7;"></i> Facturación y Documentos Envíame
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado Factura Envíame:</label>
+              <select id="modal-field-factura-env-${r.id}" class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="window.saveModalSelectField(this, '${r.id}', 'factura_enviame', '${periodId}', 'env')" style="width: 100%;">
+                <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
+                <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
+                <option value="Emitida" ${r.factura_enviame === 'Emitida' ? 'selected' : ''}>Emitida</option>
+                <option value="Facturar" ${r.factura_enviame === 'Facturar' ? 'selected' : ''}>Facturar</option>
+                <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Folio / Factura Envíame #:</label>
+              <div style="position: relative; display: flex; align-items: center;">
+                <span style="position: absolute; left: 10px; font-size: 0.85rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                <input type="number" id="modal-field-folio-env-${r.id}" value="${r.num_factura_enviame || ''}" placeholder="Ej: 20560" class="billing-input" onblur="window.saveModalNumberField('${r.id}', 'num_factura_enviame', this.value, '${periodId}', true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 24px; font-size: 0.88rem;">
+              </div>
+            </div>
+            <div style="margin-top: 0.25rem;">
+              <span style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem;">Planillas y PDFs Adjuntos:</span>
+              ${envDocsHtml}
+            </div>
+            ${r.factura_enviame_pdf_url ? `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.65rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 6px;">
+                <span style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-file-pdf-fill" style="color: #ef4444;"></i> Factura PDF Envíame</span>
+                <a href="${r.factura_enviame_pdf_url}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">
+                  Descargar <i class="ri-download-line"></i>
+                </a>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="billing-detail-card">
+          <div class="billing-detail-card-header">
+            <i class="ri-calendar-check-line" style="color: #0284c7;"></i> Estado de Cobro & Fechas Envíame
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado de Pago:</label>
+              <select id="modal-field-pago-env-${r.id}" class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="window.saveModalSelectField(this, '${r.id}', 'pago_enviame', '${periodId}', 'env')" style="width: 100%;">
+                <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+                <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
+                <option value="En espera" ${r.pago_enviame === 'En espera' ? 'selected' : ''}>En espera</option>
+                <option value="Atrasado" ${r.pago_enviame === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+                <option value="abono" ${r.pago_enviame === 'abono' ? 'selected' : ''}>Abono</option>
+                <option value="aprobado" ${r.pago_enviame === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                <option value="incobrable" ${r.pago_enviame === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+                <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Fecha Límite Envíame:</label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="date" id="modal-field-limite-env-${r.id}" value="${r.fecha_limite_enviame || ''}" class="form-input" onchange="window.saveModalField('${r.id}', 'fecha_limite_enviame', this.value, '${periodId}', 'env')" style="flex: 1; font-size: 0.85rem;">
+                <span id="modal-deadline-badge-env-${r.id}">
+                  ${window.getDeadlineBadgeHtml ? window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame) : ''}
+                </span>
+              </div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Fecha de Pago Recibido Envíame:</label>
+              <input type="date" id="modal-field-pago-date-env-${r.id}" value="${r.fecha_pago_recibido_enviame || ''}" class="form-input" onchange="window.saveModalField('${r.id}', 'fecha_pago_recibido_enviame', this.value, '${periodId}', 'env')" style="width: 100%; font-size: 0.85rem;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'enviame')">
+          <i class="ri-question-answer-line"></i> Apelaciones Envíame
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')">
+          <i class="ri-attachment-line"></i> Adjuntos Envíame
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')">
+          <i class="ri-mail-send-line"></i> Notificar Correo
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.saveModalMoneyField = function(recordId, fieldName, inputEl, periodId) {
+  let valueStr = inputEl.value || '0';
+  valueStr = valueStr.replace(/[^\d-]/g, '');
+  const val = parseInt(valueStr, 10);
+  const numericVal = isNaN(val) ? 0 : val;
+  inputEl.value = formatCLP(numericVal);
+
+  saveField(recordId, fieldName, numericVal);
+
+  const type = fieldName.includes('enviame') ? 'env' : 'fulf';
+  const row = document.getElementById(type === 'env' ? `row-env-${recordId}` : `row-fulf-${recordId}`);
+  if (row) {
+    const tableInput = row.querySelector(`input[onblur*="${fieldName}"]`);
+    if (tableInput) tableInput.value = formatCLP(numericVal);
+    if (window.updateRowFinancialBadge) window.updateRowFinancialBadge(recordId, type);
+  }
+
+  window.refreshCommerceDetailModalMetrics(recordId, periodId);
+};
+
+window.saveModalSelectField = function(selectEl, recordId, fieldName, periodId, type) {
+  const val = selectEl.value;
+  selectEl.className = 'billing-select ' + getStatusClass(val);
+
+  if (val === 'Recibido') {
+    const today = new Date().toLocaleDateString('sv-SE');
+    if (fieldName === 'pago_fulfillment') {
+      const totalInput = document.getElementById(`modal-field-total-fulf-${recordId}`);
+      const abonoInput = document.getElementById(`modal-field-abono-fulf-${recordId}`);
+      if (totalInput && abonoInput) {
+        abonoInput.value = totalInput.value;
+        const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+        saveField(recordId, 'abono_fulfillment', numVal);
+      }
+      const dateInput = document.getElementById(`modal-field-pago-date-fulf-${recordId}`);
+      if (dateInput) dateInput.value = today;
+      saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
+    } else if (fieldName === 'pago_enviame') {
+      const totalInput = document.getElementById(`modal-field-total-env-${recordId}`);
+      const abonoInput = document.getElementById(`modal-field-abono-env-${recordId}`);
+      if (totalInput && abonoInput) {
+        abonoInput.value = totalInput.value;
+        const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+        saveField(recordId, 'abono_enviame', numVal);
+      }
+      const dateInput = document.getElementById(`modal-field-pago-date-env-${recordId}`);
+      if (dateInput) dateInput.value = today;
+      saveField(recordId, 'fecha_pago_recibido_enviame', today);
+    }
+  }
+
+  saveField(recordId, fieldName, val);
+
+  const row = document.getElementById(type === 'env' ? `row-env-${recordId}` : `row-fulf-${recordId}`);
+  if (row) {
+    const tableSelect = row.querySelector(`select[onchange*="${fieldName}"]`);
+    if (tableSelect) {
+      tableSelect.value = val;
+      tableSelect.className = 'billing-select ' + getStatusClass(val);
+      if (window.updateSelectField) {
+        window.updateSelectField(tableSelect, recordId, fieldName);
+      }
+    }
+  }
+
+  window.refreshCommerceDetailModalMetrics(recordId, periodId);
+};
+
+window.saveModalField = function(recordId, fieldName, val, periodId, type) {
+  saveField(recordId, fieldName, val);
+  const row = document.getElementById(type === 'env' ? `row-env-${recordId}` : `row-fulf-${recordId}`);
+  if (row) {
+    const tableInput = row.querySelector(`input[onchange*="${fieldName}"]`);
+    if (tableInput) tableInput.value = val;
+    if (window.updateRowFinancialBadge) window.updateRowFinancialBadge(recordId, type);
+  }
+
+  if (fieldName.includes('fecha_limite')) {
+    const pagoSelect = type === 'env' 
+      ? document.getElementById(`modal-field-pago-env-${recordId}`) 
+      : document.getElementById(`modal-field-pago-fulf-${recordId}`);
+    const chipContainer = document.getElementById(`modal-deadline-badge-${type}-${recordId}`);
+    if (chipContainer && window.getDeadlineBadgeHtml) {
+      chipContainer.innerHTML = window.getDeadlineBadgeHtml(val, pagoSelect?.value);
+    }
+  }
+
+  window.refreshCommerceDetailModalMetrics(recordId, periodId);
+};
+
+window.saveModalNumberField = function(recordId, fieldName, val, periodId, isNullable = false) {
+  saveNumberField(recordId, fieldName, val, isNullable);
+  const type = fieldName.includes('enviame') ? 'env' : 'fulf';
+  const row = document.getElementById(type === 'env' ? `row-env-${recordId}` : `row-fulf-${recordId}`);
+  if (row) {
+    const tableInput = row.querySelector(`input[onblur*="${fieldName}"]`);
+    if (tableInput) tableInput.value = val;
+  }
+};
+
+window.refreshCommerceDetailModalMetrics = function(recordId, periodId) {
+  const totalFulfInput = document.getElementById(`modal-field-total-fulf-${recordId}`);
+  const abonoFulfInput = document.getElementById(`modal-field-abono-fulf-${recordId}`);
+  const totalEnvInput = document.getElementById(`modal-field-total-env-${recordId}`);
+  const abonoEnvInput = document.getElementById(`modal-field-abono-env-${recordId}`);
+
+  const totalFulf = parseInt((totalFulfInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const abonoFulf = parseInt((abonoFulfInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const saldoFulf = totalFulf - abonoFulf;
+
+  const totalEnv = parseInt((totalEnvInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const abonoEnv = parseInt((abonoEnvInput?.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+  const saldoEnv = totalEnv - abonoEnv;
+
+  const totalGeneral = totalFulf + totalEnv;
+  const totalAbonado = abonoFulf + abonoEnv;
+  const saldoGeneral = totalGeneral - totalAbonado;
+  const percentRec = totalGeneral > 0 ? Math.round((totalAbonado / totalGeneral) * 100) : 0;
+
+  const kpiTot = document.getElementById('modal-kpi-total-general');
+  const kpiSubTot = document.getElementById('modal-kpi-sub-total');
+  const kpiRec = document.getElementById('modal-kpi-total-recaudado');
+  const kpiSubRec = document.getElementById('modal-kpi-sub-recaudado');
+  const kpiSal = document.getElementById('modal-kpi-saldo-general');
+  const kpiSubSal = document.getElementById('modal-kpi-sub-saldo');
+
+  if (kpiTot) kpiTot.textContent = formatCLP(totalGeneral);
+  if (kpiSubTot) kpiSubTot.textContent = `Fulf: ${formatCLP(totalFulf)} | Env: ${formatCLP(totalEnv)}`;
+  if (kpiRec) kpiRec.textContent = formatCLP(totalAbonado);
+  if (kpiSubRec) kpiSubRec.textContent = `${percentRec}% del total facturado`;
+  if (kpiSal) {
+    kpiSal.textContent = formatCLP(saldoGeneral);
+    kpiSal.style.color = saldoGeneral > 0 ? 'var(--color-danger)' : 'var(--color-success)';
+  }
+  if (kpiSubSal) kpiSubSal.textContent = `Fulf: ${formatCLP(saldoFulf)} | Env: ${formatCLP(saldoEnv)}`;
+
+  const tF = document.getElementById('modal-table-total-fulf');
+  const aF = document.getElementById('modal-table-abono-fulf');
+  const sF = document.getElementById('modal-table-saldo-fulf');
+  const tE = document.getElementById('modal-table-total-env');
+  const aE = document.getElementById('modal-table-abono-env');
+  const sE = document.getElementById('modal-table-saldo-env');
+
+  if (tF) tF.textContent = formatCLP(totalFulf);
+  if (aF) aF.textContent = formatCLP(abonoFulf);
+  if (sF) {
+    sF.textContent = formatCLP(saldoFulf);
+    sF.style.color = saldoFulf > 0 ? 'var(--color-danger)' : 'var(--color-success)';
+  }
+  if (tE) tE.textContent = formatCLP(totalEnv);
+  if (aE) aE.textContent = formatCLP(abonoEnv);
+  if (sE) {
+    sE.textContent = formatCLP(saldoEnv);
+    sE.style.color = saldoEnv > 0 ? 'var(--color-danger)' : 'var(--color-success)';
+  }
+
+  const badgeFulf = document.getElementById(`modal-badge-saldo-fulf-${recordId}`);
+  if (badgeFulf && window.renderFinancialBadgeHtml) {
+    badgeFulf.innerHTML = window.renderFinancialBadgeHtml(totalFulf, abonoFulf);
+  }
+  const badgeEnv = document.getElementById(`modal-badge-saldo-env-${recordId}`);
+  if (badgeEnv && window.renderFinancialBadgeHtml) {
+    badgeEnv.innerHTML = window.renderFinancialBadgeHtml(totalEnv, abonoEnv);
+  }
+};
+
+window.toggleCommerceStatusFromModal = async function(comercio, badgeEl, periodId, recordId) {
+  const currentIsAlDia = badgeEl.innerText.toLowerCase().includes('al día');
+  const nextIsAlDia = !currentIsAlDia;
+  const actionText = nextIsAlDia ? 'marcar AL DÍA' : 'poner en SERVICIO PAUSADO';
+  if (!confirm(`¿Estás seguro de que deseas ${actionText} al comercio ${comercio}?`)) {
+    return;
+  }
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('commerce_billing_status')
+      .upsert({ comercio, al_dia: nextIsAlDia, updated_at: new Date().toISOString() }, { onConflict: 'comercio' });
+    if (error) throw error;
+
+    badgeEl.className = `badge ${nextIsAlDia ? 'badge-success' : 'badge-danger'}`;
+    badgeEl.innerHTML = `<i class="${nextIsAlDia ? 'ri-checkbox-circle-line' : 'ri-pause-circle-line'}"></i> ${nextIsAlDia ? 'Al Día' : 'Servicio Pausado'}`;
+
+    ['fulf', 'env', 'resumen'].forEach(sub => {
+      const rEl = document.getElementById(`row-${sub}-${recordId}`);
+      if (rEl) {
+        const pausedBadge = rEl.querySelector('.badge-danger[title="Servicio Pausado"]');
+        if (nextIsAlDia && pausedBadge) {
+          pausedBadge.remove();
+        } else if (!nextIsAlDia && !pausedBadge) {
+          const commerceTitle = rEl.querySelector('.commerce-name-title') || rEl.querySelector('span');
+          if (commerceTitle && commerceTitle.parentNode) {
+            const span = document.createElement('span');
+            span.className = 'badge badge-danger';
+            span.style.cssText = 'font-size: 0.65rem; padding: 0.1rem 0.35rem;';
+            span.title = 'Servicio Pausado';
+            span.textContent = 'Pausado';
+            commerceTitle.parentNode.appendChild(span);
+          }
+        }
+      }
+    });
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error toggling commerce status from modal:', err);
+    alert('Error al actualizar estado: ' + err.message);
+    showSavingBadge(false);
   }
 };
 
@@ -35991,11 +38164,58 @@ async function loadBillingRecords(periodId, bodyElement) {
       return;
     }
     
+    const now = new Date();
+
+    let countFulfTotal = records.length;
+    let countFulfConSaldo = 0;
+    let countFulfConAtraso = 0;
+    let countFulfPorFacturar = 0;
+    let countFulfDesglosePend = 0;
+    let countFulfAlDia = 0;
+
+    let countEnvTotal = records.length;
+    let countEnvConSaldo = 0;
+    let countEnvConAtraso = 0;
+    let countEnvPorFacturar = 0;
+    let countEnvSinFolio = 0;
+    let countEnvAlDia = 0;
+
     let tableRowsFulf = '';
     let tableRowsEnv = '';
     let tableRowsResumen = '';
     records.forEach(r => {
       const alDia = statusMap[r.comercio] !== false; // Default true
+
+      const totalFulf = r.total_fulfillment || 0;
+      const abonoFulf = r.abono_fulfillment || 0;
+      const saldoFulf = totalFulf - abonoFulf;
+      const pagoFulf = r.pago_fulfillment || 'Por solicitar';
+
+      const totalEnv = r.enviame || 0;
+      const abonoEnv = r.abono_enviame || 0;
+      const saldoEnv = totalEnv - abonoEnv;
+      const pagoEnv = r.pago_enviame || 'Por solicitar';
+
+      const isFulfOverdue = pagoFulf === 'Atrasado' || 
+        (r.fecha_limite && new Date(r.fecha_limite + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoFulf) && saldoFulf > 0);
+      const isFulfAlDia = (totalFulf > 0 && saldoFulf <= 0) || ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoFulf);
+
+      if (totalFulf > 0 && saldoFulf > 0) countFulfConSaldo++;
+      if (isFulfOverdue) countFulfConAtraso++;
+      if (['Facturar', 'Esperando'].includes(r.factura_fulfillment)) countFulfPorFacturar++;
+      if (['Por Generar', 'Creado'].includes(r.desglose_fulfillment)) countFulfDesglosePend++;
+      if (isFulfAlDia) countFulfAlDia++;
+
+      const isEnvOverdue = pagoEnv === 'Atrasado' || 
+        (r.fecha_limite_enviame && new Date(r.fecha_limite_enviame + 'T23:59:59') < now && !['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoEnv) && saldoEnv > 0);
+      const isEnvAlDia = (totalEnv > 0 && saldoEnv <= 0) || ['Recibido', 'aprobado', 'Sin movimientos'].includes(pagoEnv);
+      const isEnvSinFolio = !r.num_factura_enviame && totalEnv > 0;
+
+      if (totalEnv > 0 && saldoEnv > 0) countEnvConSaldo++;
+      if (isEnvOverdue) countEnvConAtraso++;
+      if (['Facturar', 'Esperando'].includes(r.factura_enviame)) countEnvPorFacturar++;
+      if (isEnvSinFolio) countEnvSinFolio++;
+      if (isEnvAlDia) countEnvAlDia++;
       
       const lastNotified = r.last_notified_at ? new Date(r.last_notified_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
       const emailBtnStyle = lastNotified 
@@ -36005,189 +38225,288 @@ async function loadBillingRecords(periodId, bodyElement) {
         ? `Notificado el ${lastNotified}. Click para reenviar.` 
         : 'Enviar Notificación por Correo (Brevo)';
       
-      // 1. Build Fulfillment row
+      // 1. Build Fulfillment row (Compound 5-zone architecture)
       tableRowsFulf += `
-        <tr id="row-fulf-${r.id}" class="billing-record-row-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
-          <td style="vertical-align: middle; text-align: center;">
+        <tr id="row-fulf-${r.id}" class="billing-record-row-fulf billing-clickable-row" 
+            onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'fulf')"
+            title="Click para abrir detalle y gestión de ${r.comercio}"
+            data-comercio="${(r.comercio || '').toLowerCase()}" 
+            data-pago-fulf="${r.pago_fulfillment || ''}" 
+            data-fact-fulf="${r.factura_fulfillment || ''}" 
+            data-desglose-fulf="${r.desglose_fulfillment || ''}" 
+            data-total-fulf="${totalFulf}" 
+            data-abono-fulf="${abonoFulf}" 
+            data-saldo-fulf="${saldoFulf}" 
+            data-is-atrasado-fulf="${isFulfOverdue}" 
+            data-is-aldia-fulf="${isFulfAlDia}">
+          <!-- Col 1: Bulk Checkbox -->
+          <td style="vertical-align: middle; text-align: center; width: 40px;">
             <input type="checkbox" class="row-select-fulf" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
           </td>
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
-            ${r.comercio}
-          </td>
-          
-          <td style="vertical-align: middle;">
-            <input type="date" value="${r.fecha_limite || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite', this.value)" style="width: 125px;">
-            ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
-          </td>
-          <td style="vertical-align: middle;">
-            <select class="billing-select ${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment) }" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
-              <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
-              <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
-              <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado' }</option>
-              <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
-              <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
-            </select>
-          </td>
-          <td style="vertical-align: middle;">
-            <span class="amount-cell">
-              <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
-              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.total_fulfillment || 0}', this)" title="Copiar monto">
-                <i class="ri-file-copy-line"></i>
-              </button>
-            </span>
-          </td>
-          <td style="vertical-align: middle;">
-            <span class="amount-cell">
-              <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
-              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_fulfillment || 0}', this)" title="Copiar abono">
-                <i class="ri-file-copy-line"></i>
-              </button>
-            </span>
-          </td>
-          <td style="vertical-align: middle;">
-            <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
-              <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
-              <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
-              <option value="En espera" ${r.pago_fulfillment === 'En espera' ? 'selected' : ''}>En espera</option>
-              <option value="Atrasado" ${r.pago_fulfillment === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
-              <option value="abono" ${r.pago_fulfillment === 'abono' ? 'selected' : ''}>Abono</option>
-              <option value="aprobado" ${r.pago_fulfillment === 'aprobado' ? 'selected' : ''}>Aprobado</option>
-              <option value="incobrable" ${r.pago_fulfillment === 'incobrable' ? 'selected' : ''}>Incobrable</option>
-              <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
-            </select>
-            ${r.pago_fulfillment === 'Recibido' ? `
-              <div style="margin-top: 0.25rem;">
-                <input type="date" value="${r.fecha_pago_recibido_fulfillment || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_pago_recibido_fulfillment', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">
+
+          <!-- Col 2: Comercio & Plazo -->
+          <td class="cell-commerce-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <span class="commerce-name-title">${r.comercio}</span>
+                <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
+                ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
               </div>
-            ` : ''}
+              <div class="deadline-row" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                <input type="date" value="${r.fecha_limite || ''}" class="billing-limit-input" title="Fecha límite de pago" onchange="saveField('${r.id}', 'fecha_limite', this.value); if(window.updateRowFinancialBadge) window.updateRowFinancialBadge('${r.id}', 'fulf');">
+                ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle;">
-            <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')">
-              <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
-              <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
-              <option value="Emitida" ${r.factura_fulfillment === 'Emitida' ? 'selected' : ''}>Emitida</option>
-              <option value="Facturar" ${r.factura_fulfillment === 'Facturar' ? 'selected' : ''}>Facturar</option>
-              <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
-            </select>
+
+          <!-- Col 3: Balance Financiero (Total + Abono + Saldo Badge) -->
+          <td class="cell-financial-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 210px;">
+              <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); min-width: 42px;">Total:</span>
+                <span class="amount-cell">
+                  <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%;">
+                  <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.total_fulfillment || 0}', this)" title="Copiar monto">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </span>
+              </div>
+              <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); min-width: 42px;">Abono:</span>
+                <span class="amount-cell">
+                  <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%;">
+                  <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_fulfillment || 0}', this)" title="Copiar abono">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </span>
+              </div>
+              <div id="financial-badge-fulf-${r.id}">
+                ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.total_fulfillment || 0, r.abono_fulfillment || 0) : ''}
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle;">
-            <input type="number" value="${r.num_factura || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
+
+          <!-- Col 4: Ciclo de Facturación (Desglose + Factura + Folio #) -->
+          <td class="cell-ops-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 230px;">
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Desglose:</span>
+                <select class="billing-select ${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment) }" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')" style="flex: 1; min-width: 110px;">
+                  <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
+                  <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
+                  <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado' }</option>
+                  <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
+                  <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+                </select>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Factura:</span>
+                <div style="display: flex; align-items: center; gap: 0.25rem; flex: 1;">
+                  <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')" style="flex: 1; min-width: 95px;">
+                    <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
+                    <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
+                    <option value="Emitida" ${r.factura_fulfillment === 'Emitida' ? 'selected' : ''}>Emitida</option>
+                    <option value="Facturar" ${r.factura_fulfillment === 'Facturar' ? 'selected' : ''}>Facturar</option>
+                    <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+                  </select>
+                  <div style="position: relative; display: inline-flex; align-items: center;" title="Número de Folio / Factura">
+                    <span style="position: absolute; left: 6px; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                    <input type="number" value="${r.num_factura || ''}" placeholder="Folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 65px; padding-left: 16px; font-size: 0.78rem; text-align: left;">
+                  </div>
+                </div>
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <div style="display: inline-flex; gap: 0.25rem;">
-              <button class="btn btn-outline btn-sm" 
+
+          <!-- Col 5: Estado de Cobro (Pago + Fecha Recibido) -->
+          <td class="cell-payment-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.3rem; min-width: 135px; max-width: 160px;">
+              <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
+                <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+                <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
+                <option value="En espera" ${r.pago_fulfillment === 'En espera' ? 'selected' : ''}>En espera</option>
+                <option value="Atrasado" ${r.pago_fulfillment === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+                <option value="abono" ${r.pago_fulfillment === 'abono' ? 'selected' : ''}>Abono</option>
+                <option value="aprobado" ${r.pago_fulfillment === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                <option value="incobrable" ${r.pago_fulfillment === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+                <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+              ${r.pago_fulfillment === 'Recibido' ? `
+                <div class="payment-date-badge" title="Fecha de Pago Recibido">
+                  <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+                  <input type="date" value="${r.fecha_pago_recibido_fulfillment || ''}" class="billing-compact-date" onchange="saveField('${r.id}', 'fecha_pago_recibido_fulfillment', this.value)">
+                </div>
+              ` : ''}
+            </div>
+          </td>
+
+          <!-- Col 6: Acciones Capsule -->
+          <td style="vertical-align: middle; text-align: center; width: 140px;">
+            <div class="billing-actions-group">
+              <button class="billing-action-btn btn-gestor" 
                       onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" 
-                      style="padding: 0.15rem 0.35rem; border-color: #5f06fa; color: #5f06fa; background: rgba(95, 6, 250, 0.08);" 
                       title="⚡ Abrir Gestor de Facturación y Desglose Oficial Stocka">
-                <i class="ri-calculator-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-calculator-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" 
+              <button class="billing-action-btn btn-attachment ${ (r.fulfillment_link || r.fulfillment_pdf_url) ? 'active' : '' }" 
                       onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
                       title="Gestionar Adjuntos y Enlaces">
-                <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-attachment-line"></i>
+                ${ (r.fulfillment_link || r.fulfillment_pdf_url) ? '<span class="action-btn-dot active"></span>' : '' }
               </button>
-              <button class="btn btn-outline btn-sm" 
+              <button class="billing-action-btn btn-email ${lastNotified ? 'active' : ''}" 
                       onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" 
                       title="${emailBtnTitle}">
-                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-mail-send-line"></i>
+                ${lastNotified ? '<span class="action-btn-dot active"></span>' : ''}
               </button>
-              <button class="btn btn-outline btn-sm" 
+              <button class="billing-action-btn btn-obs ${ r.observation_status === 'pendiente' ? 'has-pending' : (r.observation_status === 'respondida' ? 'active' : '') }" 
                       onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'fulfillment')" 
-                      style="padding: 0.15rem 0.35rem; ${ r.observation_status === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
                       title="${r.observation_status === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
-                <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-question-answer-line"></i>
+                ${ r.observation_status === 'pendiente' ? '<span class="action-btn-dot pending"></span>' : (r.observation_status === 'respondida' ? '<span class="action-btn-dot active"></span>' : '') }
               </button>
-              <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
-                <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
+              <button class="billing-action-btn btn-delete" 
+                      onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" 
+                      title="Eliminar Fila">
+                <i class="ri-delete-bin-line"></i>
               </button>
             </div>
           </td>
         </tr>
       `;
       
-      // 2. Build Envíame row
+      // 2. Build Envíame row (Compound 5-zone architecture)
       tableRowsEnv += `
-        <tr id="row-env-${r.id}" class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
-          <td style="vertical-align: middle; text-align: center;">
+        <tr id="row-env-${r.id}" class="billing-record-row-env billing-clickable-row" 
+            onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'env')"
+            title="Click para abrir detalle y gestión de ${r.comercio}"
+            data-comercio="${(r.comercio || '').toLowerCase()}" 
+            data-pago-env="${r.pago_enviame || ''}" 
+            data-fact-env="${r.factura_enviame || ''}" 
+            data-total-env="${totalEnv}" 
+            data-abono-env="${abonoEnv}" 
+            data-saldo-env="${saldoEnv}" 
+            data-is-atrasado-env="${isEnvOverdue}" 
+            data-sin-folio-env="${isEnvSinFolio}" 
+            data-is-aldia-env="${isEnvAlDia}">
+          <!-- Col 1: Bulk Checkbox -->
+          <td style="vertical-align: middle; text-align: center; width: 40px;">
             <input type="checkbox" class="row-select-env" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
           </td>
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
-            ${r.comercio}
-          </td>
-          
-          <td style="vertical-align: middle;">
-            <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value)" style="width: 125px;">
-            ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
-          </td>
-          <td style="vertical-align: middle;">
-            <span class="amount-cell">
-              <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
-              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.enviame || 0}', this)" title="Copiar monto">
-                <i class="ri-file-copy-line"></i>
-              </button>
-            </span>
-          </td>
-          <td style="vertical-align: middle;">
-            <span class="amount-cell">
-              <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
-              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_enviame || 0}', this)" title="Copiar abono">
-                <i class="ri-file-copy-line"></i>
-              </button>
-            </span>
-          </td>
-          <td style="vertical-align: middle;">
-            <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
-              <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
-              <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
-              <option value="En espera" ${r.pago_enviame === 'En espera' ? 'selected' : ''}>En espera</option>
-              <option value="Atrasado" ${r.pago_enviame === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
-              <option value="abono" ${r.pago_enviame === 'abono' ? 'selected' : ''}>Abono</option>
-              <option value="aprobado" ${r.pago_enviame === 'aprobado' ? 'selected' : ''}>Aprobado</option>
-              <option value="incobrable" ${r.pago_enviame === 'incobrable' ? 'selected' : ''}>Incobrable</option>
-              <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
-            </select>
-            ${r.pago_enviame === 'Recibido' ? `
-              <div style="margin-top: 0.25rem;">
-                <input type="date" value="${r.fecha_pago_recibido_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_pago_recibido_enviame', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">
+
+          <!-- Col 2: Comercio & Plazo -->
+          <td class="cell-commerce-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <span class="commerce-name-title">${r.comercio}</span>
+                <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
+                ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
               </div>
-            ` : ''}
+              <div class="deadline-row" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-limit-input" title="Fecha límite Envíame" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value); if(window.updateRowFinancialBadge) window.updateRowFinancialBadge('${r.id}', 'env');">
+                ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle;">
-            <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')">
-              <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
-              <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
-              <option value="Emitida" ${r.factura_enviame === 'Emitida' ? 'selected' : ''}>Emitida</option>
-              <option value="Facturar" ${r.factura_enviame === 'Facturar' ? 'selected' : ''}>Facturar</option>
-              <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
-            </select>
+
+          <!-- Col 3: Balance Financiero (Total + Abono + Saldo Badge) -->
+          <td class="cell-financial-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 210px;">
+              <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); min-width: 42px;">Total:</span>
+                <span class="amount-cell">
+                  <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%;">
+                  <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.enviame || 0}', this)" title="Copiar monto">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </span>
+              </div>
+              <div class="financial-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                <span style="font-size: 0.73rem; font-weight: 600; color: var(--color-text-muted); min-width: 42px;">Abono:</span>
+                <span class="amount-cell">
+                  <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%;">
+                  <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_enviame || 0}', this)" title="Copiar abono">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </span>
+              </div>
+              <div id="financial-badge-env-${r.id}">
+                ${window.renderFinancialBadgeHtml ? window.renderFinancialBadgeHtml(r.enviame || 0, r.abono_enviame || 0) : ''}
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle;">
-            <input type="number" value="${r.num_factura_enviame || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
+
+          <!-- Col 4: Ciclo de Facturación (Factura + Folio #) -->
+          <td class="cell-ops-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 230px;">
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Factura:</span>
+                <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')" style="flex: 1; min-width: 110px;">
+                  <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
+                  <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
+                  <option value="Emitida" ${r.factura_enviame === 'Emitida' ? 'selected' : ''}>Emitida</option>
+                  <option value="Facturar" ${r.factura_enviame === 'Facturar' ? 'selected' : ''}>Facturar</option>
+                  <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+                </select>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.35rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Folio #:</span>
+                <div style="position: relative; display: inline-flex; align-items: center; flex: 1;" title="Número de Factura Envíame">
+                  <span style="position: absolute; left: 6px; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">#</span>
+                  <input type="number" value="${r.num_factura_enviame || ''}" placeholder="Sin folio" class="billing-input billing-folio-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100%; padding-left: 16px; font-size: 0.78rem; text-align: left;">
+                </div>
+              </div>
+            </div>
           </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <div style="display: inline-flex; gap: 0.25rem;">
-              <button class="btn btn-outline btn-sm" 
+
+          <!-- Col 5: Estado de Cobro (Pago + Fecha Recibido) -->
+          <td class="cell-payment-block" style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.3rem; min-width: 135px; max-width: 160px;">
+              <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
+                <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+                <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
+                <option value="En espera" ${r.pago_enviame === 'En espera' ? 'selected' : ''}>En espera</option>
+                <option value="Atrasado" ${r.pago_enviame === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+                <option value="abono" ${r.pago_enviame === 'abono' ? 'selected' : ''}>Abono</option>
+                <option value="aprobado" ${r.pago_enviame === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+                <option value="incobrable" ${r.pago_enviame === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+                <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+              </select>
+              ${r.pago_enviame === 'Recibido' ? `
+                <div class="payment-date-badge" title="Fecha de Pago Recibido">
+                  <i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i>
+                  <input type="date" value="${r.fecha_pago_recibido_enviame || ''}" class="billing-compact-date" onchange="saveField('${r.id}', 'fecha_pago_recibido_enviame', this.value)">
+                </div>
+              ` : ''}
+            </div>
+          </td>
+
+          <!-- Col 6: Acciones Capsule -->
+          <td style="vertical-align: middle; text-align: center; width: 140px;">
+            <div class="billing-actions-group">
+              <button class="billing-action-btn btn-attachment ${ (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? 'active' : '' }" 
                       onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${ (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
                       title="Gestionar Adjuntos y Enlaces">
-                <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-attachment-line"></i>
+                ${ (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? '<span class="action-btn-dot active"></span>' : '' }
               </button>
-              <button class="btn btn-outline btn-sm" 
+              <button class="billing-action-btn btn-email ${lastNotified ? 'active' : ''}" 
                       onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" 
                       title="${emailBtnTitle}">
-                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-mail-send-line"></i>
+                ${lastNotified ? '<span class="action-btn-dot active"></span>' : ''}
               </button>
-              <button class="btn btn-outline btn-sm" 
+              <button class="billing-action-btn btn-obs ${ r.observation_status_enviame === 'pendiente' ? 'has-pending' : (r.observation_status_enviame === 'respondida' ? 'active' : '') }" 
                       onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'enviame')" 
-                      style="padding: 0.15rem 0.35rem; ${ r.observation_status_enviame === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status_enviame === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
                       title="${r.observation_status_enviame === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status_enviame === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
-                <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
+                <i class="ri-question-answer-line"></i>
+                ${ r.observation_status_enviame === 'pendiente' ? '<span class="action-btn-dot pending"></span>' : (r.observation_status_enviame === 'respondida' ? '<span class="action-btn-dot active"></span>' : '') }
               </button>
-              <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
-                <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
+              <button class="billing-action-btn btn-delete" 
+                      onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" 
+                      title="Eliminar Fila">
+                <i class="ri-delete-bin-line"></i>
               </button>
             </div>
           </td>
@@ -36195,14 +38514,6 @@ async function loadBillingRecords(periodId, bodyElement) {
       `;
 
       // 3. Build Resumen row
-      const totalFulf = r.total_fulfillment || 0;
-      const abonoFulf = r.abono_fulfillment || 0;
-      const pagoFulf = r.pago_fulfillment || 'Por solicitar';
-
-      const totalEnv = r.enviame || 0;
-      const abonoEnv = r.abono_enviame || 0;
-      const pagoEnv = r.pago_enviame || 'Por solicitar';
-
       const totalGeneral = totalFulf + totalEnv;
       const totalAbonado = abonoFulf + abonoEnv;
       const saldoPendiente = totalGeneral - totalAbonado;
@@ -36228,10 +38539,14 @@ async function loadBillingRecords(periodId, bodyElement) {
       }
 
       tableRowsResumen += `
-        <tr id="row-resumen-${r.id}" class="billing-record-row-resumen" data-record-id="${r.id}" data-comercio="${(r.comercio || '').toLowerCase()}" data-debt-status="${debtStatus}" data-total-fulf="${totalFulf}" data-abono-fulf="${abonoFulf}" data-total-env="${totalEnv}" data-abono-env="${abonoEnv}" data-total-general="${totalGeneral}" data-total-abonado="${totalAbonado}" data-saldo="${saldoPendiente}">
+        <tr id="row-resumen-${r.id}" class="billing-record-row-resumen billing-clickable-row" 
+            onclick="window.handleBillingRowClick(event, '${r.id}', '${periodId}', 'totales')"
+            title="Click para abrir detalle y gestión de ${r.comercio}"
+            data-record-id="${r.id}" data-comercio="${(r.comercio || '').toLowerCase()}" data-debt-status="${debtStatus}" data-total-fulf="${totalFulf}" data-abono-fulf="${abonoFulf}" data-total-env="${totalEnv}" data-abono-env="${abonoEnv}" data-total-general="${totalGeneral}" data-total-abonado="${totalAbonado}" data-saldo="${saldoPendiente}">
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             <div style="display: flex; align-items: center; gap: 0.45rem;">
               <span>${r.comercio}</span>
+              <span class="billing-row-inspect-hint" title="Ver detalle completo"><i class="ri-external-link-line"></i></span>
               ${!alDia ? '<span class="badge badge-danger" style="font-size: 0.65rem; padding: 0.1rem 0.35rem;" title="Servicio Pausado">Pausado</span>' : ''}
             </div>
           </td>
@@ -36266,18 +38581,18 @@ async function loadBillingRecords(periodId, bodyElement) {
             ${badgeGeneral}
           </td>
           <td style="vertical-align: middle; text-align: center;">
-            <div style="display: inline-flex; gap: 0.25rem;">
-              <button class="btn btn-outline btn-sm" onclick="window.goToBillingRecordTab('${periodId}', 'fulf', '${r.id}')" title="Ir al desglose de Fulfillment" style="padding: 0.15rem 0.35rem;">
-                <i class="ri-bill-line" style="font-size: 0.9rem;"></i>
+            <div class="billing-actions-group">
+              <button class="billing-action-btn" onclick="window.goToBillingRecordTab('${periodId}', 'fulf', '${r.id}')" title="Ir al desglose de Fulfillment">
+                <i class="ri-bill-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="window.goToBillingRecordTab('${periodId}', 'env', '${r.id}')" title="Ir al desglose de Envíame" style="padding: 0.15rem 0.35rem;">
-                <i class="ri-truck-line" style="font-size: 0.9rem;"></i>
+              <button class="billing-action-btn" onclick="window.goToBillingRecordTab('${periodId}', 'env', '${r.id}')" title="Ir al desglose de Envíame">
+                <i class="ri-truck-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" style="padding: 0.15rem 0.35rem; border-color: #5f06fa; color: #5f06fa; background: rgba(95, 6, 250, 0.08);" title="⚡ Gestor de Facturación Stocka">
-                <i class="ri-calculator-line" style="font-size: 0.9rem;"></i>
+              <button class="billing-action-btn btn-gestor" onclick="window.openBillingGeneratorForRecord('${periodId}', '${r.comercio.replace(/'/g, "\\'")}')" title="⚡ Gestor de Facturación Stocka">
+                <i class="ri-calculator-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" title="${emailBtnTitle}">
-                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+              <button class="billing-action-btn btn-email ${lastNotified ? 'active' : ''}" onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" title="${emailBtnTitle}">
+                <i class="ri-mail-send-line"></i>
               </button>
             </div>
           </td>
@@ -36317,33 +38632,115 @@ async function loadBillingRecords(periodId, bodyElement) {
     };
     
     bodyElement.innerHTML = `
-        <div class="billing-period-tabs" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
-          <div style="display: flex; gap: 0.75rem;">
-            <button class="billing-period-tab-btn" id="btn-tab-fulf-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'fulf')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'fulf' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
-              <i class="ri-bill-line" style="font-size: 1rem;"></i> Fulfillment
+        <div class="billing-period-tabs" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
+          <div style="display: flex; gap: 0.35rem; background: rgba(0,0,0,0.04); padding: 3px; border-radius: 8px; border: 1px solid var(--color-border);">
+            <button class="billing-period-tab-btn" id="btn-tab-fulf-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'fulf')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 6px; transition: all 0.2s; border: none; cursor: pointer; ${activeTab === 'fulf' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);' }">
+              <i class="ri-bill-line" style="font-size: 0.95rem;"></i> Fulfillment
             </button>
-            <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'env' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
-              <i class="ri-truck-line" style="font-size: 1rem;"></i> Envíame
+            <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 6px; transition: all 0.2s; border: none; cursor: pointer; ${activeTab === 'env' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);' }">
+              <i class="ri-truck-line" style="font-size: 0.95rem;"></i> Envíame
             </button>
-            <button class="billing-period-tab-btn" id="btn-tab-resumen-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'resumen')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'resumen' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
-              <i class="ri-pie-chart-line" style="font-size: 1rem; color: #6366f1;"></i> Resumen por Comercio
+            <button class="billing-period-tab-btn" id="btn-tab-resumen-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'resumen')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.8rem; font-weight: 600; padding: 0.35rem 0.85rem; border-radius: 6px; transition: all 0.2s; border: none; cursor: pointer; ${activeTab === 'resumen' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);' }">
+              <i class="ri-pie-chart-line" style="font-size: 0.95rem; color: #6366f1;"></i> Resumen por Comercio
             </button>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="window.openEasyBillingRecordModal('${periodId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.825rem;">
+          <button class="btn btn-primary btn-sm" onclick="window.openEasyBillingRecordModal('${periodId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; padding: 0.35rem 0.85rem; border-radius: 6px; font-size: 0.8rem;">
             <i class="ri-add-circle-line" style="font-size: 1rem;"></i> Crear Registro
           </button>
         </div>
 
+        <!-- Quick Triage Strip Fulfillment -->
+        <div class="billing-triage-strip" id="triage-strip-fulf-${periodId}" style="display: ${activeTab === 'fulf' ? 'flex' : 'none'};">
+          <span class="triage-strip-title"><i class="ri-flashlight-line"></i> Vista Rápida:</span>
+          <button type="button" class="billing-triage-pill active" data-triage="all" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'all', this)">
+            <span>Todos</span>
+            <span class="triage-pill-count">${countFulfTotal}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-saldo" data-triage="saldo" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'saldo', this)" title="Comercios con saldo pendiente por pagar">
+            <i class="ri-error-warning-line"></i>
+            <span>Con Saldo</span>
+            <span class="triage-pill-count">${countFulfConSaldo}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-atraso" data-triage="atraso" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'atraso', this)" title="Comercios con pago vencido o estado Atrasado">
+            <i class="ri-alarm-warning-line"></i>
+            <span>Con Atraso</span>
+            <span class="triage-pill-count">${countFulfConAtraso}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-por-facturar" data-triage="por_facturar" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'por_facturar', this)" title="Comercios en estado 'Facturar' o 'Esperando'">
+            <i class="ri-file-text-line"></i>
+            <span>Por Facturar</span>
+            <span class="triage-pill-count">${countFulfPorFacturar}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-desglose" data-triage="desglose_pendiente" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'desglose_pendiente', this)" title="Desglose en estado 'Por Generar' o 'Creado'">
+            <i class="ri-mail-unread-line"></i>
+            <span>Desglose Pendiente</span>
+            <span class="triage-pill-count">${countFulfDesglosePend}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-al-dia" data-triage="al_dia" onclick="window.setBillingTriageFilter('${periodId}', 'fulf', 'al_dia', this)" title="Comercios al día, saldo $0 o recibidos">
+            <i class="ri-checkbox-circle-line"></i>
+            <span>Al Día / Pagado</span>
+            <span class="triage-pill-count">${countFulfAlDia}</span>
+          </button>
+        </div>
+
+        <!-- Quick Triage Strip Envíame -->
+        <div class="billing-triage-strip" id="triage-strip-env-${periodId}" style="display: ${activeTab === 'env' ? 'flex' : 'none'};">
+          <span class="triage-strip-title"><i class="ri-flashlight-line"></i> Vista Rápida:</span>
+          <button type="button" class="billing-triage-pill active" data-triage="all" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'all', this)">
+            <span>Todos</span>
+            <span class="triage-pill-count">${countEnvTotal}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-saldo" data-triage="saldo" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'saldo', this)" title="Comercios con saldo Envíame pendiente">
+            <i class="ri-error-warning-line"></i>
+            <span>Con Saldo</span>
+            <span class="triage-pill-count">${countEnvConSaldo}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-atraso" data-triage="atraso" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'atraso', this)" title="Comercios con fecha vencida en Envíame">
+            <i class="ri-alarm-warning-line"></i>
+            <span>Con Atraso</span>
+            <span class="triage-pill-count">${countEnvConAtraso}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-por-facturar" data-triage="por_facturar" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'por_facturar', this)" title="Factura Envíame 'Facturar' o 'Esperando'">
+            <i class="ri-file-text-line"></i>
+            <span>Por Facturar</span>
+            <span class="triage-pill-count">${countEnvPorFacturar}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-desglose" data-triage="sin_folio" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'sin_folio', this)" title="Registros con monto pero sin folio asignado">
+            <i class="ri-hashtag"></i>
+            <span>Sin Folio</span>
+            <span class="triage-pill-count">${countEnvSinFolio}</span>
+          </button>
+          <button type="button" class="billing-triage-pill pill-al-dia" data-triage="al_dia" onclick="window.setBillingTriageFilter('${periodId}', 'env', 'al_dia', this)" title="Comercios sin deuda en Envíame">
+            <i class="ri-checkbox-circle-line"></i>
+            <span>Al Día / Pagado</span>
+            <span class="triage-pill-count">${countEnvAlDia}</span>
+          </button>
+        </div>
+
         <!-- Filtros rápidos -->
-        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.65rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
           <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
           
-          <div class="filter-group-fulf-${periodId}" style="display: ${activeTab === 'fulf' ? 'flex' : 'none'}; gap: 1rem; align-items: center;">
+          <div class="filter-group-fulf-${periodId}" style="display: ${activeTab === 'fulf' ? 'flex' : 'none'}; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
+                <input type="text" id="filter-commerce-search-fulf-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 140px; margin: 0; border-radius: var(--radius-sm);">
+              </div>
+            </div>
             ${generateBillingMultiSelect('Pago Fulf:', 'filter-pago-fulf', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
             ${generateBillingMultiSelect('Factura Fulf:', 'filter-fact-fulf', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
           </div>
           
-          <div class="filter-group-env-${periodId}" style="display: ${activeTab === 'env' ? 'flex' : 'none'}; gap: 1rem; align-items: center;">
+          <div class="filter-group-env-${periodId}" style="display: ${activeTab === 'env' ? 'flex' : 'none'}; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Buscar:</label>
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.5rem; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--color-text-muted);"></i>
+                <input type="text" id="filter-commerce-search-env-${periodId}" placeholder="Comercio..." class="form-input" oninput="window.filterBillingRows('${periodId}')" style="padding: 0.2rem 0.5rem 0.2rem 1.65rem; font-size: 0.78rem; width: 140px; margin: 0; border-radius: var(--radius-sm);">
+              </div>
+            </div>
             ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
             ${generateBillingMultiSelect('Factura Env:', 'filter-fact-env', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
           </div>
@@ -36376,20 +38773,16 @@ async function loadBillingRecords(periodId, bodyElement) {
 
         <!-- Tab Fulfillment -->
         <div id="billing-tab-content-fulf-${periodId}" class="table-responsive" style="display: ${activeTab === 'fulf' ? 'block' : 'none'};">
-          <table class="data-table billing-table" style="min-width: 1000px; font-size: 0.825rem; border-collapse: collapse;">
+          <table class="data-table billing-table" style="min-width: 950px; font-size: 0.825rem; border-collapse: collapse;">
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
                   <input type="checkbox" class="bulk-select-all-fulf" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'fulf', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
-                <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
-                <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
-                <th style="min-width: 120px; border-bottom: 2px solid var(--color-border);">Desglose</th>
-                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Total Fulf</th>
-                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Abono Fulf</th>
-                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Pago Fulf</th>
-                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Factura Fulf</th>
-                <th style="min-width: 70px; border-bottom: 2px solid var(--color-border);">N°Fact</th>
+                <th style="min-width: 175px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio & Plazo</th>
+                <th style="min-width: 220px; text-align: left; border-bottom: 2px solid var(--color-border);">Balance Financiero</th>
+                <th style="min-width: 210px; text-align: left; border-bottom: 2px solid var(--color-border);">Ciclo de Facturación</th>
+                <th style="min-width: 155px; text-align: left; border-bottom: 2px solid var(--color-border);">Estado de Cobro</th>
                 <th style="width: 140px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
               </tr>
             </thead>
@@ -36403,19 +38796,16 @@ async function loadBillingRecords(periodId, bodyElement) {
 
         <!-- Tab Envíame -->
         <div id="billing-tab-content-env-${periodId}" class="table-responsive" style="display: ${activeTab === 'env' ? 'block' : 'none'};">
-          <table class="data-table billing-table" style="min-width: 1000px; font-size: 0.825rem; border-collapse: collapse;">
+          <table class="data-table billing-table" style="min-width: 950px; font-size: 0.825rem; border-collapse: collapse;">
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
                   <input type="checkbox" class="bulk-select-all-env" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'env', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
-                <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
-                <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
-                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Total Env</th>
-                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Abono Env</th>
-                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Pago Env</th>
-                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Factura Env</th>
-                <th style="min-width: 70px; border-bottom: 2px solid var(--color-border);">N°Fact Env</th>
+                <th style="min-width: 175px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio & Plazo</th>
+                <th style="min-width: 220px; text-align: left; border-bottom: 2px solid var(--color-border);">Balance Financiero</th>
+                <th style="min-width: 210px; text-align: left; border-bottom: 2px solid var(--color-border);">Ciclo de Facturación</th>
+                <th style="min-width: 155px; text-align: left; border-bottom: 2px solid var(--color-border);">Estado de Cobro</th>
                 <th style="width: 140px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
               </tr>
             </thead>
@@ -36597,14 +38987,22 @@ window.updateBillingFooterTotals = function(periodId) {
     sumAbonoEnv += getVal('abono_enviame');
   });
   
+  const saldoFulf = sumTotalFulf - sumAbonoFulf;
+  const saldoEnv = sumTotalEnv - sumAbonoEnv;
+
   const tfootFulf = document.getElementById(`tfoot-fulf-${periodId}`);
   if (tfootFulf) {
     tfootFulf.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: right; padding: 1rem;">TOTALES (filtrados):</td>
-        <td style="text-align: right; padding: 1rem;">${formatCLP(sumTotalFulf)}</td>
-        <td style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoFulf)}</td>
-        <td colspan="4"></td>
+        <td colspan="2" style="text-align: right; padding: 0.85rem 1rem; font-weight: 700; color: var(--color-text-main);">TOTALES (filtrados):</td>
+        <td style="padding: 0.65rem 0.65rem; vertical-align: middle;">
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; max-width: 210px;">
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-muted);">Total:</span> <strong style="color: var(--color-text-main); font-weight: 700;">${formatCLP(sumTotalFulf)}</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-muted);">Abonos:</span> <strong style="color: var(--color-success); font-weight: 700;">${formatCLP(sumAbonoFulf)}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--color-border); padding-top: 2px;"><span style="color: var(--color-text-muted);">Saldo:</span> <strong style="color: ${saldoFulf > 0 ? 'var(--color-danger)' : 'var(--color-success)'}; font-weight: 700;">${formatCLP(saldoFulf)}</strong></div>
+          </div>
+        </td>
+        <td colspan="3"></td>
       </tr>
     `;
   }
@@ -36613,10 +39011,15 @@ window.updateBillingFooterTotals = function(periodId) {
   if (tfootEnv) {
     tfootEnv.innerHTML = `
       <tr>
-        <td colspan="3" style="text-align: right; padding: 1rem;">TOTALES (filtrados):</td>
-        <td style="text-align: right; padding: 1rem;">${formatCLP(sumTotalEnv)}</td>
-        <td style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoEnv)}</td>
-        <td colspan="4"></td>
+        <td colspan="2" style="text-align: right; padding: 0.85rem 1rem; font-weight: 700; color: var(--color-text-main);">TOTALES (filtrados):</td>
+        <td style="padding: 0.65rem 0.65rem; vertical-align: middle;">
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; max-width: 210px;">
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-muted);">Total:</span> <strong style="color: var(--color-text-main); font-weight: 700;">${formatCLP(sumTotalEnv)}</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span style="color: var(--color-text-muted);">Abonos:</span> <strong style="color: var(--color-success); font-weight: 700;">${formatCLP(sumAbonoEnv)}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid var(--color-border); padding-top: 2px;"><span style="color: var(--color-text-muted);">Saldo:</span> <strong style="color: ${saldoEnv > 0 ? 'var(--color-danger)' : 'var(--color-success)'}; font-weight: 700;">${formatCLP(saldoEnv)}</strong></div>
+          </div>
+        </td>
+        <td colspan="3"></td>
       </tr>
     `;
   }
@@ -36634,19 +39037,46 @@ window.filterBillingRows = function(periodId) {
     return Array.from(checkboxes).map(cb => cb.value);
   };
   
+  const queryFulf = (document.getElementById(`filter-commerce-search-fulf-${periodId}`)?.value || '').toLowerCase().trim();
+  const queryEnv = (document.getElementById(`filter-commerce-search-env-${periodId}`)?.value || '').toLowerCase().trim();
+
   const filterPagoFulf = getSelected('filter-pago-fulf');
   const filterFactFulf = getSelected('filter-fact-fulf');
   const filterPagoEnv = getSelected('filter-pago-env');
   const filterFactEnv = getSelected('filter-fact-env');
+
+  const triageFulf = (window.billingTriageFilters && window.billingTriageFilters[`fulf_${periodId}`]) || 'all';
+  const triageEnv = (window.billingTriageFilters && window.billingTriageFilters[`env_${periodId}`]) || 'all';
   
   const rowsFulf = container.querySelectorAll('.billing-record-row-fulf');
   rowsFulf.forEach(row => {
+    const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
     const pagoFulf = row.getAttribute('data-pago-fulf') || '';
     const factFulf = row.getAttribute('data-fact-fulf') || '';
+    const desgloseFulf = row.getAttribute('data-desglose-fulf') || '';
+    const saldoFulf = parseFloat(row.getAttribute('data-saldo-fulf') || '0');
+    const totalFulf = parseFloat(row.getAttribute('data-total-fulf') || '0');
+    const isAtrasado = row.getAttribute('data-is-atrasado-fulf') === 'true';
+    const isAlDia = row.getAttribute('data-is-aldia-fulf') === 'true';
+
+    const matchQuery = !queryFulf || comercio.includes(queryFulf);
     const matchPago = !filterPagoFulf || filterPagoFulf.includes(pagoFulf);
     const matchFact = !filterFactFulf || filterFactFulf.includes(factFulf);
+
+    let matchTriage = true;
+    if (triageFulf === 'saldo') {
+      matchTriage = totalFulf > 0 && saldoFulf > 0;
+    } else if (triageFulf === 'atraso') {
+      matchTriage = isAtrasado;
+    } else if (triageFulf === 'por_facturar') {
+      matchTriage = ['Facturar', 'Esperando'].includes(factFulf);
+    } else if (triageFulf === 'desglose_pendiente') {
+      matchTriage = ['Por Generar', 'Creado'].includes(desgloseFulf);
+    } else if (triageFulf === 'al_dia') {
+      matchTriage = isAlDia;
+    }
     
-    if (matchPago && matchFact) {
+    if (matchQuery && matchPago && matchFact && matchTriage) {
       row.style.display = '';
     } else {
       row.style.display = 'none';
@@ -36655,12 +39085,33 @@ window.filterBillingRows = function(periodId) {
 
   const rowsEnv = container.querySelectorAll('.billing-record-row-env');
   rowsEnv.forEach(row => {
+    const comercio = (row.getAttribute('data-comercio') || '').toLowerCase();
     const pagoEnv = row.getAttribute('data-pago-env') || '';
     const factEnv = row.getAttribute('data-fact-env') || '';
+    const saldoEnv = parseFloat(row.getAttribute('data-saldo-env') || '0');
+    const totalEnv = parseFloat(row.getAttribute('data-total-env') || '0');
+    const isAtrasado = row.getAttribute('data-is-atrasado-env') === 'true';
+    const isSinFolio = row.getAttribute('data-sin-folio-env') === 'true';
+    const isAlDia = row.getAttribute('data-is-aldia-env') === 'true';
+
+    const matchQuery = !queryEnv || comercio.includes(queryEnv);
     const matchPago = !filterPagoEnv || filterPagoEnv.includes(pagoEnv);
     const matchFact = !filterFactEnv || filterFactEnv.includes(factEnv);
+
+    let matchTriage = true;
+    if (triageEnv === 'saldo') {
+      matchTriage = totalEnv > 0 && saldoEnv > 0;
+    } else if (triageEnv === 'atraso') {
+      matchTriage = isAtrasado;
+    } else if (triageEnv === 'por_facturar') {
+      matchTriage = ['Facturar', 'Esperando'].includes(factEnv);
+    } else if (triageEnv === 'sin_folio') {
+      matchTriage = isSinFolio;
+    } else if (triageEnv === 'al_dia') {
+      matchTriage = isAlDia;
+    }
     
-    if (matchPago && matchFact) {
+    if (matchQuery && matchPago && matchFact && matchTriage) {
       row.style.display = '';
     } else {
       row.style.display = 'none';
@@ -36682,6 +39133,9 @@ window.switchBillingPeriodTab = function(periodId, tabName) {
   const contentEnv = document.getElementById(`billing-tab-content-env-${periodId}`);
   const contentResumen = document.getElementById(`billing-tab-content-resumen-${periodId}`);
   
+  const triageFulf = document.getElementById(`triage-strip-fulf-${periodId}`);
+  const triageEnv = document.getElementById(`triage-strip-env-${periodId}`);
+
   const filterGroupFulf = document.querySelectorAll(`.filter-group-fulf-${periodId}`);
   const filterGroupEnv = document.querySelectorAll(`.filter-group-env-${periodId}`);
   const filterGroupResumen = document.querySelectorAll(`.filter-group-resumen-${periodId}`);
@@ -36689,14 +39143,16 @@ window.switchBillingPeriodTab = function(periodId, tabName) {
   [btnFulf, btnEnv, btnResumen].forEach(b => {
     if (b) {
       b.style.background = 'transparent';
-      b.style.borderColor = 'transparent';
       b.style.color = 'var(--color-text-muted)';
-      b.style.fontWeight = '600';
+      b.style.boxShadow = 'none';
     }
   });
   if (contentFulf) contentFulf.style.display = 'none';
   if (contentEnv) contentEnv.style.display = 'none';
   if (contentResumen) contentResumen.style.display = 'none';
+
+  if (triageFulf) triageFulf.style.display = 'none';
+  if (triageEnv) triageEnv.style.display = 'none';
 
   filterGroupFulf.forEach(el => el.style.display = 'none');
   filterGroupEnv.forEach(el => el.style.display = 'none');
@@ -36704,28 +39160,27 @@ window.switchBillingPeriodTab = function(periodId, tabName) {
 
   if (tabName === 'fulf') {
     if (btnFulf) {
-      btnFulf.style.background = 'var(--color-bg)';
-      btnFulf.style.borderColor = 'var(--color-border)';
-      btnFulf.style.color = 'var(--color-text-main)';
-      btnFulf.style.fontWeight = 'bold';
+      btnFulf.style.background = 'var(--color-surface)';
+      btnFulf.style.color = 'var(--color-primary)';
+      btnFulf.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
     }
     if (contentFulf) contentFulf.style.display = 'block';
+    if (triageFulf) triageFulf.style.display = 'flex';
     filterGroupFulf.forEach(el => el.style.display = 'flex');
   } else if (tabName === 'env') {
     if (btnEnv) {
-      btnEnv.style.background = 'var(--color-bg)';
-      btnEnv.style.borderColor = 'var(--color-border)';
-      btnEnv.style.color = 'var(--color-text-main)';
-      btnEnv.style.fontWeight = 'bold';
+      btnEnv.style.background = 'var(--color-surface)';
+      btnEnv.style.color = 'var(--color-primary)';
+      btnEnv.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
     }
     if (contentEnv) contentEnv.style.display = 'block';
+    if (triageEnv) triageEnv.style.display = 'flex';
     filterGroupEnv.forEach(el => el.style.display = 'flex');
   } else if (tabName === 'resumen') {
     if (btnResumen) {
-      btnResumen.style.background = 'var(--color-bg)';
-      btnResumen.style.borderColor = 'var(--color-border)';
-      btnResumen.style.color = 'var(--color-text-main)';
-      btnResumen.style.fontWeight = 'bold';
+      btnResumen.style.background = 'var(--color-surface)';
+      btnResumen.style.color = 'var(--color-primary)';
+      btnResumen.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
     }
     if (contentResumen) contentResumen.style.display = 'block';
     filterGroupResumen.forEach(el => el.style.display = 'flex');
@@ -37081,15 +39536,18 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
         const abonoInput = row.querySelector('input[onblur*="abono_fulfillment"]');
         if (totalInput && abonoInput) {
           abonoInput.value = totalInput.value;
+          const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+          saveField(recordId, 'abono_fulfillment', numVal);
         }
         saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
         
-        // Dynamic DOM injection of the datepicker
-        let dateContainer = selectEl.parentNode.querySelector('div');
+        // Dynamic DOM injection of the datepicker badge
+        let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
         if (!dateContainer) {
           const div = document.createElement('div');
-          div.style.marginTop = '0.25rem';
-          div.innerHTML = `<input type="date" value="${today}" class="billing-input" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">`;
+          div.className = 'payment-date-badge';
+          div.title = 'Fecha de Pago Recibido';
+          div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)">`;
           selectEl.parentNode.appendChild(div);
         }
       } else if (fieldName === 'pago_enviame') {
@@ -37097,21 +39555,24 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
         const abonoInput = row.querySelector('input[onblur*="abono_enviame"]');
         if (totalInput && abonoInput) {
           abonoInput.value = totalInput.value;
+          const numVal = parseInt((totalInput.value || '0').replace(/[^\d-]/g, ''), 10) || 0;
+          saveField(recordId, 'abono_enviame', numVal);
         }
         saveField(recordId, 'fecha_pago_recibido_enviame', today);
         
-        // Dynamic DOM injection of the datepicker
-        let dateContainer = selectEl.parentNode.querySelector('div');
+        // Dynamic DOM injection of the datepicker badge
+        let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge');
         if (!dateContainer) {
           const div = document.createElement('div');
-          div.style.marginTop = '0.25rem';
-          div.innerHTML = `<input type="date" value="${today}" class="billing-input" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">`;
+          div.className = 'payment-date-badge';
+          div.title = 'Fecha de Pago Recibido';
+          div.innerHTML = `<i class="ri-calendar-check-line" style="color: #10b981; font-size: 0.8rem;"></i><input type="date" value="${today}" class="billing-compact-date" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)">`;
           selectEl.parentNode.appendChild(div);
         }
       }
     } else {
       // Remove dynamic datepicker if status changed from Recibido
-      let dateContainer = selectEl.parentNode.querySelector('div');
+      let dateContainer = selectEl.parentNode.querySelector('.payment-date-badge') || selectEl.parentNode.querySelector('div:not(.billing-actions-group)');
       if (dateContainer) {
         dateContainer.remove();
       }
@@ -37125,6 +39586,10 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   
   saveField(recordId, fieldName, val);
   if (['pago_fulfillment', 'pago_enviame'].includes(fieldName) && row) {
+    const type = fieldName === 'pago_enviame' ? 'env' : 'fulf';
+    if (window.updateRowFinancialBadge) {
+      window.updateRowFinancialBadge(recordId, type);
+    }
     const container = row.closest('div[id^="period-body-"]');
     if (container) {
       const pId = container.id.replace('period-body-', '');
@@ -37135,6 +39600,21 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   }
 };
 
+window.copyAmountToClipboard = function(amount, btnEl) {
+  const num = parseInt(amount, 10) || 0;
+  navigator.clipboard.writeText(num.toString()).then(() => {
+    if (btnEl) {
+      const origHtml = btnEl.innerHTML;
+      btnEl.innerHTML = '<i class="ri-check-line" style="color: #10b981; font-weight: bold;"></i>';
+      setTimeout(() => {
+        btnEl.innerHTML = origHtml;
+      }, 1200);
+    }
+  }).catch(err => {
+    console.error('Error copying amount to clipboard:', err);
+  });
+};
+
 window.saveMoneyField = function(recordId, fieldName, inputEl) {
   let valueStr = inputEl.value || '0';
   valueStr = valueStr.replace(/[^\d-]/g, '');
@@ -37143,6 +39623,11 @@ window.saveMoneyField = function(recordId, fieldName, inputEl) {
   
   inputEl.value = formatCLP(numericVal);
   saveField(recordId, fieldName, numericVal);
+
+  const type = fieldName.includes('enviame') ? 'env' : 'fulf';
+  if (window.updateRowFinancialBadge) {
+    window.updateRowFinancialBadge(recordId, type);
+  }
 };
 
 window.saveNumberField = function(recordId, fieldName, valueStr, isNullable = false) {
@@ -38045,6 +40530,8 @@ window.openCreatePeriodModal = function() {
       modal.classList.remove('active');
       setTimeout(() => modal.remove(), 300);
       alert('Periodo mensual creado exitosamente con sus comercios.');
+      window.selectedBillingYear = year;
+      window.selectedBillingPeriodId = period.id;
       await loadBillingPeriods();
       
     } catch (err) {
@@ -38223,6 +40710,7 @@ window.updatePeriodStatus = async function(periodId, newStatus) {
     if (error) throw error;
     
     alert('Estado del periodo actualizado.');
+    window.selectedBillingPeriodId = periodId;
     await loadBillingPeriods();
   } catch (err) {
     console.error('Error updating period status:', err);
@@ -38242,6 +40730,9 @@ window.deletePeriod = async function(periodId, periodName) {
     if (error) throw error;
     
     alert('Periodo eliminado exitosamente.');
+    if (window.selectedBillingPeriodId === periodId) {
+      window.selectedBillingPeriodId = null;
+    }
     await loadBillingPeriods();
   } catch (err) {
     console.error('Error deleting period:', err);
@@ -38722,6 +41213,8 @@ window.openEditPeriodModal = function(periodId, currentName, currentMonth, curre
       
       alert('Periodo actualizado exitosamente.');
       modal.remove();
+      window.selectedBillingYear = year;
+      window.selectedBillingPeriodId = periodId;
       await loadBillingPeriods();
     } catch (err) {
       console.error('Error updating period:', err);
@@ -52796,6 +55289,44 @@ window.saveEditOrderItems = async function(orderId, comment) {
       price: String(item.price || 0)
     }));
 
+    // Recopilar listas de SKUs eliminados, agregados y modificados para protección granular
+    const deletedSkusList = [];
+    for (const orig of window.originalEditOrderItems) {
+      if (!currentMap.has(orig.id)) {
+        if (orig.sku) deletedSkusList.push(orig.sku.trim());
+      }
+    }
+
+    const addedSkusList = [];
+    for (const curr of window.tempEditOrderItems) {
+      if (!curr.id && curr.sku) {
+        addedSkusList.push(curr.sku.trim());
+      }
+    }
+
+    const modifiedQuantitiesMap = {};
+    for (const curr of window.tempEditOrderItems) {
+      if (curr.sku) {
+        modifiedQuantitiesMap[curr.sku.trim()] = curr.quantity;
+      }
+    }
+
+    const prevManualEdits = (targetOrder?.raw_shopify_data?.wms_manual_edits) || {};
+    const mergedDeleted = Array.from(new Set([...(prevManualEdits.deleted_skus || []), ...deletedSkusList]))
+      .filter(s => !addedSkusList.includes(s));
+    const mergedAdded = Array.from(new Set([...(prevManualEdits.added_skus || []), ...addedSkusList]))
+      .filter(s => !deletedSkusList.includes(s));
+    const mergedModMap = { ...(prevManualEdits.modified_quantities || {}), ...modifiedQuantitiesMap };
+    deletedSkusList.forEach(s => delete mergedModMap[s]);
+
+    const manualEditsPayload = {
+      deleted_skus: mergedDeleted,
+      added_skus: mergedAdded,
+      modified_quantities: mergedModMap,
+      last_edited_at: new Date().toISOString(),
+      last_comment: comment || ''
+    };
+
     rawKeys.forEach(key => {
       if (targetOrder && targetOrder[key]) {
         foundRawKey = key;
@@ -52803,7 +55334,8 @@ window.saveEditOrderItems = async function(orderId, comment) {
           ...targetOrder[key],
           line_items: newRawLineItems,
           wms_items_edited: true,
-          wms_custom_edited: true
+          wms_custom_edited: true,
+          wms_manual_edits: manualEditsPayload
         };
         updatePayload[key] = updatedRawDataObj;
       }
@@ -52814,7 +55346,8 @@ window.saveEditOrderItems = async function(orderId, comment) {
       updatePayload.raw_shopify_data = {
         line_items: newRawLineItems,
         wms_items_edited: true,
-        wms_custom_edited: true
+        wms_custom_edited: true,
+        wms_manual_edits: manualEditsPayload
       };
     }
 
