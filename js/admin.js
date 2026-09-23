@@ -6,7 +6,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.0';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.2';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -2886,6 +2886,10 @@ async function init() {
         currentModules.push('tickets_admin');
         updated = true;
       }
+      if (!currentModules.includes('inventory_count')) {
+        currentModules.push('inventory_count');
+        updated = true;
+      }
       if (updated) {
         const updatedStr = currentModules.filter(Boolean).join(',');
         console.log('DEBUG: Auto-agregando módulos a la cuenta administrador:', updatedStr);
@@ -3107,10 +3111,17 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' || view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count') {
+          const isAllowed = allowedModules.includes(view) ||
+            (view === 'inventory_count' && (allowedModules.includes('inventory_admin') || allowedModules.length === 0)) ||
+            view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' ||
+            view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' ||
+            view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' ||
+            view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count';
+
+          if (isAllowed) {
             const parentLi = item.closest('li');
-            if (parentLi) parentLi.style.display = 'block';
-            else item.style.display = 'block';
+            if (parentLi) parentLi.style.display = '';
+            else item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
           } else {
             const parentLi = item.closest('li');
@@ -3126,12 +3137,13 @@ async function init() {
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on hash or allowed modules
-    const currentHash = (window.location.hash || '').replace('#', '').trim();
-    const hashTarget = currentHash ? document.querySelector(`.nav-item[data-view="${currentHash}"]`) : null;
+    // Initial View selection based on search param ?view= or hash #view or allowed modules
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialViewParam = urlParams.get('view') || (window.location.hash || '').replace('#', '').trim();
+    const hashTarget = initialViewParam ? document.querySelector(`.nav-item[data-view="${initialViewParam}"]`) : null;
 
     if (hashTarget && hashTarget.closest('li')?.style.display !== 'none') {
-      console.log('DEBUG: Cargando vista desde URL hash:', currentHash);
+      console.log('DEBUG: Cargando vista inicial desde parámetro o hash:', initialViewParam);
       hashTarget.click();
     } else if (firstVisibleItem) {
       const defaultView = 'dashboard';
@@ -25957,17 +25969,35 @@ const CLIENT_MODULES = [
 
 const ADMIN_MODULES = [
   { id: 'orders_admin', label: 'Gestor de Pedidos' },
+  { id: 'inventory_admin', label: 'Inventario' },
+  { id: 'inventory_count', label: 'Conteo Móvil (Teléfono)' },
+  { id: 'movements_admin', label: 'Movimientos de Stock' },
+  { id: 'reassign_admin', label: 'Hub Central / Reubicar' },
   { id: 'consolidated_shipments', label: 'Envíos Consolidados' },
+  { id: 'manifests_admin', label: 'Centro de Manifiestos' },
+  { id: 'optiroute_support', label: 'Soporte Optiroute' },
+  { id: 'cotizador_admin', label: 'Cotizador de Envíos' },
   { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
   { id: 'catalog', label: 'Catálogo' },
-  { id: 'users_admin', label: 'Gestionar Usuarios' },
+  { id: 'label_generator', label: 'Etiquetas' },
+  { id: 'volumen_diario_admin', label: 'Volumen Diario' },
+  { id: 'returns_admin', label: 'Logística Inversa' },
+  { id: 'pos_admin', label: 'Punto de Ventas' },
+  { id: 'billing_admin', label: 'Facturación' },
+  { id: 'clickup_facturacion_admin', label: 'Facturación ClickUp' },
+  { id: 'enviame_analytics', label: 'Analítica Envíame' },
   { id: 'merchants_admin', label: 'Gestionar Comercios' },
+  { id: 'onboarding_admin', label: 'Solicitudes de Alta' },
+  { id: 'leads_admin', label: 'Central de Leads' },
+  { id: 'redzone_admin', label: 'Solicitudes de Baja' },
+  { id: 'users_admin', label: 'Gestionar Usuarios' },
+  { id: 'identity_qr_admin', label: 'Identidad & QRs' },
   { id: 'warehouses_admin', label: 'Gestionar Bodegas' },
   { id: 'visibility_rules_admin', label: 'Reglas de Visibilidad' },
-  { id: 'billing_admin', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
   { id: 'tickets_admin', label: 'Gestión de Tickets' },
   { id: 'incidencias_admin', label: 'Gestión de Incidencias' },
+  { id: 'surveys_admin', label: 'Encuestas & Reviews' },
   { id: 'documentation_admin', label: 'Documentación Admin' }
 ];
 

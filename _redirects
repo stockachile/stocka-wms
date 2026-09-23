@@ -11,4 +11,5 @@ https://stocka-wms.netlify.app/* https://wms.stocka.cl/:splat 301!
 /presentacion-fulfillment.pdf /downloads/presentacion_fulfillment_360.pdf 200
 /presentacion-despachos.pdf /downloads/presentacion_despachos_rm.pdf 200
 /downloads/Tarifarios* /downloads/presentacion_fulfillment_360.pdf 200
-
+/conteo /admin.html?view=inventory_count 200
+/inventario-movil /admin.html?view=inventory_count 200

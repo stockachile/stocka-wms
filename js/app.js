@@ -4428,7 +4428,6 @@ async function renderInventory() {
         </div>
       </div>
     `;
-    `;
 
     // Asignar listener para el selector de comercio
     const clientSelect = document.getElementById('inventory-client-select');
@@ -4560,14 +4559,129 @@ async function renderInventory() {
       });
     }
 
+    // Gestión de pestañas (Stock Actual vs Solicitudes de Inventario)
+    const switchClientInventoryTab = (targetTabId) => {
+      window.activeClientInventoryTab = targetTabId;
+      document.querySelectorAll('.client-inv-tab').forEach(tabBtn => {
+        const isMatch = tabBtn.getAttribute('data-tab') === targetTabId;
+        if (isMatch) {
+          tabBtn.classList.add('active');
+          tabBtn.style.borderBottom = '2px solid var(--color-primary)';
+          tabBtn.style.color = 'var(--color-text-main)';
+          tabBtn.style.fontWeight = '600';
+        } else {
+          tabBtn.classList.remove('active');
+          tabBtn.style.borderBottom = '2px solid transparent';
+          tabBtn.style.color = 'var(--color-text-muted)';
+          tabBtn.style.fontWeight = '500';
+        }
+      });
+
+      document.querySelectorAll('.client-inv-tab-pane').forEach(pane => {
+        if (pane.id === targetTabId) {
+          pane.style.display = 'block';
+        } else {
+          pane.style.display = 'none';
+        }
+      });
+
+      if (targetTabId === 'tab-client-inventory-requests') {
+        loadClientInventoryRequestsTab(commerce);
+      }
+    };
+    window.switchClientInventoryTab = switchClientInventoryTab;
+
+    document.querySelectorAll('.client-inv-tab').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const target = e.currentTarget.getAttribute('data-tab');
+        switchClientInventoryTab(target);
+      });
+    });
+
+    // Mantener la pestaña activa si el usuario ya estaba en solicitudes
+    if (window.activeClientInventoryTab === 'tab-client-inventory-requests') {
+      switchClientInventoryTab('tab-client-inventory-requests');
+    }
+
+    // Toggle de la guía/instrucciones del proceso
+    const toggleInstBtn = document.getElementById('btn-toggle-instructions');
+    const instSection = document.getElementById('section-inventory-instructions');
+    const lblToggleInst = document.getElementById('lbl-toggle-instructions');
+    if (toggleInstBtn && instSection) {
+      const isCollapsed = localStorage.getItem('stocka_inv_instructions_collapsed') === 'true';
+      if (isCollapsed) {
+        instSection.style.display = 'none';
+        if (lblToggleInst) lblToggleInst.textContent = 'Ver Instrucciones';
+      }
+      toggleInstBtn.addEventListener('click', () => {
+        const isHidden = instSection.style.display === 'none';
+        if (isHidden) {
+          instSection.style.display = 'block';
+          if (lblToggleInst) lblToggleInst.textContent = 'Ocultar Instrucciones';
+          localStorage.setItem('stocka_inv_instructions_collapsed', 'false');
+        } else {
+          instSection.style.display = 'none';
+          if (lblToggleInst) lblToggleInst.textContent = 'Ver Instrucciones';
+          localStorage.setItem('stocka_inv_instructions_collapsed', 'true');
+        }
+      });
+    }
+
+    // Botón solicitar inventario dentro de la pestaña de solicitudes
+    const btnTabCreateReq = document.getElementById('btn-tab-create-request');
+    if (btnTabCreateReq) {
+      btnTabCreateReq.addEventListener('click', () => {
+        openRequestInventoryModal(commerce, () => {
+          loadClientInventoryRequestsTab(commerce);
+        });
+      });
+    }
+
+    // Filtros y buscador dentro de la pestaña de solicitudes
+    const reqTabSearch = document.getElementById('req-tab-search-input');
+    if (reqTabSearch) {
+      reqTabSearch.addEventListener('input', () => {
+        renderClientInventoryRequestsTabRows(window.cachedClientInventoryRequests || [], commerce);
+      });
+    }
+
+    const reqTabStatusFilter = document.getElementById('req-tab-status-filter');
+    if (reqTabStatusFilter) {
+      reqTabStatusFilter.addEventListener('change', () => {
+        renderClientInventoryRequestsTabRows(window.cachedClientInventoryRequests || [], commerce);
+      });
+    }
+
+    const btnRefreshReqTab = document.getElementById('btn-refresh-requests-tab');
+    if (btnRefreshReqTab) {
+      btnRefreshReqTab.addEventListener('click', async () => {
+        const icon = document.getElementById('icon-refresh-req-tab');
+        if (icon) icon.className = 'ri-loader-4-line ri-spin';
+        btnRefreshReqTab.disabled = true;
+        try {
+          await loadClientInventoryRequestsTab(commerce);
+        } finally {
+          if (icon) icon.className = 'ri-refresh-line';
+          btnRefreshReqTab.disabled = false;
+        }
+      });
+    }
+
     const reqInvBtn = document.getElementById('btn-request-inventory');
     if (reqInvBtn) {
-      reqInvBtn.addEventListener('click', () => openRequestInventoryModal(commerce, () => renderInventory()));
+      reqInvBtn.addEventListener('click', () => {
+        openRequestInventoryModal(commerce, () => {
+          renderInventory();
+          switchClientInventoryTab('tab-client-inventory-requests');
+        });
+      });
     }
 
     const viewReqsBtn = document.getElementById('btn-view-inventory-requests');
     if (viewReqsBtn) {
-      viewReqsBtn.addEventListener('click', () => openClientInventoryRequestsModal(commerce));
+      viewReqsBtn.addEventListener('click', () => {
+        switchClientInventoryTab('tab-client-inventory-requests');
+      });
     }
 
     updateClientInventoryRequestsBadge(commerce);
@@ -39801,7 +39915,12 @@ async function cancelClientInventoryRequest(requestId, commerce) {
     if (error) throw error;
 
     alert('Solicitud cancelada correctamente.');
-    openClientInventoryRequestsModal(commerce);
+    if (document.getElementById('modal-client-inventory-requests')) {
+      openClientInventoryRequestsModal(commerce);
+    }
+    if (typeof loadClientInventoryRequestsTab === 'function') {
+      loadClientInventoryRequestsTab(commerce);
+    }
     updateClientInventoryRequestsBadge(commerce);
   } catch (err) {
     console.error('Error canceling request:', err);
@@ -40089,8 +40208,14 @@ async function openViewInventoryRequestDetailModal(req) {
         signerType: 'client',
         onSigned: (updatedReq) => {
           modal.remove();
-          if (typeof openClientInventoryRequestsModal === 'function') {
+          if (document.getElementById('modal-client-inventory-requests') && typeof openClientInventoryRequestsModal === 'function') {
             openClientInventoryRequestsModal(req.comercio);
+          }
+          if (typeof loadClientInventoryRequestsTab === 'function') {
+            loadClientInventoryRequestsTab(req.comercio);
+          }
+          if (typeof updateClientInventoryRequestsBadge === 'function') {
+            updateClientInventoryRequestsBadge(req.comercio);
           }
         }
       });
@@ -40194,8 +40319,11 @@ async function openViewInventoryRequestDetailModal(req) {
         alert('¡Tu aclaración ha sido enviada con éxito al equipo de STOCKA!');
         modal.remove();
 
-        if (typeof openClientInventoryRequestsModal === 'function') {
+        if (document.getElementById('modal-client-inventory-requests') && typeof openClientInventoryRequestsModal === 'function') {
           openClientInventoryRequestsModal(req.comercio);
+        }
+        if (typeof loadClientInventoryRequestsTab === 'function') {
+          loadClientInventoryRequestsTab(req.comercio);
         }
         if (typeof updateClientInventoryRequestsBadge === 'function') {
           updateClientInventoryRequestsBadge(req.comercio);
