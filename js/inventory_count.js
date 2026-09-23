@@ -29,6 +29,7 @@ let sessionMerchants = [];
 let localOperatorName = localStorage.getItem('stocka_inv_operator_name') || 'Admin Móvil';
 let localDeviceId = localStorage.getItem('stocka_inv_device_id') || ('DEV-' + Math.random().toString(36).substring(2, 9).toUpperCase());
 let isFastMode = localStorage.getItem('stocka_inv_fast_mode') === 'true'; // Modo ráfaga (+1 continuo)
+let currentMatchMode = localStorage.getItem('stocka_inv_match_mode') || 'all'; // Criterio de búsqueda: 'all' | 'barcode' | 'barcode_origin' | 'barcode_wms' | 'sku'
 
 localStorage.setItem('stocka_inv_device_id', localDeviceId);
 localStorage.setItem('stocka_inv_operator_name', localOperatorName);
@@ -413,6 +414,28 @@ function renderScannerView() {
           </label>
         </div>
 
+        <!-- CRITERIO DE ASOCIACIÓN / BÚSQUEDA DEL CATÁLOGO -->
+        <div class="inv-match-criteria-card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.65rem 0.85rem; margin-bottom: 0.85rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+            <label for="select-match-mode" style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin: 0;">
+              <i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Criterio de Búsqueda:
+            </label>
+            <span id="lbl-match-mode-desc" style="font-size: 0.7rem; color: var(--color-primary); font-weight: 700; background: rgba(99, 102, 241, 0.08); padding: 2px 7px; border-radius: 4px;">
+              ${getMatchModeBadgeText(currentMatchMode)}
+            </span>
+          </div>
+          <select id="select-match-mode" class="form-input" style="width: 100%; height: 38px; font-size: 0.825rem; font-weight: 600; background: var(--color-bg); cursor: pointer; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+            <option value="all" ${currentMatchMode === 'all' ? 'selected' : ''}>🔍 Coincidencia Total (Cualquiera: Barras, WMS o SKU)</option>
+            <option value="barcode" ${currentMatchMode === 'barcode' ? 'selected' : ''}>🏷️ Solo Códigos de Barras (Origen o WMS)</option>
+            <option value="barcode_origin" ${currentMatchMode === 'barcode_origin' ? 'selected' : ''}>🏭 Solo Código de Fabricante / EAN (Origen)</option>
+            <option value="barcode_wms" ${currentMatchMode === 'barcode_wms' ? 'selected' : ''}>📦 Solo Código de Barras WMS</option>
+            <option value="sku" ${currentMatchMode === 'sku' ? 'selected' : ''}>🆔 Solo Código SKU / Alias</option>
+          </select>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.35rem; line-height: 1.25;" id="lbl-match-mode-hint">
+            ${getMatchModeHint(currentMatchMode)}
+          </div>
+        </div>
+
         <!-- ENTRADA MANUAL O PISTOLA LÁSER -->
         <div>
           <label style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">
@@ -465,6 +488,31 @@ function renderScannerView() {
   startCameraScanner();
 }
 
+function getMatchModeBadgeText(mode) {
+  switch (mode) {
+    case 'barcode': return 'Barras (Origen o WMS)';
+    case 'barcode_origin': return 'Fabricante (EAN)';
+    case 'barcode_wms': return 'Etiqueta WMS';
+    case 'sku': return 'Estricto SKU';
+    default: return 'Cualquiera (Automático)';
+  }
+}
+
+function getMatchModeHint(mode) {
+  switch (mode) {
+    case 'barcode':
+      return 'Busca coincidencias en códigos de barra de fábrica (EAN/UPC) o generados por STOCKA WMS.';
+    case 'barcode_origin':
+      return 'Filtra únicamente por el código de barras impreso por el fabricante (EAN/UPC original).';
+    case 'barcode_wms':
+      return 'Filtra únicamente por el código de barras interno asignado en el sistema WMS.';
+    case 'sku':
+      return 'Filtra estrictamente por el SKU del comercio o sus códigos alternativos (alias).';
+    default:
+      return 'Verifica si la lectura coincide con código de barras de origen, WMS, SKU o alias del catálogo.';
+  }
+}
+
 // Iniciar Controles del Escáner y Búsqueda Manual
 function initScannerControls() {
   const chkFast = document.getElementById('chk-fast-mode');
@@ -472,6 +520,20 @@ function initScannerControls() {
     chkFast.addEventListener('change', (e) => {
       isFastMode = e.target.checked;
       localStorage.setItem('stocka_inv_fast_mode', isFastMode ? 'true' : 'false');
+    });
+  }
+
+  const selectMatch = document.getElementById('select-match-mode');
+  if (selectMatch) {
+    selectMatch.addEventListener('change', (e) => {
+      currentMatchMode = e.target.value;
+      localStorage.setItem('stocka_inv_match_mode', currentMatchMode);
+
+      const descBadge = document.getElementById('lbl-match-mode-desc');
+      if (descBadge) descBadge.textContent = getMatchModeBadgeText(currentMatchMode);
+
+      const hintText = document.getElementById('lbl-match-mode-hint');
+      if (hintText) hintText.textContent = getMatchModeHint(currentMatchMode);
     });
   }
 
@@ -672,20 +734,59 @@ function triggerScanFeedback() {
   }
 }
 
-// Buscar producto por código de barra, SKU o alias
+// Buscar producto por código de barra, SKU o alias según el criterio configurado
 async function findProductInDatabase(code) {
   const cleanCode = String(code).trim();
   const cleanUpper = cleanCode.toUpperCase();
+  const mode = currentMatchMode || 'all';
 
-  // 1. Buscar en memoria local de la sesión
-  let found = sessionCatalogCache.find(p => {
-    const bc = String(p.barcode || p.codigo_barra || p.barcode_wms || '').trim().toUpperCase();
+  const checkMatch = (p) => {
+    const bcOrigin = String(p.barcode || '').trim().toUpperCase();
+    const bcAlt = String(p.codigo_barra || '').trim().toUpperCase();
+    const bcWms = String(p.barcode_wms || '').trim().toUpperCase();
     const sku = String(p.sku || '').trim().toUpperCase();
     const alias = String(p.alias || '').trim().toUpperCase();
-    return (bc && bc === cleanUpper) || (sku && sku === cleanUpper) || (alias && alias === cleanUpper);
-  });
 
-  if (found) return found;
+    if (mode === 'sku') {
+      if (sku && sku === cleanUpper) return { match: true, by: 'SKU' };
+      if (alias && alias === cleanUpper) return { match: true, by: 'Alias SKU' };
+      return { match: false };
+    }
+
+    if (mode === 'barcode') {
+      if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
+      if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+      if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
+      return { match: false };
+    }
+
+    if (mode === 'barcode_origin') {
+      if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
+      if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+      return { match: false };
+    }
+
+    if (mode === 'barcode_wms') {
+      if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
+      return { match: false };
+    }
+
+    // Modo 'all' (Cualquiera de los datos)
+    if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
+    if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+    if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
+    if (sku && sku === cleanUpper) return { match: true, by: 'SKU' };
+    if (alias && alias === cleanUpper) return { match: true, by: 'Alias SKU' };
+    return { match: false };
+  };
+
+  // 1. Buscar en memoria local de la sesión
+  for (const p of sessionCatalogCache) {
+    const res = checkMatch(p);
+    if (res.match) {
+      return { ...p, _matchedBy: res.by };
+    }
+  }
 
   // 2. Si no está en memoria, consultar a Supabase
   try {
@@ -696,15 +797,32 @@ async function findProductInDatabase(code) {
       query = query.eq('comercio', activeCountSession.comercio);
     }
 
-    // Buscar coincidencia por barcode, sku o alias
-    query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode},barcode_wms.eq.${cleanCode},sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+    if (mode === 'sku') {
+      query = query.or(`sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+    } else if (mode === 'barcode') {
+      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode},barcode_wms.eq.${cleanCode}`);
+    } else if (mode === 'barcode_origin') {
+      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode}`);
+    } else if (mode === 'barcode_wms') {
+      query = query.eq('barcode_wms', cleanCode);
+    } else {
+      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode},barcode_wms.eq.${cleanCode},sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+    }
 
-    const { data, error } = await query.limit(1);
+    const { data, error } = await query.limit(5);
 
     if (!error && data && data.length > 0) {
-      const prod = data[0];
-      sessionCatalogCache.push(prod);
-      return prod;
+      for (const prod of data) {
+        const res = checkMatch(prod);
+        if (res.match) {
+          const finalProd = { ...prod, _matchedBy: res.by };
+          sessionCatalogCache.push(prod);
+          return finalProd;
+        }
+      }
+      const fallbackProd = { ...data[0], _matchedBy: mode === 'sku' ? 'SKU' : 'Código' };
+      sessionCatalogCache.push(data[0]);
+      return fallbackProd;
     }
   } catch (e) {
     console.warn('Error consultando producto en Supabase:', e);
@@ -717,7 +835,8 @@ async function findProductInDatabase(code) {
     barcode: cleanCode,
     name: 'Producto No Encontrado en Catálogo',
     comercio: activeCountSession?.comercio || 'no asignado',
-    is_unknown: true
+    is_unknown: true,
+    _matchedBy: 'Sin coincidencia'
   };
 }
 
@@ -733,9 +852,12 @@ function openConfirmationSheet(rawCode, product) {
 
   // Pre-llenar datos del producto
   const isUnknown = product.is_unknown || !product.id;
+  const matchInfo = product._matchedBy && product._matchedBy !== 'Sin coincidencia'
+    ? ` • Coincidencia por: <span style="color: #10b981; font-weight: 700;">${product._matchedBy}</span>`
+    : '';
   document.getElementById('sheet-prod-sku').textContent = product.sku || rawCode;
   document.getElementById('sheet-prod-name').textContent = isUnknown ? `(No catalogado) ${rawCode}` : (product.name || 'Sin descripción');
-  document.getElementById('sheet-prod-meta').innerHTML = `Comercio: <strong>${escapeHtml(product.comercio || 'Todos')}</strong> • Cód: <strong>${escapeHtml(rawCode)}</strong>`;
+  document.getElementById('sheet-prod-meta').innerHTML = `Comercio: <strong>${escapeHtml(product.comercio || 'Todos')}</strong> • Cód: <strong>${escapeHtml(rawCode)}</strong>${matchInfo}`;
 
   const qtyInput = document.getElementById('input-sheet-qty');
   const expiryCheck = document.getElementById('chk-has-expiry');
@@ -889,6 +1011,10 @@ function showLastScannedCard(product, qty) {
   const container = document.getElementById('inv-last-scanned-container');
   if (!container) return;
 
+  const matchBadge = product._matchedBy && product._matchedBy !== 'Sin coincidencia'
+    ? `<span style="font-size: 0.68rem; background: rgba(99, 102, 241, 0.12); color: #6366f1; padding: 1px 6px; border-radius: 4px; font-weight: 600; margin-left: 0.35rem;">Por ${escapeHtml(product._matchedBy)}</span>`
+    : '';
+
   container.style.display = 'block';
   container.innerHTML = `
     <div class="inv-last-scanned-card">
@@ -897,7 +1023,10 @@ function showLastScannedCard(product, qty) {
       </div>
       <div style="flex: 1; overflow: hidden;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-family: monospace; font-weight: 700; font-size: 0.8rem; color: var(--color-primary);">${escapeHtml(product.sku)}</span>
+          <div style="display: flex; align-items: center; overflow: hidden;">
+            <span style="font-family: monospace; font-weight: 700; font-size: 0.8rem; color: var(--color-primary);">${escapeHtml(product.sku)}</span>
+            ${matchBadge}
+          </div>
           <span style="font-weight: 800; color: #10b981; font-size: 0.95rem;">+${qty} un.</span>
         </div>
         <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
