@@ -4141,132 +4141,293 @@ async function renderInventory() {
     const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product">Nuevo Producto</button>';
 
     appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + `
-      <div class="card">
-        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Stock Actual</h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualización, control de alertas y movimientos físicos de stock.</p>
-          </div>
-          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-            <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="text" id="inventory-search" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 240px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.inventorySearchQuery || ''}">
+      <!-- Pestañas de Navegación de Inventario Cliente -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); margin-bottom: 1.25rem;">
+        <div class="integration-tabs" style="display: flex; gap: 0.5rem; padding-bottom: 0px; border-bottom: none; margin-bottom: 0;">
+          <button class="integration-tab client-inv-tab active" data-tab="tab-client-inventory-stock" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem;">
+            <i class="ri-archive-line"></i> Stock Actual
+          </button>
+          <button class="integration-tab client-inv-tab" data-tab="tab-client-inventory-requests" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem;">
+            <i class="ri-survey-line"></i> Solicitudes de Inventario
+            <span id="client-requests-tab-badge" style="display: none; background: #6366f1; color: #fff; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 9999px; margin-left: 0.25rem;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="client-inv-tab-content">
+        <!-- PESTAÑA 1: Stock Actual -->
+        <div id="tab-client-inventory-stock" class="client-inv-tab-pane" style="display: block;">
+          <div class="card">
+            <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+              <div>
+                <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Stock Actual</h3>
+                <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualización, control de alertas y movimientos físicos de stock.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="inventory-search" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 240px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.inventorySearchQuery || ''}">
+                </div>
+                <div>
+                  <select id="inventory-type-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
+                    <option value="">Todos los Tipos</option>
+                    <option value="fisico" ${window.inventoryTypeFilter === 'fisico' ? 'selected' : ''}>Físico</option>
+                    <option value="pack" ${window.inventoryTypeFilter === 'pack' ? 'selected' : ''}>Pack</option>
+                    <option value="online" ${window.inventoryTypeFilter === 'online' ? 'selected' : ''}>Online</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem; background: var(--color-bg-alt); padding: 0.35rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); height: 38px; font-size: 0.85rem; color: var(--color-text-main);">
+                  <span style="font-weight: 600; margin-right: 0.25rem;">Ver:</span>
+                  <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                    <input type="checkbox" id="inv-filter-instock" ${window.inventoryFilterInStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #10b981;"> En Stock
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                    <input type="checkbox" id="inv-filter-lowstock" ${window.inventoryFilterLowStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #f59e0b;"> Bajo Stock
+                  </label>
+                  <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                    <input type="checkbox" id="inv-filter-outofstock" ${window.inventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
+                  </label>
+                </div>
+                <button id="btn-refresh-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: rgba(99, 102, 241, 0.05); cursor: pointer; border-radius: var(--radius-md); font-weight: 600;" title="Actualizar y refrescar datos de stock">
+                  <i class="ri-refresh-line" id="icon-refresh-inventory"></i> Actualizar
+                </button>
+                <div id="client-inventory-export-container"></div>
+                <button id="btn-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+                  <i class="ri-upload-2-line"></i> Asignar Stock Masivo
+                </button>
+                <button id="btn-adjust-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+                  <i class="ri-equalizer-line"></i> Ajustar Stock
+                </button>
+                <button id="btn-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+                  <i class="ri-arrow-left-right-line"></i> Traslado de Stock
+                </button>
+                <button id="btn-request-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Generar Solicitud y Hoja de Conteo de Bodega">
+                  <i class="ri-survey-line"></i> Solicitar Inventario
+                </button>
+                <button id="btn-view-inventory-requests" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Ver Historial de Solicitudes">
+                  <i class="ri-history-line"></i> Solicitudes <span id="client-requests-badge" style="display: none; background: #6366f1; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 9999px; margin-left: 0.25rem;">0</span>
+                </button>
+                ${actionBtn}
+              </div>
             </div>
-            <div>
-              <select id="inventory-type-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
-                <option value="">Todos los Tipos</option>
-                <option value="fisico" ${window.inventoryTypeFilter === 'fisico' ? 'selected' : ''}>Físico</option>
-                <option value="pack" ${window.inventoryTypeFilter === 'pack' ? 'selected' : ''}>Pack</option>
-                <option value="online" ${window.inventoryTypeFilter === 'online' ? 'selected' : ''}>Online</option>
-              </select>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+                <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+                  <thead>
+                    <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                      <th style="width: 36px; padding: 0.65rem 0.5rem; text-align: center;">
+                        <input type="checkbox" id="select-all-client-inventory" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+                      </th>
+                      <th class="inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="product_type" title="Tipo de producto: Físico, Pack o Virtual/Online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="sort-indicator"></span></span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="shelfPhysical" title="En Estante: Cantidad física libre en estantería para conteo físico en bodega" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          EST. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="En Estante: Cantidad física libre en repisa/estantería para conteo físico en bodega"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="reserved" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          MESA <i class="ri-information-line" style="color: #f59e0b; font-size: 0.85rem;" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="committed" title="Comprometido: Unidades en pedidos activos pendientes por pickear aún en estante" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          COMP. <i class="ri-information-line" style="color: var(--color-accent); font-size: 0.85rem;" title="Comprometido: Unidades en pedidos pendientes por pickear aún en estante"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="pending" title="Pendiente: Unidades pendientes por recibir en compras o traslados en camino" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          PEND. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="Pendiente: Unidades pendientes de recibir (compras o traslados en camino)"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="available" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          D. BOD <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="totalAvailable" title="Disponible Total: Unidades consolidadas libres para venta en tus canales online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          DISP. <i class="ri-information-line" style="color: var(--color-success); font-size: 0.85rem;" title="Disponible Total: Unidades disponibles consolidadas para venta en e-commerce"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="physical" title="Físico Total: Cantidad física total en bodega (Estante + Mesa)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          FÍSICO <i class="ri-information-line" style="color: var(--color-text-main); font-size: 0.85rem;" title="Físico Total: Cantidad física total del producto en toda la bodega (Estante + Mesa)"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="stock_critico" title="Stock Crítico: Umbral de stock mínimo para alertas" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                          CRÍT. <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Stock Crítico: Umbral de stock mínimo definido para alertas"></i> <span class="sort-indicator"></span>
+                        </span>
+                      </th>
+                      <th class="inventory-sortable" data-sort="status" title="Estado de stock según disponibilidad" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; text-align: center; white-space: nowrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="sort-indicator"></span></span>
+                      </th>
+                      <th title="Acciones y operaciones del producto" style="text-align: center; width: 85px; padding: 0.65rem 0.5rem; white-space: nowrap;">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+                    <!-- Carga dinámica -->
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.75rem; background: var(--color-bg-alt); padding: 0.35rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); height: 38px; font-size: 0.85rem; color: var(--color-text-main);">
-              <span style="font-weight: 600; margin-right: 0.25rem;">Ver:</span>
-              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
-                <input type="checkbox" id="inv-filter-instock" ${window.inventoryFilterInStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #10b981;"> En Stock
-              </label>
-              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
-                <input type="checkbox" id="inv-filter-lowstock" ${window.inventoryFilterLowStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #f59e0b;"> Bajo Stock
-              </label>
-              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
-                <input type="checkbox" id="inv-filter-outofstock" ${window.inventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
-              </label>
-            </div>
-            <button id="btn-refresh-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: rgba(99, 102, 241, 0.05); cursor: pointer; border-radius: var(--radius-md); font-weight: 600;" title="Actualizar y refrescar datos de stock">
-              <i class="ri-refresh-line" id="icon-refresh-inventory"></i> Actualizar
-            </button>
-            <div id="client-inventory-export-container"></div>
-            <button id="btn-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-upload-2-line"></i> Asignar Stock Masivo
-            </button>
-            <button id="btn-adjust-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-equalizer-line"></i> Ajustar Stock
-            </button>
-            <button id="btn-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-arrow-left-right-line"></i> Traslado de Stock
-            </button>
-            <button id="btn-request-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Generar Solicitud y Hoja de Conteo de Bodega">
-              <i class="ri-survey-line"></i> Solicitar Inventario
-            </button>
-            <button id="btn-view-inventory-requests" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Ver Historial de Solicitudes">
-              <i class="ri-history-line"></i> Solicitudes <span id="client-requests-badge" style="display: none; background: #6366f1; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 9999px; margin-left: 0.25rem;">0</span>
-            </button>
-            ${actionBtn}
           </div>
         </div>
-        <div class="card-body" style="padding: 0;">
-          <div class="table-responsive" style="overflow-x: auto; width: 100%;">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
-              <thead>
-                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th style="width: 36px; padding: 0.65rem 0.5rem; text-align: center;">
-                    <input type="checkbox" id="select-all-client-inventory" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
-                  </th>
-                  <th class="inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="product_type" title="Tipo de producto: Físico, Pack o Virtual/Online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="shelfPhysical" title="En Estante: Cantidad física libre en estantería para conteo físico en bodega" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      EST. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="En Estante: Cantidad física libre en repisa/estantería para conteo físico en bodega"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="reserved" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      MESA <i class="ri-information-line" style="color: #f59e0b; font-size: 0.85rem;" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="committed" title="Comprometido: Unidades en pedidos activos pendientes por pickear aún en estante" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      COMP. <i class="ri-information-line" style="color: var(--color-accent); font-size: 0.85rem;" title="Comprometido: Unidades en pedidos pendientes por pickear aún en estante"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="pending" title="Pendiente: Unidades pendientes por recibir en compras o traslados en camino" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      PEND. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="Pendiente: Unidades pendientes de recibir (compras o traslados en camino)"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="available" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      D. BOD <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="totalAvailable" title="Disponible Total: Unidades consolidadas libres para venta en tus canales online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      DISP. <i class="ri-information-line" style="color: var(--color-success); font-size: 0.85rem;" title="Disponible Total: Unidades disponibles consolidadas para venta en e-commerce"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="physical" title="Físico Total: Cantidad física total en bodega (Estante + Mesa)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      FÍSICO <i class="ri-information-line" style="color: var(--color-text-main); font-size: 0.85rem;" title="Físico Total: Cantidad física total del producto en toda la bodega (Estante + Mesa)"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="stock_critico" title="Stock Crítico: Umbral de stock mínimo para alertas" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
-                      CRÍT. <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Stock Crítico: Umbral de stock mínimo definido para alertas"></i> <span class="sort-indicator"></span>
-                    </span>
-                  </th>
-                  <th class="inventory-sortable" data-sort="status" title="Estado de stock según disponibilidad" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="sort-indicator"></span></span>
-                  </th>
-                  <th title="Acciones y operaciones del producto" style="text-align: center; width: 85px; padding: 0.65rem 0.5rem; white-space: nowrap;">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
-                <!-- Carga dinámica -->
-              </tbody>
-            </table>
+
+        <!-- PESTAÑA 2: Solicitudes de Inventario -->
+        <div id="tab-client-inventory-requests" class="client-inv-tab-pane" style="display: none; animation: fadeIn 0.25s ease;">
+          <div class="card" style="margin-bottom: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm);">
+            <div style="padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--color-border);">
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">
+                    <i class="ri-survey-line" style="color: #6366f1;"></i> Solicitudes de Inventario
+                  </h3>
+                  <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; font-weight: 600; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; border: 1px solid rgba(99, 102, 241, 0.25);">
+                    Toma de Stock Físico
+                  </span>
+                </div>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+                  Programa tomas de inventario físico en bodega, realiza seguimiento de conteos y firma actas de conformidad digital.
+                </p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <button type="button" class="btn btn-outline" id="btn-toggle-instructions" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; color: var(--color-text-main); border-color: var(--color-border); cursor: pointer; border-radius: var(--radius-md);">
+                  <i class="ri-question-line" style="color: #6366f1;"></i> <span id="lbl-toggle-instructions">Ocultar Instrucciones</span>
+                </button>
+                <button type="button" class="btn btn-primary" id="btn-tab-create-request" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.88rem; font-weight: 600; padding: 0 1.25rem; border-radius: var(--radius-md); background: #6366f1; border-color: #6366f1; cursor: pointer; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);">
+                  <i class="ri-add-line" style="font-size: 1.1rem;"></i> Solicitar Inventario
+                </button>
+              </div>
+            </div>
+
+            <!-- Guía Interactiva e Instrucciones del Proceso (Paso a Paso) -->
+            <div id="section-inventory-instructions" style="padding: 1.5rem; background: linear-gradient(180deg, rgba(99, 102, 241, 0.03) 0%, rgba(99, 102, 241, 0.01) 100%); border-bottom: 1px solid var(--color-border);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #6366f1; color: #fff; font-size: 0.9rem;">
+                    <i class="ri-compass-3-line"></i>
+                  </span>
+                  <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main);">
+                    ¿Cómo funciona el proceso de Toma de Inventario?
+                  </h4>
+                </div>
+                <span style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                  Flujo de 4 pasos garantizado
+                </span>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+                <!-- Paso 1 -->
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; overflow: hidden; box-shadow: var(--shadow-sm);">
+                  <div style="position: absolute; top: -10px; right: -5px; font-size: 3.5rem; font-weight: 900; color: rgba(99, 102, 241, 0.06); line-height: 1; pointer-events: none; user-select: none;">1</div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(99, 102, 241, 0.15); color: #6366f1; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem;">1</span>
+                    <strong style="color: var(--color-text-main); font-size: 0.9rem;">Envío de Solicitud</strong>
+                  </div>
+                  <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    Haz clic en <strong>Solicitar Inventario</strong> y elige si deseas un conteo <strong>Completo</strong> (toda la bodega) o <strong>Selectivo</strong> (SKUs específicos). Define el motivo, prioridad y punto de corte de pedidos.
+                  </p>
+                </div>
+
+                <!-- Paso 2 -->
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; overflow: hidden; box-shadow: var(--shadow-sm);">
+                  <div style="position: absolute; top: -10px; right: -5px; font-size: 3.5rem; font-weight: 900; color: rgba(59, 130, 246, 0.06); line-height: 1; pointer-events: none; user-select: none;">2</div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem;">2</span>
+                    <strong style="color: var(--color-text-main); font-size: 0.9rem;">Hoja de Conteo</strong>
+                  </div>
+                  <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    El sistema emite la <strong>Hoja Oficial de Conteo de Bodega</strong> (PDF y Excel) con códigos de barras y casillas en blanco para levantamiento a ciegas (<em>blind count</em>), garantizando total imparcialidad.
+                  </p>
+                </div>
+
+                <!-- Paso 3 -->
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; overflow: hidden; box-shadow: var(--shadow-sm);">
+                  <div style="position: absolute; top: -10px; right: -5px; font-size: 3.5rem; font-weight: 900; color: rgba(245, 158, 11, 0.06); line-height: 1; pointer-events: none; user-select: none;">3</div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(245, 158, 11, 0.15); color: #d97706; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem;">3</span>
+                    <strong style="color: var(--color-text-main); font-size: 0.9rem;">Conteo en Bodega</strong>
+                  </div>
+                  <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    El equipo de operaciones STOCKA recorre los racks, estanterías y mesas de preparación, registrando las unidades físicas pieza por pieza. Si surge alguna duda, te pedirán aclaración en esta pestaña.
+                  </p>
+                </div>
+
+                <!-- Paso 4 -->
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; overflow: hidden; box-shadow: var(--shadow-sm);">
+                  <div style="position: absolute; top: -10px; right: -5px; font-size: 3.5rem; font-weight: 900; color: rgba(16, 185, 129, 0.06); line-height: 1; pointer-events: none; user-select: none;">4</div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="width: 26px; height: 26px; border-radius: 6px; background: rgba(16, 185, 129, 0.15); color: #059669; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem;">4</span>
+                    <strong style="color: var(--color-text-main); font-size: 0.9rem;">Cuadratura y Acta</strong>
+                  </div>
+                  <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    Se genera el <strong>Informe Oficial de Resultados</strong> con diferencias Físico vs Sistema. Tras revisarlo, firmas digitalmente el <strong>Acta de Conformidad</strong> para el ajuste final de stock.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Notas y Tips -->
+              <div style="display: flex; gap: 1rem; flex-wrap: wrap; background: rgba(99, 102, 241, 0.05); border: 1px solid rgba(99, 102, 241, 0.15); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-main);">
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-shield-check-line" style="color: #059669; font-size: 1rem;"></i>
+                  <span><strong>Respaldo Oficial:</strong> Todas las actas firmadas son documentos con validez legal para auditorías contables.</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-scissors-cut-line" style="color: #6366f1; font-size: 1rem;"></i>
+                  <span><strong>Punto de Corte:</strong> Se respeta el último pedido preparado para aislar pedidos activos de la bodega.</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-time-line" style="color: #d97706; font-size: 1rem;"></i>
+                  <span><strong>Tiempos:</strong> Solicitudes revisadas y programadas dentro de 24 horas hábiles.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra de Filtros y Búsqueda -->
+            <div style="padding: 1rem 1.5rem; background: var(--color-bg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--color-border);">
+              <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="req-tab-search-input" class="form-input" placeholder="Buscar por folio o bodega..." style="width: 240px; padding-left: 2.25rem; height: 36px; font-size: 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);">
+                </div>
+                <div>
+                  <select id="req-tab-status-filter" class="form-input" style="height: 36px; font-size: 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.75rem; color: var(--color-text-main); cursor: pointer;">
+                    <option value="">Todos los Estados</option>
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="En Conteo">En Conteo</option>
+                    <option value="Requiere Información">Requiere Información</option>
+                    <option value="Finalizada">Finalizada</option>
+                    <option value="Cancelada">Cancelada</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <button type="button" class="btn btn-outline" id="btn-refresh-requests-tab" style="height: 36px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer;">
+                  <i class="ri-refresh-line" id="icon-refresh-req-tab"></i> Actualizar
+                </button>
+              </div>
+            </div>
+
+            <!-- Contenedor de la Tabla de Solicitudes -->
+            <div id="client-requests-tab-table-container" style="padding: 0;">
+              <!-- Se carga dinámicamente con loadClientInventoryRequestsTab -->
+            </div>
           </div>
         </div>
       </div>
+    `;
     `;
 
     // Asignar listener para el selector de comercio
@@ -8668,7 +8829,14 @@ async function renderOrders() {
                 <th style="width: 40px; text-align: center; padding: 0.65rem 0.75rem;">
                   <input type="checkbox" id="select-all-client-orders" style="cursor: pointer;">
                 </th>
-                <th style="min-width:140px; padding: 0.65rem 0.75rem;">ID Pedido</th>
+                <th style="min-width:140px; padding: 0.65rem 0.75rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>ID Pedido</span>
+                    <button id="client-copy-selected-ids-header-btn" onclick="event.stopPropagation(); window.copyClientSelectedOrderNumbers(Array.from(document.querySelectorAll('.order-select-checkbox:checked')).map(cb => cb.getAttribute('data-order-id')), this)" type="button" class="btn-copy-field" title="Copiar números de pedidos seleccionados" style="display: none; background: transparent; border: none; padding: 0.1rem 0.25rem; cursor: pointer; color: var(--color-primary); font-size: 0.85rem; border-radius: 4px; align-items: center; justify-content: center; line-height: 1;">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
+                  </div>
+                </th>
                 <th style="padding: 0.65rem 0.75rem;">Origen</th>
                 <th style="padding: 0.65rem 0.75rem;">Fecha</th>
                 <th style="text-align:center; padding: 0.65rem 0.75rem;">Artículos</th>
@@ -10121,7 +10289,10 @@ window.applyClientWmsFiltersAndRender = function() {
         </td>
         <td style="padding: 0.45rem 0.75rem;">
           <div style="display:flex; flex-direction:column; gap:0.2rem;">
-            <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
+            <div style="display:inline-flex; align-items:center;">
+              <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
+              ${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number || order.id, 'Número de pedido', 'Copiar número de pedido') : ''}
+            </div>
             ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
           </div>
         </td>
@@ -32464,12 +32635,15 @@ window.updateClientOrdersBulkSelection = function() {
   const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
   const bulkBar = document.getElementById('client-orders-bulk-actions');
   const countEl = document.getElementById('selected-orders-count');
+  const headerCopyBtn = document.getElementById('client-copy-selected-ids-header-btn');
   
   if (checkboxes.length > 0) {
     if (bulkBar) bulkBar.style.display = 'flex';
     if (countEl) countEl.textContent = checkboxes.length;
+    if (headerCopyBtn) headerCopyBtn.style.display = 'inline-flex';
   } else {
     if (bulkBar) bulkBar.style.display = 'none';
+    if (headerCopyBtn) headerCopyBtn.style.display = 'none';
   }
 };
 
@@ -32496,9 +32670,10 @@ window.copyClientSelectedOrderNumbers = function(selectedOrderIds, btn) {
   }
 
   const allOrders = window.clientLoadedOrders || window.loadedOrders || [];
-  const selectedOrders = allOrders.filter(o => ids.includes(o.id));
-
-  const orderNumbers = selectedOrders.map(o => {
+  const orderMap = new Map(allOrders.map(o => [o.id, o]));
+  const orderNumbers = ids.map(id => {
+    const o = orderMap.get(id);
+    if (!o) return id;
     const num = o.external_order_number || o.raw_shopify_data?.name || o.order_number || o.id;
     return String(num || '').trim();
   }).filter(Boolean);
@@ -38587,7 +38762,8 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 async function updateClientInventoryRequestsBadge(commerce) {
   const badge = document.getElementById('client-requests-badge');
   const sidebarBadge = document.getElementById('badge-inventory-client');
-  if (!badge && !sidebarBadge) return;
+  const tabBadge = document.getElementById('client-requests-tab-badge');
+  if (!badge && !sidebarBadge && !tabBadge) return;
 
   const updateEl = (el, count) => {
     if (!el) return;
@@ -38623,6 +38799,7 @@ async function updateClientInventoryRequestsBadge(commerce) {
       const count = data.length;
       updateEl(badge, count);
       updateEl(sidebarBadge, count);
+      updateEl(tabBadge, count);
     } else {
       // Fallback si la sintaxis not in diera error
       const fb = await supabase
@@ -38633,6 +38810,7 @@ async function updateClientInventoryRequestsBadge(commerce) {
         const count = fb.data.length;
         updateEl(badge, count);
         updateEl(sidebarBadge, count);
+        updateEl(tabBadge, count);
       }
     }
   } catch (e) {
@@ -39175,6 +39353,253 @@ async function openRequestInventoryModal(commerce, onComplete) {
     }
   });
 }
+
+// ----------------------------------------------------
+// TAB DE SOLICITUDES DE INVENTARIO (CLIENTE)
+// ----------------------------------------------------
+
+async function loadClientInventoryRequestsTab(commerce) {
+  const container = document.getElementById('client-requests-tab-table-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #6366f1; display: block; margin-bottom: 0.65rem;"></i>
+      <span style="font-size: 0.9rem; font-weight: 500;">Cargando historial de solicitudes de inventario...</span>
+    </div>
+  `;
+
+  try {
+    const targetCommerce = commerce || window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'no asignado');
+
+    const { data: requests, error } = await supabase
+      .from('inventory_requests')
+      .select('*')
+      .eq('comercio', targetCommerce)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    window.cachedClientInventoryRequests = requests || [];
+    renderClientInventoryRequestsTabRows(window.cachedClientInventoryRequests, targetCommerce);
+    updateClientInventoryRequestsBadge(targetCommerce);
+  } catch (err) {
+    console.error('Error loading client inventory requests tab:', err);
+    container.innerHTML = `
+      <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--color-danger);">
+        <i class="ri-error-warning-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        <p style="margin: 0; font-weight: 600;">Error al cargar las solicitudes: ${err.message}</p>
+        <button type="button" class="btn btn-outline btn-sm" onclick="window.loadClientInventoryRequestsTab('${commerce}')" style="margin-top: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
+          <i class="ri-refresh-line"></i> Reintentar
+        </button>
+      </div>
+    `;
+  }
+}
+window.loadClientInventoryRequestsTab = loadClientInventoryRequestsTab;
+
+function renderClientInventoryRequestsTabRows(allRequests, commerce) {
+  const container = document.getElementById('client-requests-tab-table-container');
+  if (!container) return;
+
+  const searchVal = (document.getElementById('req-tab-search-input')?.value || '').toLowerCase().trim();
+  const statusFilter = document.getElementById('req-tab-status-filter')?.value || '';
+
+  let filtered = allRequests || [];
+
+  if (searchVal) {
+    filtered = filtered.filter(r => 
+      (r.folio && r.folio.toLowerCase().includes(searchVal)) ||
+      (r.id && r.id.toLowerCase().includes(searchVal)) ||
+      (r.warehouse_name && r.warehouse_name.toLowerCase().includes(searchVal)) ||
+      (r.reason && r.reason.toLowerCase().includes(searchVal)) ||
+      (r.cutoff_order && r.cutoff_order.toLowerCase().includes(searchVal)) ||
+      (r.notes && r.notes.toLowerCase().includes(searchVal))
+    );
+  }
+
+  if (statusFilter) {
+    if (statusFilter === 'Requiere Información') {
+      filtered = filtered.filter(r => r.status === 'Requiere Información' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Requiere Información]')));
+    } else {
+      filtered = filtered.filter(r => r.status === statusFilter);
+    }
+  }
+
+  if (filtered.length === 0) {
+    if (!allRequests || allRequests.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 3.5rem 1.5rem; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+          <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(99, 102, 241, 0.1); color: #6366f1; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin-bottom: 0.25rem;">
+            <i class="ri-survey-line"></i>
+          </div>
+          <h4 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">
+            No registras solicitudes de inventario aún
+          </h4>
+          <p style="margin: 0; max-width: 480px; font-size: 0.88rem; color: var(--color-text-muted); line-height: 1.5;">
+            Inicia tu primera solicitud para que el equipo de operaciones en bodega realice el levantamiento físico de tu stock con respaldo oficial y acta de cuadratura.
+          </p>
+          <button type="button" class="btn btn-primary" id="btn-tab-create-request-empty" style="margin-top: 0.5rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; padding: 0 1.25rem; border-radius: var(--radius-md); background: #6366f1; border-color: #6366f1; cursor: pointer;">
+            <i class="ri-add-line"></i> Solicitar Mi Primer Inventario
+          </button>
+        </div>
+      `;
+      document.getElementById('btn-tab-create-request-empty')?.addEventListener('click', () => {
+        openRequestInventoryModal(commerce, () => {
+          loadClientInventoryRequestsTab(commerce);
+        });
+      });
+      return;
+    } else {
+      container.innerHTML = `
+        <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-search-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.4;"></i>
+          <p style="margin: 0; font-weight: 500;">No se encontraron solicitudes que coincidan con la búsqueda o filtro aplicado.</p>
+        </div>
+      `;
+      return;
+    }
+  }
+
+  const rowsHtml = filtered.map(r => {
+    const dateStr = new Date(r.created_at).toLocaleDateString('es-CL', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
+    if (r.status === 'En Conteo') {
+      statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3);">En Conteo</span>';
+    } else if (r.status === 'Aceptada') {
+      statusBadge = '<span class="badge badge-info" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;">Aceptada</span>';
+    } else if (r.status === 'Requiere Información' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Requiere Información]'))) {
+      statusBadge = '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid #f59e0b; font-weight: bold;">Requiere Info</span>';
+    } else if (r.status === 'Rechazada' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Rechazada]'))) {
+      statusBadge = '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.15); color: #dc2626; border: 1px solid #ef4444;">Rechazada</span>';
+    } else if (r.status === 'Finalizada') {
+      statusBadge = '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid #10b981;">Finalizada</span>';
+    } else if (r.status === 'Cancelada') {
+      statusBadge = '<span class="badge badge-neutral" style="background: var(--color-bg); color: var(--color-text-muted); border: 1px solid var(--color-border);">Cancelada</span>';
+    }
+
+    let priorityColor = '#64748b';
+    let priorityBg = 'rgba(100, 116, 139, 0.1)';
+    if (r.priority === 'Alta' || r.priority === 'Urgente') {
+      priorityColor = '#ef4444';
+      priorityBg = 'rgba(239, 68, 68, 0.1)';
+    } else if (r.priority === 'Media') {
+      priorityColor = '#d97706';
+      priorityBg = 'rgba(217, 119, 6, 0.1)';
+    }
+
+    const isPending = r.status === 'Pendiente';
+    const isFinalized = r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined);
+    const isSigned = !!(r.signed_at || r.signed_by);
+    const requiresInfo = r.status === 'Requiere Información' || (r.admin_notes && r.admin_notes.includes('[ESTADO: Requiere Información]'));
+
+    let signatureBadge = '';
+    if (isFinalized) {
+      if (isSigned) {
+        const signDate = r.signed_at ? new Date(r.signed_at).toLocaleDateString('es-CL') : '';
+        signatureBadge = `<div style="margin-top: 4px;"><span style="font-size: 0.7rem; font-weight: 700; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Firmada el ${signDate}"><i class="ri-checkbox-circle-fill"></i> Acta Firmada</span></div>`;
+      } else {
+        signatureBadge = `<div style="margin-top: 4px;"><span style="font-size: 0.7rem; font-weight: 700; color: #b45309; background: #fefce8; border: 1px solid #fef08a; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-quill-pen-line"></i> Pend. Firma</span></div>`;
+      }
+    }
+
+    const typeLabel = r.type === 'selectivo' ? 'Selectivo' : 'Completo';
+    const skusCount = r.total_skus || (r.products_list || []).length;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.15s ease;">
+        <td style="padding: 0.85rem 1rem;">
+          <div style="display: flex; flex-direction: column;">
+            <code style="font-family: monospace; font-size: 0.88rem; font-weight: 700; color: #6366f1;">${r.folio || r.id.substring(0, 8)}</code>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">Tipo: ${typeLabel}</span>
+          </div>
+        </td>
+        <td style="padding: 0.85rem 1rem; color: var(--color-text-muted); font-size: 0.82rem; white-space: nowrap;">
+          ${dateStr}
+        </td>
+        <td style="padding: 0.85rem 1rem; font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
+          ${r.warehouse_name || 'Todas las bodegas'}
+          ${r.cutoff_order ? `<div style="font-size: 0.72rem; color: #6366f1; margin-top: 2px;"><i class="ri-scissors-cut-line"></i> Corte: ${r.cutoff_order}</div>` : ''}
+        </td>
+        <td style="padding: 0.85rem 1rem; text-align: center;">
+          <span style="display: inline-block; padding: 0.15rem 0.55rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 12px; font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">
+            ${skusCount} SKUs
+          </span>
+        </td>
+        <td style="padding: 0.85rem 1rem; text-align: center;">
+          <span style="font-size: 0.74rem; font-weight: 700; color: ${priorityColor}; background: ${priorityBg}; padding: 0.2rem 0.55rem; border-radius: 4px; display: inline-block;">
+            ${r.priority || 'Normal'}
+          </span>
+        </td>
+        <td style="padding: 0.85rem 1rem; text-align: center;">
+          ${statusBadge}
+          ${signatureBadge}
+        </td>
+        <td style="padding: 0.85rem 1rem; text-align: center;">
+          <div style="display: inline-flex; align-items: center; gap: 0.35rem; justify-content: center;">
+            ${(isFinalized && !isSigned) ? `
+              <button class="btn btn-sm btn-client-sign-acta" onclick="window.openInventoryDigitalSignatureModal({ req: window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), signerType: 'client', onSigned: () => { window.loadClientInventoryRequestsTab('${commerce}'); if (typeof openClientInventoryRequestsModal === 'function') openClientInventoryRequestsModal('${commerce}'); } })" title="Firmar Acta de Inventario de Conformidad" style="padding: 0.35rem 0.65rem; background: #059669; color: #fff; border: 1px solid #047857; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
+                <i class="ri-quill-pen-line"></i> Firmar Acta
+              </button>
+            ` : ''}
+            ${requiresInfo ? `
+              <button class="btn btn-warning btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.35rem 0.65rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
+                <i class="ri-question-answer-line"></i> Aclarar Info
+              </button>
+            ` : ''}
+            ${isFinalized ? `
+              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryReportPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer; border-radius: 6px;">
+                <i class="ri-file-chart-line"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryReportExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Informe Oficial de Resultados (Excel)" style="padding: 0.35rem 0.55rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); cursor: pointer; border-radius: 6px;">
+                <i class="ri-file-excel-2-line"></i>
+              </button>
+            ` : ''}
+            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja de Terreno (PDF)" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.06); cursor: pointer; border-radius: 6px;">
+              <i class="ri-file-pdf-line"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla de Conteo (Excel)" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: rgba(16, 185, 129, 0.06); cursor: pointer; border-radius: 6px;">
+              <i class="ri-file-excel-line"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Desglose y Cuadratura" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: 6px;">
+              <i class="ri-eye-line"></i>
+            </button>
+            ${isPending ? `
+              <button class="btn btn-outline btn-sm" onclick="cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer; border-radius: 6px;">
+                <i class="ri-close-circle-line"></i>
+              </button>
+            ` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+      <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+        <thead>
+          <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em;">
+            <th style="padding: 0.75rem 1rem;">Folio / Alcance</th>
+            <th style="padding: 0.75rem 1rem;">Fecha</th>
+            <th style="padding: 0.75rem 1rem;">Bodega / Corte</th>
+            <th style="padding: 0.75rem 1rem; text-align: center;">SKUs</th>
+            <th style="padding: 0.75rem 1rem; text-align: center;">Prioridad</th>
+            <th style="padding: 0.75rem 1rem; text-align: center;">Estado y Firma</th>
+            <th style="padding: 0.75rem 1rem; text-align: center;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+window.renderClientInventoryRequestsTabRows = renderClientInventoryRequestsTabRows;
 
 async function openClientInventoryRequestsModal(commerce) {
   let modal = document.getElementById('modal-client-inventory-requests');

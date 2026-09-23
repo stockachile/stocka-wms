@@ -6,8 +6,10 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.0';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
+window.renderInventoryCountAdmin = renderInventoryCountAdmin;
 
 window.ALPHA_COBERTURA_36 = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
@@ -2966,6 +2968,13 @@ async function init() {
           } else if (view === 'inventory_admin') {
             viewTitle.textContent = 'Inventario';
             renderAdminInventory();
+          } else if (view === 'inventory_count') {
+            viewTitle.textContent = 'Conteo de Inventario Móvil';
+            if (typeof window.renderInventoryCountAdmin === 'function') {
+              window.renderInventoryCountAdmin();
+            } else if (typeof renderInventoryCountAdmin === 'function') {
+              renderInventoryCountAdmin();
+            }
           } else if (view === 'movements_admin') {
             viewTitle.textContent = 'Trazabilidad y Movimientos de Stock';
             renderAdminMovements();
@@ -3098,7 +3107,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' || view === 'movements_admin' || view === 'surveys_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'pos_admin' || view === 'tickets_admin' || view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -14080,6 +14089,9 @@ async function renderAdminInventory() {
           <i class="ri-survey-line" style="margin-right: 0.35rem;"></i> Solicitudes de Inventario
           <span id="badge-admin-inv-requests" style="display: none; background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 9999px; margin-left: 0.4rem;">0</span>
         </button>
+        <button id="tab-admin-inv-mobile-count" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.08); color: #059669; border-color: rgba(16, 185, 129, 0.3);" title="Abrir Conteo con Teléfono / Escáner Móvil">
+          <i class="ri-qr-scan-2-line" style="margin-right: 0.35rem;"></i> Conteo con Teléfono
+        </button>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <button id="btn-admin-refresh-global" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); background: transparent; font-weight: 600;" title="Actualizar y refrescar datos de inventario">
@@ -14102,9 +14114,18 @@ async function renderAdminInventory() {
   // Listeners de pestañas
   const tabStock = document.getElementById('tab-admin-inv-stock');
   const tabRequests = document.getElementById('tab-admin-inv-requests');
+  const tabMobileCount = document.getElementById('tab-admin-inv-mobile-count');
   const quickNewReq = document.getElementById('btn-admin-quick-new-request');
   const openDimsBtn = document.getElementById('btn-admin-open-dimensions-modal');
   const refreshGlobalBtn = document.getElementById('btn-admin-refresh-global');
+
+  if (tabMobileCount) {
+    tabMobileCount.addEventListener('click', () => {
+      const targetNav = document.querySelector('.nav-item[data-view="inventory_count"]');
+      if (targetNav) targetNav.click();
+      else if (typeof window.renderInventoryCountAdmin === 'function') window.renderInventoryCountAdmin();
+    });
+  }
 
   if (refreshGlobalBtn) {
     refreshGlobalBtn.addEventListener('click', async () => {
@@ -15175,6 +15196,21 @@ async function updateAdminInventoryRequestsTabBadge() {
         } else {
           sidebarBadge.style.display = 'none';
         }
+      }
+    }
+
+    // Actualizar badge de sesiones de conteo móvil activas
+    const { data: activeCounts, error: cntErr } = await supabase
+      .from('inventory_count_sessions')
+      .select('id')
+      .eq('status', 'activa');
+    const countBadge = document.getElementById('badge-active-counts');
+    if (countBadge) {
+      if (!cntErr && activeCounts && activeCounts.length > 0) {
+        countBadge.textContent = activeCounts.length;
+        countBadge.style.display = 'inline-block';
+      } else {
+        countBadge.style.display = 'none';
       }
     }
   } catch (e) {

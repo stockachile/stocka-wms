@@ -1,0 +1,783 @@
+/* css/inventory_count.css - Estilos para Toma de Inventario Móvil Colaborativo STOCKA WMS */
+
+/* Contenedor Principal */
+.inv-count-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+  font-family: inherit;
+}
+
+/* Barra Superior de Sesión y Colaboración */
+.inv-count-header-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.inv-count-header-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, #10b981 0%, #6366f1 100%);
+}
+
+.inv-count-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.inv-count-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.inv-count-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-live-green 1.8s infinite;
+}
+
+@keyframes pulse-live-green {
+  0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Pestañas de Navegación del Módulo */
+.inv-count-tabs {
+  display: flex;
+  gap: 0.5rem;
+  background: var(--color-bg);
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.inv-count-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  user-select: none;
+  flex: 1;
+  justify-content: center;
+}
+
+.inv-count-tab-btn:hover {
+  color: var(--color-text-main);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.inv-count-tab-btn.active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+}
+
+/* Tarjetas de Métricas Rápidas */
+.inv-count-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+
+.inv-count-kpi-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  text-align: center;
+  transition: transform 0.2s ease;
+}
+
+.inv-count-kpi-card:hover {
+  transform: translateY(-2px);
+}
+
+.inv-count-kpi-val {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--color-text-main);
+  line-height: 1.2;
+}
+
+.inv-count-kpi-lbl {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-top: 0.2rem;
+}
+
+/* ========================================= */
+/* VISTA 1: ESCÁNER CON TELÉFONO (MÓVIL FIRST) */
+/* ========================================= */
+.inv-scanner-section {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 992px) {
+  .inv-scanner-section {
+    grid-template-columns: 460px 1fr;
+  }
+}
+
+.inv-scanner-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Visor de Cámara y Efectos */
+.inv-camera-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 380px;
+  background: #000;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#inv-qr-reader {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  overflow: hidden;
+}
+
+#inv-qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: var(--radius-md);
+}
+
+/* Ocultar elementos nativos molestos de html5-qrcode */
+#inv-qr-reader__scan_region {
+  border: none !important;
+}
+
+#inv-qr-reader__dashboard {
+  display: none !important;
+}
+
+/* Overlay Visual de Apuntado (Retícula Industrial) */
+.inv-scanner-reticle-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.inv-reticle-box {
+  width: 75%;
+  height: 55%;
+  max-width: 280px;
+  position: relative;
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+}
+
+/* Esquinas de enfoque */
+.inv-reticle-corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: #10b981;
+  border-style: solid;
+}
+
+.inv-reticle-corner.top-left { top: -2px; left: -2px; border-width: 3.5px 0 0 3.5px; border-top-left-radius: 6px; }
+.inv-reticle-corner.top-right { top: -2px; right: -2px; border-width: 3.5px 3.5px 0 0; border-top-right-radius: 6px; }
+.inv-reticle-corner.bottom-left { bottom: -2px; left: -2px; border-width: 0 0 3.5px 3.5px; border-bottom-left-radius: 6px; }
+.inv-reticle-corner.bottom-right { bottom: -2px; right: -2px; border-width: 0 3.5px 3.5px 0; border-bottom-right-radius: 6px; }
+
+/* Rayo Láser Animado */
+.inv-reticle-laser {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #10b981 50%, transparent 100%);
+  box-shadow: 0 0 10px #10b981;
+  animation: laser-scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes laser-scan {
+  0% { top: 10%; opacity: 0.8; }
+  50% { top: 90%; opacity: 1; }
+  100% { top: 10%; opacity: 0.8; }
+}
+
+/* Controles Flotantes sobre la Cámara */
+.inv-camera-toolbar {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 15;
+}
+
+.inv-cam-action-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.inv-cam-action-btn:hover {
+  background: rgba(15, 23, 42, 0.95);
+  transform: scale(1.05);
+}
+
+.inv-cam-action-btn.active-torch {
+  background: #f59e0b;
+  color: #000;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.8);
+  border-color: #f59e0b;
+}
+
+/* Flash de Éxito al Escanear */
+.inv-camera-flash-success {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(16, 185, 129, 0.45);
+  z-index: 20;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.inv-camera-flash-success.flash-now {
+  opacity: 1;
+}
+
+/* Alternativa de Búsqueda Manual / Escáner Láser de Mano */
+.inv-manual-input-box {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.inv-manual-input {
+  flex: 1;
+  height: 44px;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-main);
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: border-color 0.2s ease;
+}
+
+.inv-manual-input:focus {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+/* Modo Rápido / Switch de Inventario */
+.inv-switch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: 0.825rem;
+}
+
+.inv-mode-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.inv-mode-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.inv-mode-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--color-border);
+  transition: .3s;
+  border-radius: 24px;
+}
+
+.inv-mode-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+}
+
+.inv-mode-toggle input:checked + .inv-mode-slider {
+  background-color: #10b981;
+}
+
+.inv-mode-toggle input:checked + .inv-mode-slider:before {
+  transform: translateX(20px);
+}
+
+/* ========================================= */
+/* TARJETA DE ÚLTIMO PRODUCTO ESCANEADO */
+/* ========================================= */
+.inv-last-scanned-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem;
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  animation: scan-pulse-in 0.3s ease-out;
+}
+
+@keyframes scan-pulse-in {
+  from { transform: scale(0.97); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.inv-prod-thumb {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+/* ========================================= */
+/* MODAL / BOTTOM SHEET DE CONFIRMACIÓN      */
+/* ========================================= */
+.inv-sheet-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 10050;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.inv-sheet-overlay.active {
+  display: flex;
+  opacity: 1;
+}
+
+.inv-sheet-modal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--color-surface);
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+  padding: 1.25rem 1.5rem 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+@media (min-width: 600px) {
+  .inv-sheet-overlay {
+    align-items: center;
+  }
+  .inv-sheet-modal {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    transform: scale(0.95);
+  }
+  .inv-sheet-overlay.active .inv-sheet-modal {
+    transform: scale(1);
+  }
+}
+
+.inv-sheet-overlay.active .inv-sheet-modal {
+  transform: translateY(0);
+}
+
+.inv-sheet-drag-handle {
+  width: 44px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--color-border);
+  margin: 0 auto -0.25rem auto;
+}
+
+/* Stepper y Botones Numéricos Grandes */
+.inv-qty-stepper-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: var(--color-bg);
+  padding: 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+}
+
+.inv-qty-step-btn {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+  font-size: 1.4rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.inv-qty-step-btn:active {
+  transform: scale(0.92);
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--color-primary);
+}
+
+.inv-qty-number-input {
+  width: 110px;
+  height: 52px;
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--color-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: monospace;
+}
+
+/* Botones de incremento rápido */
+.inv-quick-add-chips {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.inv-quick-chip {
+  padding: 0.35rem 0.85rem;
+  border-radius: 99px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+  font-size: 0.825rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.inv-quick-chip:hover, .inv-quick-chip:active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* ========================================= */
+/* FEED DE ACTIVIDAD EN VIVO (COLABORATIVO)  */
+/* ========================================= */
+.inv-live-feed-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+  max-height: 480px;
+}
+
+.inv-live-feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.5rem;
+}
+
+.inv-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 380px;
+  padding-right: 4px;
+}
+
+.inv-feed-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.825rem;
+  animation: feed-slide-down 0.25s ease-out;
+}
+
+@keyframes feed-slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.inv-feed-item-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  overflow: hidden;
+}
+
+.inv-feed-item-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.inv-feed-item-details {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  overflow: hidden;
+}
+
+.inv-feed-item-sku {
+  font-weight: 700;
+  color: var(--color-text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv-feed-item-operator {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.inv-feed-item-qty {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #059669;
+  font-family: monospace;
+  background: rgba(16, 185, 129, 0.08);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+/* ========================================= */
+/* TABLA DE CUADRATURA Y DISCREPANCIAS       */
+/* ========================================= */
+.inv-recon-table-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.inv-recon-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.inv-recon-table-container {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.inv-recon-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.inv-recon-table th {
+  background: var(--color-bg);
+  padding: 0.65rem 0.75rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-size: 0.725rem;
+  letter-spacing: 0.04em;
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.inv-recon-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.inv-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.inv-diff-badge.matched {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.inv-diff-badge.surplus {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.inv-diff-badge.deficit {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* Responsividad Móvil Extrema */
+@media (max-width: 640px) {
+  .inv-count-header-card {
+    padding: 0.85rem;
+  }
+  .inv-count-tab-btn {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.78rem;
+  }
+  .inv-qty-step-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .inv-qty-number-input {
+    width: 90px;
+    font-size: 1.7rem;
+  }
+}
