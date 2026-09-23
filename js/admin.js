@@ -16109,8 +16109,25 @@ async function openAdminManageInventoryRequestModal(req) {
 
     const barcode = p.barcode || p.codigo_barra || '';
 
+    let whBadgeHtml = '';
+    if (p.warehouse_id) {
+      whBadgeHtml = `
+        <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.25); font-weight: 700; font-size: 0.75rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" title="Bodega: ${p.warehouse_name || 'Bodega'}">
+          <i class="ri-store-2-line"></i> ${p.warehouse_name || 'Bodega'}
+        </span>
+      `;
+    } else {
+      const warehousesList = window.allWarehousesList || [];
+      whBadgeHtml = `
+        <select class="form-input item-wh-select" data-prod-index="${idx}" style="height: 28px; font-size: 0.75rem; padding: 2px 4px; border: 1.5px solid #f59e0b; background: #fffbeb; color: #92400e; font-weight: 600; border-radius: 4px; width: 100%;">
+          <option value="" disabled selected>⚠️ Asignar bodega...</option>
+          ${warehousesList.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
+        </select>
+      `;
+    }
+
     return `
-      <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sys-qty="${sysQty}">
+      <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sys-qty="${sysQty}" data-wh-id="${p.warehouse_id || ''}" data-wh-name="${p.warehouse_name || ''}">
         <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
         <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
           <div style="font-weight: 700; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${p.sku || '-'}</div>
@@ -16119,7 +16136,9 @@ async function openAdminManageInventoryRequestModal(req) {
           </div>
         </td>
         <td style="padding: 0.5rem 0.6rem; font-size: 0.85rem; font-weight: 500;">${p.name || 'Sin nombre'}</td>
-        <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">${p.warehouse_name || req.warehouse_name || 'Bodega'}</td>
+        <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem;">
+          ${whBadgeHtml}
+        </td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-primary); background: var(--color-bg-alt);">${sysQty}</td>
         <!-- Input Conteo Físico Real -->
         <td style="padding: 0.4rem 0.6rem; text-align: center; width: 110px;">
@@ -16402,6 +16421,7 @@ async function openAdminManageInventoryRequestModal(req) {
       const sysQty = parseInt(tr.getAttribute('data-sys-qty') || '0', 10);
       const input = tr.querySelector('.counted-qty-input');
       const noteInput = tr.querySelector('.item-notes-input');
+      const whSelect = tr.querySelector('.item-wh-select');
 
       if (updatedProducts[idx]) {
         if (input && input.value !== '') {
@@ -16413,6 +16433,12 @@ async function openAdminManageInventoryRequestModal(req) {
           updatedProducts[idx].difference = null;
         }
         updatedProducts[idx].notes = noteInput ? noteInput.value.trim() : '';
+
+        // Si se seleccionó una bodega en el selector (solicitud legada o reasignada)
+        if (whSelect && whSelect.value) {
+          updatedProducts[idx].warehouse_id = whSelect.value;
+          updatedProducts[idx].warehouse_name = whSelect.options[whSelect.selectedIndex]?.getAttribute('data-name') || 'Bodega';
+        }
       }
     });
 
@@ -16631,7 +16657,8 @@ async function openAdminManageInventoryRequestModal(req) {
 
           // 2. Registrar en Movements
           const movType = diff > 0 ? 'in' : 'out';
-          const movQty = Math.abs(diff);
+          const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
+          const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
           await supabase
             .from('movements')
             .insert([{
@@ -16639,7 +16666,7 @@ async function openAdminManageInventoryRequestModal(req) {
               warehouse_id: finalWhId,
               type: movType,
               quantity: movQty,
-              reference_doc: `Ajuste Toma Inventario Folio ${folio} (${diff > 0 ? '+' : ''}${diff} uds)`
+              reference_doc: `Ajuste Toma Inventario Folio ${folio} - ${whName} (${diff > 0 ? '+' : ''}${diff} uds)`
             }]);
         }
       }
@@ -17194,28 +17221,70 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         return;
       }
 
-      const productsList = toInclude.map(p => {
-        let sysQty = 0;
-        const invs = p.inventory || [];
+      const whMap = new Map((warehouses || []).map(w => [String(w.id), w.name]));
+      const defaultWh = (warehouses || []).find(w => w.name && w.name.toLowerCase().includes('central')) || warehouses[0] || { id: null, name: 'Bodega Central' };
+
+      const productsList = [];
+      toInclude.forEach(p => {
+        const invs = Array.isArray(p.inventory) ? p.inventory : [];
         if (selectedWhId) {
           const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
-          sysQty = match ? (match.quantity || 0) : 0;
+          const sysQty = match ? (match.quantity || 0) : 0;
+          productsList.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || '',
+            warehouse_id: selectedWhId,
+            warehouse_name: selectedWhName,
+            system_qty: sysQty,
+            counted_qty: null,
+            difference: null,
+            notes: ''
+          });
         } else {
-          sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+          // Desglose multi-bodega: cada ubicación física con stock o asignación se lista en su propia fila
+          const validInvs = invs.filter(i => i && i.warehouse_id);
+          if (validInvs.length > 0) {
+            validInvs.forEach(inv => {
+              const whId = String(inv.warehouse_id);
+              const whName = whMap.get(whId) || inv.warehouses?.name || 'Bodega';
+              productsList.push({
+                id: p.id,
+                sku: p.sku,
+                name: p.name,
+                barcode: p.barcode || p.codigo_barra || '',
+                warehouse_id: whId,
+                warehouse_name: whName,
+                system_qty: (inv.quantity !== undefined && inv.quantity !== null) ? inv.quantity : 0,
+                counted_qty: null,
+                difference: null,
+                notes: ''
+              });
+            });
+          } else {
+            // Si el producto no tiene filas de inventario previas, se asigna a la bodega principal con stock 0
+            productsList.push({
+              id: p.id,
+              sku: p.sku,
+              name: p.name,
+              barcode: p.barcode || p.codigo_barra || '',
+              warehouse_id: defaultWh.id,
+              warehouse_name: defaultWh.name,
+              system_qty: 0,
+              counted_qty: null,
+              difference: null,
+              notes: ''
+            });
+          }
         }
+      });
 
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          barcode: p.barcode || p.codigo_barra || '',
-          warehouse_id: selectedWhId,
-          warehouse_name: selectedWhName,
-          system_qty: sysQty,
-          counted_qty: null,
-          difference: null,
-          notes: ''
-        };
+      // Ordenar agrupando por bodega y luego por SKU para facilitar el trabajo en terreno
+      productsList.sort((a, b) => {
+        const whComp = (a.warehouse_name || '').localeCompare(b.warehouse_name || '');
+        if (whComp !== 0) return whComp;
+        return (a.sku || '').localeCompare(b.sku || '');
       });
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -17731,35 +17800,90 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
 
       // Mapear preservando conteos anteriores si existían
       const oldList = Array.isArray(req.products_list) ? req.products_list : [];
-      const productsList = toInclude.map(p => {
-        let sysQty = 0;
-        const invs = p.inventory || [];
+      const whMap = new Map((warehouses || []).map(w => [String(w.id), w.name]));
+      const defaultWh = (warehouses || []).find(w => w.name && w.name.toLowerCase().includes('central')) || warehouses[0] || { id: null, name: 'Bodega Central' };
+
+      const productsList = [];
+      toInclude.forEach(p => {
+        const invs = Array.isArray(p.inventory) ? p.inventory : [];
         if (selectedWhId) {
           const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
-          sysQty = match ? (match.quantity || 0) : 0;
+          const sysQty = match ? (match.quantity || 0) : 0;
+          const prev = oldList.find(oldP => oldP.id === p.id && (!oldP.warehouse_id || String(oldP.warehouse_id) === String(selectedWhId)));
+          const countedVal = prev ? prev.counted_qty : null;
+          let diffVal = null;
+          if (countedVal !== null && countedVal !== undefined) {
+            diffVal = countedVal - sysQty;
+          }
+
+          productsList.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || (prev ? prev.barcode : '') || '',
+            warehouse_id: selectedWhId,
+            warehouse_name: selectedWhName,
+            system_qty: sysQty,
+            counted_qty: countedVal,
+            difference: diffVal,
+            notes: prev ? prev.notes : ''
+          });
         } else {
-          sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
-        }
+          // Desglose multi-bodega
+          const validInvs = invs.filter(i => i && i.warehouse_id);
+          if (validInvs.length > 0) {
+            validInvs.forEach(inv => {
+              const whId = String(inv.warehouse_id);
+              const whName = whMap.get(whId) || inv.warehouses?.name || 'Bodega';
+              const sysQty = (inv.quantity !== undefined && inv.quantity !== null) ? inv.quantity : 0;
+              const prev = oldList.find(oldP => oldP.id === p.id && (!oldP.warehouse_id || String(oldP.warehouse_id) === whId));
+              const countedVal = prev ? prev.counted_qty : null;
+              let diffVal = null;
+              if (countedVal !== null && countedVal !== undefined) {
+                diffVal = countedVal - sysQty;
+              }
 
-        const prev = oldList.find(oldP => oldP.id === p.id);
-        const countedVal = prev ? prev.counted_qty : null;
-        let diffVal = null;
-        if (countedVal !== null && countedVal !== undefined) {
-          diffVal = countedVal - sysQty;
-        }
+              productsList.push({
+                id: p.id,
+                sku: p.sku,
+                name: p.name,
+                barcode: p.barcode || p.codigo_barra || (prev ? prev.barcode : '') || '',
+                warehouse_id: whId,
+                warehouse_name: whName,
+                system_qty: sysQty,
+                counted_qty: countedVal,
+                difference: diffVal,
+                notes: prev ? prev.notes : ''
+              });
+            });
+          } else {
+            const prev = oldList.find(oldP => oldP.id === p.id);
+            const countedVal = prev ? prev.counted_qty : null;
+            let diffVal = null;
+            if (countedVal !== null && countedVal !== undefined) {
+              diffVal = countedVal - 0;
+            }
 
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          barcode: p.barcode || p.codigo_barra || (prev ? prev.barcode : '') || '',
-          warehouse_id: selectedWhId,
-          warehouse_name: selectedWhName,
-          system_qty: sysQty,
-          counted_qty: countedVal,
-          difference: diffVal,
-          notes: prev ? prev.notes : ''
-        };
+            productsList.push({
+              id: p.id,
+              sku: p.sku,
+              name: p.name,
+              barcode: p.barcode || p.codigo_barra || (prev ? prev.barcode : '') || '',
+              warehouse_id: defaultWh.id,
+              warehouse_name: defaultWh.name,
+              system_qty: 0,
+              counted_qty: countedVal,
+              difference: diffVal,
+              notes: prev ? prev.notes : ''
+            });
+          }
+        }
+      });
+
+      productsList.sort((a, b) => {
+        const whComp = (a.warehouse_name || '').localeCompare(b.warehouse_name || '');
+        if (whComp !== 0) return whComp;
+        return (a.sku || '').localeCompare(b.sku || '');
       });
 
       const updatePayload = {

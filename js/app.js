@@ -39347,29 +39347,71 @@ async function openRequestInventoryModal(commerce, onComplete) {
         return;
       }
 
-      // Estructurar la lista de productos con stock teórico actual
-      const productsList = prodsToInclude.map(p => {
-        let sysQty = 0;
-        const invs = p.inventory || [];
+      // Estructurar la lista de productos con stock teórico actual por bodega
+      const whMap = new Map((warehouses || []).map(w => [String(w.id), w.name]));
+      const defaultWh = (warehouses || []).find(w => w.name && w.name.toLowerCase().includes('central')) || warehouses[0] || { id: null, name: 'Bodega Central' };
+
+      const productsList = [];
+      prodsToInclude.forEach(p => {
+        const invs = Array.isArray(p.inventory) ? p.inventory : [];
         if (selectedWhId) {
           const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
-          sysQty = match ? (match.quantity || 0) : 0;
+          const sysQty = match ? (match.quantity || 0) : 0;
+          productsList.push({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            barcode: p.barcode || p.codigo_barra || '',
+            warehouse_id: selectedWhId,
+            warehouse_name: selectedWhName,
+            system_qty: sysQty,
+            counted_qty: null,
+            difference: null,
+            notes: ''
+          });
         } else {
-          sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+          // Desglose multi-bodega: cada ubicación física con stock o asignación se lista en su propia fila
+          const validInvs = invs.filter(i => i && i.warehouse_id);
+          if (validInvs.length > 0) {
+            validInvs.forEach(inv => {
+              const whId = String(inv.warehouse_id);
+              const whName = whMap.get(whId) || inv.warehouses?.name || 'Bodega';
+              productsList.push({
+                id: p.id,
+                sku: p.sku,
+                name: p.name,
+                barcode: p.barcode || p.codigo_barra || '',
+                warehouse_id: whId,
+                warehouse_name: whName,
+                system_qty: (inv.quantity !== undefined && inv.quantity !== null) ? inv.quantity : 0,
+                counted_qty: null,
+                difference: null,
+                notes: ''
+              });
+            });
+          } else {
+            // Si el producto no tiene filas de inventario previas, se asigna a la bodega principal con stock 0
+            productsList.push({
+              id: p.id,
+              sku: p.sku,
+              name: p.name,
+              barcode: p.barcode || p.codigo_barra || '',
+              warehouse_id: defaultWh.id,
+              warehouse_name: defaultWh.name,
+              system_qty: 0,
+              counted_qty: null,
+              difference: null,
+              notes: ''
+            });
+          }
         }
+      });
 
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          barcode: p.barcode || p.codigo_barra || '',
-          warehouse_id: selectedWhId,
-          warehouse_name: selectedWhName,
-          system_qty: sysQty,
-          counted_qty: null,
-          difference: null,
-          notes: ''
-        };
+      // Ordenar agrupando por bodega y luego por SKU para facilitar el trabajo en terreno
+      productsList.sort((a, b) => {
+        const whComp = (a.warehouse_name || '').localeCompare(b.warehouse_name || '');
+        if (whComp !== 0) return whComp;
+        return (a.sku || '').localeCompare(b.sku || '');
       });
 
       // Obtener datos del usuario actual
@@ -39978,6 +40020,11 @@ async function openViewInventoryRequestDetailModal(req) {
           </div>
         </td>
         <td style="padding: 0.5rem 0.6rem;">${p.name || 'Sin nombre'}</td>
+        <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
+          <span class="badge" style="background: rgba(99, 102, 241, 0.1); color: #4338ca; font-weight: 600; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-store-2-line"></i> ${p.warehouse_name || req.warehouse_name || 'Bodega'}
+          </span>
+        </td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; background: var(--color-bg);">${counted}</td>
         <td style="padding: 0.5rem 0.6rem; text-align: center;">${diffHtml}</td>
@@ -40157,6 +40204,7 @@ async function openViewInventoryRequestDetailModal(req) {
                   <th style="padding: 0.5rem 0.6rem; width: 30px; text-align: center;">#</th>
                   <th style="padding: 0.5rem 0.6rem; width: 140px;">SKU / Cód. Barras</th>
                   <th style="padding: 0.5rem 0.6rem;">Producto</th>
+                  <th style="padding: 0.5rem 0.6rem;">Bodega</th>
                   <th style="padding: 0.5rem 0.6rem; text-align: center;">Stock Sist.</th>
                   <th style="padding: 0.5rem 0.6rem; text-align: center;">Conteo Real</th>
                   <th style="padding: 0.5rem 0.6rem; text-align: center;">Diferencia</th>
@@ -40164,7 +40212,7 @@ async function openViewInventoryRequestDetailModal(req) {
                 </tr>
               </thead>
               <tbody>
-                ${trs.length > 0 ? trs : '<tr><td colspan="7" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Sin productos.</td></tr>'}
+                ${trs.length > 0 ? trs : '<tr><td colspan="8" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Sin productos.</td></tr>'}
               </tbody>
             </table>
           </div>
