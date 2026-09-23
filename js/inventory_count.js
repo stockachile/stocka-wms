@@ -430,22 +430,73 @@ function renderScannerView() {
             <option value="barcode_origin" ${currentMatchMode === 'barcode_origin' ? 'selected' : ''}>🏭 Solo Código de Fabricante / EAN (Origen)</option>
             <option value="barcode_wms" ${currentMatchMode === 'barcode_wms' ? 'selected' : ''}>📦 Solo Código de Barras WMS</option>
             <option value="sku" ${currentMatchMode === 'sku' ? 'selected' : ''}>🆔 Solo Código SKU / Alias</option>
+            <option value="name" ${currentMatchMode === 'name' ? 'selected' : ''}>📝 Solo por Nombre / Descripción del Producto</option>
           </select>
           <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.35rem; line-height: 1.25;" id="lbl-match-mode-hint">
             ${getMatchModeHint(currentMatchMode)}
           </div>
         </div>
 
-        <!-- ENTRADA MANUAL O PISTOLA LÁSER -->
-        <div>
-          <label style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem;">
-            Ingreso Manual de Código / SKU (o Pistola USB/Bluetooth)
-          </label>
+        <!-- ENTRADA MANUAL O PISTOLA LÁSER CON SELECTOR DE TECLADO -->
+        <div style="margin-top: 0.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+            <label style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); margin: 0; display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-keyboard-line" style="color: var(--color-primary);"></i> Ingreso Manual / Pistola
+            </label>
+            <div class="inv-keyboard-mode-pills">
+              <button type="button" class="inv-kb-btn ${keyboardMode === 'numeric' ? 'active' : ''}" id="btn-kb-mode-numeric" title="Teclado numérico grande para códigos de barra">
+                <i class="ri-calculator-line"></i> 123 Numérico
+              </button>
+              <button type="button" class="inv-kb-btn ${keyboardMode === 'alpha' ? 'active' : ''}" id="btn-kb-mode-alpha" title="Teclado alfanumérico para SKUs o Nombres">
+                <i class="ri-text"></i> ABC Texto
+              </button>
+            </div>
+          </div>
+
           <div class="inv-manual-input-box">
-            <input type="text" id="input-manual-barcode" class="inv-manual-input" placeholder="Escanear o escribir código de barras / SKU..." autocomplete="off">
-            <button type="button" id="btn-manual-search" class="btn btn-primary" style="height: 44px; padding: 0 1.25rem;">
+            <input type="${keyboardMode === 'numeric' ? 'tel' : 'text'}" 
+                   id="input-manual-barcode" 
+                   class="inv-manual-input" 
+                   inputmode="${keyboardMode === 'numeric' ? 'numeric' : 'text'}"
+                   ${keyboardMode === 'numeric' ? 'pattern="[0-9]*"' : ''}
+                   placeholder="${keyboardMode === 'numeric' ? 'Digitar números de código de barras...' : 'Escribir SKU, código o nombre de producto...'}" 
+                   autocomplete="off">
+            <button type="button" id="btn-manual-search" class="btn btn-primary" style="height: 44px; padding: 0 1.25rem;" title="Buscar en catálogo">
               <i class="ri-search-2-line"></i>
             </button>
+          </div>
+
+          <!-- TECLADO NUMÉRICO TÁCTIL GRANDE EN PANTALLA -->
+          <div id="inv-virtual-numpad" class="inv-numpad-container" style="${keyboardMode === 'numeric' && isNumpadExpanded ? 'display: block;' : 'display: none;'}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+              <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+                <i class="ri-grid-fill" style="color: var(--color-primary);"></i> Teclado Numérico Rápido
+              </span>
+              <button type="button" id="btn-toggle-numpad-collapse" style="background: none; border: none; font-size: 0.72rem; color: var(--color-primary); cursor: pointer; font-weight: 600; padding: 2px;">
+                <span id="lbl-numpad-collapse-text">Ocultar teclado</span>
+              </button>
+            </div>
+            <div id="inv-numpad-keys-area">
+              <div class="inv-numpad-grid">
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="1">1</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="2">2</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="3">3</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="4">4</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="5">5</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="6">6</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="7">7</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="8">8</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="9">9</button>
+                <button type="button" class="inv-num-key key-clear" id="btn-numpad-clear" title="Borrar todo">C</button>
+                <button type="button" class="inv-num-key btn-numpad-digit" data-key="0">0</button>
+                <button type="button" class="inv-num-key key-backspace" id="btn-numpad-backspace" title="Borrar último dígito">
+                  <i class="ri-delete-back-2-line"></i>
+                </button>
+                <button type="button" class="inv-num-key-search" id="btn-numpad-search-action">
+                  <i class="ri-search-2-line"></i> BUSCAR Y ASOCIAR
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -494,6 +545,7 @@ function getMatchModeBadgeText(mode) {
     case 'barcode_origin': return 'Fabricante (EAN)';
     case 'barcode_wms': return 'Etiqueta WMS';
     case 'sku': return 'Estricto SKU';
+    case 'name': return 'Por Nombre / Título';
     default: return 'Cualquiera (Automático)';
   }
 }
@@ -508,8 +560,10 @@ function getMatchModeHint(mode) {
       return 'Filtra únicamente por el código de barras interno asignado en el sistema WMS.';
     case 'sku':
       return 'Filtra estrictamente por el SKU del comercio o sus códigos alternativos (alias).';
+    case 'name':
+      return 'Busca productos por palabras o texto en su nombre/descripción y permite seleccionarlos de una lista.';
     default:
-      return 'Verifica si la lectura coincide con código de barras de origen, WMS, SKU o alias del catálogo.';
+      return 'Verifica si la lectura coincide con código de barras de origen, WMS, SKU, alias o nombre del producto.';
   }
 }
 
@@ -540,12 +594,94 @@ function initScannerControls() {
   const manualInput = document.getElementById('input-manual-barcode');
   const manualBtn = document.getElementById('btn-manual-search');
 
+  // Control de modo de teclado (Numérico vs Alfanumérico)
+  const btnKbNumeric = document.getElementById('btn-kb-mode-numeric');
+  const btnKbAlpha = document.getElementById('btn-kb-mode-alpha');
+  const virtualNumpad = document.getElementById('inv-virtual-numpad');
+
+  const setKeyboardMode = (mode) => {
+    keyboardMode = mode;
+    localStorage.setItem('stocka_inv_keyboard_mode', mode);
+
+    if (btnKbNumeric && btnKbAlpha) {
+      btnKbNumeric.classList.toggle('active', mode === 'numeric');
+      btnKbAlpha.classList.toggle('active', mode === 'alpha');
+    }
+
+    if (manualInput) {
+      if (mode === 'numeric') {
+        manualInput.type = 'tel';
+        manualInput.setAttribute('inputmode', 'numeric');
+        manualInput.setAttribute('pattern', '[0-9]*');
+        manualInput.placeholder = 'Digitar números de código de barras...';
+        if (virtualNumpad) virtualNumpad.style.display = isNumpadExpanded ? 'block' : 'none';
+      } else {
+        manualInput.type = 'text';
+        manualInput.setAttribute('inputmode', 'text');
+        manualInput.removeAttribute('pattern');
+        manualInput.placeholder = 'Escribir SKU, código o nombre de producto...';
+        if (virtualNumpad) virtualNumpad.style.display = 'none';
+      }
+    }
+  };
+
+  btnKbNumeric?.addEventListener('click', () => setKeyboardMode('numeric'));
+  btnKbAlpha?.addEventListener('click', () => setKeyboardMode('alpha'));
+
+  // Toggle colapsar / expandir teclado numérico
+  const btnToggleCollapse = document.getElementById('btn-toggle-numpad-collapse');
+  const numpadKeysArea = document.getElementById('inv-numpad-keys-area');
+  const lblCollapse = document.getElementById('lbl-numpad-collapse-text');
+
+  btnToggleCollapse?.addEventListener('click', () => {
+    isNumpadExpanded = !isNumpadExpanded;
+    localStorage.setItem('stocka_inv_numpad_expanded', isNumpadExpanded ? 'true' : 'false');
+    if (numpadKeysArea) numpadKeysArea.style.display = isNumpadExpanded ? 'block' : 'none';
+    if (lblCollapse) lblCollapse.textContent = isNumpadExpanded ? 'Ocultar teclado' : 'Mostrar teclado';
+  });
+
+  // Botones de dígitos del teclado numérico
+  document.querySelectorAll('.btn-numpad-digit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const digit = e.currentTarget.getAttribute('data-key');
+      if (digit !== null && manualInput) {
+        playBeepSound('tap');
+        triggerHaptic('tap');
+        manualInput.value += digit;
+      }
+    });
+  });
+
+  document.getElementById('btn-numpad-clear')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (manualInput) {
+      playBeepSound('tap');
+      triggerHaptic('tap');
+      manualInput.value = '';
+    }
+  });
+
+  document.getElementById('btn-numpad-backspace')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (manualInput) {
+      playBeepSound('tap');
+      triggerHaptic('tap');
+      manualInput.value = manualInput.value.slice(0, -1);
+    }
+  });
+
   const handleManualSearch = () => {
     const val = manualInput?.value.trim();
     if (!val) return;
     onBarcodeScanned(val);
     manualInput.value = '';
   };
+
+  document.getElementById('btn-numpad-search-action')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleManualSearch();
+  });
 
   manualBtn?.addEventListener('click', handleManualSearch);
   manualInput?.addEventListener('keydown', (e) => {
@@ -682,6 +818,134 @@ function onCameraScanFailure(error) {
   // Ignorar errores de frames continuos sin código
 }
 
+// Modal para seleccionar productos cuando hay múltiples coincidencias por nombre
+function openProductPickerModal(query, productsList, onSelectCallback) {
+  let modal = document.getElementById('modal-inv-product-picker');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-inv-product-picker';
+  modal.className = 'inv-picker-modal-overlay';
+
+  const rowsHtml = productsList.map(prod => {
+    const sku = escapeHtml(prod.sku || 'SIN-SKU');
+    const name = escapeHtml(prod.name || 'Sin descripción');
+    const barcode = escapeHtml(prod.barcode || prod.codigo_barra || prod.barcode_wms || 'Sin código');
+    const comercio = escapeHtml(prod.comercio || 'Todos');
+    const prodId = escapeHtml(String(prod.id || prod.sku));
+
+    return `
+      <div class="inv-picker-item" data-prod-id="${prodId}">
+        <div style="flex: 1; overflow: hidden; padding-right: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; flex-wrap: wrap;">
+            <span style="font-family: monospace; font-weight: 700; font-size: 0.8rem; color: var(--color-primary); background: rgba(99, 102, 241, 0.08); padding: 2px 6px; border-radius: 4px;">
+              ${sku}
+            </span>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+              <i class="ri-barcode-line"></i> ${barcode}
+            </span>
+          </div>
+          <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.35;">
+            ${name}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+            Comercio: <strong>${comercio}</strong>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-picker-select" data-prod-id="${prodId}" style="height: 38px; padding: 0 0.95rem; font-size: 0.8rem; font-weight: 700; background: #10b981; border-color: #10b981; flex-shrink: 0; display: flex; align-items: center; gap: 0.3rem;">
+          <i class="ri-check-line"></i> Elegir
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div class="inv-picker-modal-content">
+      <div class="inv-picker-modal-header">
+        <div>
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-search-line" style="color: var(--color-primary);"></i> Productos encontrados (${productsList.length})
+          </h4>
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+            Resultados para: "<strong>${escapeHtml(query)}</strong>"
+          </span>
+        </div>
+        <button type="button" id="btn-close-product-picker" style="background: transparent; border: none; font-size: 1.4rem; color: var(--color-text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center;">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+      <div class="inv-picker-modal-body">
+        ${rowsHtml}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.remove();
+    isScanProcessing = false;
+  };
+
+  document.getElementById('btn-close-product-picker')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  modal.querySelectorAll('.btn-picker-select, .inv-picker-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const prodId = el.getAttribute('data-prod-id');
+      const chosen = productsList.find(p => String(p.id || p.sku) === prodId);
+      if (chosen) {
+        modal.remove();
+        if (typeof onSelectCallback === 'function') {
+          onSelectCallback(chosen);
+        }
+      }
+    });
+  });
+}
+
+// Búsqueda de productos por texto en el nombre
+async function searchProductsByNameList(term) {
+  const cleanTerm = String(term || '').trim();
+  if (!cleanTerm) return [];
+  const termUpper = cleanTerm.toUpperCase();
+
+  // 1. Filtrar en caché de la sesión
+  const localMatches = sessionCatalogCache.filter(p => {
+    return String(p.name || '').toUpperCase().includes(termUpper);
+  });
+
+  // 2. Consultar en Supabase
+  let remoteMatches = [];
+  try {
+    let query = supabase.from('products').select('*');
+    if (activeCountSession && activeCountSession.comercio && activeCountSession.comercio !== 'Todos') {
+      query = query.eq('comercio', activeCountSession.comercio);
+    }
+    query = query.ilike('name', `%${cleanTerm}%`).limit(30);
+    const { data, error } = await query;
+    if (!error && data) {
+      remoteMatches = data;
+    }
+  } catch (err) {
+    console.warn('Error buscando productos por nombre en Supabase:', err);
+  }
+
+  // Deduplicar resultados por ID o SKU
+  const combinedMap = new Map();
+  localMatches.forEach(p => combinedMap.set(p.id || p.sku, p));
+  remoteMatches.forEach(p => {
+    if (!combinedMap.has(p.id || p.sku)) {
+      combinedMap.set(p.id || p.sku, p);
+      sessionCatalogCache.push(p);
+    }
+  });
+
+  return Array.from(combinedMap.values());
+}
+
 // ==========================================
 // PROCESAMIENTO DEL CÓDIGO ESCANEADO
 // ==========================================
@@ -696,6 +960,29 @@ async function onBarcodeScanned(rawCode) {
     // 1. Buscar en catálogo de productos
     const product = await findProductInDatabase(rawCode);
 
+    // Múltiples coincidencias (búsqueda por nombre o ambigua)
+    if (product && product.is_multiple_matches && product.matches) {
+      openProductPickerModal(rawCode, product.matches, async (chosenProd) => {
+        const finalProd = { ...chosenProd, _matchedBy: 'Nombre de Producto' };
+        if (isFastMode) {
+          triggerScanFeedback();
+          await saveCountItemDirectly({
+            product: finalProd,
+            quantity: 1,
+            expiryDate: null,
+            lotNumber: '',
+            location: '',
+            notes: ''
+          });
+          showLastScannedCard(finalProd, 1);
+          setTimeout(() => { isScanProcessing = false; }, 400);
+        } else {
+          openConfirmationSheet(finalProd.sku || finalProd.barcode || rawCode, finalProd);
+        }
+      });
+      return;
+    }
+
     // 2. Si estamos en modo ráfaga, guardar inmediatamente +1
     if (isFastMode && product) {
       await saveCountItemDirectly({
@@ -707,7 +994,6 @@ async function onBarcodeScanned(rawCode) {
         notes: ''
       });
       showLastScannedCard(product, 1);
-      // Breve pausa para no repetir el mismo código mil veces por segundo
       setTimeout(() => { isScanProcessing = false; }, 400);
       return;
     }
@@ -739,6 +1025,27 @@ async function findProductInDatabase(code) {
   const cleanCode = String(code).trim();
   const cleanUpper = cleanCode.toUpperCase();
   const mode = currentMatchMode || 'all';
+
+  // Si el modo es buscar por nombre de producto
+  if (mode === 'name') {
+    const nameMatches = await searchProductsByNameList(cleanCode);
+    if (nameMatches.length === 1) {
+      const single = { ...nameMatches[0], _matchedBy: 'Nombre de Producto' };
+      sessionCatalogCache.push(single);
+      return single;
+    } else if (nameMatches.length > 1) {
+      return { is_multiple_matches: true, matches: nameMatches };
+    }
+    return {
+      id: null,
+      sku: cleanCode,
+      barcode: cleanCode,
+      name: `"${cleanCode}" (No encontrado por nombre)`,
+      comercio: activeCountSession?.comercio || 'no asignado',
+      is_unknown: true,
+      _matchedBy: 'Sin coincidencia'
+    };
+  }
 
   const checkMatch = (p) => {
     const bcOrigin = String(p.barcode || '').trim().toUpperCase();
@@ -826,6 +1133,18 @@ async function findProductInDatabase(code) {
     }
   } catch (e) {
     console.warn('Error consultando producto en Supabase:', e);
+  }
+
+  // 3. Fallback en modo 'all': si no coincide por código de barras o SKU, buscar por nombre
+  if (mode === 'all' && cleanCode.length >= 2) {
+    const nameMatches = await searchProductsByNameList(cleanCode);
+    if (nameMatches.length === 1) {
+      const single = { ...nameMatches[0], _matchedBy: 'Nombre de Producto' };
+      sessionCatalogCache.push(single);
+      return single;
+    } else if (nameMatches.length > 1) {
+      return { is_multiple_matches: true, matches: nameMatches };
+    }
   }
 
   // Retornar objeto sintético si no se encontró en el catálogo

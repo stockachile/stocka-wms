@@ -781,3 +781,175 @@
     font-size: 1.7rem;
   }
 }
+
+/* ========================================= */
+/* TECLADO NUMÉRICO TÁCTIL GRANDE (NUMPAD)   */
+/* ========================================= */
+.inv-keyboard-mode-pills {
+  display: flex;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.inv-kb-btn {
+  background: transparent;
+  border: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: 3px 10px;
+  border-radius: 99px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  transition: all 0.2s ease;
+}
+
+.inv-kb-btn.active {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+}
+
+.inv-numpad-container {
+  margin-top: 0.65rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.inv-numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+}
+
+.inv-num-key {
+  height: 52px;
+  font-size: 1.4rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 0.1s, transform 0.05s;
+  touch-action: manipulation;
+  font-family: inherit;
+}
+
+.inv-num-key:active {
+  transform: scale(0.95);
+  background: rgba(99, 102, 241, 0.1);
+  border-color: var(--color-primary);
+}
+
+.inv-num-key.key-clear {
+  color: #ef4444;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.inv-num-key.key-backspace {
+  color: #f59e0b;
+  font-size: 1.35rem;
+}
+
+.inv-num-key-search {
+  grid-column: span 3;
+  height: 48px;
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  margin-top: 0.25rem;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+  transition: opacity 0.15s, transform 0.05s;
+}
+
+.inv-num-key-search:active {
+  transform: scale(0.98);
+  opacity: 0.9;
+}
+
+/* ========================================= */
+/* MODAL SELECTOR DE PRODUCTOS POR NOMBRE    */
+/* ========================================= */
+.inv-picker-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 10005;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.inv-picker-modal-content {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.inv-picker-modal-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-bg);
+}
+
+.inv-picker-modal-body {
+  padding: 0.85rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.inv-picker-item {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+.inv-picker-item:hover, .inv-picker-item:active {
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
