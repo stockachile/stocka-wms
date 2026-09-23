@@ -10,9 +10,9 @@ export interface OrderItem {
   customer_email?: string;
   courier?: string;
   tracking_number?: string;
+  tracking_url?: string;
   total_amount?: number;
   created_at: string;
-  shipping_status?: string;
 }
 
 export const fetchOrders = async (
@@ -23,7 +23,7 @@ export const fetchOrders = async (
   try {
     let query = supabase
       .from('orders')
-      .select('id, comercio, external_order_number, origen, external_platform, status, customer_name, customer_email, courier, tracking_number, total_amount, created_at, shipping_status');
+      .select('id, comercio, external_order_number, origen, external_platform, status, customer_name, customer_email, courier, tracking_number, tracking_url, total_value, created_at');
 
     if (comercio && comercio !== 'no asignado') {
       query = query.eq('comercio', comercio);
@@ -58,9 +58,9 @@ export const fetchOrders = async (
       customer_email: o.customer_email,
       courier: o.courier || 'Por asignar',
       tracking_number: o.tracking_number,
-      total_amount: o.total_amount,
+      tracking_url: o.tracking_url,
+      total_amount: typeof o.total_value === 'number' ? o.total_value : (parseFloat(o.total_value) || undefined),
       created_at: o.created_at,
-      shipping_status: o.shipping_status || o.status,
     }));
   } catch (err) {
     console.error('fetchOrders caught exception:', err);

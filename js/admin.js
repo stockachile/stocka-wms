@@ -232,7 +232,7 @@ window.getComunaCoverageBadge = function(comunaName) {
 
 let userRole = 'admin';
 window.catalogQuickEditMode = false;
-window.adminDeclarationTab = 'active';
+window.adminDeclarationTab = 'pending';
 
 window.roundUpVolume = function(val) {
   if (val === null || val === undefined || isNaN(val) || val === '') return null;
@@ -30961,7 +30961,20 @@ window.downloadBase64File = function(base64, filename) {
   }
 };
 
-window.adminDeclarationTab = window.adminDeclarationTab || 'active';
+window.adminDeclarationTab = window.adminDeclarationTab || 'pending';
+if (window.adminDeclarationTab === 'active') {
+  window.adminDeclarationTab = 'pending';
+}
+
+window.setAdminDeclarationTab = function(tabId) {
+  window.adminDeclarationTab = tabId;
+  if (document.getElementById('admin-dec-table-body') && typeof window.filterAndRenderDeclarationsAdminTable === 'function') {
+    window.filterAndRenderDeclarationsAdminTable();
+  } else if (typeof renderDeclarationsAdmin === 'function') {
+    renderDeclarationsAdmin();
+  }
+};
+
 window.adminDeclarationSearchTerm = window.adminDeclarationSearchTerm || '';
 window.adminDeclarationMerchantFilter = window.adminDeclarationMerchantFilter || 'all';
 window.adminDeclarationBillingFilter = window.adminDeclarationBillingFilter || 'all';
@@ -30975,6 +30988,20 @@ window.toggleDeclarationPrintedStatus = async function(id, currentIsPrinted) {
 
     // Caché local instantánea para feedback inmediato
     localStorage.setItem(`wms_dec_printed_${id}`, newIsPrinted ? 'true' : 'false');
+    const cachedDec = (window._adminDeclarationsCache || []).find(d => d.id === id);
+    if (cachedDec) {
+      cachedDec.is_printed = newIsPrinted;
+      if (newIsPrinted) {
+        if (!cachedDec.admin_notes || !cachedDec.admin_notes.includes('[IMPRESO]')) {
+          cachedDec.admin_notes = (cachedDec.admin_notes ? cachedDec.admin_notes + ' ' : '') + '[IMPRESO]';
+        }
+      } else if (cachedDec.admin_notes) {
+        cachedDec.admin_notes = cachedDec.admin_notes.replace(/\[IMPRESO\]/g, '').trim();
+      }
+    }
+    if (document.getElementById('admin-dec-table-body') && typeof window.filterAndRenderDeclarationsAdminTable === 'function') {
+      window.filterAndRenderDeclarationsAdminTable();
+    }
 
     const updatePayload = {
       is_printed: newIsPrinted,
@@ -31030,7 +31057,9 @@ window.toggleDeclarationPrintedStatus = async function(id, currentIsPrinted) {
       });
     }
 
-    if (typeof renderDeclarationsAdmin === 'function') {
+    if (document.getElementById('admin-dec-table-body') && typeof window.filterAndRenderDeclarationsAdminTable === 'function') {
+      window.filterAndRenderDeclarationsAdminTable();
+    } else if (typeof renderDeclarationsAdmin === 'function') {
       renderDeclarationsAdmin();
     }
   } catch (err) {
@@ -31072,7 +31101,19 @@ window.toggleDeclarationBillingStatus = async function(id, currentStatus) {
       });
     }
 
-    renderDeclarationsAdmin();
+    const cachedDec = (window._adminDeclarationsCache || []).find(d => d.id === id);
+    if (cachedDec) {
+      cachedDec.billing_status = newStatus;
+      if (newStatus === 'Facturado') {
+        cachedDec.billed_at = new Date().toISOString();
+      }
+    }
+
+    if (document.getElementById('admin-dec-table-body') && typeof window.filterAndRenderDeclarationsAdminTable === 'function') {
+      window.filterAndRenderDeclarationsAdminTable();
+    } else if (typeof renderDeclarationsAdmin === 'function') {
+      renderDeclarationsAdmin();
+    }
   } catch (err) {
     console.error('Error toggling billing status:', err);
     alert('Error al actualizar estado de facturación: ' + (err.message || err));
@@ -31176,6 +31217,15 @@ window.changeDeclarationBillingPeriod = async function(declarationId, currentVal
       throw error;
     }
 
+    const cachedDec = (window._adminDeclarationsCache || []).find(d => d.id === declarationId);
+    if (cachedDec) {
+      cachedDec.periodo_facturacion = val;
+      cachedDec.billing_status = newBillingStatus;
+      if (newBillingStatus === 'Facturado') {
+        cachedDec.billed_at = new Date().toISOString();
+      }
+    }
+
     if (window.Swal) {
       window.Swal.fire({
         toast: true,
@@ -31187,7 +31237,9 @@ window.changeDeclarationBillingPeriod = async function(declarationId, currentVal
       });
     }
 
-    if (typeof renderDeclarationsAdmin === 'function') {
+    if (document.getElementById('admin-dec-table-body') && typeof window.filterAndRenderDeclarationsAdminTable === 'function') {
+      window.filterAndRenderDeclarationsAdminTable();
+    } else if (typeof renderDeclarationsAdmin === 'function') {
       renderDeclarationsAdmin();
     }
   } catch (err) {
@@ -31196,540 +31248,684 @@ window.changeDeclarationBillingPeriod = async function(declarationId, currentVal
   }
 };
 
-window.renderDeclarationsAdmin = async function() {
-  const appContent = document.getElementById('app-content');
-  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando declaraciones de ingreso...</p>';
+window._adminDeclarationsCache = null;
 
-  try {
-    // Consultar todas las declaraciones junto con el nombre de la empresa/comercio
-    const { data: declarations, error } = await supabase
-      .from('stock_declarations')
-      .select('*, profiles!inner (company_name, full_name, email), warehouses (name, address, comuna)')
-      .order('created_at', { ascending: false });
+function buildDeclarationRowHtml(dec) {
+  const isPrinted = dec.is_printed === true ||
+                    dec.is_printed === 'true' ||
+                    (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
+                    localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
 
-    if (error) throw error;
+  let statusBadge = '';
+  switch (dec.status) {
+    case 'Creada':
+      statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+      break;
+    case 'Bodega Asignada':
+      statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
+      break;
+    case 'En Recepción - Pendiente Conteo':
+      statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
+      break;
+    case 'En proceso de conteo/clasificación':
+      statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+      break;
+    case 'Recepción Parcial':
+      statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
+      break;
+    case 'Recibido Conforme':
+      statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
+      break;
+    case 'Recibido con Incidencias':
+      statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
+      break;
+    default:
+      statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
+  }
 
-    // Extraer lista única de comercios ordenados alfabéticamente
-    const uniqueMerchants = Array.from(new Set(
-      (declarations || [])
-        .map(d => (d.comercio || '').trim())
-        .filter(Boolean)
-    )).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  let etaText = '';
+  if (dec.estimated_arrival_type === 'exact') {
+    const [y, m, d] = (dec.estimated_arrival_date || '').split('-');
+    etaText = y && m && d ? `${d}/${m}/${y}` : (dec.estimated_arrival_date || '—');
+  } else {
+    etaText = dec.estimated_arrival_period || '—';
+  }
 
-    // Aplicar pipeline de filtros: Pestaña (Activos/Completados) + Comercio + Facturación + Impresión + Búsqueda por texto
-    const filteredDeclarations = (declarations || []).filter(dec => {
-      const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
-      if (window.adminDeclarationTab === 'completed') {
-        if (!isCompleted) return false;
-      } else {
-        if (isCompleted) return false;
-      }
+  let qtyReceivedText = '—';
+  if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
+    const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+    const declared = parseInt(dec.quantity_declared, 10) || 0;
+    const received = parseInt(dec.quantity_received, 10) || 0;
+    const pending = Math.max(0, declared - received);
+    const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
+      ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
+      : '';
+    qtyReceivedText = `
+      <div style="font-size: 0.85rem;">
+        <span>Recibido: <strong>${received}</strong> / ${declared}</span>
+        ${pendingHtml}
+        ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
+      </div>
+    `;
+  }
 
-      // Determinar si está impreso
+  const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+
+  // Estado y Periodo de Facturación
+  const billingStatus = dec.billing_status || 'Pendiente';
+  const isBilled = billingStatus === 'Facturado';
+  const assignedPeriod = dec.periodo_facturacion || (dec.billing_notes && dec.billing_notes.match(/Periodo:\s*([^,\n]+)/i)?.[1]?.trim()) || '';
+  const billingBadgeHtml = isBilled
+    ? `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Facturado')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Facturado. Clic para alternar a Pendiente">
+         <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+           <i class="ri-checkbox-circle-fill" style="font-size: 0.85rem;"></i> Facturado
+         </span>
+       </button>`
+    : `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Pendiente')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Pendiente de facturación. Clic para marcar como Facturado">
+         <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+           <i class="ri-time-line" style="font-size: 0.85rem;"></i> Pendiente
+         </span>
+       </button>`;
+
+  const periodBadgeHtml = assignedPeriod
+    ? `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-align: left;" title="Periodo asignado. Clic para cambiar">
+         <i class="ri-calendar-event-line"></i> ${assignedPeriod}
+       </button>`
+    : `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 3px; background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 6px; font-size: 0.7rem; font-weight: 500; cursor: pointer;" title="Asignar este ingreso a un periodo de facturación">
+         <i class="ri-calendar-2-line"></i> Asignar Periodo
+       </button>`;
+
+  return `
+    <tr style="transition: background-color 0.2s;">
+      <td style="font-weight: 600; color: var(--color-primary);">
+        ${dec.comercio || 'no asignado'}
+        <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
+          ${dec.profiles?.company_name || 'Desconocido'}
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
+          <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
+          <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
+        </div>
+      </td>
+      <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
+        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
+          <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted);" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
+          ${isPrinted ? `
+            <button type="button" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', true)" style="background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center;" title="Marcado como Impreso. Clic para desmarcar">
+              <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;">
+                <i class="ri-printer-fill" style="font-size: 0.75rem;"></i> Impreso
+              </span>
+            </button>
+          ` : ''}
+        </div>
+        <div style="font-weight: 600;">${dec.title}</div>
+        ${hasAdminEdit ? `
+        <div style="margin-top: 3px;">
+          <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Registra modificaciones realizadas por Administración">
+            <i class="ri-shield-check-line"></i> Modificado por Admin
+          </span>
+        </div>
+        ` : ''}
+        ${dec.warehouses ? `
+        <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
+          <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
+        </div>
+        ` : ''}
+      </td>
+      <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
+      <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
+      <td style="font-size: 0.85rem;">
+        <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
+        <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
+          C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
+        </div>
+        ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
+      </td>
+      <td style="font-size: 0.85rem;">
+        <div style="font-size: 0.85rem;">
+          <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+            Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
+          </span>
+        </div>
+      </td>
+      <td style="font-size: 0.85rem;">
+        <div style="font-size: 0.85rem;">
+          <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(4)} UF</strong></span>
+          <span id="clp-est-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Cargando CLP...</span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 4px;">
+            Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(4) + ' UF' : '—'}</strong>
+          </span>
+          <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
+        </div>
+      </td>
+      <td style="font-size: 0.85rem;">
+        <div style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start;">
+          ${billingBadgeHtml}
+          ${periodBadgeHtml}
+          ${dec.billing_notes && !dec.billing_notes.startsWith('Periodo:') ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
+        </div>
+      </td>
+      <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
+      <td style="font-size: 0.85rem;">${statusBadge}</td>
+      <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
+      <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+          <!-- Botón Rápido de Check Impreso -->
+          <button 
+            type="button" 
+            class="btn-dec-print-check" 
+            onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})"
+            style="height: 30px; padding: 0 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s; white-space: nowrap; ${isPrinted ? 'background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1);' : 'background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border);'}"
+            title="${isPrinted ? 'Marcado como Impreso. Clic para desmarcar' : 'Sin imprimir. Clic rápido para marcar como Impreso'}"
+          >
+            <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="font-size: 0.95rem; ${isPrinted ? 'color: var(--color-success);' : 'color: var(--color-text-muted);'}"></i>
+            <i class="ri-printer-line" style="font-size: 0.85rem;"></i>
+            <span>${isPrinted ? 'Impreso' : 'Impreso'}</span>
+          </button>
+
+          <div class="table-action-menu">
+            <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
+              <i class="ri-more-2-fill"></i> Acciones
+            </button>
+            <div class="table-action-menu-content">
+              <button class="table-action-menu-item" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})">
+                <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}" style="color: ${isPrinted ? 'var(--color-success)' : 'var(--color-primary)'};"></i> ${isPrinted ? 'Marcar como Sin Imprimir' : 'Marcar como Impreso'}
+              </button>
+              <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
+                <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
+              </button>
+              <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
+                <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
+              </button>
+              <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
+                <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
+              </button>
+              <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
+                <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
+              </button>
+              <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
+                <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
+              </button>
+              <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
+                <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
+              </button>
+              <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+                <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
+              </button>
+              <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
+                <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar
+              </button>
+              ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
+              <button class="table-action-menu-item danger" onclick="deleteDeclarationAdmin('${dec.id}')">
+                <i class="ri-delete-bin-line"></i> Eliminar
+              </button>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function getEmptyDeclarationMessage(currentTab) {
+  let emptyMsg = 'No se encontraron declaraciones de ingresos que coincidan con los filtros aplicados.';
+  if (currentTab === 'pending') {
+    emptyMsg = '¡Excelente! No hay ingresos pendientes de recepción.';
+  } else if (currentTab === 'Creada') {
+    emptyMsg = 'No hay declaraciones en estado "1. Creada".';
+  } else if (currentTab === 'Bodega Asignada') {
+    emptyMsg = 'No hay declaraciones en estado "2. Bodega Asignada".';
+  } else if (currentTab === 'En Recepción - Pendiente Conteo') {
+    emptyMsg = 'No hay declaraciones en andén / pendientes de conteo.';
+  } else if (currentTab === 'En proceso de conteo/clasificación') {
+    emptyMsg = 'No hay declaraciones en proceso de conteo o clasificación.';
+  } else if (currentTab === 'Recepción Parcial') {
+    emptyMsg = 'No hay declaraciones en estado de "Recepción Parcial".';
+  } else if (currentTab === 'Recibido Conforme') {
+    emptyMsg = 'No hay declaraciones finalizadas en "Recibido Conforme".';
+  } else if (currentTab === 'Recibido con Incidencias') {
+    emptyMsg = 'No hay declaraciones finalizadas con incidencias.';
+  } else if (currentTab === 'completed') {
+    emptyMsg = 'No hay declaraciones en el Historial Completado.';
+  }
+  return `<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>${emptyMsg}</td></tr>`;
+}
+
+window.filterAndRenderDeclarationsAdminTable = function() {
+  const declarations = window._adminDeclarationsCache || [];
+  const tbody = document.getElementById('admin-dec-table-body');
+  if (!tbody) return;
+
+  const currentTab = (window.adminDeclarationTab === 'active' || !window.adminDeclarationTab) ? 'pending' : window.adminDeclarationTab;
+  window.adminDeclarationTab = currentTab;
+
+  // Filtrado base para contadores de pestañas (respeta filtros de comercio, facturación e impresión)
+  const baseDeclarationsForTabs = declarations.filter(dec => {
+    if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
+      if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) return false;
+    }
+    if (window.adminDeclarationBillingFilter && window.adminDeclarationBillingFilter !== 'all') {
+      const bStatus = dec.billing_status || 'Pendiente';
+      if (bStatus !== window.adminDeclarationBillingFilter) return false;
+    }
+    if (window.adminDeclarationPrintedFilter && window.adminDeclarationPrintedFilter !== 'all') {
       const isPrinted = dec.is_printed === true ||
                         dec.is_printed === 'true' ||
                         (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
                         localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
+      if (window.adminDeclarationPrintedFilter === 'printed' && !isPrinted) return false;
+      if (window.adminDeclarationPrintedFilter === 'unprinted' && isPrinted) return false;
+    }
+    return true;
+  });
 
-      // Filtro por Estado de Impresión
-      if (window.adminDeclarationPrintedFilter && window.adminDeclarationPrintedFilter !== 'all') {
-        if (window.adminDeclarationPrintedFilter === 'printed' && !isPrinted) return false;
-        if (window.adminDeclarationPrintedFilter === 'unprinted' && isPrinted) return false;
-      }
+  const counts = {
+    pending: 0,
+    'Creada': 0,
+    'Bodega Asignada': 0,
+    'En Recepción - Pendiente Conteo': 0,
+    'En proceso de conteo/clasificación': 0,
+    'Recepción Parcial': 0,
+    'Recibido Conforme': 0,
+    'Recibido con Incidencias': 0,
+    completed: 0,
+    all: baseDeclarationsForTabs.length
+  };
 
-      // Filtro por Comercio
-      if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
-        if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) {
-          return false;
-        }
-      }
-
-      // Filtro por Estado de Facturación
-      if (window.adminDeclarationBillingFilter && window.adminDeclarationBillingFilter !== 'all') {
-        const bStatus = dec.billing_status || 'Pendiente';
-        if (bStatus !== window.adminDeclarationBillingFilter) {
-          return false;
-        }
-      }
-
-      // Búsqueda por Texto (con lupa)
-      if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
-        const q = window.adminDeclarationSearchTerm.trim().toLowerCase();
-        const id = (dec.id || '').toLowerCase();
-        const shortCode = (`#ing-${id.substring(0, 8)}`).toLowerCase();
-        const title = (dec.title || '').toLowerCase();
-        const com = (dec.comercio || '').toLowerCase();
-        const company = (dec.profiles?.company_name || '').toLowerCase();
-        const user = (dec.profiles?.full_name || dec.profiles?.email || '').toLowerCase();
-        const carrier = (dec.carrier_info || '').toLowerCase();
-        const method = (dec.delivery_method || '').toLowerCase();
-        const notes = (dec.notes || '').toLowerCase();
-        const adminNotes = (dec.admin_notes || '').toLowerCase();
-        const billingNotes = (dec.billing_notes || '').toLowerCase();
-        const warehouse = (dec.warehouses?.name || '').toLowerCase();
-        
-        let productsMatch = false;
-        if (Array.isArray(dec.products_list)) {
-          productsMatch = dec.products_list.some(p => 
-            (p.sku && p.sku.toLowerCase().includes(q)) || 
-            (p.name && p.name.toLowerCase().includes(q))
-          );
-        }
-
-        const matches = id.includes(q) ||
-          shortCode.includes(q) ||
-          title.includes(q) ||
-          com.includes(q) ||
-          company.includes(q) ||
-          user.includes(q) ||
-          carrier.includes(q) ||
-          method.includes(q) ||
-          notes.includes(q) ||
-          adminNotes.includes(q) ||
-          billingNotes.includes(q) ||
-          warehouse.includes(q) ||
-          productsMatch;
-
-        if (!matches) return false;
-      }
-
-      return true;
-    });
-
-    let rowsHtml = '';
-    if (filteredDeclarations.length === 0) {
-      rowsHtml = `<tr><td colspan="12" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>No se encontraron declaraciones de ingresos que coincidan con los filtros aplicados.</td></tr>`;
+  baseDeclarationsForTabs.forEach(dec => {
+    const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+    if (!isCompleted) {
+      counts.pending++;
     } else {
-      filteredDeclarations.forEach(dec => {
-        const isPrinted = dec.is_printed === true ||
-                          dec.is_printed === 'true' ||
-                          (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
-                          localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
+      counts.completed++;
+    }
+    if (counts[dec.status] !== undefined) {
+      counts[dec.status]++;
+    }
+  });
 
-        let statusBadge = '';
-        switch (dec.status) {
-          case 'Creada':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
-            break;
-          case 'Bodega Asignada':
-            statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
-            break;
-          case 'En Recepción - Pendiente Conteo':
-            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
-            break;
-          case 'En proceso de conteo/clasificación':
-            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
-            break;
-          case 'Recepción Parcial':
-            statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
-            break;
-          case 'Recibido Conforme':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
-            break;
-          case 'Recibido con Incidencias':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
-            break;
-          default:
-            statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
-        }
+  const tabsConfig = [
+    { id: 'pending', label: 'Todos los Pendientes', icon: 'ri-time-line', count: counts.pending, badgeClass: counts.pending > 0 ? 'has-pending' : '' },
+    { id: 'Creada', label: '1. Creada', icon: 'ri-file-list-3-line', count: counts['Creada'] || 0 },
+    { id: 'Bodega Asignada', label: '2. Bodega Asignada', icon: 'ri-building-line', count: counts['Bodega Asignada'] || 0 },
+    { id: 'En Recepción - Pendiente Conteo', label: '3. En Recepción', icon: 'ri-truck-line', count: counts['En Recepción - Pendiente Conteo'] || 0 },
+    { id: 'En proceso de conteo/clasificación', label: '4. En Conteo', icon: 'ri-calculator-line', count: counts['En proceso de conteo/clasificación'] || 0 },
+    { id: 'Recepción Parcial', label: 'Recepción Parcial', icon: 'ri-pie-chart-2-line', count: counts['Recepción Parcial'] || 0 },
+    { id: 'Recibido Conforme', label: 'Recibido Conforme', icon: 'ri-checkbox-circle-line', count: counts['Recibido Conforme'] || 0, badgeClass: counts['Recibido Conforme'] > 0 ? 'has-success' : '' },
+    { id: 'Recibido con Incidencias', label: 'Con Incidencias', icon: 'ri-error-warning-line', count: counts['Recibido con Incidencias'] || 0, badgeClass: counts['Recibido con Incidencias'] > 0 ? 'has-incidents' : '' },
+    { id: 'completed', label: 'Historial Completado', icon: 'ri-archive-line', count: counts.completed || 0 },
+    { id: 'all', label: 'Todos', icon: 'ri-list-check', count: counts.all || 0 }
+  ];
 
-        let etaText = '';
-        if (dec.estimated_arrival_type === 'exact') {
-          const [y, m, d] = (dec.estimated_arrival_date || '').split('-');
-          etaText = y && m && d ? `${d}/${m}/${y}` : (dec.estimated_arrival_date || '—');
-        } else {
-          etaText = dec.estimated_arrival_period || '—';
-        }
+  // Actualizar pestañas dinámicamente
+  const tabsContainer = document.getElementById('admin-dec-tabs-container');
+  if (tabsContainer) {
+    tabsContainer.innerHTML = tabsConfig.map(t => {
+      const isActive = currentTab === t.id;
+      return `
+        <button 
+          type="button" 
+          class="dec-status-tab-btn ${isActive ? 'active' : ''}" 
+          id="tab-dec-${t.id.replace(/[^a-zA-Z0-9_-]/g, '_')}"
+          onclick="window.setAdminDeclarationTab('${t.id}')"
+          title="Filtrar por: ${t.label}"
+        >
+          <i class="${t.icon}"></i>
+          <span>${t.label}</span>
+          <span class="tab-count-badge ${t.badgeClass || ''}">${t.count}</span>
+        </button>
+      `;
+    }).join('');
+  }
 
-        let qtyReceivedText = '—';
-        if (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
-          const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
-          const declared = parseInt(dec.quantity_declared, 10) || 0;
-          const received = parseInt(dec.quantity_received, 10) || 0;
-          const pending = Math.max(0, declared - received);
-          const pendingHtml = (dec.status === 'Recepción Parcial' && pending > 0)
-            ? `<br><span style="font-size: 0.75rem; color: #d97706; font-weight: 600;">Pendiente: <strong>${pending}</strong></span>`
-            : '';
-          qtyReceivedText = `
-            <div style="font-size: 0.85rem;">
-              <span>Recibido: <strong>${received}</strong> / ${declared}</span>
-              ${pendingHtml}
-              ${dec.quantity_incidents > 0 ? `<br><span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>` : ''}
-            </div>
-          `;
-        }
+  // Filtrar declaraciones finales
+  const filteredDeclarations = declarations.filter(dec => {
+    const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
 
-        const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
-
-        // Estado y Periodo de Facturación
-        const billingStatus = dec.billing_status || 'Pendiente';
-        const isBilled = billingStatus === 'Facturado';
-        const assignedPeriod = dec.periodo_facturacion || (dec.billing_notes && dec.billing_notes.match(/Periodo:\s*([^,\n]+)/i)?.[1]?.trim()) || '';
-        const billingBadgeHtml = isBilled
-          ? `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Facturado')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Facturado. Clic para alternar a Pendiente">
-               <span class="badge" style="background-color: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                 <i class="ri-checkbox-circle-fill" style="font-size: 0.85rem;"></i> Facturado
-               </span>
-             </button>`
-          : `<button type="button" class="btn-billing-toggle" onclick="window.toggleDeclarationBillingStatus('${dec.id}', 'Pendiente')" style="background: none; border: none; padding: 0; cursor: pointer; text-align: left;" title="Pendiente de facturación. Clic para marcar como Facturado">
-               <span class="badge" style="background-color: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
-                 <i class="ri-time-line" style="font-size: 0.85rem;"></i> Pendiente
-               </span>
-             </button>`;
-
-        const periodBadgeHtml = assignedPeriod
-          ? `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); border-radius: 5px; padding: 2px 7px; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-align: left;" title="Periodo asignado. Clic para cambiar">
-               <i class="ri-calendar-event-line"></i> ${assignedPeriod}
-             </button>`
-          : `<button type="button" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '')" style="margin-top: 4px; display: inline-flex; align-items: center; gap: 3px; background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: 5px; padding: 2px 6px; font-size: 0.7rem; font-weight: 500; cursor: pointer;" title="Asignar este ingreso a un periodo de facturación">
-               <i class="ri-calendar-2-line"></i> Asignar Periodo
-             </button>`;
-
-        rowsHtml += `
-          <tr style="transition: background-color 0.2s;">
-            <td style="font-weight: 600; color: var(--color-primary);">
-              ${dec.comercio || 'no asignado'}
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
-                ${dec.profiles?.company_name || 'Desconocido'}
-              </div>
-              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
-                <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
-                <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
-              </div>
-            </td>
-            <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
-              <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
-                <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted);" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
-                ${isPrinted ? `
-                  <button type="button" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', true)" style="background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center;" title="Marcado como Impreso. Clic para desmarcar">
-                    <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;">
-                      <i class="ri-printer-fill" style="font-size: 0.75rem;"></i> Impreso
-                    </span>
-                  </button>
-                ` : ''}
-              </div>
-              <div style="font-weight: 600;">${dec.title}</div>
-              ${hasAdminEdit ? `
-              <div style="margin-top: 3px;">
-                <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Registra modificaciones realizadas por Administración">
-                  <i class="ri-shield-check-line"></i> Modificado por Admin
-                </span>
-              </div>
-              ` : ''}
-              ${dec.warehouses ? `
-              <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
-                <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
-              </div>
-              ` : ''}
-            </td>
-            <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
-            <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
-            <td style="font-size: 0.85rem;">
-              <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
-              <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
-                C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
-              </div>
-              ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
-            </td>
-            <td style="font-size: 0.85rem;">
-              <div style="font-size: 0.85rem;">
-                <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
-                  Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
-                </span>
-              </div>
-            </td>
-            <td style="font-size: 0.85rem;">
-              <div style="font-size: 0.85rem;">
-                <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(4)} UF</strong></span>
-                <span id="clp-est-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Cargando CLP...</span>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 4px;">
-                  Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(4) + ' UF' : '—'}</strong>
-                </span>
-                <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
-              </div>
-            </td>
-            <td style="font-size: 0.85rem;">
-              <div style="display: flex; flex-direction: column; gap: 3px; align-items: flex-start;">
-                ${billingBadgeHtml}
-                ${periodBadgeHtml}
-                ${dec.billing_notes && !dec.billing_notes.startsWith('Periodo:') ? `<div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${dec.billing_notes}">${dec.billing_notes}</div>` : ''}
-              </div>
-            </td>
-            <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
-            <td style="font-size: 0.85rem;">${statusBadge}</td>
-            <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
-            <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-                <!-- Botón Rápido de Check Impreso -->
-                <button 
-                  type="button" 
-                  class="btn-dec-print-check" 
-                  onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})"
-                  style="height: 30px; padding: 0 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s; white-space: nowrap; ${isPrinted ? 'background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1);' : 'background: var(--color-surface); color: var(--color-text-muted); border: 1px dashed var(--color-border);'}"
-                  title="${isPrinted ? 'Marcado como Impreso. Clic para desmarcar' : 'Sin imprimir. Clic rápido para marcar como Impreso'}"
-                >
-                  <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="font-size: 0.95rem; ${isPrinted ? 'color: var(--color-success);' : 'color: var(--color-text-muted);'}"></i>
-                  <i class="ri-printer-line" style="font-size: 0.85rem;"></i>
-                  <span>${isPrinted ? 'Impreso' : 'Impreso'}</span>
-                </button>
-
-                <div class="table-action-menu">
-                  <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
-                    <i class="ri-more-2-fill"></i> Acciones
-                  </button>
-                  <div class="table-action-menu-content">
-                    <button class="table-action-menu-item" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', ${isPrinted})">
-                      <i class="${isPrinted ? 'ri-checkbox-circle-fill' : 'ri-printer-line'}" style="color: ${isPrinted ? 'var(--color-success)' : 'var(--color-primary)'};"></i> ${isPrinted ? 'Marcar como Sin Imprimir' : 'Marcar como Impreso'}
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
-                      <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
-                      <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.changeDeclarationBillingPeriod('${dec.id}', '${assignedPeriod.replace(/'/g, "\\'")}')">
-                      <i class="ri-calendar-check-line" style="color: #5f06fa;"></i> Asignar Periodo Facturación
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.toggleDeclarationBillingStatus('${dec.id}', '${billingStatus}')">
-                      <i class="ri-money-dollar-circle-line" style="color: var(--color-success);"></i> ${isBilled ? 'Marcar como Pendiente' : 'Marcar como Facturado'}
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
-                      <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
-                    </button>
-                    <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
-                      <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
-                    </button>
-                    <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
-                      <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
-                    </button>
-                    <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
-                      <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar
-                    </button>
-                    ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
-                    <button class="table-action-menu-item danger" onclick="deleteDeclarationAdmin('${dec.id}')">
-                      <i class="ri-delete-bin-line"></i> Eliminar
-                    </button>
-                    ` : ''}
-                  </div>
-                </div>
-              </div>
-            </td>
-          </tr>
-        `;
-      });
+    if (currentTab === 'pending') {
+      if (isCompleted) return false;
+    } else if (currentTab === 'completed') {
+      if (!isCompleted) return false;
+    } else if (currentTab === 'all') {
+      // Mostrar todos
+    } else {
+      if (dec.status !== currentTab) return false;
     }
 
-    // Opciones para el selector de comercios
+    const isPrinted = dec.is_printed === true ||
+                      dec.is_printed === 'true' ||
+                      (dec.admin_notes && dec.admin_notes.includes('[IMPRESO]')) ||
+                      localStorage.getItem(`wms_dec_printed_${dec.id}`) === 'true';
+
+    if (window.adminDeclarationPrintedFilter && window.adminDeclarationPrintedFilter !== 'all') {
+      if (window.adminDeclarationPrintedFilter === 'printed' && !isPrinted) return false;
+      if (window.adminDeclarationPrintedFilter === 'unprinted' && isPrinted) return false;
+    }
+
+    if (window.adminDeclarationMerchantFilter && window.adminDeclarationMerchantFilter !== 'all') {
+      if ((dec.comercio || '').trim().toLowerCase() !== window.adminDeclarationMerchantFilter.trim().toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (window.adminDeclarationBillingFilter && window.adminDeclarationBillingFilter !== 'all') {
+      const bStatus = dec.billing_status || 'Pendiente';
+      if (bStatus !== window.adminDeclarationBillingFilter) {
+        return false;
+      }
+    }
+
+    if (window.adminDeclarationSearchTerm && window.adminDeclarationSearchTerm.trim()) {
+      const q = window.adminDeclarationSearchTerm.trim().toLowerCase();
+      const id = (dec.id || '').toLowerCase();
+      const shortCode = (`#ing-${id.substring(0, 8)}`).toLowerCase();
+      const rawHex = id.substring(0, 8).toLowerCase();
+      const hashHex = ('#' + rawHex).toLowerCase();
+      const title = (dec.title || '').toLowerCase();
+      const com = (dec.comercio || '').toLowerCase();
+      const company = (dec.profiles?.company_name || '').toLowerCase();
+      const user = (dec.profiles?.full_name || dec.profiles?.email || '').toLowerCase();
+      const carrier = (dec.carrier_info || '').toLowerCase();
+      const method = (dec.delivery_method || '').toLowerCase();
+      const notes = (dec.notes || '').toLowerCase();
+      const adminNotes = (dec.admin_notes || '').toLowerCase();
+      const billingNotes = (dec.billing_notes || '').toLowerCase();
+      const warehouse = (dec.warehouses?.name || '').toLowerCase();
+      
+      let productsMatch = false;
+      if (Array.isArray(dec.products_list)) {
+        productsMatch = dec.products_list.some(p => 
+          (p.sku && p.sku.toLowerCase().includes(q)) || 
+          (p.name && p.name.toLowerCase().includes(q))
+        );
+      }
+
+      const matches = id.includes(q) ||
+        shortCode.includes(q) ||
+        rawHex.includes(q) ||
+        hashHex.includes(q) ||
+        title.includes(q) ||
+        com.includes(q) ||
+        company.includes(q) ||
+        user.includes(q) ||
+        carrier.includes(q) ||
+        method.includes(q) ||
+        notes.includes(q) ||
+        adminNotes.includes(q) ||
+        billingNotes.includes(q) ||
+        warehouse.includes(q) ||
+        productsMatch;
+
+      if (!matches) return false;
+    }
+
+    return true;
+  });
+
+  // Renderizar filas
+  if (filteredDeclarations.length === 0) {
+    tbody.innerHTML = getEmptyDeclarationMessage(currentTab);
+  } else {
+    tbody.innerHTML = filteredDeclarations.map(dec => buildDeclarationRowHtml(dec)).join('');
+  }
+
+  // Actualizar contador
+  const countBadge = document.getElementById('admin-dec-count-badge');
+  if (countBadge) {
+    countBadge.textContent = `${filteredDeclarations.length} ${filteredDeclarations.length === 1 ? 'ingreso' : 'ingresos'}`;
+  }
+
+  // Resolver CLP de manera asíncrona
+  filteredDeclarations.forEach(dec => {
+    (async () => {
+      const dateObj = new Date(dec.created_at || new Date());
+      const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
+      const ufRate = await window.getUfValueForDate(formattedDate);
+      
+      const estClp = (dec.estimated_cost || 0) * ufRate;
+      const estEl = document.getElementById(`clp-est-${dec.id}`);
+      if (estEl) {
+        estEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(estClp).toLocaleString('es-CL')} CLP)</span>`;
+      }
+
+      if (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0) {
+        const realClp = dec.real_cost * ufRate;
+        const realEl = document.getElementById(`clp-real-${dec.id}`);
+        if (realEl) {
+          realEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(realClp).toLocaleString('es-CL')} CLP)</span>`;
+        }
+      }
+    })();
+  });
+};
+
+window.renderDeclarationsAdmin = async function(forceRefresh = true) {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  const cardMounted = document.getElementById('admin-dec-table-card');
+
+  // Solo mostrar loader de pantalla completa si el card no está montado
+  if (!cardMounted && (!window._adminDeclarationsCache || forceRefresh)) {
+    appContent.innerHTML = '<p class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; vertical-align: middle; margin-right: 0.5rem; color: var(--color-primary);"></i> Cargando declaraciones de ingreso...</p>';
+  }
+
+  const refreshBtn = document.getElementById('btn-refresh-admin-declarations');
+  if (refreshBtn && forceRefresh) {
+    refreshBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Actualizando...';
+  }
+
+  try {
+    if (!window._adminDeclarationsCache || forceRefresh) {
+      const { data: declarations, error } = await supabase
+        .from('stock_declarations')
+        .select('*, profiles!inner (company_name, full_name, email), warehouses (name, address, comuna)')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      window._adminDeclarationsCache = declarations || [];
+    }
+
+    if (refreshBtn) {
+      refreshBtn.innerHTML = '<i class="ri-refresh-line"></i> Actualizar';
+    }
+
+    const uniqueMerchants = Array.from(new Set(
+      (window._adminDeclarationsCache || [])
+        .map(d => (d.comercio || '').trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
     const merchantOptionsHtml = uniqueMerchants.map(m => {
       const isSelected = window.adminDeclarationMerchantFilter === m ? 'selected' : '';
       return `<option value="${m}" ${isSelected}>🏢 ${m}</option>`;
     }).join('');
 
-    appContent.innerHTML = `
-      <div class="card">
-        <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h3>Gestión de Ingresos de Stock</h3>
-            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica, recepciona y audita la facturación de los ingresos declarados.</p>
-          </div>
-          <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
-            <i class="ri-refresh-line"></i> Actualizar
-          </button>
-        </div>
-
-        <!-- Toolbar de Búsqueda y Filtros de Administración -->
-        <div style="padding: 0.75rem 1.5rem 1rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
-          <!-- Buscador por texto con lupa -->
-          <div style="position: relative; flex: 1; min-width: 260px; max-width: 380px;">
-            <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.05rem;"></i>
-            <input 
-              type="text" 
-              id="admin-dec-search-input" 
-              class="form-input" 
-              placeholder="Buscar por #ING, título, comercio, SKU, notas..." 
-              value="${window.adminDeclarationSearchTerm || ''}"
-              style="padding-left: 2.35rem; padding-right: 2rem; height: 38px; font-size: 0.85rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
-            >
-            ${window.adminDeclarationSearchTerm ? `
-            <button type="button" id="btn-clear-admin-dec-search" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-muted); cursor: pointer; padding: 2px 4px; font-size: 0.9rem;" title="Limpiar búsqueda">
-              <i class="ri-close-circle-fill"></i>
+    // Si la estructura aún no existe en appContent, la montamos una sola vez
+    if (!document.getElementById('admin-dec-table-card')) {
+      appContent.innerHTML = `
+        <div class="card" id="admin-dec-table-card">
+          <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3>Gestión de Ingresos de Stock</h3>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica, recepciona y audita la facturación de los ingresos declarados.</p>
+            </div>
+            <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
+              <i class="ri-refresh-line"></i> Actualizar
             </button>
-            ` : ''}
           </div>
 
-          <!-- Filtros de Comercio, Facturación e Impresión -->
-          <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
-            <!-- Filtro de Comercio -->
-            <div style="min-width: 170px;">
-              <select id="admin-dec-merchant-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                <option value="all" ${window.adminDeclarationMerchantFilter === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
-                ${merchantOptionsHtml}
-              </select>
+          <!-- Toolbar de Búsqueda y Filtros de Administración -->
+          <div style="padding: 0.75rem 1.5rem 1rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+            <!-- Buscador por texto con lupa -->
+            <div style="position: relative; flex: 1; min-width: 260px; max-width: 380px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.05rem;"></i>
+              <input 
+                type="text" 
+                id="admin-dec-search-input" 
+                class="form-input" 
+                placeholder="Buscar por #ING, título, comercio, SKU, notas..." 
+                value="${window.adminDeclarationSearchTerm || ''}"
+                style="padding-left: 2.35rem; padding-right: 2rem; height: 38px; font-size: 0.85rem; width: 100%; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border);"
+              >
+              <button 
+                type="button" 
+                id="btn-clear-admin-dec-search" 
+                style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--color-text-muted); cursor: pointer; padding: 2px 4px; font-size: 0.9rem; display: ${window.adminDeclarationSearchTerm ? 'block' : 'none'};" 
+                title="Limpiar búsqueda"
+              >
+                <i class="ri-close-circle-fill"></i>
+              </button>
             </div>
 
-            <!-- Filtro de Facturación -->
-            <div style="min-width: 160px;">
-              <select id="admin-dec-billing-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                <option value="all" ${window.adminDeclarationBillingFilter === 'all' ? 'selected' : ''}>💵 Facturación: Todos</option>
-                <option value="Pendiente" ${window.adminDeclarationBillingFilter === 'Pendiente' ? 'selected' : ''}>⏳ Pendientes de Cobro</option>
-                <option value="Facturado" ${window.adminDeclarationBillingFilter === 'Facturado' ? 'selected' : ''}>✅ Facturados (Incluidos)</option>
-              </select>
-            </div>
+            <!-- Filtros de Comercio, Facturación e Impresión -->
+            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+              <!-- Filtro de Comercio -->
+              <div style="min-width: 170px;">
+                <select id="admin-dec-merchant-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
+                  <option value="all" ${window.adminDeclarationMerchantFilter === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
+                  ${merchantOptionsHtml}
+                </select>
+              </div>
 
-            <!-- Filtro de Impresión -->
-            <div style="min-width: 165px;">
-              <select id="admin-dec-printed-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
-                <option value="all" ${window.adminDeclarationPrintedFilter === 'all' ? 'selected' : ''}>🖨️ Impresión: Todos</option>
-                <option value="printed" ${window.adminDeclarationPrintedFilter === 'printed' ? 'selected' : ''}>✅ Impresos</option>
-                <option value="unprinted" ${window.adminDeclarationPrintedFilter === 'unprinted' ? 'selected' : ''}>📄 Sin Imprimir (Pendientes)</option>
-              </select>
-            </div>
+              <!-- Filtro de Facturación -->
+              <div style="min-width: 160px;">
+                <select id="admin-dec-billing-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
+                  <option value="all" ${window.adminDeclarationBillingFilter === 'all' ? 'selected' : ''}>💵 Facturación: Todos</option>
+                  <option value="Pendiente" ${window.adminDeclarationBillingFilter === 'Pendiente' ? 'selected' : ''}>⏳ Pendientes de Cobro</option>
+                  <option value="Facturado" ${window.adminDeclarationBillingFilter === 'Facturado' ? 'selected' : ''}>✅ Facturados (Incluidos)</option>
+                </select>
+              </div>
 
-            <!-- Contador de resultados -->
-            <div style="font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap; padding-left: 0.25rem;">
-              <span class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 5px 8px; border-radius: 6px;">
-                ${filteredDeclarations.length} ${filteredDeclarations.length === 1 ? 'ingreso' : 'ingresos'}
-              </span>
+              <!-- Filtro de Impresión -->
+              <div style="min-width: 165px;">
+                <select id="admin-dec-printed-select" class="form-input" style="height: 38px; font-size: 0.85rem; border-radius: 8px; background: var(--color-surface); border: 1px solid var(--color-border); font-weight: 500;">
+                  <option value="all" ${window.adminDeclarationPrintedFilter === 'all' ? 'selected' : ''}>🖨️ Impresión: Todos</option>
+                  <option value="printed" ${window.adminDeclarationPrintedFilter === 'printed' ? 'selected' : ''}>✅ Impresos</option>
+                  <option value="unprinted" ${window.adminDeclarationPrintedFilter === 'unprinted' ? 'selected' : ''}>📄 Sin Imprimir (Pendientes)</option>
+                </select>
+              </div>
+
+              <!-- Contador de resultados -->
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap; padding-left: 0.25rem;">
+                <span id="admin-dec-count-badge" class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; padding: 5px 8px; border-radius: 6px;">
+                  Calculando...
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div class="tabs-container" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); padding: 0 1.5rem; margin-bottom: 0.5rem;">
-          <button class="tab-btn ${window.adminDeclarationTab === 'active' ? 'active' : ''}" id="tab-admin-active-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${window.adminDeclarationTab === 'active' ? 'var(--color-primary)' : 'transparent'}; color: ${window.adminDeclarationTab === 'active' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${window.adminDeclarationTab === 'active' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-            <i class="ri-loader-4-line"></i> Ingresos Activos
-          </button>
-          <button class="tab-btn ${window.adminDeclarationTab === 'completed' ? 'active' : ''}" id="tab-admin-completed-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${window.adminDeclarationTab === 'completed' ? 'var(--color-primary)' : 'transparent'}; color: ${window.adminDeclarationTab === 'completed' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${window.adminDeclarationTab === 'completed' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-            <i class="ri-checkbox-circle-line"></i> Historial Completado
-          </button>
-        </div>
+          
+          <div id="admin-dec-tabs-container" class="tabs-container dec-status-tabs-container"></div>
 
-        <div class="card-body table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Comercio</th>
-                <th>Título / Descripción</th>
-                <th>Llegada Estimada</th>
-                <th>Declaradas</th>
-                <th>Bultos</th>
-                <th>Volumen (m³)</th>
-                <th>Costos (Est. / Real)</th>
-                <th>Facturación</th>
-                <th>Método Envío</th>
-                <th>Estado</th>
-                <th>Recibido / Incidencias</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
+          <div class="card-body table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Comercio</th>
+                  <th>Título / Descripción</th>
+                  <th>Llegada Estimada</th>
+                  <th>Declaradas</th>
+                  <th>Bultos</th>
+                  <th>Volumen (m³)</th>
+                  <th>Costos (Est. / Real)</th>
+                  <th>Facturación</th>
+                  <th>Método Envío</th>
+                  <th>Estado</th>
+                  <th>Recibido / Incidencias</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-dec-table-body">
+                <tr><td colspan="12" class="text-center" style="padding: 2rem;">Cargando tabla...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    `;
+      `;
 
-    // Event listeners para la barra de búsqueda y filtros
-    const searchInput = document.getElementById('admin-dec-search-input');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        window.adminDeclarationSearchTerm = e.target.value;
-        renderDeclarationsAdmin();
-        setTimeout(() => {
-          const inputAfter = document.getElementById('admin-dec-search-input');
-          if (inputAfter) {
-            inputAfter.focus();
-            inputAfter.setSelectionRange(inputAfter.value.length, inputAfter.value.length);
+      // Event listeners vinculados una sola vez
+      const searchInput = document.getElementById('admin-dec-search-input');
+      const clearSearchBtn = document.getElementById('btn-clear-admin-dec-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          window.adminDeclarationSearchTerm = e.target.value;
+          if (clearSearchBtn) {
+            clearSearchBtn.style.display = e.target.value ? 'block' : 'none';
           }
-        }, 30);
-      });
-    }
+          window.filterAndRenderDeclarationsAdminTable();
+        });
+      }
 
-    const clearSearchBtn = document.getElementById('btn-clear-admin-dec-search');
-    if (clearSearchBtn) {
-      clearSearchBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.adminDeclarationSearchTerm = '';
-        renderDeclarationsAdmin();
-      });
-    }
-
-    const merchantSelect = document.getElementById('admin-dec-merchant-select');
-    if (merchantSelect) {
-      merchantSelect.addEventListener('change', (e) => {
-        window.adminDeclarationMerchantFilter = e.target.value;
-        renderDeclarationsAdmin();
-      });
-    }
-
-    const billingSelect = document.getElementById('admin-dec-billing-select');
-    if (billingSelect) {
-      billingSelect.addEventListener('change', (e) => {
-        window.adminDeclarationBillingFilter = e.target.value;
-        renderDeclarationsAdmin();
-      });
-    }
-
-    const printedSelect = document.getElementById('admin-dec-printed-select');
-    if (printedSelect) {
-      printedSelect.addEventListener('change', (e) => {
-        window.adminDeclarationPrintedFilter = e.target.value;
-        renderDeclarationsAdmin();
-      });
-    }
-
-    // Tab buttons event listeners
-    const activeTabBtn = document.getElementById('tab-admin-active-declarations');
-    const completedTabBtn = document.getElementById('tab-admin-completed-declarations');
-    if (activeTabBtn && completedTabBtn) {
-      activeTabBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.adminDeclarationTab = 'active';
-        renderDeclarationsAdmin();
-      });
-      completedTabBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.adminDeclarationTab = 'completed';
-        renderDeclarationsAdmin();
-      });
-    }
-
-    // Asynchronously resolve historical UF and update CLP values
-    filteredDeclarations.forEach(dec => {
-      (async () => {
-        const dateObj = new Date(dec.created_at || new Date());
-        const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
-        const ufRate = await window.getUfValueForDate(formattedDate);
-        
-        const estClp = (dec.estimated_cost || 0) * ufRate;
-        const estEl = document.getElementById(`clp-est-${dec.id}`);
-        if (estEl) {
-          estEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(estClp).toLocaleString('es-CL')} CLP)</span>`;
-        }
-
-        if (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0) {
-          const realClp = dec.real_cost * ufRate;
-          const realEl = document.getElementById(`clp-real-${dec.id}`);
-          if (realEl) {
-            realEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(realClp).toLocaleString('es-CL')} CLP)</span>`;
+      if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.adminDeclarationSearchTerm = '';
+          if (searchInput) {
+            searchInput.value = '';
+            searchInput.focus();
           }
-        }
-      })();
-    });
+          clearSearchBtn.style.display = 'none';
+          window.filterAndRenderDeclarationsAdminTable();
+        });
+      }
 
-    // Refresh Handler
-    const refreshBtn = document.getElementById('btn-refresh-admin-declarations');
-    if (refreshBtn) {
-      refreshBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        renderDeclarationsAdmin();
-      });
+      const merchantSelect = document.getElementById('admin-dec-merchant-select');
+      if (merchantSelect) {
+        merchantSelect.addEventListener('change', (e) => {
+          window.adminDeclarationMerchantFilter = e.target.value;
+          window.filterAndRenderDeclarationsAdminTable();
+        });
+      }
+
+      const billingSelect = document.getElementById('admin-dec-billing-select');
+      if (billingSelect) {
+        billingSelect.addEventListener('change', (e) => {
+          window.adminDeclarationBillingFilter = e.target.value;
+          window.filterAndRenderDeclarationsAdminTable();
+        });
+      }
+
+      const printedSelect = document.getElementById('admin-dec-printed-select');
+      if (printedSelect) {
+        printedSelect.addEventListener('change', (e) => {
+          window.adminDeclarationPrintedFilter = e.target.value;
+          window.filterAndRenderDeclarationsAdminTable();
+        });
+      }
+
+      const newRefreshBtn = document.getElementById('btn-refresh-admin-declarations');
+      if (newRefreshBtn) {
+        newRefreshBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.renderDeclarationsAdmin(true);
+        });
+      }
+    } else {
+      // Si el card ya existía y se hizo refresh, actualizamos las opciones de comercios por si cambiaron
+      const merchantSelect = document.getElementById('admin-dec-merchant-select');
+      if (merchantSelect) {
+        const curVal = window.adminDeclarationMerchantFilter || 'all';
+        merchantSelect.innerHTML = `
+          <option value="all" ${curVal === 'all' ? 'selected' : ''}>🏢 Todos los Comercios (${uniqueMerchants.length})</option>
+          ${merchantOptionsHtml}
+        `;
+      }
     }
+
+    // Renderizar instantáneamente las filas filtradas y las pestañas
+    window.filterAndRenderDeclarationsAdminTable();
 
   } catch (err) {
     console.error('Error fetching admin declarations:', err);
-    appContent.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--color-danger);"><i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i><h4>Error al cargar declaraciones</h4><p>${err.message}</p></div>`;
+    if (!document.getElementById('admin-dec-table-card')) {
+      appContent.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--color-danger);"><i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i><h4>Error al cargar declaraciones</h4><p>${err.message}</p></div>`;
+    } else {
+      if (window.Swal) {
+        window.Swal.fire('Error', 'No se pudieron actualizar las declaraciones: ' + (err.message || err), 'error');
+      }
+    }
   }
 };
 

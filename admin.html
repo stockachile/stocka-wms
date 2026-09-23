@@ -398,6 +398,85 @@
       background: rgba(245, 158, 11, 0.08);
       box-shadow: 0 0 0 1px #d97706;
     }
+    /* Pestañas de Estados de Declaraciones de Ingreso */
+    .dec-status-tabs-container {
+      display: flex;
+      gap: 0.35rem;
+      border-bottom: 1px solid var(--color-border);
+      padding: 0.4rem 1.5rem 0 1.5rem;
+      margin-bottom: 0.5rem;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      background: var(--color-surface);
+      border-top: 1px solid var(--color-border);
+    }
+    .dec-status-tabs-container::-webkit-scrollbar {
+      height: 4px;
+    }
+    .dec-status-tabs-container::-webkit-scrollbar-thumb {
+      background: var(--color-border);
+      border-radius: 4px;
+    }
+    .dec-status-tab-btn {
+      padding: 0.65rem 0.85rem;
+      background: none;
+      border: none;
+      border-bottom: 2.5px solid transparent;
+      color: var(--color-text-muted);
+      font-weight: 500;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+      border-radius: 6px 6px 0 0;
+      user-select: none;
+      text-decoration: none;
+    }
+    .dec-status-tab-btn:hover {
+      color: var(--color-text-main);
+      background: rgba(0, 0, 0, 0.025);
+    }
+    .dec-status-tab-btn.active {
+      color: var(--color-primary);
+      font-weight: 700;
+      border-bottom-color: var(--color-primary);
+      background: rgba(95, 6, 250, 0.04);
+    }
+    .dec-status-tab-btn .tab-count-badge {
+      font-size: 0.72rem;
+      padding: 2px 7px;
+      border-radius: 12px;
+      font-weight: 700;
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      border: 1px solid var(--color-border);
+      transition: all 0.2s ease;
+      line-height: 1.1;
+    }
+    .dec-status-tab-btn.active .tab-count-badge {
+      background: rgba(95, 6, 250, 0.12);
+      color: var(--color-primary);
+      border-color: rgba(95, 6, 250, 0.25);
+    }
+    .dec-status-tab-btn .tab-count-badge.has-incidents {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--color-danger);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+    .dec-status-tab-btn .tab-count-badge.has-success {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--color-success);
+      border-color: rgba(16, 185, 129, 0.25);
+    }
+    .dec-status-tab-btn .tab-count-badge.has-pending {
+      background: rgba(95, 6, 250, 0.1);
+      color: var(--color-primary);
+      border-color: rgba(95, 6, 250, 0.25);
+    }
   </style>
   <!-- Excel / CSV Parser (SheetJS) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

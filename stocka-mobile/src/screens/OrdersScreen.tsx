@@ -75,7 +75,11 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ route }) => {
     loadOrders(search, status);
   };
 
-  const handleOpenTracking = (courier: string | undefined, tracking: string | undefined) => {
+  const handleOpenTracking = (courier: string | undefined, tracking: string | undefined, trackingUrl?: string) => {
+    if (trackingUrl && trackingUrl.startsWith('http')) {
+      Linking.openURL(trackingUrl).catch(err => console.error('Error opening tracking URL:', err));
+      return;
+    }
     if (!tracking) return;
     const c = (courier || '').toLowerCase();
     let url = `https://www.google.com/search?q=${encodeURIComponent(`${courier || 'envio'} tracking ${tracking}`)}`;
@@ -135,7 +139,7 @@ export const OrdersScreen: React.FC<OrdersScreenProps> = ({ route }) => {
         {item.tracking_number ? (
           <TouchableOpacity
             style={styles.trackingBtn}
-            onPress={() => handleOpenTracking(item.courier, item.tracking_number)}
+            onPress={() => handleOpenTracking(item.courier, item.tracking_number, item.tracking_url)}
           >
             <Text style={styles.trackingNumber}>Guía: {item.tracking_number}</Text>
             <ExternalLink size={12} color={colors.primaryLight} style={{ marginLeft: 4 }} />
