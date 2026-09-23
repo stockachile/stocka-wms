@@ -1923,7 +1923,12 @@
             </div>
 
             <div class="form-group" id="manage-dec-group-incidents" style="margin-bottom: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Cant. Incidencias *</label>
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Cant. Incidencias *</span>
+                <button type="button" id="btn-toggle-incidents-panel" style="background: none; border: none; font-size: 0.75rem; color: var(--color-danger); cursor: pointer; text-decoration: underline; padding: 0; display: inline-flex; align-items: center; gap: 3px;">
+                  <i class="ri-error-warning-line"></i> Detallar incidencias
+                </button>
+              </label>
               <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required style="width: 100%;">
             </div>
 
@@ -1935,14 +1940,16 @@
 
           <!-- Panel de Incidencias Detalladas -->
           <div id="manage-dec-incidents-panel" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
-            <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <span style="display: flex; align-items: center; gap: 0.35rem;"><i class="ri-error-warning-line"></i> Enumerar Incidencias Detalladas</span>
-              <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: rgba(239, 68, 68, 0.3); color: var(--color-danger); height: auto; margin: 0; line-height: 1;">+ Agregar</button>
+            <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <span style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.88rem;"><i class="ri-error-warning-line"></i> Enumerar Incidencias Detalladas</span>
+              <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.78rem; border-color: rgba(239, 68, 68, 0.4); color: var(--color-danger); height: auto; margin: 0; line-height: 1; border-radius: 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background: rgba(239, 68, 68, 0.06);">
+                <i class="ri-add-line"></i> Agregar Incidencia
+              </button>
             </label>
-            <div id="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.25rem;">
+            <div id="manage-dec-incidents-container" class="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.35rem;">
               <!-- Inputs dinámicos -->
             </div>
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción.</p>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción física o empaque.</p>
           </div>
 
           <!-- Asignación de Bodega -->

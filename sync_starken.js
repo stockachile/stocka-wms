@@ -540,6 +540,51 @@ async function syncStarkenPro() {
       }
     }
 
+    // Fallback por Nombre de Destinatario si no hubo coincidencia directa ni por teléfono
+    if (!matchedOrder && receiverName) {
+      const cleanName = String(receiverName)
+        .replace(/[\.\,\#\-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (cleanName.length >= 5) {
+        let nameQuery = supabase
+          .from('orders')
+          .select('id, status, external_order_number, tracking_number, courier, starken_status, comercio, shipping_city, created_at')
+          .ilike('customer_name', cleanName);
+
+        if (resolvedComercio) {
+          nameQuery = nameQuery.eq('comercio', resolvedComercio);
+        }
+
+        const { data: nameOrders } = await nameQuery;
+        if (nameOrders && nameOrders.length > 0) {
+          const pending = nameOrders.find(o => !o.tracking_number && ['para procesar', 'en preparación', 'preparado'].includes(o.status));
+          matchedOrder = pending || nameOrders[0];
+        }
+
+        if (!matchedOrder) {
+          const words = cleanName.split(' ').filter(w => w.length >= 3);
+          if (words.length >= 2) {
+            let wordsQuery = supabase
+              .from('orders')
+              .select('id, status, external_order_number, tracking_number, courier, starken_status, comercio, shipping_city, created_at')
+              .ilike('customer_name', `%${words[0]}%${words[1]}%`);
+
+            if (resolvedComercio) {
+              wordsQuery = wordsQuery.eq('comercio', resolvedComercio);
+            }
+
+            const { data: wordOrders } = await wordsQuery;
+            if (wordOrders && wordOrders.length > 0) {
+              const pending = wordOrders.find(o => !o.tracking_number && ['para procesar', 'en preparación', 'preparado'].includes(o.status));
+              matchedOrder = pending || wordOrders[0];
+            }
+          }
+        }
+      }
+    }
+
     // Si se encontró la orden en el WMS, adoptar el comercio real de la orden
     if (matchedOrder && matchedOrder.comercio) {
       resolvedComercio = matchedOrder.comercio;

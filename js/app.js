@@ -8631,6 +8631,9 @@ async function renderOrders() {
           <span>Seleccionados: <strong id="selected-orders-count" style="color: var(--color-primary);">0</strong> pedidos</span>
         </div>
         <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button id="btn-bulk-copy-numbers" class="btn btn-outline" style="border: 1px solid #0284c7; color: #0284c7; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; background: transparent;" title="Copiar lista de números de pedidos seleccionados (separados por salto de línea)">
+            <i class="ri-file-copy-line"></i> Copiar Números
+          </button>
           <button id="btn-bulk-preview-export" class="btn btn-primary" style="background: #2e7d32; border: none; color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;" title="Previsualizar y copiar datos estructurados para Excel o Google Sheets">
             <i class="ri-file-copy-2-line"></i> Previsualizar y Copiar
           </button>
@@ -8724,6 +8727,15 @@ async function renderOrders() {
         const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
         return Array.from(checkboxes).map(cb => cb.getAttribute('data-order-id'));
       };
+
+      const btnCopyNumbers = document.getElementById('btn-bulk-copy-numbers');
+      if (btnCopyNumbers) {
+        btnCopyNumbers.addEventListener('click', () => {
+          const ids = getSelectedIds();
+          if (ids.length === 0) return;
+          window.copyClientSelectedOrderNumbers(ids, btnCopyNumbers);
+        });
+      }
 
       if (btnPreview) {
         btnPreview.addEventListener('click', () => {
@@ -32465,6 +32477,77 @@ window.toggleSelectAllClientOrders = function(checked) {
   const checkboxes = document.querySelectorAll('.order-select-checkbox');
   checkboxes.forEach(cb => cb.checked = checked);
   window.updateClientOrdersBulkSelection();
+};
+
+window.copyClientSelectedOrderNumbers = function(selectedOrderIds, btn) {
+  const ids = Array.isArray(selectedOrderIds) ? selectedOrderIds : [selectedOrderIds];
+  if (!ids || ids.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin selección',
+        text: 'Selecciona al menos un pedido usando las casillas de verificación para copiar sus números.',
+        confirmButtonColor: 'var(--color-primary, #3b82f6)'
+      });
+    } else {
+      alert('Selecciona al menos un pedido para copiar sus números.');
+    }
+    return;
+  }
+
+  const allOrders = window.clientLoadedOrders || window.loadedOrders || [];
+  const selectedOrders = allOrders.filter(o => ids.includes(o.id));
+
+  const orderNumbers = selectedOrders.map(o => {
+    const num = o.external_order_number || o.raw_shopify_data?.name || o.order_number || o.id;
+    return String(num || '').trim();
+  }).filter(Boolean);
+
+  if (orderNumbers.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Sin números',
+        text: 'No se encontraron números de pedido válidos en la selección.'
+      });
+    } else {
+      alert('No se encontraron números de pedido válidos en la selección.');
+    }
+    return;
+  }
+
+  const textToCopy = orderNumbers.join('\n');
+
+  const doSuccessFeedback = () => {
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Copiado (${orderNumbers.length})!`;
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+      }, 2000);
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `¡${orderNumbers.length} número(s) de pedido copiado(s)!`,
+        html: `<span style="font-size: 0.8rem; color: var(--color-text-muted);">Formato lista copiado al portapapeles</span>`,
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true
+      });
+    }
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(textToCopy).then(doSuccessFeedback).catch(err => {
+      console.warn('Clipboard writeText falló, usando fallback:', err);
+      if (typeof fallbackCopyText === 'function') fallbackCopyText(textToCopy, doSuccessFeedback);
+    });
+  } else if (typeof fallbackCopyText === 'function') {
+    fallbackCopyText(textToCopy, doSuccessFeedback);
+  }
 };
 
 // =========================================================================

@@ -3717,6 +3717,7 @@ window.toggleRawOrderJson = async function(orderId) {
 window.reassignOrderCommerce = async function(orderId, newCommerce) {
   if (confirm(`¿Estás seguro de que deseas reasignar este pedido al comercio '${newCommerce}'?`)) {
     try {
+      // 1. Actualizar comercio en la cabecera de la orden
       const { data, error } = await supabase
         .from('orders')
         .update({ comercio: newCommerce })
@@ -3728,9 +3729,64 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
       if (!data || data.length === 0) {
         throw new Error('No se modificó ningún registro. Es probable que no tengas permisos de base de datos (RLS) para asignar pedidos a este comercio, o que el pedido ya no exista.');
       }
+
+      // 2. Re-vincular los order_items al producto correspondiente del nuevo comercio si existe por SKU
+      const { data: currentItems, error: itemsErr } = await supabase
+        .from('order_items')
+        .select('id, product_id, warehouse_id, quantity, products(id, sku, name, comercio)')
+        .eq('order_id', orderId);
+
+      let relinkedCount = 0;
+      if (!itemsErr && currentItems && currentItems.length > 0) {
+        for (const item of currentItems) {
+          const sku = item.products?.sku;
+          if (sku) {
+            const { data: targetProds } = await supabase
+              .from('products')
+              .select('id, sku, name, comercio')
+              .eq('comercio', newCommerce)
+              .eq('sku', sku)
+              .limit(1);
+
+            if (targetProds && targetProds.length > 0) {
+              await supabase
+                .from('order_items')
+                .update({ product_id: targetProds[0].id })
+                .eq('id', item.id);
+              relinkedCount++;
+            }
+          }
+        }
+      }
       
-      alert(`Pedido reasignado exitosamente al comercio '${newCommerce}'.`);
-      renderAdminOrders();
+      // 3. Actualizar memoria local para reflejar cambios de inmediato
+      if (window.loadedOrders) {
+        const localOrd = window.loadedOrders.find(o => o.id === orderId);
+        if (localOrd) {
+          localOrd.comercio = newCommerce;
+          // Recargar items frescos de este pedido
+          const { data: freshItems } = await supabase
+            .from('order_items')
+            .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products(id, sku, name, price, is_virtual, comercio), warehouses(name)')
+            .eq('order_id', orderId);
+          if (freshItems) {
+            localOrd.order_items = freshItems;
+          }
+        }
+      }
+
+      if (window.clearWmsTagsCache) {
+        window.clearWmsTagsCache();
+      }
+      window.loadedOrdersInventoryMap = {};
+      if (window.fetchInventoryForOrders && window.loadedOrders) {
+        await window.fetchInventoryForOrders(window.loadedOrders);
+      }
+
+      alert(`Pedido reasignado exitosamente al comercio '${newCommerce}'.${relinkedCount > 0 ? ` Se vincularon ${relinkedCount} producto(s) al catálogo de ${newCommerce}.` : ''}`);
+      if (typeof renderAdminOrders === 'function') {
+        renderAdminOrders();
+      }
     } catch (err) {
       console.error(err);
       alert('Error al reasignar el comercio: ' + err.message);
@@ -4828,7 +4884,14 @@ async function renderAdminOrders() {
                   <input type="checkbox" id="wms-select-all" onclick="window.toggleWmsSelectAll(this)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
                 <th style="width: 28px; min-width: 28px; max-width: 28px; text-align: center; padding: 0.55rem 0.2rem;"></th>
-                <th style="min-width: 110px; max-width: 140px; padding: 0.55rem 0.4rem;">ID</th>
+                <th style="min-width: 110px; max-width: 140px; padding: 0.55rem 0.4rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>ID</span>
+                    <button id="wms-copy-selected-ids-header-btn" onclick="window.copySelectedOrderNumbers(this)" type="button" class="btn-copy-field" title="Copiar números de pedidos seleccionados" style="display: none; background: transparent; border: none; padding: 0.1rem 0.25rem; cursor: pointer; color: var(--color-primary); font-size: 0.85rem; border-radius: 4px; align-items: center; justify-content: center; line-height: 1;">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
+                  </div>
+                </th>
                 <th style="min-width: 100px; padding: 0.55rem 0.4rem;">
                   <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
                     <span>Comercio</span>
@@ -5192,6 +5255,7 @@ window.applyWmsFiltersAndRender = function() {
     
     return matchBase && matchTab && matchColFilters && matchMultiselect;
   });
+  window.wmsLastFilteredOrders = filtered;
 
   // Auto-seleccionar pedidos filtrados por el multiselect
   if (multiselectRefsSet.size > 0) {
@@ -5759,8 +5823,8 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.external_order_number}">${order.external_order_number}</span> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.id}">${order.id.split('-')[0]}</span></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.external_order_number}">${order.external_order_number}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.external_order_number, 'Número de pedido', 'Copiar número de pedido') : ''}</div> <span style="font-size: 0.7rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.15rem;"><div style="display:inline-flex; align-items:center;"><span style="font-family: monospace; font-size: 0.8rem; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.3px; font-weight:600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block;" title="${order.id}">${order.id.split('-')[0]}</span>${window.renderCopyFieldBtn ? window.renderCopyFieldBtn(order.id, 'ID de pedido', 'Copiar ID de pedido') : ''}</div></div>`;
 
     // Validar si el courier u operador guardado en el pedido es un operador ignorado (RECIBELO, WELIVERY)
     const orderCourierUpper = (order.courier || '').toUpperCase().trim();
@@ -6808,6 +6872,100 @@ function updateSelectAllCheckboxState() {
   cbAll.checked = allChecked;
 }
 
+window.copySelectedOrderNumbers = function(btn) {
+  const selectedIds = window.wmsSelectedOrderIds;
+  if (!selectedIds || selectedIds.size === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin selección',
+        text: 'Selecciona al menos un pedido usando las casillas de verificación para copiar sus números.',
+        confirmButtonColor: 'var(--color-primary, #3b82f6)'
+      });
+    } else {
+      alert('Selecciona al menos un pedido usando las casillas de verificación para copiar sus números.');
+    }
+    return;
+  }
+
+  // Mantener el orden visual en que aparecen los pedidos en pantalla
+  const allOrders = window.wmsLastFilteredOrders || window.loadedOrders || [];
+  const ordersMap = new Map();
+  (window.loadedOrders || []).forEach(o => ordersMap.set(o.id, o));
+
+  const selectedOrders = [];
+  const seenIds = new Set();
+
+  allOrders.forEach(o => {
+    if (selectedIds.has(o.id)) {
+      selectedOrders.push(o);
+      seenIds.add(o.id);
+    }
+  });
+
+  selectedIds.forEach(id => {
+    if (!seenIds.has(id)) {
+      const o = ordersMap.get(id);
+      if (o) {
+        selectedOrders.push(o);
+        seenIds.add(id);
+      }
+    }
+  });
+
+  // Extraer el número de pedido exacto (ej: GLS27881)
+  const orderNumbers = selectedOrders.map(o => {
+    const num = o.external_order_number || o.raw_shopify_data?.name || o.order_number || o.id;
+    return String(num || '').trim();
+  }).filter(Boolean);
+
+  if (orderNumbers.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Sin números',
+        text: 'No se encontraron números de pedido válidos en la selección.'
+      });
+    } else {
+      alert('No se encontraron números de pedido válidos en la selección.');
+    }
+    return;
+  }
+
+  const textToCopy = orderNumbers.join('\n');
+
+  const doSuccessFeedback = () => {
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Copiado (${orderNumbers.length})!`;
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+      }, 2000);
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `¡${orderNumbers.length} número(s) de pedido copiado(s)!`,
+        html: `<span style="font-size: 0.8rem; color: var(--color-text-muted);">Formato lista copiado al portapapeles</span>`,
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true
+      });
+    }
+  };
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(textToCopy).then(doSuccessFeedback).catch(err => {
+      console.warn('Clipboard writeText falló, usando fallback:', err);
+      fallbackCopyText(textToCopy, doSuccessFeedback);
+    });
+  } else {
+    fallbackCopyText(textToCopy, doSuccessFeedback);
+  }
+};
+
 function renderWmsBulkActionsBar() {
   const selectedCount = window.wmsSelectedOrderIds.size;
   const bulkPrintBtn = document.getElementById('wms-bulk-print-labels-btn');
@@ -6821,6 +6979,11 @@ function renderWmsBulkActionsBar() {
     }
   }
 
+  const headerCopyBtn = document.getElementById('wms-copy-selected-ids-header-btn');
+  if (headerCopyBtn) {
+    headerCopyBtn.style.display = selectedCount > 0 ? 'inline-flex' : 'none';
+  }
+
   const container = document.getElementById('wms-bulk-actions-container');
   if (!container) return;
   
@@ -6831,9 +6994,12 @@ function renderWmsBulkActionsBar() {
   
   container.innerHTML = `
     <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
-      <div style="display: flex; align-items: center; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} pedidos seleccionados</span>
+        <button onclick="window.copySelectedOrderNumbers(this)" class="btn" style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.4); padding: 0.25rem 0.65rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;" title="Copiar lista de números de pedidos seleccionados (separados por salto de línea)">
+          <i class="ri-file-copy-line"></i> Copiar Números
+        </button>
         <button onclick="window.clearWmsSelection()" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
       </div>
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -6849,7 +7015,10 @@ function renderWmsBulkActionsBar() {
         </select>
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
-        <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem; flex-wrap: wrap;">
+          <button onclick="window.copySelectedOrderNumbers(this)" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" title="Copiar números de pedido seleccionados (formato lista con salto de línea)">
+            <i class="ri-file-copy-line"></i> Copiar Números
+          </button>
           <button onclick="window.wmsCreateManifestFromSelected()" class="btn" style="background: #2563eb; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" title="Crear manifiesto de retiro con los pedidos seleccionados">
             <i class="ri-file-paper-2-line"></i> Crear Manifiesto
           </button>
@@ -32482,11 +32651,18 @@ function handleManageStatusChange(status) {
     qtyReceivedInput.disabled = false;
     qtyReceivedInput.removeAttribute('readonly');
     qtyReceivedInput.setAttribute('required', 'required');
-    qtyIncidentsInput.value = 0;
     qtyIncidentsInput.disabled = false;
     qtyIncidentsInput.removeAttribute('readonly');
     qtyIncidentsInput.setAttribute('required', 'required');
-    incidentsPanel.style.display = 'none';
+    
+    // Si la cantidad de incidencias es mayor a 0 o ya existen registradas, mostrar panel
+    const currentQtyInc = parseInt(qtyIncidentsInput.value, 10) || 0;
+    if (currentQtyInc > 0 || (currentDeclarationIncidents && currentDeclarationIncidents.filter(Boolean).length > 0)) {
+      incidentsPanel.style.display = 'block';
+      window.renderIncidentsInputsList();
+    } else {
+      incidentsPanel.style.display = 'none';
+    }
 
     if (window.renderManageDeclarationProducts && dec) {
       window.renderManageDeclarationProducts(dec, status);
@@ -32516,7 +32692,7 @@ function handleManageStatusChange(status) {
     if (parseInt(qtyIncidentsInput.value, 10) <= 0) {
       qtyIncidentsInput.value = 1;
     }
-    renderIncidentsInputsList();
+    window.renderIncidentsInputsList();
   } else {
     if (groupReceived) groupReceived.style.display = 'none';
     if (groupIncidents) groupIncidents.style.display = 'none';
@@ -32537,35 +32713,56 @@ function handleManageStatusChange(status) {
   }
 }
 
-function renderIncidentsInputsList() {
-  const container = document.getElementById('manage-dec-incidents-container');
+window.toggleManageIncidentsPanel = function(forceShow = null) {
+  const panel = document.getElementById('manage-dec-incidents-panel');
+  if (!panel) return;
+  const isHidden = panel.style.display === 'none' || !panel.style.display;
+  const shouldShow = forceShow !== null ? forceShow : isHidden;
+  panel.style.display = shouldShow ? 'block' : 'none';
+  if (shouldShow) {
+    window.renderIncidentsInputsList();
+    setTimeout(() => {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const inputs = document.querySelectorAll('.incident-desc-input');
+      if (inputs.length > 0) {
+        inputs[0].focus();
+      }
+    }, 50);
+  }
+};
+
+window.renderIncidentsInputsList = function() {
+  const container = document.getElementById('manage-dec-incidents-container') || document.getElementById('manage-dec-incidents-list-container');
   if (!container) return;
-  container.innerHTML = '';
   
-  if (currentDeclarationIncidents.length === 0) {
-    currentDeclarationIncidents.push('');
+  if (!Array.isArray(currentDeclarationIncidents) || currentDeclarationIncidents.length === 0) {
+    currentDeclarationIncidents = [''];
   }
   
-  currentDeclarationIncidents.forEach((inc, idx) => {
+  container.innerHTML = currentDeclarationIncidents.map((inc, idx) => {
     let textVal = '';
     if (typeof inc === 'string') {
       textVal = inc;
     } else if (typeof inc === 'object' && inc !== null) {
       textVal = inc.reason || inc.comment || inc.notes || inc.observacion || (inc.sku && inc.sku !== '-' ? `${inc.sku}: ${inc.reason || inc.type || ''}` : '');
     }
-    container.innerHTML += `
+    return `
       <div style="display: flex; gap: 0.5rem; align-items: center;" class="incident-item-row" data-index="${idx}">
-        <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-danger); width: 20px;">${idx + 1}.</span>
-        <input type="text" class="form-input incident-desc-input" style="flex: 1; padding: 0.35rem; font-size: 0.85rem;" value="${String(textVal || '').replace(/"/g, '&quot;')}" placeholder="Ej. Caja 3 mojada, daño menor">
-        <button type="button" class="btn btn-outline btn-remove-incident" style="padding: 0.25rem 0.4rem; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.2); height: auto; margin: 0; line-height: 1;" data-index="${idx}" title="Eliminar">&times;</button>
+        <span style="font-size: 0.85rem; font-weight: 700; color: var(--color-danger); width: 22px; text-align: right;">${idx + 1}.</span>
+        <input type="text" class="form-input incident-desc-input" style="flex: 1; padding: 0.4rem 0.65rem; font-size: 0.85rem; border-radius: 6px; background: var(--color-bg); border: 1px solid var(--color-border);" value="${String(textVal || '').replace(/"/g, '&quot;')}" placeholder="Ej. Caja 3 mojada / Producto quebrado o con sello roto">
+        <button type="button" class="btn btn-outline btn-remove-incident" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); height: 32px; width: 32px; display: inline-flex; align-items: center; justify-content: center; margin: 0; line-height: 1; font-size: 1.1rem; border-radius: 6px; cursor: pointer;" data-index="${idx}" title="Eliminar">&times;</button>
       </div>
     `;
-  });
-}
+  }).join('');
+};
 
 function saveCurrentIncidentsInputs() {
-  const inputs = document.querySelectorAll('.incident-desc-input');
-  currentDeclarationIncidents = Array.from(inputs).map(inp => inp.value.trim());
+  const container = document.getElementById('manage-dec-incidents-container') || document.getElementById('manage-dec-incidents-list-container');
+  if (!container) return;
+  const inputs = container.querySelectorAll('.incident-desc-input');
+  if (inputs.length > 0) {
+    currentDeclarationIncidents = Array.from(inputs).map(inp => inp.value);
+  }
 }
 
 // Global change listener for status dropdown
@@ -32577,20 +32774,63 @@ document.addEventListener('change', (e) => {
 
 // Click listener for dynamic incidents list
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.id === 'btn-add-incident-item') {
+  const addBtn = e.target.closest('#btn-add-incident-item');
+  if (addBtn) {
     e.preventDefault();
     saveCurrentIncidentsInputs();
     currentDeclarationIncidents.push('');
-    renderIncidentsInputsList();
+    window.renderIncidentsInputsList();
+
+    const qtyIncInput = document.getElementById('manage-dec-qty-incidents');
+    if (qtyIncInput) {
+      const cur = parseInt(qtyIncInput.value, 10) || 0;
+      if (cur < currentDeclarationIncidents.length) {
+        qtyIncInput.value = currentDeclarationIncidents.length;
+      }
+    }
+
+    setTimeout(() => {
+      const inputs = document.querySelectorAll('.incident-desc-input');
+      if (inputs.length > 0) {
+        inputs[inputs.length - 1].focus();
+      }
+    }, 40);
+    return;
   }
   
   const removeBtn = e.target.closest('.btn-remove-incident');
   if (removeBtn) {
     e.preventDefault();
-    const idx = parseInt(removeBtn.getAttribute('data-index'));
+    const idx = parseInt(removeBtn.getAttribute('data-index'), 10);
     saveCurrentIncidentsInputs();
-    currentDeclarationIncidents.splice(idx, 1);
-    renderIncidentsInputsList();
+    if (!isNaN(idx) && idx >= 0 && idx < currentDeclarationIncidents.length) {
+      currentDeclarationIncidents.splice(idx, 1);
+    }
+    const currentStatus = document.getElementById('manage-dec-status')?.value;
+    if (currentDeclarationIncidents.length === 0 && currentStatus === 'Recibido con Incidencias') {
+      currentDeclarationIncidents.push('');
+    }
+    window.renderIncidentsInputsList();
+    return;
+  }
+
+  const toggleBtn = e.target.closest('#btn-toggle-incidents-panel');
+  if (toggleBtn) {
+    e.preventDefault();
+    window.toggleManageIncidentsPanel();
+    return;
+  }
+});
+
+// Input listener para capturar texto de incidencias y auto-mostrar panel si cant > 0
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.classList.contains('incident-desc-input')) {
+    saveCurrentIncidentsInputs();
+  } else if (e.target && e.target.id === 'manage-dec-qty-incidents') {
+    const val = parseInt(e.target.value, 10) || 0;
+    if (val > 0) {
+      window.toggleManageIncidentsPanel(true);
+    }
   }
 });
 
@@ -33503,7 +33743,24 @@ document.addEventListener('submit', async (e) => {
       qtyReceived = qtyDeclared;
       qtyIncidents = 0;
     } else if (status === 'Recepción Parcial') {
-      qtyIncidents = 0;
+      saveCurrentIncidentsInputs();
+      const manualIncidents = currentDeclarationIncidents.filter(Boolean);
+      if (manualIncidents.length > 0) {
+        manualIncidents.forEach(m => {
+          if (typeof m === 'string' && m.trim()) {
+            incidentsList.push({
+              type: 'Incidencia Parcial',
+              sku: '-',
+              name: 'Recepción Parcial',
+              quantity: 1,
+              reason: m.trim()
+            });
+          } else if (typeof m === 'object' && m !== null) {
+            incidentsList.push(m);
+          }
+        });
+      }
+      qtyIncidents = !isNaN(qtyIncidents) && qtyIncidents > 0 ? qtyIncidents : incidentsList.length;
     } else if (status === 'Recibido con Incidencias') {
       saveCurrentIncidentsInputs();
       const manualIncidents = currentDeclarationIncidents.filter(Boolean);
