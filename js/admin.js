@@ -1629,6 +1629,24 @@ window.buildPickerObservation = function(order, prodDescription) {
   }
 };
 
+// Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
+window.resolveOrderTracking = function(order) {
+  if (!order) return '';
+  if (order.tracking_number && String(order.tracking_number).trim()) {
+    return String(order.tracking_number).trim();
+  }
+  // MercadoLibre shipment ID fallback
+  if (order.external_platform === 'MercadoLibre' || order.raw_meli_data) {
+    const raw = order.raw_meli_data;
+    let shipId = null;
+    if (Array.isArray(raw)) shipId = raw[0]?.shipping?.id;
+    else if (raw?.orders && Array.isArray(raw.orders)) shipId = raw.orders[0]?.shipping?.id;
+    else if (raw?.shipping) shipId = raw.shipping?.id;
+    if (shipId) return String(shipId).trim();
+  }
+  return '';
+};
+
 // Helper para construir la nota estandarizada de pedidos creados desde Logística Inversa
 window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProducts, outgoingProducts, comments }) {
   const lines = [];
@@ -10440,6 +10458,15 @@ async function renderIntegrations() {
               .eq('id', optirouteIntegration.id);
 
             if (upErr) throw upErr;
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: 'STOCKA (Admin)',
+                platform: 'Optiroute',
+                shopUrl: 'app.optiroute.cl',
+                connectionType: 'API Token de Tracking',
+                extraDetails: 'Conexión y sincronización de tracking con Optiroute WMS.'
+              });
+            }
             if (window.Swal) Swal.fire('Éxito', 'Token de Optiroute actualizado correctamente.', 'success');
             else alert('Token de Optiroute actualizado correctamente.');
           } else {
@@ -10452,6 +10479,15 @@ async function renderIntegrations() {
               comercio: 'STOCKA'
             }]);
             if (insErr) throw insErr;
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: 'STOCKA (Admin)',
+                platform: 'Optiroute',
+                shopUrl: 'app.optiroute.cl',
+                connectionType: 'API Token de Tracking',
+                extraDetails: 'Conexión y sincronización de tracking con Optiroute WMS.'
+              });
+            }
             if (window.Swal) Swal.fire('Éxito', 'Integración con Optiroute guardada correctamente.', 'success');
             else alert('Integración con Optiroute guardada correctamente.');
           }
@@ -52180,7 +52216,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       manga: mangaVal ? String(mangaVal).trim() : null,
       cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '')),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'Pendiente (Obs)',
@@ -52259,9 +52295,10 @@ window.sendSingleOrderToPicker = async function(order) {
 
   const isStkAgenda = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
   const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
+  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
   const cleanTracking = isStkAgenda 
     ? cleanStkTracking 
-    : ((isIgnoredCourier || isIgnoredOperator) ? '' : (order.tracking_number || ''));
+    : ((isIgnoredCourier || isIgnoredOperator) ? '' : resolvedTrack);
   const cleanOperator = isIgnoredOperator ? '' : (order.operador || '');
 
   for (const item of physicalItems) {

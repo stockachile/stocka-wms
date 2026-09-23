@@ -126,6 +126,24 @@ function resolvePickerSku(prod, order, commerceStrict) {
   return (prod?.sku || order?.sku || 'SKU-TEMP');
 }
 
+// Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
+function resolveOrderTracking(order) {
+  if (!order) return '';
+  if (order.tracking_number && String(order.tracking_number).trim()) {
+    return String(order.tracking_number).trim();
+  }
+  // MercadoLibre shipment ID fallback
+  if (order.external_platform === 'MercadoLibre' || order.raw_meli_data) {
+    const raw = order.raw_meli_data;
+    let shipId = null;
+    if (Array.isArray(raw)) shipId = raw[0]?.shipping?.id;
+    else if (raw?.orders && Array.isArray(raw.orders)) shipId = raw.orders[0]?.shipping?.id;
+    else if (raw?.shipping) shipId = raw.shipping?.id;
+    if (shipId) return String(shipId).trim();
+  }
+  return '';
+}
+
 async function run() {
   console.log(`[${new Date().toISOString()}] Iniciando sincronización bidireccional WMS <-> Picker...`);
 
@@ -325,7 +343,7 @@ async function run() {
               manga: mangaVal ? String(mangaVal).trim() : null,
               cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
-              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) : (wmsOrder.tracking_number || ''),
+              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) : resolveOrderTracking(wmsOrder),
               operator: wmsOrder.operador || '',
               totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
@@ -482,7 +500,7 @@ async function run() {
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK')
                 ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo)
-                : (wmsOrder.tracking_number || (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : '')),
+                : (resolveOrderTracking(wmsOrder) || (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : '')),
               operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : ''),
               totu: totu,
               sheet_status: 'EN PREPARACIÓN',

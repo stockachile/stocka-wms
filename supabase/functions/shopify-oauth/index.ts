@@ -260,6 +260,102 @@ serve(async (req) => {
             } catch (syncErr) {
               console.error("Error en sincronización inicial en background:", syncErr);
             }
+
+            try {
+              const brevoKey = Deno.env.get("BREVO_API_KEY") || "";
+              const nowChile = new Date().toLocaleString("es-CL", {
+                timeZone: "America/Santiago",
+                year: "numeric", month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", second: "2-digit"
+              });
+              const emailPayload = {
+                sender: { name: "WMS STOCKA Integraciones", email: "info@stocka.cl" },
+                to: [{ email: "stockachile@gmail.com" }],
+                subject: `⚡ [Nueva Integración] ${resolvedComercio} se ha conectado a Shopify en WMS STOCKA`,
+                htmlContent: `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0;">
+  <div style="width: 100%; background-color: #f3f4f6; padding: 40px 0;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);">
+      <div style="height: 6px; background: linear-gradient(90deg, #5e17eb, #8b5cf6);"></div>
+      <div style="padding: 35px 30px 15px 30px; text-align: center;">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="Stocka Logo" style="height: 48px; margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #1e1b4b;">Nueva Integración Conectada</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13.5px; font-weight: 500; color: #6b7280; text-transform: uppercase;">${resolvedComercio}</p>
+      </div>
+      <div style="padding: 10px 30px 30px 30px;">
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          Se ha completado con éxito la vinculación oficial mediante <strong>OAuth 2.0</strong> de una tienda Shopify con la plataforma WMS STOCKA:
+        </div>
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px; margin-bottom: 24px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; width: 38%; color: #64748b;">Comercio / Tienda:</td>
+              <td style="padding: 10px 0; font-weight: 700; color: #1e293b; font-size: 15px;">${resolvedComercio}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Plataforma:</td>
+              <td style="padding: 10px 0;">
+                <span style="display: inline-block; padding: 4px 12px; font-weight: 700; font-size: 12px; border-radius: 9999px; background-color: #eefcf1; color: #008060; border: 1px solid #a7f3d0;">
+                  Shopify
+                </span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Dominio / Tienda URL:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #0284c7; word-break: break-all;">${shop}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Método de Conexión:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #334155;">OAuth 2.0 Oficial</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Fecha y Hora (Chile):</td>
+              <td style="padding: 10px 0; color: #475569;">${nowChile}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Estado Operativo:</td>
+              <td style="padding: 10px 0;">
+                <span style="display: inline-block; padding: 3px 10px; font-weight: 700; font-size: 11px; border-radius: 4px; background-color: #dcfce7; color: #15803d; text-transform: uppercase;">
+                  ✓ Activa y Vinculada
+                </span>
+              </td>
+            </tr>
+          </table>
+        </div>
+        <div style="text-align: center; margin: 25px 0;">
+          <a href="https://wms.stocka.cl/admin.html" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">Ver Integraciones en WMS Admin</a>
+        </div>
+        <div style="margin-top: 25px; padding: 16px; background-color: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; font-size: 13px; line-height: 1.6; text-align: center;">
+          Notificación automática enviada por WMS STOCKA tras finalizar el handshake OAuth con Shopify.
+        </div>
+      </div>
+      <div style="background-color: #f9fafb; padding: 30px 20px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #f3f4f6; line-height: 1.6;">
+        <strong style="color: #111827; font-size: 13px;">Stocka SpA</strong><br>
+        Fulfillment & Soporte Logístico para Ecommerce<br>
+        Campo de Deportes 405, Ñuñoa.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+                `
+              };
+              await fetch("https://api.brevo.com/v3/smtp/email", {
+                method: "POST",
+                headers: {
+                  "accept": "application/json",
+                  "content-type": "application/json",
+                  "api-key": brevoKey
+                },
+                body: JSON.stringify(emailPayload)
+              });
+              console.log(`[OAuth Background] Notificación de integración enviada a stockachile@gmail.com para ${shop}`);
+            } catch (mailErr) {
+              console.warn("[OAuth Background] Error enviando correo de notificación:", mailErr);
+            }
           })()
         );
       }

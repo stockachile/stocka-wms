@@ -394,6 +394,7 @@ serve(async (req) => {
       'stock_inbound_received',
       'stock_inbound_completed',
       'shopify_pin_submitted', 
+      'merchant_integration_connected',
       'onboarding_contract_received', 
       'onboarding_catalog_ready', 
       'onboarding_enviame_instructions',
@@ -2123,6 +2124,102 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'merchant_integration_connected') {
+      const platform = payload.platform || 'Plataforma';
+      const shopUrl = payload.shopUrl || payload.shop_url || '-';
+      const connectionType = payload.connectionType || payload.connection_type || 'Conexión Directa';
+      const userEmail = payload.userEmail || payload.user_email || user?.email || 'N/A';
+      const userName = payload.userName || payload.user_name || user?.user_metadata?.full_name || 'Usuario WMS';
+      const connectedAt = payload.connectedAt || new Date().toLocaleString('es-CL', {
+        timeZone: 'America/Santiago',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      const extraDetails = payload.extraDetails || payload.extra_details || '';
+
+      const platformColors: Record<string, { bg: string, text: string, border: string }> = {
+        'Shopify': { bg: '#eefcf1', text: '#008060', border: '#a7f3d0' },
+        'Mercado Libre': { bg: '#fffde7', text: '#b45309', border: '#fde68a' },
+        'WooCommerce': { bg: '#fbf7ff', text: '#7f54b3', border: '#ddd6fe' },
+        'Falabella': { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+        'Ripley': { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' },
+        'París': { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+        'Paris': { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+        'Walmart': { bg: '#eff6ff', text: '#0071ce', border: '#bfdbfe' },
+        'Jumpseller': { bg: '#f8fafc', text: '#0284c7', border: '#bae6fd' },
+        'Tiendanube': { bg: '#eff6ff', text: '#2d3277', border: '#c7d2fe' },
+        'Optiroute': { bg: '#eef2ff', text: '#4338ca', border: '#c7d2fe' }
+      };
+
+      const pColor = platformColors[platform] || { bg: '#f1f5f9', text: '#334155', border: '#cbd5e1' };
+
+      emailSubject = `⚡ [Nueva Integración] ${commerceName} se ha conectado a ${platform} en WMS STOCKA`;
+      headerGradient = 'linear-gradient(135deg, #10b981, #059669)';
+      emailTitle = 'Nueva Integración Conectada';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          Se ha registrado una nueva conexión de plataforma de ventas en el sistema WMS STOCKA. A continuación se detallan los datos del comercio y de la integración:
+        </div>
+        
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 22px; margin-bottom: 24px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; width: 38%; color: #64748b;">Comercio / Tienda:</td>
+              <td style="padding: 10px 0; font-weight: 700; color: #1e293b; font-size: 15px;">${commerceName}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Plataforma:</td>
+              <td style="padding: 10px 0;">
+                <span style="display: inline-block; padding: 4px 12px; font-weight: 700; font-size: 12px; border-radius: 9999px; background-color: ${pColor.bg}; color: ${pColor.text}; border: 1px solid ${pColor.border};">
+                  ${platform}
+                </span>
+              </td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Dominio / Tienda URL:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #0284c7; word-break: break-all;">${shopUrl}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Método de Conexión:</td>
+              <td style="padding: 10px 0; font-weight: 600; color: #334155;">${connectionType}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Conectado por:</td>
+              <td style="padding: 10px 0; color: #334155;"><strong>${userName}</strong> (${userEmail})</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Fecha y Hora (Chile):</td>
+              <td style="padding: 10px 0; color: #475569;">${connectedAt}</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Estado Operativo:</td>
+              <td style="padding: 10px 0;">
+                <span style="display: inline-block; padding: 3px 10px; font-weight: 700; font-size: 11px; border-radius: 4px; background-color: #dcfce7; color: #15803d; text-transform: uppercase;">
+                  ✓ Activa y Vinculada
+                </span>
+              </td>
+            </tr>
+            ${extraDetails ? `
+            <tr style="border-top: 1px solid #e2e8f0;">
+              <td style="padding: 10px 0; font-weight: 600; color: #64748b;">Detalles Adicionales:</td>
+              <td style="padding: 10px 0; font-style: italic; color: #475569;">${extraDetails}</td>
+            </tr>
+            ` : ''}
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 16px; background-color: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 8px; font-size: 13px; line-height: 1.6; text-align: center;">
+          Esta notificación fue enviada de forma automática por el sistema WMS STOCKA al completar la vinculación de la tienda. Puedes gestionar todas las integraciones activas desde el panel de control administrativo.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -2211,10 +2308,11 @@ serve(async (req) => {
       'order_no_stock_alert',
       'onboarding_enviame_instructions',
       'onboarding_e1_instructions',
-      'onboarding_e1'
+      'onboarding_e1',
+      'merchant_integration_connected'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
-    const finalRecipients = emailType === 'shopify_pin_submitted' 
+    const finalRecipients = (emailType === 'shopify_pin_submitted' || emailType === 'merchant_integration_connected') 
       ? ["stockachile@gmail.com"] 
       : (recipientEmails && recipientEmails.length > 0 ? recipientEmails : ["stockachile@gmail.com"]);
 
@@ -2250,7 +2348,7 @@ serve(async (req) => {
         
         <!-- BUTTON ACCEDER A WMS STOCKA (Explicit inline color with !important to prevent email client override) -->
         <div style="text-align: center; margin: 25px 0;">
-          <a href="https://wms.stocka.cl/dashboard.html" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">Acceder a WMS Stocka</a>
+          <a href="${emailType === 'merchant_integration_connected' ? 'https://wms.stocka.cl/admin.html' : 'https://wms.stocka.cl/dashboard.html'}" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">${emailType === 'merchant_integration_connected' ? 'Ver Integraciones en WMS Admin' : 'Acceder a WMS Stocka'}</a>
         </div>
         
         ${mainNoticeHtml}
@@ -2323,7 +2421,7 @@ serve(async (req) => {
 
     const senderName = (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info')
       ? "Felipe Trujillo - Stocka Fulfillment"
-      : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"));
+      : (emailType === 'merchant_integration_connected' ? "WMS STOCKA Integraciones" : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka")));
 
     const brevoPayload: any = {
       sender: {

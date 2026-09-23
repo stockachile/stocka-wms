@@ -453,8 +453,10 @@ async function syncMerchantOrders(integration) {
       let receiverAddress = null;
       let expectedDate = null;
       let logisticsType = 'not_specified';
+      let meliTrackingNumber = null;
 
       if (group.shipping && group.shipping.id) {
+        meliTrackingNumber = String(group.shipping.id).trim();
         try {
           const shipRes = await fetch(`https://api.mercadolibre.com/shipments/${group.shipping.id}`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -464,6 +466,9 @@ async function syncMerchantOrders(integration) {
             shippingStatus = shippingData.status || 'pending';
             receiverAddress = shippingData.receiver_address;
             logisticsType = shippingData.logistic_type || 'not_specified';
+            if (shippingData.id) {
+              meliTrackingNumber = String(shippingData.id).trim();
+            }
 
             const slaRes = await fetch(`https://api.mercadolibre.com/shipments/${group.shipping.id}/sla`, {
               headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -545,7 +550,7 @@ async function syncMerchantOrders(integration) {
       const cleanMeliId = groupId.replace(/\D/g, "");
       const { data: existingOrders } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, external_order_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .eq('external_platform', 'MercadoLibre')
         .ilike('external_order_number', `%${cleanMeliId}`);
@@ -580,6 +585,10 @@ async function syncMerchantOrders(integration) {
             },
             shipping_method: shippingMethod
           };
+
+          if (meliTrackingNumber && !existingOrder.tracking_number) {
+            updatePayload.tracking_number = meliTrackingNumber;
+          }
           
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
           if (!terminalStatuses.includes(existingOrder.status)) {
@@ -747,6 +756,7 @@ async function syncMerchantOrders(integration) {
           shipping_address: shippingAddress,
           shipping_city: shippingCity,
           shipping_complement: shippingComplement,
+          tracking_number: meliTrackingNumber || null,
           raw_meli_data: group.orders,
           origen: 'MercadoLibre',
           item: flatItemName,

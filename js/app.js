@@ -952,6 +952,20 @@ async function init() {
       }
 
       syncOverlay.complete(prodsCount, ordsCount, () => {
+        // Notificar al equipo Stocka por correo (stockachile@gmail.com)
+        if (window.notifyIntegrationConnected) {
+          window.notifyIntegrationConnected({
+            comercio: userCommerce,
+            platform: 'Shopify',
+            shopUrl: cleanShopUrl,
+            userEmail: session.user?.email,
+            userName: session.user?.user_metadata?.full_name || session.user?.email,
+            connectionType: 'OAuth 2.0 Oficial',
+            extraDetails: `Sincronización inicial completada: ${prodsCount} productos y ${ordsCount} pedidos procesados. Webhooks de tiempo real suscritos.`,
+            status: 'Activa y Operativa'
+          });
+        }
+
         const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
         window.history.pushState({ path: newUrl }, '', newUrl);
         setTimeout(() => {
@@ -11895,6 +11909,16 @@ async function renderIntegrations() {
               });
             }
 
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Shopify',
+                shopUrl: cleanShopUrl,
+                connectionType: 'Credenciales Manuales (Access Token + Webhook Secret)',
+                extraDetails: 'Configuración manual con clave de API privada y sincronización de catálogo iniciada.'
+              });
+            }
+
             alert('Tienda Shopify conectada manualmente y catálogo sincronizado con éxito.');
             renderIntegrations();
           } catch (err) {
@@ -12319,6 +12343,16 @@ async function renderIntegrations() {
           }]);
           if(insErr) throw insErr;
           
+          if (window.notifyIntegrationConnected) {
+            window.notifyIntegrationConnected({
+              comercio: window.activeIntegrationCommerce,
+              platform: 'Paris',
+              shopUrl: paris_url,
+              connectionType: 'API Token Mirakl',
+              extraDetails: 'Conexión con credenciales API de París Marketplace.'
+            });
+          }
+
           alert('Integración con París Marketplace guardada correctamente.');
           renderIntegrations(); // Recargar vista
         } catch(err) {
@@ -12377,6 +12411,16 @@ async function renderIntegrations() {
           }]);
           if(insErr) throw insErr;
           
+          if (window.notifyIntegrationConnected) {
+            window.notifyIntegrationConnected({
+              comercio: window.activeIntegrationCommerce,
+              platform: 'Ripley',
+              shopUrl: ripley_url,
+              connectionType: 'API Token Mirakl',
+              extraDetails: 'Conexión con credenciales API de Ripley Marketplace.'
+            });
+          }
+
           alert('Integración con Ripley Marketplace guardada correctamente.');
           renderIntegrations(); // Recargar vista
         } catch(err) {
@@ -12480,6 +12524,16 @@ async function renderIntegrations() {
           }]);
           if(insErr) throw insErr;
           
+          if (window.notifyIntegrationConnected) {
+            window.notifyIntegrationConnected({
+              comercio: window.activeIntegrationCommerce,
+              platform: 'Falabella',
+              shopUrl: falabella_url,
+              connectionType: 'API Developer Portal',
+              extraDetails: `Usuario Seller: ${falabella_user}. Endpoint conectado.`
+            });
+          }
+
           alert('Integración con Falabella guardada correctamente.');
           renderIntegrations(); // Recargar vista
         } catch(err) {
@@ -12710,6 +12764,16 @@ async function renderIntegrations() {
             } catch (syncErr) {
               console.warn('Advertencia en la sincronización inicial:', syncErr);
               syncNotice = ` (advertencia: la sincronización inicial falló por '${syncErr.message}', pero las credenciales se guardaron. El script de segundo plano intentará de nuevo)`;
+            }
+
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Mercado Libre',
+                shopUrl: redirect_uri || `App ID: ${client_id}`,
+                connectionType: refresh_token ? 'Migración Refresh Token' : 'OAuth 2.0 Auth Code',
+                extraDetails: `Client ID: ${client_id}. Sincronización inicial ejecutada.`
+              });
             }
 
             loadingOverlay.remove();
@@ -12950,6 +13014,16 @@ async function renderIntegrations() {
               syncNotice = ` (la sincronización inicial tardará un poco en completarse, pero las credenciales se guardaron con éxito)`;
             }
 
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Walmart',
+                shopUrl: redirect_uri || `Client ID: ${client_id}`,
+                connectionType: 'API Developer Portal (Client ID & Secret)',
+                extraDetails: `Client ID: ${client_id}. Sincronización inicial ejecutada.`
+              });
+            }
+
             loadingOverlay.remove();
             alert(`Integración con Walmart guardada con éxito${syncNotice}`);
             renderIntegrations(); // Recargar vista
@@ -13111,6 +13185,16 @@ async function renderIntegrations() {
             }]);
             if(insErr) throw insErr;
             
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'WooCommerce',
+                shopUrl: shop_url,
+                connectionType: 'Claves REST API (Consumer Key & Secret)',
+                extraDetails: 'Conexión con tienda WordPress/WooCommerce y suscripción de webhooks.'
+              });
+            }
+
             alert('Integración con WooCommerce guardada correctamente.');
             renderIntegrations(); // Recargar vista
           } catch(err) {
@@ -13397,6 +13481,16 @@ async function renderIntegrations() {
             }]);
             if(insErr) throw insErr;
             
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Jumpseller',
+                shopUrl: shop_url,
+                connectionType: 'API Login Key & Auth Token',
+                extraDetails: 'Conexión con tienda Jumpseller y webhook secret configurado.'
+              });
+            }
+
             alert('Integración con Jumpseller guardada correctamente.');
             renderIntegrations(); // Recargar vista
           } catch(err) {
@@ -13463,6 +13557,16 @@ async function renderIntegrations() {
             }]);
             if(insErr) throw insErr;
             
+            if (window.notifyIntegrationConnected) {
+              window.notifyIntegrationConnected({
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Tiendanube',
+                shopUrl: store_id,
+                connectionType: 'Store ID & API Access Token',
+                extraDetails: 'Conexión con tienda Tiendanube.'
+              });
+            }
+
             alert('Integración con Tiendanube guardada correctamente.');
             renderIntegrations(); // Recargar vista
           } catch(err) {

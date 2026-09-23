@@ -145,8 +145,10 @@ async function handleOrderNotification(orderId: string, integration: any, access
   let receiverAddress = null;
   let expectedDate = null;
   let logisticsType = 'not_specified';
+  let meliTrackingNumber: string | null = null;
 
   if (group.shipping && group.shipping.id) {
+    meliTrackingNumber = String(group.shipping.id).trim();
     try {
       const shipRes = await fetch(`https://api.mercadolibre.com/shipments/${group.shipping.id}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -156,6 +158,9 @@ async function handleOrderNotification(orderId: string, integration: any, access
         shippingStatus = shippingData.status || 'pending';
         receiverAddress = shippingData.receiver_address;
         logisticsType = shippingData.logistic_type || 'not_specified';
+        if (shippingData.id) {
+          meliTrackingNumber = String(shippingData.id).trim();
+        }
 
         const slaRes = await fetch(`https://api.mercadolibre.com/shipments/${group.shipping.id}/sla`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -222,7 +227,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
   const cleanMeliId = groupId.replace(/\D/g, "");
   const { data: existingOrders } = await supabase
     .from('orders')
-    .select('id, status, estado_wms, comercio, external_order_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+    .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
     .eq('comercio', integration.comercio)
     .eq('external_platform', 'MercadoLibre')
     .ilike('external_order_number', `%${cleanMeliId}`);
@@ -255,6 +260,10 @@ async function handleOrderNotification(orderId: string, integration: any, access
         shipping_method: shippingMethod
       };
       
+      if (meliTrackingNumber && !existingOrder.tracking_number) {
+        updatePayload.tracking_number = meliTrackingNumber;
+      }
+
       if (existingOrder.status !== 'cancelado') {
         updatePayload.status = targetStatus;
       }
@@ -391,6 +400,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
       shipping_address: shippingAddress,
       shipping_city: shippingCity,
       shipping_complement: shippingComplement,
+      tracking_number: meliTrackingNumber || null,
       raw_meli_data: group.orders,
       origen: 'MercadoLibre',
       item: flatItemName,
