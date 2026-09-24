@@ -465,7 +465,7 @@ async function syncOrders(integration, headers, warehouseId) {
         item: flatItemName || 'Sin Nombre',
         cantidad: flatQuantity || 1,
         raw_jumpseller_data: o,
-        created_at: parseDateSafe(o.created_at)
+        created_at: parseDateSafe(o.completed_at || o.created_at)
       };
 
       let localOrderId = null;

@@ -267,7 +267,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     item: flatItemName || 'Sin Nombre',
     cantidad: flatQuantity || 1,
     raw_jumpseller_data: order,
-    created_at: parseDateSafe(order.created_at)
+    created_at: parseDateSafe(order.completed_at || order.created_at)
   };
 
   let localOrderId = null;
