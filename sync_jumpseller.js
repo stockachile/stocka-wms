@@ -31,6 +31,22 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+function parseDateSafe(val) {
+  if (!val) return new Date().toISOString();
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  } catch (e) {}
+
+  try {
+    const cleaned = String(val).replace(' UTC', 'Z').replace(' ', 'T');
+    const d2 = new Date(cleaned);
+    if (!isNaN(d2.getTime())) return d2.toISOString();
+  } catch (e) {}
+
+  return new Date().toISOString();
+}
+
 // ==========================================
 // FUNCIÓN PRINCIPAL DE SINCRONIZACIÓN
 // ==========================================
@@ -449,7 +465,7 @@ async function syncOrders(integration, headers, warehouseId) {
         item: flatItemName || 'Sin Nombre',
         cantidad: flatQuantity || 1,
         raw_jumpseller_data: o,
-        created_at: new Date(o.created_at).toISOString()
+        created_at: parseDateSafe(o.created_at)
       };
 
       let localOrderId = null;

@@ -6,6 +6,22 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+function parseDateSafe(val: any): string {
+  if (!val) return new Date().toISOString();
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  } catch (_e) {}
+
+  try {
+    const cleaned = String(val).replace(' UTC', 'Z').replace(' ', 'T');
+    const d2 = new Date(cleaned);
+    if (!isNaN(d2.getTime())) return d2.toISOString();
+  } catch (_e) {}
+
+  return new Date().toISOString();
+}
+
 serve(async (req) => {
   // Solo aceptamos POST
   if (req.method !== "POST") {
@@ -251,7 +267,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     item: flatItemName || 'Sin Nombre',
     cantidad: flatQuantity || 1,
     raw_jumpseller_data: order,
-    created_at: order.created_at ? new Date(order.created_at.replace ? order.created_at.replace(' ', 'T') : order.created_at).toISOString() : new Date().toISOString()
+    created_at: parseDateSafe(order.created_at)
   };
 
   let localOrderId = null;
