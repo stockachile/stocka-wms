@@ -1543,10 +1543,30 @@
             </div>
           </div>
 
-          <div class="form-group" id="new-user-modules-group" style="display: none; background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-top: 1rem;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem;">Asignar Módulos</label>
-            <div id="new-user-modules-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
-              <!-- Se inyecta dinámicamente -->
+          <div class="form-group" id="new-user-modules-group" style="display: none; background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-top: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+              <label class="form-label" style="font-weight: 700; margin: 0; font-size: 0.9rem;">
+                <i class="ri-shield-keyhole-line" style="color: var(--color-primary);"></i> Asignar Módulos
+              </label>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span id="new-user-modules-count" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"></span>
+                <button type="button" class="btn btn-outline btn-xs" id="btn-new-user-select-all" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">Marcar todos</button>
+                <button type="button" class="btn btn-outline btn-xs" id="btn-new-user-deselect-all" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">Desmarcar todos</button>
+              </div>
+            </div>
+
+            <!-- Selector de Sub-rol para nuevo usuario -->
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.85rem;">
+              <label for="new-user-subrole-select" style="font-size: 0.82rem; font-weight: 600; white-space: nowrap; margin: 0; color: var(--color-text-muted);">
+                Plantilla / Sub-rol:
+              </label>
+              <select id="new-user-subrole-select" class="form-input" style="padding: 0.3rem 0.5rem; font-size: 0.82rem; height: 32px; margin: 0; flex: 1;">
+                <!-- Inyectado dinámicamente -->
+              </select>
+            </div>
+
+            <div id="new-user-modules-list">
+              <!-- Se inyecta dinámicamente en cuadrícula categorizada -->
             </div>
           </div>
         </div>
@@ -1560,28 +1580,238 @@
 
   <!-- Modal Gestionar Módulos -->
   <div class="modal-overlay" id="modal-manage-modules">
-    <div class="modal-content" style="max-width: 500px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
-      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
-        <h3 style="margin: 0;">Restringir Módulos de Acceso</h3>
+    <div class="modal-content" style="max-width: 680px; width: 96vw; display: flex; flex-direction: column; max-height: 92vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-shield-keyhole-line" style="color: var(--color-primary);"></i> Restringir Módulos de Acceso
+        </h3>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-modules').classList.remove('active')">&times;</button>
       </div>
       <form id="form-manage-modules" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
         <input type="hidden" id="manage-modules-user-id">
-        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
+        <input type="hidden" id="manage-modules-raw-role">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem 1.5rem;">
           <div id="modal-modules-alert-container"></div>
-          <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-            Selecciona los módulos a los que tendrá acceso el usuario <strong id="manage-modules-username"></strong> (Rol: <span id="manage-modules-user-role" style="font-weight: 600;"></span>):
-          </p>
           
-          <div class="form-group" style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <div id="manage-modules-checkboxes-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
-              <!-- Se inyecta dinámicamente según el rol -->
+          <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem;">
+            <p style="font-size: 0.9rem; color: var(--color-text-muted); margin: 0;">
+              Selecciona los módulos a los que tendrá acceso el usuario <strong id="manage-modules-username" style="color: var(--color-text-main);"></strong> (Rol: <span id="manage-modules-user-role" style="font-weight: 600;"></span>):
+            </p>
+          </div>
+
+          <!-- Selector de Plantilla / Sub-rol -->
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap; background: var(--color-surface); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 260px;">
+              <label for="manage-modules-subrole-select" style="font-size: 0.85rem; font-weight: 700; white-space: nowrap; margin: 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-shield-user-line" style="color: var(--color-primary); font-size: 1rem;"></i> Plantilla / Sub-rol:
+              </label>
+              <select id="manage-modules-subrole-select" class="form-input" style="padding: 0.35rem 0.6rem; font-size: 0.85rem; height: 36px; margin: 0; flex: 1; background: var(--color-bg); font-weight: 500;">
+                <!-- Opciones dinámicas inyectadas según el rol -->
+              </select>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-goto-manage-subroles" style="font-size: 0.78rem; padding: 0.35rem 0.7rem; border-color: var(--color-border); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-settings-3-line"></i> Gestionar Plantillas
+            </button>
+          </div>
+          
+          <div class="form-group" style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+              <span id="manage-modules-selected-count" style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted);">0 módulos seleccionados</span>
+              <div style="display: flex; gap: 0.4rem;">
+                <button type="button" class="btn btn-outline btn-xs" id="btn-select-all-modules" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;">Marcar todos</button>
+                <button type="button" class="btn btn-outline btn-xs" id="btn-deselect-all-modules" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;">Desmarcar todos</button>
+              </div>
+            </div>
+            <div id="manage-modules-checkboxes-list">
+              <!-- Se inyecta dinámicamente según el rol en cuadrícula categorizada -->
             </div>
           </div>
         </div>
-        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-modules').classList.remove('active')">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-modules">Guardar Permisos</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-modules" style="font-weight: 600; padding: 0.5rem 1.25rem;">Guardar Permisos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Gestionar Sub-roles y Plantillas de Permisos -->
+  <div class="modal-overlay" id="modal-manage-subroles">
+    <div class="modal-content" style="max-width: 840px; width: 96vw; display: flex; flex-direction: column; max-height: 92vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-shield-user-line" style="color: var(--color-primary);"></i> Sub-roles y Plantillas de Permisos
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-subroles').classList.remove('active')">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem;">
+        <div id="modal-subroles-alert-container"></div>
+        
+        <!-- Vista de Listado de Sub-roles -->
+        <div id="subroles-list-view">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+            <!-- Tabs por rol -->
+            <div style="display: flex; gap: 0.5rem; background: var(--color-bg); padding: 0.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <button type="button" class="btn-tab-subrole active" id="tab-subroles-client" onclick="window.switchSubrolesTab('client')" style="border: none; background: var(--color-primary); color: var(--color-dark); font-weight: 600; font-size: 0.85rem; padding: 0.4rem 0.9rem; border-radius: var(--radius-sm); cursor: pointer;">
+                Sub-roles Cliente
+              </button>
+              <button type="button" class="btn-tab-subrole" id="tab-subroles-admin" onclick="window.switchSubrolesTab('admin')" style="border: none; background: transparent; color: var(--color-text-muted); font-weight: 600; font-size: 0.85rem; padding: 0.4rem 0.9rem; border-radius: var(--radius-sm); cursor: pointer;">
+                Sub-roles Admin
+              </button>
+            </div>
+            
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.openCreateSubroleForm()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; padding: 0.45rem 0.9rem;">
+              <i class="ri-add-line"></i> Crear Nuevo Sub-rol
+            </button>
+          </div>
+          
+          <div id="subroles-cards-container" style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <!-- Renderizado dinámico de tarjetas de sub-roles -->
+          </div>
+        </div>
+
+        <!-- Vista de Creación / Edición de Sub-rol -->
+        <div id="subroles-editor-view" style="display: none;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+            <h4 id="subrole-editor-title" style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 700;">Crear Sub-rol</h4>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.closeSubroleEditor()">
+              <i class="ri-arrow-left-line"></i> Volver al Listado
+            </button>
+          </div>
+          
+          <form id="form-edit-subrole">
+            <input type="hidden" id="edit-subrole-id">
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600;">Nombre del Sub-rol *</label>
+                <input type="text" id="edit-subrole-name" class="form-input" placeholder="Ej: Cliente P1 (Básico), Admin Operativo..." required>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600;">Rol Base *</label>
+                <select id="edit-subrole-role" class="form-input" required onchange="window.updateSubroleEditorModules()">
+                  <option value="client">Cliente</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-weight: 600;">Descripción</label>
+              <input type="text" id="edit-subrole-desc" class="form-input" placeholder="Breve descripción de funciones o perfil al que aplica...">
+            </div>
+
+            <div class="form-group" style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+                <label class="form-label" style="font-weight: 700; margin: 0; font-size: 0.9rem;">Módulos Asignados al Sub-rol</label>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span id="subrole-modules-count" style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;"></span>
+                  <button type="button" class="btn btn-outline btn-xs" onclick="window.toggleAllEditorSubroleModules(true)" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;">Marcar todos</button>
+                  <button type="button" class="btn btn-outline btn-xs" onclick="window.toggleAllEditorSubroleModules(false)" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;">Desmarcar todos</button>
+                </div>
+              </div>
+              <div id="subrole-editor-modules-list">
+                <!-- Se inyecta la cuadrícula categorizada de módulos -->
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+              <button type="button" class="btn btn-outline" onclick="window.closeSubroleEditor()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" id="btn-save-subrole" style="font-weight: 600; padding: 0.5rem 1.25rem;">Guardar Sub-rol</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-subroles').classList.remove('active')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Asignación Masiva de Roles y Sub-roles -->
+  <div class="modal-overlay" id="modal-bulk-assign-roles">
+    <div class="modal-content" style="max-width: 620px; width: 95vw; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <form id="form-bulk-assign-roles" style="margin: 0; display: flex; flex-direction: column; height: 100%;">
+        <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem;">
+            <i class="ri-user-shared-line" style="color: var(--color-primary);"></i> Asignación Masiva de Roles y Sub-roles
+          </h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('modal-bulk-assign-roles').classList.remove('active')">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          <div id="modal-bulk-alert-container"></div>
+
+          <!-- Resumen de usuarios seleccionados -->
+          <div style="background: var(--color-bg); padding: 1rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: var(--color-primary); letter-spacing: 0.05em;">
+                Usuarios Seleccionados (<span id="bulk-selected-count-badge">0</span>)
+              </span>
+              <small style="color: var(--color-text-muted); font-size: 0.75rem;">Se aplicarán los cambios a este grupo</small>
+            </div>
+            <div id="bulk-assign-selected-preview" style="display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 120px; overflow-y: auto; padding-right: 0.25rem;">
+              <!-- Chips de usuarios seleccionados -->
+            </div>
+          </div>
+
+          <!-- Selector de Rol Principal -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.875rem; margin-bottom: 0.35rem; display: block;">
+              Nuevo Rol Principal
+            </label>
+            <select id="bulk-assign-role" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.9rem;">
+              <option value="keep" selected>— Mantener rol individual actual —</option>
+              <option value="client">Cliente (Portal de Clientes)</option>
+              <option value="admin">Administrador (Control Total)</option>
+              <option value="observer">Observador (Solo Lectura Limitada)</option>
+            </select>
+            <small style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-top: 0.25rem;">
+              Si eliges "Mantener", cada usuario conservará su rol actual (Cliente, Admin u Observador).
+            </small>
+          </div>
+
+          <!-- Alerta de seguridad para Admin -->
+          <div id="bulk-assign-admin-warning" style="display: none; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-md); padding: 0.75rem 1rem; color: #d97706; font-size: 0.825rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+            <i class="ri-alert-line" style="font-size: 1.1rem; flex-shrink: 0; margin-top: 0.1rem;"></i>
+            <span><strong>¡Atención!</strong> Estás a punto de asignar permisos de <strong>Administrador</strong> a los usuarios seleccionados. Tendrán acceso total a la configuración y gestión de la plataforma.</span>
+          </div>
+
+          <!-- Selector de Sub-rol / Plantilla -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.875rem; margin-bottom: 0.35rem; display: block;">
+              Nuevo Sub-rol / Plantilla de Módulos
+            </label>
+            <select id="bulk-assign-subrole" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.9rem;">
+              <option value="keep" selected>— Mantener sub-rol individual actual —</option>
+              <option value="none">— Sin sub-rol (Quitar plantilla) —</option>
+              <!-- Plantillas inyectadas dinámicamente -->
+            </select>
+            <small style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-top: 0.25rem;">
+              Aplica una plantilla estandarizada de permisos a todos los usuarios seleccionados.
+            </small>
+          </div>
+
+          <!-- Checkbox sincronizar permisos de módulos -->
+          <div class="form-group" style="margin: 0; background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+              <input type="checkbox" id="bulk-assign-sync-modules" checked style="width: 1.1rem; height: 1.1rem; margin-top: 0.15rem; accent-color: var(--color-primary); cursor: pointer;">
+              <div>
+                <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: block;">
+                  Actualizar permisos de módulos (allowed_modules)
+                </span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
+                  Al marcar esta opción, los módulos accesibles de cada usuario se sincronizarán exactamente con los módulos preconfigurados en la plantilla de sub-rol elegida.
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem; align-items: center;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-bulk-assign-roles').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-bulk-assign" style="font-weight: 600; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-check-double-line"></i> Aplicar Cambios Masivos
+          </button>
         </div>
       </form>
     </div>
@@ -2498,182 +2728,51 @@
         </div>
       </div>
     </div>
-    </div>
   </div>
 
-  <!-- Modal Registrar Logistica Inversa (Movimiento Directo Admin) -->
-  <div class="modal-overlay" id="modal-reverse-logistics" style="z-index: 1050;">
-    <div class="modal-content" style="max-width: 900px; width: 95%;">
-      <div class="modal-header">
-        <h3 id="rl-modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-arrow-go-back-line" style="color: var(--color-primary);"></i> Registrar Movimiento
-        </h3>
-        <button class="modal-close" data-close="modal-reverse-logistics">&times;</button>
-      </div>
-      <form id="form-reverse-logistics" novalidate>
-        <input type="hidden" id="rl-type" value="DEVOLUCION">
-        <input type="hidden" id="rl-edit-id" value="">
-        
-        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
-          
-          <!-- Datos Generales -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Comercio <span class="text-danger">*</span></label>
-              <select id="rl-commerce" class="form-input" required>
-                <option value="">Selecciona comercio...</option>
-                <!-- Commerces will be dynamically rendered -->
-              </select>
-            </div>
 
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Referencia Pedido <span class="text-danger">*</span></label>
-              <input type="text" id="rl-ref-pedido" class="form-input" required placeholder="Ej: PED-1001">
-            </div>
-            
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Modalidad <span class="text-danger">*</span></label>
-              <select id="rl-modalidad" class="form-input" required>
-                <option value="presencial">Presencial (Punto físico de Ñuñoa)</option>
-                <option value="despacho_santiago">Despacho/Retiro en Santiago (Comuna)</option>
-                <option value="envio_cliente">Envío por parte del cliente</option>
-                <option value="envio_comercio">Envío por parte del comercio</option>
-                <option value="envio_stocka">Envío por parte de Stocka</option>
-              </select>
-            </div>
-
-            <div class="form-group" id="rl-comuna-group" style="margin-bottom: 0; display: none;">
-              <label class="form-label">Comuna <span class="text-danger">*</span></label>
-              <select id="rl-comuna" class="form-input">
-                <option value="">Selecciona comuna...</option>
-                <!-- Comunas will be dynamically rendered -->
-              </select>
-            </div>
-            
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Courier (Opcional)</label>
-              <input type="text" id="rl-courier" class="form-input" placeholder="Ej: Chilexpress">
-            </div>
-
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Tracking / Código (Opcional)</label>
-              <input type="text" id="rl-tracking" class="form-input" placeholder="Ej: 987654321">
-            </div>
-          </div>
-
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <label class="form-label">Observaciones Generales</label>
-            <textarea id="rl-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
-          </div>
-
-          <!-- Checkbox para modo manual -->
-          <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
-            <input type="checkbox" id="rl-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
-            <label for="rl-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
-              Ingreso manual de productos (Comercios sin catálogo configurado)
-            </label>
-          </div>
-
-          <!-- SECCION PRODUCTOS -->
-          <div class="rl-products-container">
-            
-            <!-- Productos que Entran -->
-            <div id="rl-incoming-section" style="margin-bottom: 1.5rem;">
-              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
-              </h4>
-              <div class="table-responsive">
-                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                  <thead>
-                    <tr>
-                      <th style="width: 45%;">Producto</th>
-                      <th style="width: 12%; text-align: center;">Cantidad</th>
-                      <th style="width: 15%; text-align: center;">Regresar Stock</th>
-                      <th style="width: 23%;">Comentario Item</th>
-                      <th style="width: 5%; text-align: center;"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rl-incoming-tbody">
-                    <!-- Dynamic Rows -->
-                  </tbody>
-                </table>
-              </div>
-              <button type="button" id="btn-rl-add-incoming" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-add-line"></i> Agregar Producto
-              </button>
-            </div>
-
-            <!-- Productos que Salen -->
-            <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none;">
-              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
-              </h4>
-              <div class="table-responsive">
-                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                  <thead>
-                    <tr>
-                      <th style="width: 75%;">Producto</th>
-                      <th style="width: 20%; text-align: center;">Cantidad</th>
-                      <th style="width: 5%; text-align: center;"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rl-outgoing-tbody">
-                    <!-- Dynamic Rows -->
-                  </tbody>
-                </table>
-              </div>
-              <button type="button" id="btn-rl-add-outgoing" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-add-line"></i> Agregar Producto de Salida
-              </button>
-            </div>
-            
-          </div>
-          
-        </div>
-        
-        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
-          <button type="button" class="btn btn-outline" data-close="modal-reverse-logistics">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-rl" style="display: flex; align-items: center; gap: 0.25rem;">
-            Guardar Movimiento <i class="ri-check-line"></i>
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <!-- Modal Registrar Pedido de Logistica Inversa (Admin) -->
   <div class="modal-overlay" id="modal-reverse-logistics-order" style="z-index: 1050;">
     <div class="modal-content" style="max-width: 1200px; width: 95%;">
       <div class="modal-header">
         <h3 id="rlo-modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-shopping-bag-3-line" style="color: var(--color-primary);"></i> Registrar Pedido de Logística Inversa
+          <i class="ri-repeat-2-line" style="color: var(--color-primary);"></i> Registrar Pedido de Cambio
         </h3>
         <button class="modal-close" data-close="modal-reverse-logistics-order">&times;</button>
       </div>
       <form id="form-reverse-logistics-order" novalidate>
-        <input type="hidden" id="rlo-type" value="DEVOLUCION">
+        <input type="hidden" id="rlo-type" value="CAMBIO">
         
         <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
           
-          <!-- Wizard Step Indicator -->
+          <!-- Wizard Step Indicator (4 pasos para Cambio / 3 para Devolución) -->
           <div class="rl-wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
             <div class="rl-wizard-step-tab active" id="rlo-wizard-tab-1" style="flex: 1; text-align: center; font-weight: bold; color: var(--color-primary); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
               <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15); font-weight: 700;">1</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">Destinatario y Pedido</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Modo de Entrega</span>
             </div>
-            <div class="rl-wizard-step-line" id="rlo-wizard-line-1" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-1" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            
             <div class="rl-wizard-step-tab" id="rlo-wizard-tab-2" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
               <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">2</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">Selección de Productos</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Ingresa?</span>
             </div>
-            <div class="rl-wizard-step-line" id="rlo-wizard-line-2" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-2" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            
             <div class="rl-wizard-step-tab" id="rlo-wizard-tab-3" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
-              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">Costeo y Despacho</span>
+              <span class="step-num" id="rlo-tab-3-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Sale?</span>
+            </div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-3" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            
+            <div class="rl-wizard-step-tab" id="rlo-wizard-tab-4" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" id="rlo-tab-4-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">4</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Datos del Cliente</span>
             </div>
           </div>
 
-          <!-- STEP 1: CLIENT AND ORIGINAL ORDER PRELOAD -->
+          <!-- PASO 1: MODO DE ENTREGA Y ORIGEN -->
           <div id="rlo-wizard-step-1" class="rl-wizard-step-container">
             <!-- Buscar y Cargar Pedido Previo -->
             <div style="display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.5rem; background: var(--color-bg); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
@@ -2687,30 +2786,211 @@
                     <i class="ri-search-line"></i> Buscar Pedido
                   </button>
                 </div>
-                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Al buscar y seleccionar un pedido, se completarán automáticamente los datos del cliente, la dirección, la comuna, el comercio y los productos asociados.</small>
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Al buscar y seleccionar un pedido, se completarán automáticamente el comercio, la referencia, los datos del cliente y los productos que compró.</small>
               </div>
             </div>
 
-            <!-- Selector de Comercio (Admin tiene acceso a todos los comercios) -->
-            <div id="rlo-commerce-select-container" style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <!-- Comercio y Referencia -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
               <div class="form-group" style="margin-bottom: 0;">
                 <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem;">
                   Comercio de la Solicitud <span class="text-danger">*</span>
                 </label>
-                <select id="rlo-select-commerce" class="form-input" style="font-weight: 600; color: var(--color-text-main);">
+                <select id="rlo-select-commerce" class="form-input" style="font-weight: 600; color: var(--color-text-main);" required>
                   <option value="">Selecciona comercio...</option>
-                  <!-- Dynamic Options -->
                 </select>
-                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Seleccione el comercio para el cual se registra la solicitud. Esto determinará la disponibilidad del catálogo de productos.</small>
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Determina el catálogo de productos disponibles para el cambio.</small>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem;">
+                  Referencia Pedido Original <span class="text-danger">*</span>
+                </label>
+                <input type="text" id="rlo-ref-pedido" class="form-input" required placeholder="Ej: PED-1001 o #1024">
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Número de orden con el que se vendió originalmente.</small>
               </div>
             </div>
 
-            <!-- Datos del Destinatario / Cliente -->
-            <div style="margin-bottom: 1.5rem;">
-              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-user-settings-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Datos del Destinatario (Cliente Final)
+            <!-- SELECCION MODO DE ENTREGA (AL INICIO) -->
+            <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <label class="form-label" style="font-weight: 700; margin: 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> ¿Cómo se entregará el cambio al cliente? <span class="text-danger">*</span>
+                </label>
+                <small class="text-muted">Ahorra tiempo: si retira en sucursal, no se pedirá dirección de despacho.</small>
+              </div>
+              <input type="hidden" id="rlo-modo-entrega" value="sucursal">
+              <div id="rlo-delivery-modes-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                <div id="lbl-rlo-modo-sucursal" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'sucursal')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-store-2-line" style="font-size: 1.6rem; color: var(--color-primary); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main);">Punto Ñuñoa</span>
+                  <span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-top: 0.15rem;">¡Sin costo de envío!</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.2rem;">Cliente retira en sucursal</span>
+                </div>
+
+                <div id="lbl-rlo-modo-domicilio_rm" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'domicilio_rm')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-home-4-line" style="font-size: 1.6rem; color: var(--color-text-muted); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main);">Domicilio RM</span>
+                  <span style="font-size: 0.72rem; color: var(--color-primary); font-weight: 700; margin-top: 0.15rem;">$3.200 + IVA</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.2rem;">Despacho urbano Santiago</span>
+                </div>
+
+                <div id="lbl-rlo-modo-regiones" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'regiones')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-earth-line" style="font-size: 1.6rem; color: var(--color-text-muted); margin-bottom: 0.35rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main);">A Regiones</span>
+                  <span style="font-size: 0.72rem; color: #6366f1; font-weight: 700; margin-top: 0.15rem;">Cotización Courier</span>
+                  <span style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.2rem;">Chilexpress / Starken / Blue</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Responsable del Pago -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1rem;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Responsable del Costo de Envío <span class="text-danger">*</span></label>
+              <input type="hidden" id="rlo-responsable-pago" value="comercio">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div id="lbl-rlo-resp-comercio" onclick="window.selectRloRadioCard('rlo-responsable-pago', 'comercio')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.2rem;">
+                    <i class="ri-building-line"></i>
+                  </div>
+                  <div style="text-align: left;">
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Costeado por Comercio</span>
+                    <span style="font-size: 0.7rem; color: var(--color-text-muted);">Se carga a la cuenta mensual del comercio</span>
+                  </div>
+                </div>
+                
+                <div id="lbl-rlo-resp-usuario_final" onclick="window.selectRloRadioCard('rlo-responsable-pago', 'usuario_final')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                  <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;">
+                    <i class="ri-user-line"></i>
+                  </div>
+                  <div style="text-align: left;">
+                    <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Usuario Final</span>
+                    <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo para el comercio</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Banner Informativo de Costos -->
+            <div id="rlo-cost-info-box" style="padding: 1rem 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: rgba(59, 130, 246, 0.03); display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+                <span style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Costo estimado de envío:
+                </span>
+                <span id="rlo-cost-value" style="font-weight: 700; color: var(--color-primary); font-size: 1.15rem;">$0 c/IVA</span>
+              </div>
+              <small id="rlo-cost-note" class="text-muted" style="margin-top: 0.35rem; display: block; line-height: 1.4;"></small>
+            </div>
+          </div>
+
+          <!-- PASO 2: PRODUCTOS QUE INGRESAN (DEVOLUCIÓN) -->
+          <div id="rlo-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.25rem;"></i> Productos que Ingresan (Devolución del Cliente)
+                </h4>
+                <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                  Indica los productos que el cliente devuelve y si están aptos para reingresar al stock físico.
+                </p>
+              </div>
+
+              <!-- Checkbox modo manual -->
+              <div id="rlo-manual-mode-wrapper" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
+                <input type="checkbox" id="rlo-manual-mode" style="width: 15px; height: 15px; cursor: pointer;">
+                <label for="rlo-manual-mode" style="font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--color-primary); margin: 0;">
+                  Ingreso manual (sin catálogo)
+                </label>
+              </div>
+            </div>
+
+            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); margin-bottom: 1rem;">
+              <table class="data-table" style="font-size: 0.85rem; width: 100%; margin: 0;">
+                <thead>
+                  <tr style="background: var(--color-bg);">
+                    <th style="width: 44%;">Producto</th>
+                    <th style="width: 10%; text-align: center;">Cantidad</th>
+                    <th style="width: 22%; text-align: center;">¿Apto para Stock?</th>
+                    <th style="width: 18%;">Motivo / Comentario</th>
+                    <th style="width: 6%; text-align: center;"></th>
+                  </tr>
+                </thead>
+                <tbody id="rlo-incoming-tbody">
+                  <!-- Dynamic Rows -->
+                </tbody>
+              </table>
+            </div>
+
+            <button type="button" id="btn-rlo-add-incoming" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-color: var(--color-primary); color: var(--color-primary); padding: 0.5rem 1.1rem; border-radius: var(--radius-md);">
+              <i class="ri-add-line" style="font-size: 1.1rem;"></i> Agregar Producto que Ingresa
+            </button>
+          </div>
+
+          <!-- PASO 3: PRODUCTOS QUE SALEN (REEMPLAZO) -->
+          <div id="rlo-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
+            <div style="margin-bottom: 1rem;">
+              <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.25rem;"></i> Productos que Salen (Reemplazo / Despacho)
               </h4>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                Selecciona el producto del catálogo que se despachará o entregará al cliente. El sistema valida el stock disponible en bodega.
+              </p>
+            </div>
+
+            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); margin-bottom: 1rem;">
+              <table class="data-table" style="font-size: 0.85rem; width: 100%; margin: 0;">
+                <thead>
+                  <tr style="background: var(--color-bg);">
+                    <th style="width: 68%;">Producto de Reemplazo (Catálogo con Variantes)</th>
+                    <th style="width: 15%; text-align: center;">Cantidad Saliente</th>
+                    <th style="width: 10%; text-align: center;">Stock WMS</th>
+                    <th style="width: 7%; text-align: center;"></th>
+                  </tr>
+                </thead>
+                <tbody id="rlo-outgoing-tbody">
+                  <!-- Dynamic Rows -->
+                </tbody>
+              </table>
+            </div>
+
+            <button type="button" id="btn-rlo-add-outgoing" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); padding: 0.5rem 1.1rem; border-radius: var(--radius-md);">
+              <i class="ri-add-line" style="font-size: 1.1rem;"></i> Agregar Producto de Salida
+            </button>
+          </div>
+
+          <!-- PASO 4: DATOS DEL CLIENTE Y CONFIRMACIÓN -->
+          <div id="rlo-wizard-step-4" class="rl-wizard-step-container" style="display: none;">
+            <div style="margin-bottom: 1.25rem;">
+              <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-user-settings-line" style="color: var(--color-primary); font-size: 1.25rem;"></i> Datos del Destinatario y Confirmación
+              </h4>
+              <p id="rlo-step4-description" style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">
+                Completa los datos de contacto y entrega requeridos.
+              </p>
+            </div>
+
+            <!-- Banner dinámico del modo de entrega -->
+            <div id="rlo-step4-mode-banner" style="margin-bottom: 1.25rem; padding: 0.85rem 1.25rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.6rem;"></div>
+
+            <!-- Recordatorio: Envío a cargo del Usuario Final -->
+            <div id="rlo-user-paying-reminder" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: var(--radius-md); padding: 0.85rem 1.1rem; margin-bottom: 1.25rem; align-items: flex-start; gap: 0.75rem;">
+              <div style="width: 34px; height: 34px; border-radius: 50%; background: #fef3c7; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;">
+                <i class="ri-user-shared-line" style="font-size: 1.25rem; color: #d97706;"></i>
+              </div>
+              <div style="flex: 1;">
+                <div style="font-size: 0.875rem; font-weight: 700; color: #92400e;">Envío a cargo del Usuario Final</div>
+                <div style="font-size: 0.8rem; color: #b45309; margin-top: 0.2rem; line-height: 1.45;">
+                  El cliente final gestiona y asume directamente el costo del envío de su devolución. Selecciona el operador logístico por el cual despacha e ingresa <strong>obligatoriamente</strong> el número de seguimiento (tracking) para monitorear el paquete.
+                </div>
+              </div>
+            </div>
+
+            <!-- Datos Básicos de Contacto (Siempre necesarios) -->
+            <div style="background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem;">
+              <h5 style="margin: 0 0 0.85rem 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-user-3-line" style="color: var(--color-primary);"></i> Información de Contacto del Cliente
+              </h5>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label">Nombre del Cliente <span class="text-danger">*</span></label>
                   <input type="text" id="rlo-customer-name" class="form-input" required placeholder="Ej: Juan Pérez">
@@ -2720,213 +3000,70 @@
                   <input type="email" id="rlo-customer-email" class="form-input" required placeholder="Ej: juan@correo.com">
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label">Teléfono del Cliente <span class="text-danger">*</span></label>
+                  <label class="form-label">Teléfono / WhatsApp <span class="text-danger">*</span></label>
                   <input type="text" id="rlo-customer-phone" class="form-input" required placeholder="Ej: +56912345678">
                 </div>
+              </div>
+            </div>
+
+            <!-- Datos de Despacho (Solo si es Domicilio RM o A Regiones) -->
+            <div id="rlo-delivery-fields-wrapper" style="background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; display: none;">
+              <h5 style="margin: 0 0 0.85rem 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-map-pin-line" style="color: var(--color-primary);"></i> Dirección de Despacho
+              </h5>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" id="rlo-comuna-label">Comuna de Destino <span class="text-danger">*</span></label>
+                  <select id="rlo-comuna" class="form-input">
+                    <option value="">Selecciona comuna...</option>
+                  </select>
+                </div>
                 <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
-                  <label class="form-label">Dirección de Despacho (Calle, Número) <span class="text-danger">*</span></label>
-                  <input type="text" id="rlo-customer-address" class="form-input" required placeholder="Ej: Av. Providencia 1234">
+                  <label class="form-label">Dirección (Calle, Número) <span class="text-danger">*</span></label>
+                  <input type="text" id="rlo-customer-address" class="form-input" placeholder="Ej: Av. Providencia 1234">
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label">Depto / Oficina / Block (Opcional)</label>
                   <input type="text" id="rlo-customer-complement" class="form-input" placeholder="Ej: Depto 502">
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- STEP 2: PRODUCTS SELECTION -->
-          <div id="rlo-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
-            <!-- Checkbox para modo manual -->
-            <div id="rlo-manual-mode-wrapper" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
-              <input type="checkbox" id="rlo-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
-              <label for="rlo-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
-                Ingreso manual de productos (Comercios sin catálogo configurado)
-              </label>
+              <!-- Courier y Tracking para Regiones / Usuario Final -->
+              <div id="rlo-courier-tracking-row" style="display: none; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--color-border);">
+                <div class="form-group" style="margin-bottom: 0;" id="rlo-courier-wrapper">
+                  <label class="form-label" id="rlo-courier-label">Courier Preferido (Opcional)</label>
+                  <input type="text" id="rlo-courier" class="form-input" placeholder="Ej: Chilexpress">
+                  <div id="rlo-courier-cards" style="display: none; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.25rem;"></div>
+                  <div id="rlo-courier-other-wrapper" style="display: none; margin-top: 0.5rem;">
+                    <input type="text" id="rlo-courier-other" class="form-input" placeholder="Especifica el operador o courier..." style="font-size: 0.85rem;">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;" id="rlo-tracking-wrapper">
+                  <label class="form-label" id="rlo-tracking-label">Tracking / Código Previo (Opcional)</label>
+                  <input type="text" id="rlo-tracking" class="form-input" placeholder="Ej: 987654321">
+                </div>
+              </div>
             </div>
 
-            <!-- Banner de Instrucciones Paso 2 -->
-            <div style="margin-bottom: 1.5rem; background: var(--color-bg); padding: 1rem 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.5;">
-              <h5 style="margin: 0 0 0.5rem 0; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; color: var(--color-primary);">
-                <i class="ri-information-line" style="font-size: 1.1rem;"></i> Instrucciones de Selección de Productos
+            <!-- Resumen de Solicitud -->
+            <div style="background: var(--color-bg); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem;">
+              <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.05em;">
+                Resumen del Pedido
               </h5>
-              <ul style="margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.25rem; color: var(--color-text-muted);">
-                <li><strong>Productos que Ingresan (Devolución):</strong> Agrega los ítems que el cliente está devolviendo.</li>
-                <li><strong>Regresar Stock:</strong> Marca esta casilla si el producto volverá a la bodega en buen estado y debe quedar disponible para nuevos pedidos. Desmárcala si el producto está defectuoso o dañado.</li>
-                <li><strong>Productos que Salen (Reemplazo):</strong> Agrega los productos que se despacharán como reemplazo. El sistema valida el stock disponible en bodega.</li>
-                <li><strong>Gestionar Ítems:</strong> Puedes añadir filas usando los botones o eliminar ítems haciendo clic en el ícono del basurero (<i class="ri-delete-bin-line" style="color: var(--color-danger);"></i>).</li>
-              </ul>
+              <div id="rlo-step4-summary-content" style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.6;">
+                <!-- Dinámico -->
+              </div>
             </div>
 
-            <!-- SECCION PRODUCTOS -->
-            <div id="rlo-products-layout-grid" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; width: 100%;">
-              <!-- Productos que Entran -->
-              <div id="rlo-incoming-section" style="margin-bottom: 1.5rem; min-width: 0;">
-                <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                  <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
-                </h4>
-                <div class="table-responsive">
-                  <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                    <thead>
-                      <tr>
-                        <th style="width: 45%;">Producto</th>
-                        <th style="width: 12%; text-align: center;">Cantidad</th>
-                        <th style="width: 15%; text-align: center;">Regresar Stock</th>
-                        <th style="width: 23%;">Comentario Item</th>
-                        <th style="width: 5%; text-align: center;"></th>
-                      </tr>
-                    </thead>
-                    <tbody id="rlo-incoming-tbody">
-                      <!-- Dynamic Rows -->
-                    </tbody>
-                  </table>
-                </div>
-                <button type="button" id="btn-rlo-add-incoming" style="border: 1px dashed var(--color-primary); background: rgba(59, 130, 246, 0.03); color: var(--color-primary); border-radius: var(--radius-md); font-weight: 600; padding: 0.45rem 1rem; font-size: 0.8rem; margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
-                  <i class="ri-add-line" style="font-size: 1rem; font-weight: 700;"></i> Agregar Producto
-                </button>
-              </div>
-
-              <!-- Productos que Salen -->
-              <div id="rlo-outgoing-section" style="margin-bottom: 1.5rem; display: none; min-width: 0;">
-                <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                  <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
-                </h4>
-                <div class="table-responsive">
-                  <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                    <thead>
-                      <tr>
-                        <th style="width: 75%;">Producto</th>
-                        <th style="width: 20%; text-align: center;">Cantidad</th>
-                        <th style="width: 5%; text-align: center;"></th>
-                      </tr>
-                    </thead>
-                    <tbody id="rlo-outgoing-tbody">
-                      <!-- Dynamic Rows -->
-                    </tbody>
-                  </table>
-                </div>
-                <button type="button" id="btn-rlo-add-outgoing" style="border: 1px dashed var(--color-primary); background: rgba(59, 130, 246, 0.03); color: var(--color-primary); border-radius: var(--radius-md); font-weight: 600; padding: 0.45rem 1rem; font-size: 0.8rem; margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
-                  <i class="ri-add-line" style="font-size: 1rem; font-weight: 700;"></i> Agregar Producto de Salida
-                </button>
-              </div>
+            <!-- Observaciones Generales -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Observaciones Generales de la Solicitud</label>
+              <textarea id="rlo-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
             </div>
           </div>
 
-          <!-- STEP 3: COSTING AND DELIVERY METHODS -->
-          <div id="rlo-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
-            <div style="margin-bottom: 1.5rem;">
-              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Configuración del Despacho y Costos
-              </h4>
-              <div style="display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                  <div class="form-group" style="margin-bottom: 0;">
-                    <label class="form-label">Referencia Pedido Original <span class="text-danger">*</span></label>
-                    <input type="text" id="rlo-ref-pedido" class="form-input" required placeholder="Ej: PED-1001">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 0;">
-                    <label class="form-label">Comuna de Destino <span class="text-danger">*</span></label>
-                    <select id="rlo-comuna" class="form-input" required>
-                      <option value="">Selecciona comuna...</option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- Responsable del Pago -->
-                <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Responsable del Pago <span class="text-danger">*</span></label>
-                  <input type="hidden" id="rlo-responsable-pago" value="comercio">
-                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div id="lbl-rlo-resp-comercio" onclick="window.selectRloRadioCard('rlo-responsable-pago', 'comercio')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                      <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.2rem;">
-                        <i class="ri-building-line"></i>
-                      </div>
-                      <div style="text-align: left;">
-                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Costeado por Comercio</span>
-                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Se carga a la cuenta mensual del comercio</span>
-                      </div>
-                    </div>
-                    
-                    <div id="lbl-rlo-resp-usuario_final" onclick="window.selectRloRadioCard('rlo-responsable-pago', 'usuario_final')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-                      <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;">
-                        <i class="ri-user-line"></i>
-                      </div>
-                      <div style="text-align: left;">
-                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Usuario Final</span>
-                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo directo para el comercio</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Modo de Entrega -->
-                <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Modo de Entrega <span class="text-danger">*</span></label>
-                  <input type="hidden" id="rlo-modo-entrega" value="sucursal">
-                  <div id="rlo-delivery-modes-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                    <div id="lbl-rlo-modo-sucursal" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'sucursal')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
-                      <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-primary); margin-bottom: 0.25rem;"></i>
-                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Punto Ñuñoa</span>
-                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Sin costo</span>
-                    </div>
-
-                    <div id="lbl-rlo-modo-domicilio_rm" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'domicilio_rm')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
-                      <i class="ri-home-4-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
-                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Domicilio RM</span>
-                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">$3.200 + IVA</span>
-                    </div>
-
-                    <div id="lbl-rlo-modo-regiones" onclick="window.selectRloRadioCard('rlo-modo-entrega', 'regiones')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
-                      <i class="ri-earth-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
-                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">A Regiones</span>
-                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Cotización Courier</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div id="rlo-courier-tracking-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                  <div class="form-group" style="margin-bottom: 0;" id="rlo-courier-wrapper">
-                    <label class="form-label" id="rlo-courier-label">Courier (Opcional)</label>
-                    <input type="text" id="rlo-courier" class="form-input" placeholder="Ej: Chilexpress">
-                    <div id="rlo-courier-cards" style="display: none; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.25rem;"></div>
-                  </div>
-                  <div class="form-group" style="margin-bottom: 0;" id="rlo-tracking-wrapper">
-                    <label class="form-label" id="rlo-tracking-label">Tracking / Código (Opcional)</label>
-                    <input type="text" id="rlo-tracking" class="form-input" placeholder="Ej: 987654321">
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Contenedor Informativo de Costos -->
-              <div id="rlo-cost-info-box" style="margin-top: 1rem; padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: rgba(59, 130, 246, 0.03); display: none; box-shadow: var(--shadow-sm);">
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
-                  <span style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                    <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Costo estimado de envío:
-                  </span>
-                  <span id="rlo-cost-value" style="font-weight: 700; color: var(--color-primary); font-size: 1.15rem;">$0 c/IVA</span>
-                </div>
-                <small id="rlo-cost-note" class="text-muted" style="margin-top: 0.35rem; display: block; line-height: 1.4;"></small>
-              </div>
-
-              <!-- Alerta informativa de ajuste de stock -->
-              <div style="margin-top: 1.25rem; margin-bottom: 1.5rem; display: flex; gap: 0.65rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); padding: 0.85rem 1.2rem; border-radius: var(--radius-md); align-items: flex-start;">
-                <i class="ri-alert-line" style="color: #d97706; font-size: 1.2rem; line-height: 1; margin-top: 0.1rem;"></i>
-                <div style="font-size: 0.8rem; color: var(--color-text-main); line-height: 1.45;">
-                  <strong style="color: #d97706; font-weight: 700;">Advertencia de Inventario:</strong> Al confirmar esta solicitud, se creará el pedido en el WMS. Los productos entrantes que tengan activa la casilla "Regresar Stock" ingresarán al stock disponible una vez recepcionados, y cualquier reemplazo de salida comprometerá y restará stock de forma inmediata de la sucursal.
-                </div>
-              </div>
-
-              <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label class="form-label">Observaciones Generales</label>
-                <textarea id="rlo-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
-              </div>
-            </div>
-            
-          </div>
-          
         </div>
-        
+
         <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1.25rem 1.5rem;">
           <button type="button" id="btn-rlo-prev" style="border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); font-weight: 600; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
             <i class="ri-arrow-left-s-line" style="font-size: 1.1rem;"></i> Volver
@@ -2935,10 +3072,49 @@
             Siguiente <i class="ri-arrow-right-s-line" style="font-size: 1.1rem;"></i>
           </button>
           <button type="submit" id="btn-rlo-save" style="border: none; background: var(--color-success, #10b981); color: white; border-radius: var(--radius-md); font-weight: 700; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
-            Enviar Solicitud <i class="ri-check-line" style="font-size: 1.1rem;"></i>
+            Confirmar Pedido <i class="ri-check-line" style="font-size: 1.1rem;"></i>
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal Selector de Productos de Catálogo (con Filtro de Variantes y Nombre Completo) -->
+  <div class="modal-overlay" id="modal-rlo-product-picker" style="z-index: 1100;">
+    <div class="modal-content" style="max-width: 820px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-search-line" style="color: var(--color-primary);"></i> Seleccionar Producto del Catálogo
+          </h3>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-top: 0.2rem;">
+            Comercio: <strong id="rlo-picker-commerce-badge" style="color: var(--color-text-main);">-</strong>
+          </span>
+        </div>
+        <button type="button" class="modal-close" onclick="window.closeRloProductPicker()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Barra de búsqueda rápida -->
+        <div>
+          <input type="text" id="rlo-picker-search" class="form-input" placeholder="🔍 Escribe para buscar por SKU o Nombre completo del producto..." style="font-size: 0.95rem; padding: 0.65rem 0.9rem; width: 100%; box-sizing: border-box;">
+        </div>
+
+        <!-- Barra de Filtros de Variantes (Inyectados dinámicamente) -->
+        <div id="rlo-picker-variant-filters-bar" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <!-- Dynamic variant selects: Talla, Color, Variable -->
+        </div>
+
+        <!-- Lista de Resultados de Productos -->
+        <div id="rlo-picker-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto; padding-right: 0.25rem;">
+          <!-- Product cards with full name and variant badges -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center;">
+        <span id="rlo-picker-results-count" style="font-size: 0.825rem; color: var(--color-text-muted);">0 productos encontrados</span>
+        <button type="button" class="btn btn-outline" onclick="window.closeRloProductPicker()">Cerrar</button>
+      </div>
     </div>
   </div>
 
@@ -3331,7 +3507,7 @@
   <script src="./js/inbound_notifications.js?v=1.0.4"></script>
   <script src="./js/inventory_notifications.js?v=1.0.0"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.1.4"></script>
+  <script type="module" src="./js/admin.js?v=1.2.5"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.4"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.0.7"></script>

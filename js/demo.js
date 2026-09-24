@@ -568,7 +568,8 @@ window.initializeDemoDB = function(forceReset = false) {
     try {
       const profiles = JSON.parse(sessionStorage.getItem('wms_demo_profiles') || '[]');
       if (profiles.length > 0 && (!profiles[0].allowed_modules || profiles[0].allowed_modules.split(',').length < 10)) {
-        profiles[0].allowed_modules = 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation';
+        profiles[0].allowed_modules = 'dashboard, inventory, catalog, label_generator, volumen_diario, declarations, orders, shipments, manifests, movements, warehouses, pending, returns, cotizador, tickets, documentation, inbox, profile';
+        if (!profiles[0].sub_role) profiles[0].sub_role = 'Cliente P2 (Fulfillment Integral)';
         sessionStorage.setItem('wms_demo_profiles', JSON.stringify(profiles));
       }
       // Forzar alineación coherente de pedidos y despachos en la sesión actual
@@ -809,7 +810,8 @@ window.initializeDemoDB = function(forceReset = false) {
             full_name: 'Cliente Invitado Demo',
             email: 'demo@stocka.cl',
             comercio: demoCommerce,
-            allowed_modules: 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation',
+            sub_role: 'Cliente P2 (Fulfillment Integral)',
+            allowed_modules: 'dashboard, inventory, catalog, label_generator, volumen_diario, declarations, orders, shipments, manifests, movements, warehouses, pending, returns, cotizador, tickets, documentation, inbox, profile',
             is_demo_user: false,
             lead_status: null,
             lead_notes: '',

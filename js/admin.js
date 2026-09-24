@@ -1650,11 +1650,20 @@ window.resolveOrderTracking = function(order) {
 };
 
 // Helper para construir la nota estandarizada de pedidos creados desde Logística Inversa
-window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProducts, outgoingProducts, comments }) {
+window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProducts, outgoingProducts, comments, courier, tracking, responsablePago }) {
   const lines = [];
   lines.push(`[LOGÍSTICA INVERSA - ${type || 'MOVIMIENTO'}]`);
   if (refPedido) {
     lines.push(`• Ref. Pedido Original: ${refPedido}`);
+  }
+  if (responsablePago) {
+    lines.push(`• Responsable de Envío: ${responsablePago === 'comercio' ? 'Comercio' : 'Usuario Final'}`);
+  }
+  if (courier) {
+    lines.push(`• Operador / Courier: ${courier}`);
+  }
+  if (tracking) {
+    lines.push(`• N° de Seguimiento / Tracking: ${tracking}`);
   }
   
   if (type === 'CAMBIO') {
@@ -1697,7 +1706,6 @@ window.buildReverseLogisticsOrderNote = function({ type, refPedido, incomingProd
   return lines.join('\n');
 };
 
-// Helper para obtener el badge de estado de procesamiento de cada ítem en la tabla
 window.getItemProcessingStatusBadge = function(order, itemSku, itemName) {
   if (!order) return '-';
   const rawShopify = order.raw_shopify_data;
@@ -69495,13 +69503,6 @@ window.renderAdminReturns = async function() {
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <!-- Movimientos directos en bodega -->
-        <button id="btn-admin-create-return" class="btn btn-outline" style="border-color: var(--color-danger, #ef4444); color: var(--color-danger, #ef4444); display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Registrar movimiento directo de devolución en bodega">
-          <i class="ri-arrow-go-back-line"></i> Devolución
-        </button>
-        <button id="btn-admin-create-exchange" class="btn btn-outline" style="border-color: var(--color-success, #10b981); color: var(--color-success, #10b981); display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Registrar movimiento directo de cambio en bodega">
-          <i class="ri-arrow-left-right-line"></i> Cambio
-        </button>
         <!-- Pedidos de logística inversa -->
         <button id="btn-admin-create-order-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="Crear pedido de devolución con destinatario, courier y orden WMS">
           <i class="ri-shopping-bag-3-line"></i> Pedido Devolución
@@ -69647,9 +69648,7 @@ window.renderAdminReturns = async function() {
   }
 
   // Botones de Registro (4 Opciones: Movimientos y Pedidos)
-  document.getElementById('btn-admin-create-return').addEventListener('click', () => window.openAdminReverseLogisticsModal('DEVOLUCION'));
-  document.getElementById('btn-admin-create-exchange').addEventListener('click', () => window.openAdminReverseLogisticsModal('CAMBIO'));
-  document.getElementById('btn-admin-create-order-return').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('DEVOLUCION'));
+    document.getElementById('btn-admin-create-order-return').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('DEVOLUCION'));
   document.getElementById('btn-admin-create-order-exchange').addEventListener('click', () => window.openAdminReverseLogisticsOrderModal('CAMBIO'));
 
   // Exportar
@@ -69756,9 +69755,6 @@ async function fetchAndRenderAdminReturnsData() {
         if (statusVal === 'pendiente') {
           statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
           confirmAction = `
-            <button class="btn btn-outline" onclick="window.openAdminEditReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-primary); background: var(--color-surface); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
-              <i class="ri-edit-line"></i> Editar
-            </button>
             <button class="btn btn-primary" onclick="window.openConfirmReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--color-primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
               <i class="ri-checkbox-circle-line"></i> Confirmar
             </button>
@@ -70493,726 +70489,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Listener para Modalidad Comuna (Admin modal)
-  const modalitySelect = document.getElementById('rl-modalidad');
-  if (modalitySelect) {
-    modalitySelect.addEventListener('change', (e) => {
-      const comunaGroup = document.getElementById('rl-comuna-group');
-      const comunaSelect = document.getElementById('rl-comuna');
-      if (e.target.value === 'despacho_santiago') {
-        comunaGroup.style.display = 'block';
-        comunaSelect.setAttribute('required', 'true');
-      } else {
-        comunaGroup.style.display = 'none';
-        comunaSelect.removeAttribute('required');
-        comunaSelect.value = '';
-      }
-    });
-  }
-
-  // Listener para Modo Manual (Admin modal)
-  const manualModeCheckbox = document.getElementById('rl-manual-mode');
-  if (manualModeCheckbox) {
-    manualModeCheckbox.addEventListener('change', () => {
-      const isManual = manualModeCheckbox.checked;
-      document.getElementById('rl-incoming-tbody').innerHTML = '';
-      document.getElementById('rl-outgoing-tbody').innerHTML = '';
-      
-      window.addRlRow('incoming', isManual);
-      if (document.getElementById('rl-type').value === 'CAMBIO') {
-        window.addRlRow('outgoing', isManual);
-      }
-    });
-  }
-
-  // Listener para Cambio de Comercio en Creación (Admin modal)
-  const commerceSelect = document.getElementById('rl-commerce');
-  if (commerceSelect) {
-    commerceSelect.addEventListener('change', async (e) => {
-      const commerce = e.target.value;
-      window.rlCatalogProducts = [];
-      document.getElementById('rl-incoming-tbody').innerHTML = '';
-      document.getElementById('rl-outgoing-tbody').innerHTML = '';
-      
-      if (commerce) {
-        try {
-          const { data: products, error } = await supabase
-            .from('products')
-            .select('id, sku, name, is_pack, is_virtual')
-            .eq('comercio', commerce)
-            .neq('status', 'archived')
-            .order('name');
-          if (error) throw error;
-          window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
-        } catch (err) {
-          console.error('Error fetching catalog products for commerce change:', err);
-        }
-      }
-      
-      const isManual = document.getElementById('rl-manual-mode').checked;
-      window.addRlRow('incoming', isManual);
-      if (document.getElementById('rl-type').value === 'CAMBIO') {
-        window.addRlRow('outgoing', isManual);
-      }
-    });
-  }
-
-  // Listeners para añadir filas (Admin modal)
-  const btnAddIncoming = document.getElementById('btn-rl-add-incoming');
-  if (btnAddIncoming) {
-    btnAddIncoming.addEventListener('click', () => {
-      const isManual = document.getElementById('rl-manual-mode').checked;
-      window.addRlRow('incoming', isManual);
-    });
-  }
-
-  const btnAddOutgoing = document.getElementById('btn-rl-add-outgoing');
-  if (btnAddOutgoing) {
-    btnAddOutgoing.addEventListener('click', () => {
-      const isManual = document.getElementById('rl-manual-mode').checked;
-      window.addRlRow('outgoing', isManual);
-    });
-  }
-
-  // Formulario Submit (Admin modal)
-  const formRl = document.getElementById('form-reverse-logistics');
-  if (formRl) {
-    formRl.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const editId = document.getElementById('rl-edit-id').value;
-      const commerce = document.getElementById('rl-commerce').value;
-      const type = document.getElementById('rl-type').value;
-      const refPedido = document.getElementById('rl-ref-pedido').value.trim();
-      const modalidad = document.getElementById('rl-modalidad').value;
-      const comuna = document.getElementById('rl-comuna').value;
-      const courier = document.getElementById('rl-courier').value.trim();
-      const tracking = document.getElementById('rl-tracking').value.trim();
-      const comments = document.getElementById('rl-comments').value.trim();
-      const isManual = document.getElementById('rl-manual-mode').checked;
-      
-      if (!commerce) {
-        alert('Debe seleccionar el comercio.');
-        return;
-      }
-      if (!refPedido) {
-        alert('Debe ingresar la referencia del pedido.');
-        return;
-      }
-      if (modalidad === 'despacho_santiago' && !comuna) {
-        alert('Debe ingresar la comuna para el despacho/retiro en Santiago.');
-        return;
-      }
-
-      const incomingRows = document.querySelectorAll('#rl-incoming-tbody tr');
-      const outgoingRows = document.querySelectorAll('#rl-outgoing-tbody tr');
-      
-      if (incomingRows.length === 0) {
-        alert('Debe ingresar al menos un producto entrante.');
-        return;
-      }
-      if (type === 'CAMBIO' && outgoingRows.length === 0) {
-        alert('Debe ingresar al menos un producto saliente para el cambio.');
-        return;
-      }
-      
-      const btnSave = document.getElementById('btn-save-rl');
-      btnSave.disabled = true;
-      btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
-      
-      try {
-        // Si estamos editando y el registro original era un CAMBIO, liberamos el stock comprometido anterior primero
-        if (editId) {
-          const { data: origRecord } = await supabase
-            .from('reverse_logistics')
-            .select('*')
-            .eq('id', editId)
-            .single();
-            
-          if (origRecord && origRecord.tipo_movimiento === 'CAMBIO') {
-            const { data: centralWh } = await supabase
-              .from('warehouses')
-              .select('id')
-              .ilike('name', '%Central%')
-              .limit(1)
-              .single();
-              
-            if (centralWh && origRecord.productos) {
-              for (const origProd of origRecord.productos) {
-                if (origProd.id_reemplazo) {
-                  const qtyRep = origProd.qty_reemplazo !== undefined ? origProd.qty_reemplazo : origProd.cantidad || 1;
-                  const { data: invRecord } = await supabase
-                    .from('inventory')
-                    .select('id, committed_quantity')
-                    .eq('product_id', origProd.id_reemplazo)
-                    .eq('warehouse_id', centralWh.id)
-                    .maybeSingle();
-                    
-                  if (invRecord) {
-                    const newCommitted = Math.max(0, (invRecord.committed_quantity || 0) - qtyRep);
-                    await supabase
-                      .from('inventory')
-                      .update({ committed_quantity: newCommitted })
-                      .eq('id', invRecord.id);
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        const incomingProducts = [];
-        incomingRows.forEach(row => {
-          let productId = null;
-          let sku = '';
-          let name = '';
-          if (isManual) {
-            sku = row.querySelector('.rl-prod-sku').value.trim();
-            name = row.querySelector('.rl-prod-name').value.trim();
-          } else {
-            const input = row.querySelector('.rl-prod-input');
-            const val = input ? input.value.trim() : '';
-            const datalist = row.querySelector('datalist');
-            const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-            
-            productId = opt ? opt.getAttribute('data-id') || null : null;
-            if (val.includes(' - ')) {
-              const parts = val.split(' - ');
-              sku = parts[0];
-              name = parts.slice(1).join(' - ');
-            } else {
-              sku = val;
-              name = val;
-            }
-          }
-          
-          const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
-          const stockReturn = row.querySelector('.rl-prod-stock-return').checked;
-          const itemComment = row.querySelector('.rl-prod-comment').value.trim();
-          
-          incomingProducts.push({
-            product_id: productId,
-            sku,
-            name,
-            cantidad: qty,
-            regresar_a_inventario: stockReturn,
-            comentario: itemComment
-          });
-        });
-        
-        const outgoingProducts = [];
-        if (type === 'CAMBIO') {
-          outgoingRows.forEach(row => {
-            let productId = null;
-            let sku = '';
-            let name = '';
-            if (isManual) {
-              sku = row.querySelector('.rl-prod-sku').value.trim();
-              name = row.querySelector('.rl-prod-name').value.trim();
-            } else {
-              const input = row.querySelector('.rl-prod-input');
-              const val = input ? input.value.trim() : '';
-              const datalist = row.querySelector('datalist');
-              const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-              
-              productId = opt ? opt.getAttribute('data-id') || null : null;
-              if (val.includes(' - ')) {
-                const parts = val.split(' - ');
-                sku = parts[0];
-                name = parts.slice(1).join(' - ');
-              } else {
-                sku = val;
-                name = val;
-              }
-            }
-            const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
-            
-            outgoingProducts.push({
-              product_id: productId,
-              sku,
-              name,
-              cantidad: qty
-            });
-          });
-        }
-        
-        const productosPayload = [];
-        const maxLen = Math.max(incomingProducts.length, outgoingProducts.length);
-        for (let i = 0; i < maxLen; i++) {
-          const inc = incomingProducts[i] || null;
-          const out = outgoingProducts[i] || null;
-          
-          productosPayload.push({
-            producto_devuelto: inc ? `${inc.sku} - ${inc.name}` : null,
-            producto_reemplazo: out ? `${out.sku} - ${out.name}` : null,
-            cantidad: inc ? inc.cantidad : (out ? out.cantidad : 1),
-            comentario: inc ? inc.comentario : null,
-            regresar_a_inventario: inc ? inc.regresar_a_inventario : false,
-            id_devuelto: inc ? inc.product_id : null,
-            id_reemplazo: out ? out.product_id : null,
-            qty_devuelto: inc ? inc.cantidad : 0,
-            qty_reemplazo: out ? out.cantidad : 0
-          });
-        }
-        
-        const totalQty = incomingProducts.reduce((sum, p) => sum + p.cantidad, 0) + 
-                         outgoingProducts.reduce((sum, p) => sum + p.cantidad, 0);
-                         
-        const modalityText = document.getElementById('rl-modalidad').options[document.getElementById('rl-modalidad').selectedIndex].text;
-        const finalTransporte = courier ? `${modalityText} (${courier})` : modalityText;
-        const finalSucursal = (modalidad === 'despacho_santiago' && comuna) ? comuna : 'Punto Físico Ñuñoa';
-        
-        const newRecord = {
-          tipo_movimiento: type,
-          comercio: commerce,
-          transporte: finalTransporte,
-          referencia_pedido: refPedido,
-          referencia_transporte: tracking || 'N/A',
-          productos: productosPayload,
-          cantidad_total: totalQty,
-          comentarios: comments,
-          sucursal: finalSucursal,
-          creado_por: editId ? undefined : 'Administrador', // Mantiene creador original si es edición
-          status: 'pendiente'
-        };
-        
-        let saveError = null;
-        if (editId) {
-          const { error: updateError } = await supabase
-            .from('reverse_logistics')
-            .update(newRecord)
-            .eq('id', editId);
-          saveError = updateError;
-        } else {
-          const { error: insertError } = await supabase
-            .from('reverse_logistics')
-            .insert([newRecord]);
-          saveError = insertError;
-        }
-          
-        if (saveError) throw saveError;
-        
-        // Stock comprometido para salidas de Cambios
-        if (type === 'CAMBIO' && !isManual) {
-          const { data: bodegaCentral } = await supabase
-            .from('warehouses')
-            .select('id')
-            .ilike('name', '%Central%')
-            .limit(1)
-            .single();
-            
-          if (bodegaCentral) {
-            for (const out of outgoingProducts) {
-              if (out.product_id) {
-                const { data: invRecord } = await supabase
-                  .from('inventory')
-                  .select('id, committed_quantity')
-                  .eq('product_id', out.product_id)
-                  .eq('warehouse_id', bodegaCentral.id)
-                  .maybeSingle();
-                  
-                if (invRecord) {
-                  await supabase
-                    .from('inventory')
-                    .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
-                    .eq('id', invRecord.id);
-                } else {
-                  await supabase
-                    .from('inventory')
-                    .insert([{
-                      product_id: out.product_id,
-                      warehouse_id: bodegaCentral.id,
-                      quantity: 0,
-                      committed_quantity: out.cantidad
-                    }]);
-                }
-              }
-            }
-          }
-        }
-        
-        Swal.fire({
-          title: '¡Guardado!',
-          text: 'El movimiento ha sido guardado exitosamente y queda como "Pendiente".',
-          icon: 'success',
-          confirmButtonText: 'Entendido',
-          confirmButtonColor: 'var(--color-primary)'
-        });
-        
-        document.getElementById('modal-reverse-logistics').classList.remove('active');
-        
-        if (typeof fetchAndRenderAdminReturnsData === 'function') {
-          await fetchAndRenderAdminReturnsData();
-        }
-        
-      } catch (err) {
-        console.error('Error saving reverse logistics record:', err);
-        Swal.fire({
-          title: 'Error',
-          text: 'No se pudo guardar la solicitud: ' + err.message,
-          icon: 'error',
-          confirmButtonText: 'Cerrar',
-          confirmButtonColor: 'var(--color-danger)'
-        });
-      } finally {
-        btnSave.disabled = false;
-        btnSave.innerHTML = 'Guardar Registro <i class="ri-check-line"></i>';
-      }
-    });
-  }
-});
-
-window.openAdminReverseLogisticsModal = async function(type) {
-  const modal = document.getElementById('modal-reverse-logistics');
-  const form = document.getElementById('form-reverse-logistics');
-  if (!modal || !form) return;
-  form.reset();
-  
-  document.getElementById('rl-edit-id').value = '';
-  document.getElementById('rl-type').value = type;
-  document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
-    `<i class="ri-arrow-left-right-line" style="color: var(--color-success);"></i> Registrar Cambio` : 
-    `<i class="ri-arrow-go-back-line" style="color: var(--color-danger);"></i> Registrar Devolución`;
-    
-  const comunaSelect = document.getElementById('rl-comuna');
-  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
-    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
-    
-  document.getElementById('rl-comuna-group').style.display = 'none';
-  document.getElementById('rl-manual-mode').checked = false;
-  
-  document.getElementById('rl-incoming-tbody').innerHTML = '';
-  document.getElementById('rl-outgoing-tbody').innerHTML = '';
-  
-  const outgoingSection = document.getElementById('rl-outgoing-section');
-  if (type === 'CAMBIO') {
-    outgoingSection.style.display = 'block';
-  } else {
-    outgoingSection.style.display = 'none';
-  }
-  
-  const commerceSelect = document.getElementById('rl-commerce');
-  commerceSelect.innerHTML = '<option value="">Selecciona comercio...</option>';
-  window.rlCatalogProducts = [];
-  
-  try {
-    const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
-    const commercesSet = new Set();
-    if (profiles) {
-      profiles.forEach(p => {
-        if (p.comercio) {
-          p.comercio.split(',').forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
-              commercesSet.add(trimmed);
-            }
-          });
-        }
-      });
-    }
-    const commercesList = Array.from(commercesSet).sort();
-    commercesList.forEach(c => {
-      commerceSelect.innerHTML += `<option value="${c}">${c}</option>`;
-    });
-  } catch (err) {
-    console.error('Error fetching commerce list for modal:', err);
-  }
-  
-  window.addRlRow('incoming', false);
-  if (type === 'CAMBIO') {
-    window.addRlRow('outgoing', false);
-  }
-  
-  modal.classList.add('active');
-};
-
-window.openAdminEditReturnModal = async function(dataStr) {
-  const modal = document.getElementById('modal-reverse-logistics');
-  const form = document.getElementById('form-reverse-logistics');
-  if (!modal || !form) return;
-  form.reset();
-  
-  const data = JSON.parse(decodeURIComponent(dataStr));
-  document.getElementById('rl-edit-id').value = data.id;
-  
-  const type = data.tipo_movimiento;
-  document.getElementById('rl-type').value = type;
-  document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
-    `<i class="ri-edit-box-line" style="color: var(--color-success);"></i> Editar Cambio` : 
-    `<i class="ri-edit-box-line" style="color: var(--color-danger);"></i> Editar Devolución`;
-    
-  document.getElementById('rl-ref-pedido').value = data.referencia_pedido || '';
-  document.getElementById('rl-comments').value = data.comentarios || '';
-  
-  let modalidad = 'presencial';
-  let courier = '';
-  const transStr = data.transporte || '';
-  if (transStr.includes('Santiago')) {
-    modalidad = 'despacho_santiago';
-  } else if (transStr.includes('cliente')) {
-    modalidad = 'envio_cliente';
-  } else if (transStr.includes('comercio')) {
-    modalidad = 'envio_comercio';
-  } else if (transStr.includes('Stocka')) {
-    modalidad = 'envio_stocka';
-  }
-  
-  const m = transStr.match(/\(([^)]+)\)/);
-  if (m) {
-    courier = m[1];
-  }
-  
-  document.getElementById('rl-modalidad').value = modalidad;
-  document.getElementById('rl-courier').value = courier;
-  document.getElementById('rl-tracking').value = data.referencia_transporte === 'N/A' ? '' : (data.referencia_transporte || '');
-  
-  const comunaSelect = document.getElementById('rl-comuna');
-  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
-    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
-    
-  const comunaGroup = document.getElementById('rl-comuna-group');
-  if (modalidad === 'despacho_santiago') {
-    comunaGroup.style.display = 'block';
-    comunaSelect.value = data.sucursal || '';
-    comunaSelect.setAttribute('required', 'true');
-  } else {
-    comunaGroup.style.display = 'none';
-    comunaSelect.value = '';
-    comunaSelect.removeAttribute('required');
-  }
-  
-  document.getElementById('rl-incoming-tbody').innerHTML = '';
-  document.getElementById('rl-outgoing-tbody').innerHTML = '';
-  
-  const outgoingSection = document.getElementById('rl-outgoing-section');
-  if (type === 'CAMBIO') {
-    outgoingSection.style.display = 'block';
-  } else {
-    outgoingSection.style.display = 'none';
-  }
-  
-  const commerceSelect = document.getElementById('rl-commerce');
-  commerceSelect.innerHTML = '<option value="">Selecciona comercio...</option>';
-  window.rlCatalogProducts = [];
-  
-  try {
-    const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
-    const commercesSet = new Set();
-    if (profiles) {
-      profiles.forEach(p => {
-        if (p.comercio) {
-          p.comercio.split(',').forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
-              commercesSet.add(trimmed);
-            }
-          });
-        }
-      });
-    }
-    const commercesList = Array.from(commercesSet).sort();
-    commercesList.forEach(c => {
-      commerceSelect.innerHTML += `<option value="${c}" ${c === data.comercio ? 'selected' : ''}>${c}</option>`;
-    });
-  } catch (err) {
-    console.error('Error fetching commerce list for edit:', err);
-  }
-  
-  if (data.comercio) {
-    try {
-      const { data: products, error } = await supabase
-        .from('products')
-        .select('id, sku, name')
-        .eq('comercio', data.comercio)
-        .order('name');
-      if (error) throw error;
-      window.rlCatalogProducts = products || [];
-    } catch (err) {
-      console.error('Error fetching products for commerce:', err);
-    }
-  }
-  
-  let isManual = false;
-  if (data.productos && Array.isArray(data.productos)) {
-    data.productos.forEach(p => {
-      if ((p.producto_devuelto && !p.id_devuelto) || (p.producto_reemplazo && !p.id_reemplazo)) {
-        isManual = true;
-      }
-    });
-  }
-  document.getElementById('rl-manual-mode').checked = isManual;
-  
-  if (data.productos && Array.isArray(data.productos) && data.productos.length > 0) {
-    const incomingItems = [];
-    const outgoingItems = [];
-    
-    data.productos.forEach(p => {
-      if (p.producto_devuelto) {
-        incomingItems.push({
-          product_id: p.id_devuelto,
-          sku: p.producto_devuelto.split(' - ')[0],
-          name: p.producto_devuelto.split(' - ')[1] || '',
-          cantidad: p.qty_devuelto !== undefined ? p.qty_devuelto : (p.cantidad || 1),
-          regresar_a_inventario: p.regresar_a_inventario || false,
-          comentario: p.comentario || ''
-        });
-      }
-      if (p.producto_reemplazo) {
-        outgoingItems.push({
-          product_id: p.id_reemplazo,
-          sku: p.producto_reemplazo.split(' - ')[0],
-          name: p.producto_reemplazo.split(' - ')[1] || '',
-          cantidad: p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.cantidad || 1)
-        });
-      }
-    });
-    
-    incomingItems.forEach(item => {
-      window.addRlRowWithData('incoming', isManual, item);
-    });
-    
-    if (type === 'CAMBIO') {
-      outgoingItems.forEach(item => {
-        window.addRlRowWithData('outgoing', isManual, item);
-      });
-    }
-  } else {
-    window.addRlRow('incoming', isManual);
-    if (type === 'CAMBIO') {
-      window.addRlRow('outgoing', isManual);
-    }
-  }
-  
-  modal.classList.add('active');
-};
-
-window.addRlRowWithData = function(direction, isManual, itemData) {
-  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  const tr = document.createElement('tr');
-  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
-  
-  let prodCell = '';
-  if (isManual) {
-    prodCell = `
-      <div style="display: flex; gap: 0.5rem;">
-        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;" value="${itemData.sku || ''}">
-        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;" value="${itemData.name || ''}">
-      </div>
-    `;
-  } else {
-    const uniqueId = Math.random().toString(36).substr(2, 9);
-    const options = (window.rlCatalogProducts || []).map(p => `
-      <option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>
-    `).join('');
-    prodCell = `
-      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;" value="${itemData.sku ? itemData.sku + ' - ' + itemData.name : ''}">
-      <datalist id="rl-datalist-${uniqueId}">
-        ${options}
-      </datalist>
-    `;
-  }
-  
-  if (direction === 'incoming') {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rl-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" ${itemData.regresar_a_inventario ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;"></td>
-      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." value="${itemData.comentario || ''}" style="width: 100%;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  } else {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rl-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  }
-  
-  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
-    if (tbody.children.length > 1) {
-      tr.remove();
-    } else {
-      Swal.fire({
-        title: 'Atención',
-        text: 'Debes ingresar al menos un producto.',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        confirmButtonColor: 'var(--color-primary)'
-      });
-    }
   });
-  
-  tbody.appendChild(tr);
-};
-
-window.addRlRow = function(direction, isManual) {
-  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  const tr = document.createElement('tr');
-  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
-  
-  let prodCell = '';
-  if (isManual) {
-    prodCell = `
-      <div style="display: flex; gap: 0.5rem;">
-        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;">
-        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
-      </div>
-    `;
-  } else {
-    const uniqueId = Math.random().toString(36).substr(2, 9);
-    const options = (window.rlCatalogProducts || []).map(p => `<option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>`).join('');
-    prodCell = `
-      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;">
-      <datalist id="rl-datalist-${uniqueId}">
-        ${options}
-      </datalist>
-    `;
-  }
-  
-  if (direction === 'incoming') {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
-      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." style="width: 100%;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  } else {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  }
-  
-  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
-    if (tbody.children.length > 1) {
-      tr.remove();
-    } else {
-      Swal.fire({
-        title: 'Atención',
-        text: 'Debes ingresar al menos un producto.',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        confirmButtonColor: 'var(--color-primary)'
-      });
-    }
-  });
-  
-  tbody.appendChild(tr);
-};
 
 const SANTIAGO_COMUNAS_ADMIN = [
   'Cerrillos', 'Cerro Navia', 'Conchalí', 'El Bosque', 'Estación Central',
@@ -71251,7 +70528,163 @@ function findBestComunaMatchAdmin(city) {
 }
 
 window.currentRloWizardStep = 1;
+window.rloCatalogProducts = [];
+window.rloCatalogTallas = [];
+window.rloCatalogColors = [];
+window.rloCatalogVar1 = [];
+window.rloCatalogVar2 = [];
+window.rloVariantNaming = {
+  color: 'Color',
+  talla: 'Talla',
+  var1: 'Variable 1',
+  var2: 'Variable 2'
+};
 
+window.rloPickerState = {
+  direction: 'incoming',
+  targetRow: null,
+  activeTalla: '',
+  activeColor: '',
+  activeVar1: '',
+  activeVar2: '',
+  activeSearch: '',
+  stockOnly: false
+};
+
+// Extractor de variantes (Talla, Color, Variable 1, Variable 2) de un producto
+window.extractRloProductVariants = function(p, config) {
+  const naming = (config && config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  let colorVal = (p.color || '').trim();
+  let tallaVal = (p.talla || '').trim();
+  let var1Val = (p.variable_1 || '').trim();
+  let var2Val = (p.variable_2 || '').trim();
+
+  // Si options contiene campos estructurados
+  if (p.options) {
+    try {
+      let opts = typeof p.options === 'string' ? JSON.parse(p.options) : p.options;
+      if (opts && typeof opts === 'object') {
+        if (!Array.isArray(opts)) {
+          for (const [k, v] of Object.entries(opts)) {
+            const valStr = String(v || '').trim();
+            if (!valStr) continue;
+            const lk = k.toLowerCase().trim();
+
+            if (lk === 'color' || lk === 'colour' || (naming.color && lk === naming.color.toLowerCase())) {
+              if (!colorVal) colorVal = valStr;
+            } else if (lk === 'talla' || lk === 'size' || (naming.talla && lk === naming.talla.toLowerCase())) {
+              if (!tallaVal) tallaVal = valStr;
+            } else if (lk === 'variable_1' || lk === 'var1' || lk === 'manga' || (naming.var1 && lk === naming.var1.toLowerCase())) {
+              if (!var1Val) var1Val = valStr;
+            } else if (lk === 'variable_2' || lk === 'var2' || lk === 'cuello' || (naming.var2 && lk === naming.var2.toLowerCase())) {
+              if (!var2Val) var2Val = valStr;
+            } else if (!var1Val && !lk.includes('barcode') && !lk.includes('img') && !lk.includes('price')) {
+              var1Val = valStr;
+            } else if (!var2Val && !lk.includes('barcode') && !lk.includes('img') && !lk.includes('price')) {
+              var2Val = valStr;
+            }
+          }
+        } else if (Array.isArray(opts)) {
+          opts.forEach(o => {
+            if (o && o.name && o.value) {
+              const lk = String(o.name).toLowerCase().trim();
+              const valStr = String(o.value).trim();
+              if (lk === 'color' || lk === 'colour' || (naming.color && lk === naming.color.toLowerCase())) {
+                if (!colorVal) colorVal = valStr;
+              } else if (lk === 'talla' || lk === 'size' || (naming.talla && lk === naming.talla.toLowerCase())) {
+                if (!tallaVal) tallaVal = valStr;
+              } else if (lk === 'variable_1' || lk === 'var1' || lk === 'manga' || (naming.var1 && lk === naming.var1.toLowerCase())) {
+                if (!var1Val) var1Val = valStr;
+              } else if (lk === 'variable_2' || lk === 'var2' || lk === 'cuello' || (naming.var2 && lk === naming.var2.toLowerCase())) {
+                if (!var2Val) var2Val = valStr;
+              } else if (!var1Val) {
+                var1Val = valStr;
+              } else if (!var2Val) {
+                var2Val = valStr;
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Fallback si la variante está codificada en el título con barras: "Polera / Negro / L"
+  if ((!tallaVal || !colorVal) && p.name && p.name.includes('/')) {
+    const slashParts = p.name.split('/').map(s => s.trim());
+    if (slashParts.length >= 2) {
+      const lastPart = slashParts[slashParts.length - 1];
+      const secondLast = slashParts.length >= 3 ? slashParts[slashParts.length - 2] : '';
+      const commonSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', 'UNICA', 'ÚNICA'];
+      if (!tallaVal && commonSizes.includes(lastPart.toUpperCase())) {
+        tallaVal = lastPart.toUpperCase();
+        if (!colorVal && secondLast) colorVal = secondLast;
+      }
+    }
+  }
+
+  return { color: colorVal, talla: tallaVal, var1: var1Val, var2: var2Val };
+};
+
+// Actualiza las comunas en el desplegable de Paso 4 según el modo de entrega seleccionado
+window.updateRloComunasSelect = function(modo) {
+  const comunaSelect = document.getElementById('rlo-comuna');
+  const comunaLabel = document.getElementById('rlo-comuna-label');
+  if (!comunaSelect) return;
+
+  const currentVal = comunaSelect.value;
+  let comunaHtml = '<option value="">Selecciona comuna...</option>';
+
+  if (modo === 'domicilio_rm') {
+    if (comunaLabel) {
+      comunaLabel.innerHTML = 'Comuna de Destino (Cobertura RM) <span class="text-danger">*</span>';
+    }
+    comunaHtml += '<optgroup label="Comunas con Cobertura RM (Stocka Courier)">';
+    comunaHtml += SANTIAGO_COMUNAS_ADMIN.map(c => `<option value="${c}">${c}</option>`).join('');
+    comunaHtml += '</optgroup>';
+  } else if (modo === 'regiones') {
+    if (comunaLabel) {
+      comunaLabel.innerHTML = 'Comuna de Destino (Regiones) <span class="text-danger">*</span>';
+    }
+    if (window.shippingRates) {
+      const regionComunas = Object.keys(window.shippingRates)
+        .map(k => k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
+        .filter(c => !SANTIAGO_COMUNAS_ADMIN.includes(c))
+        .sort();
+
+      comunaHtml += '<optgroup label="Comunas Regionales (Chilexpress / Starken / Bluexpress)">';
+      comunaHtml += regionComunas.map(c => `<option value="${c}">${c}</option>`).join('');
+      comunaHtml += '</optgroup>';
+    }
+  } else {
+    if (comunaLabel) {
+      comunaLabel.innerHTML = 'Comuna de Destino <span class="text-danger">*</span>';
+    }
+    comunaHtml += '<optgroup label="Región Metropolitana">';
+    comunaHtml += SANTIAGO_COMUNAS_ADMIN.map(c => `<option value="${c}">${c}</option>`).join('');
+    comunaHtml += '</optgroup>';
+  }
+
+  comunaSelect.innerHTML = comunaHtml;
+
+  // Preservar valor si aún existe en las opciones filtradas
+  if (currentVal) {
+    const exists = Array.from(comunaSelect.options).some(opt => opt.value === currentVal);
+    if (exists) {
+      comunaSelect.value = currentVal;
+    } else {
+      comunaSelect.value = '';
+    }
+  }
+};
+
+// Selección de tarjetas radiales en Paso 1 (Modo de Entrega y Responsable de Pago)
 window.selectRloRadioCard = function(groupName, value) {
   const hiddenInput = document.getElementById(groupName);
   if (hiddenInput) {
@@ -71276,14 +70709,70 @@ window.selectRloRadioCard = function(groupName, value) {
       }
     }
   });
-  
-  updateRloShippingCost();
+
+  if (groupName === 'rlo-modo-entrega') {
+    window.updateRloComunasSelect(value);
+  }
+
+  window.updateRloCostPreview();
+  if (typeof window.updateRloRegionalCouriers === 'function') {
+    window.updateRloRegionalCouriers();
+  }
+};
+
+// Actualiza el banner de costos en Paso 1
+window.updateRloCostPreview = function() {
+  const modo = document.getElementById('rlo-modo-entrega') ? document.getElementById('rlo-modo-entrega').value : 'sucursal';
+  const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
+  const infoBox = document.getElementById('rlo-cost-info-box');
+  const costVal = document.getElementById('rlo-cost-value');
+  const costNote = document.getElementById('rlo-cost-note');
+  if (!infoBox || !costVal || !costNote) return;
+
+  infoBox.style.display = 'block';
+
+  if (modo === 'sucursal') {
+    costVal.textContent = '$0';
+    costVal.style.color = '#10b981';
+    costNote.textContent = 'Entrega o retiro en Punto Físico Ñuñoa. Sin costo de despacho para el comercio ni para el cliente.';
+  } else if (modo === 'domicilio_rm') {
+    if (responsable === 'comercio') {
+      costVal.textContent = '$3.808 c/IVA ($3.200 + IVA)';
+      costVal.style.color = 'var(--color-primary)';
+      costNote.textContent = 'Despacho urbano en Santiago con Stocka Courier. El costo se cargará a la factura mensual del comercio.';
+    } else {
+      costVal.textContent = '$0 para el comercio';
+      costVal.style.color = 'var(--color-text-main)';
+      costNote.textContent = 'Costo pagado por el usuario final o coordinado directamente. Sin cargo para el comercio.';
+    }
+  } else {
+    // Regiones
+    if (responsable === 'comercio') {
+      costVal.textContent = 'Cotización Courier';
+      costVal.style.color = '#6366f1';
+      costNote.textContent = 'Despacho regional mediante Chilexpress, Starken o Bluexpress. Tarifa sujeta a cotización según la comuna elegida en el paso final.';
+    } else {
+      costVal.textContent = '$0 para el comercio';
+      costVal.style.color = 'var(--color-text-main)';
+      costNote.textContent = 'Envío por pagar a cargo del usuario final al recibir en agencia o domicilio.';
+    }
+  }
 };
 
 window.selectRloCourierCard = function(courierName, price) {
   const input = document.getElementById('rlo-courier');
-  if (input) {
-    input.value = courierName;
+  const otherWrapper = document.getElementById('rlo-courier-other-wrapper');
+  const otherInput = document.getElementById('rlo-courier-other');
+  
+  if (courierName === 'Otros') {
+    if (otherWrapper) otherWrapper.style.display = 'block';
+    if (otherInput) {
+      otherInput.focus();
+      if (input) input.value = otherInput.value.trim() || 'Otros';
+    }
+  } else {
+    if (otherWrapper) otherWrapper.style.display = 'none';
+    if (input) input.value = courierName;
   }
   
   const cards = document.querySelectorAll('.rlo-courier-card');
@@ -71303,258 +70792,870 @@ window.selectRloCourierCard = function(courierName, price) {
   });
 
   const formatCLP = window.formatCLP || (v => '$' + Number(v || 0).toLocaleString('es-CL'));
-  const responsable = document.getElementById('rlo-responsable-pago').value;
+  const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
   const costVal = document.getElementById('rlo-cost-value');
   const costNote = document.getElementById('rlo-cost-note');
   
   if (costVal && costNote) {
-    if (responsable === 'comercio') {
+    if (responsable === 'comercio' && price > 0) {
       const total = Math.round(price * 1.19);
       costVal.textContent = `${formatCLP(total)} c/IVA (${formatCLP(price)} + IVA)`;
-      costNote.innerHTML = `
-        <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-          Tarifa referencial (Tramo 0-1kg) cotizada con <strong>${courierName}</strong>. El costo real final dependerá del pesaje y dimensiones finales al momento del envío. Cargado a la cuenta del comercio.
-        </div>
-      `;
+      costNote.textContent = `Tarifa estimada (Tramo 0-1kg) cotizada con ${courierName}. Se cargará a la cuenta del comercio.`;
     } else {
-      const total = Math.round(price * 1.19);
       costVal.textContent = '$0 para el comercio';
-      costNote.innerHTML = `
-        <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-          Costo de envío pagado por el usuario final (<strong>${courierName} por pagar</strong>). Tarifa de referencia estimada: <strong>${formatCLP(total)} c/IVA</strong>. Sin cargo para el comercio.
-        </div>
-      `;
+      costNote.textContent = 'Envío a cargo del usuario final. Sin costo para el comercio.';
     }
   }
 };
 
-function updateRloShippingCost() {
+window.updateRloRegionalCouriers = function() {
+  const comuna = document.getElementById('rlo-comuna') ? document.getElementById('rlo-comuna').value : '';
+  const modo = document.getElementById('rlo-modo-entrega') ? document.getElementById('rlo-modo-entrega').value : 'sucursal';
+  const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
+  const courierTrackingRow = document.getElementById('rlo-courier-tracking-row');
+  const courierCardsContainer = document.getElementById('rlo-courier-cards');
+  const courierInput = document.getElementById('rlo-courier');
+  const courierLabel = document.getElementById('rlo-courier-label');
+  const trackingLabel = document.getElementById('rlo-tracking-label');
+  const trackingInput = document.getElementById('rlo-tracking');
+  const otherWrapper = document.getElementById('rlo-courier-other-wrapper');
+  const otherInput = document.getElementById('rlo-courier-other');
+  const reminderBanner = document.getElementById('rlo-user-paying-reminder');
   const formatCLP = window.formatCLP || (v => '$' + Number(v || 0).toLocaleString('es-CL'));
-  const comuna = document.getElementById('rlo-comuna').value;
-  const responsable = document.getElementById('rlo-responsable-pago').value;
-  const modo = document.getElementById('rlo-modo-entrega');
-  const infoBox = document.getElementById('rlo-cost-info-box');
-  const costVal = document.getElementById('rlo-cost-value');
-  const costNote = document.getElementById('rlo-cost-note');
-  
-  if (!comuna) {
-    infoBox.style.display = 'none';
+
+  if (!courierCardsContainer || !courierInput) return;
+
+  // Actualizar banner recordatorio
+  if (reminderBanner) {
+    reminderBanner.style.display = (responsable === 'usuario_final') ? 'flex' : 'none';
+  }
+
+  // Vincular evento input a otherInput
+  if (otherInput && !otherInput.dataset.bound) {
+    otherInput.dataset.bound = 'true';
+    otherInput.addEventListener('input', function() {
+      const mainInput = document.getElementById('rlo-courier');
+      if (mainInput) {
+        mainInput.value = this.value.trim() || 'Otros';
+      }
+    });
+  }
+
+  // CASO 1: Envío a cargo del USUARIO FINAL (aplica para RM y Regiones, siempre que no sea sucursal)
+  if (responsable === 'usuario_final') {
+    if (courierTrackingRow && modo !== 'sucursal') {
+      courierTrackingRow.style.display = 'grid';
+    }
+    if (courierLabel) {
+      courierLabel.innerHTML = 'Operador de Envío <span class="text-danger">*</span>';
+    }
+    if (trackingLabel) {
+      trackingLabel.innerHTML = 'Tracking / N° de Seguimiento <span class="text-danger">*</span>';
+    }
+    if (trackingInput) {
+      trackingInput.placeholder = 'Ej: 987654321 (Obligatorio)';
+      trackingInput.required = true;
+    }
+
+    courierInput.style.display = 'none';
+    courierCardsContainer.style.display = 'grid';
+    courierCardsContainer.style.gridTemplateColumns = 'repeat(4, 1fr)';
+
+    const operators = [
+      { name: 'Bluexpress', icon: 'ri-truck-line' },
+      { name: 'Starken', icon: 'ri-send-plane-line' },
+      { name: 'Chilexpress', icon: 'ri-flashlight-line' },
+      { name: 'Otros', icon: 'ri-more-fill' }
+    ];
+
+    courierCardsContainer.innerHTML = operators.map(opt => `
+      <div class="rlo-courier-card" data-name="${opt.name}" data-price="0" onclick="window.selectRloCourierCard('${opt.name}', 0)" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.65rem 0.35rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+        <i class="${opt.icon}" style="font-size: 1.25rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
+        <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">${opt.name}</span>
+      </div>
+    `).join('');
+
+    const currentVal = courierInput.value.trim();
+    const isKnown = ['bluexpress', 'starken', 'chilexpress'].includes(currentVal.toLowerCase());
+
+    if (isKnown) {
+      const match = operators.find(o => o.name.toLowerCase() === currentVal.toLowerCase());
+      if (match) window.selectRloCourierCard(match.name, 0);
+    } else if (currentVal && currentVal !== '' && currentVal.toLowerCase() !== 'otros') {
+      window.selectRloCourierCard('Otros', 0);
+      if (otherInput) otherInput.value = currentVal;
+    } else {
+      window.selectRloCourierCard('Starken', 0);
+    }
     return;
   }
-  
-  const isRM = SANTIAGO_COMUNAS_ADMIN.includes(comuna);
-  const lblRm = document.getElementById('lbl-rlo-modo-domicilio_rm');
-  const lblReg = document.getElementById('lbl-rlo-modo-regiones');
-  const deliveryGrid = document.getElementById('rlo-delivery-modes-grid');
-  
-  if (responsable === 'usuario_final') {
-    if (lblRm) lblRm.style.display = 'none';
-    if (lblReg) {
-      lblReg.style.display = 'flex';
-      const titleSpan = lblReg.querySelector('span:nth-of-type(1)');
-      const subSpan = lblReg.querySelector('span:nth-of-type(2)');
-      if (titleSpan) titleSpan.textContent = 'Envío Courier';
-      if (subSpan) subSpan.textContent = 'Por pagar';
-      
-      lblReg.style.pointerEvents = 'auto';
-      lblReg.style.opacity = '1';
-    }
-    if (deliveryGrid) {
-      deliveryGrid.style.gridTemplateColumns = 'repeat(2, 1fr)';
-    }
-    if (modo.value === 'domicilio_rm') {
-      modo.value = 'regiones';
-      window.selectRloRadioCard('rlo-modo-entrega', 'regiones');
-      return;
-    }
-  } else {
-    if (lblRm) lblRm.style.display = 'flex';
-    if (lblReg) {
-      lblReg.style.display = 'flex';
-      const titleSpan = lblReg.querySelector('span:nth-of-type(1)');
-      const subSpan = lblReg.querySelector('span:nth-of-type(2)');
-      if (titleSpan) titleSpan.textContent = 'A Regiones';
-      if (subSpan) subSpan.textContent = 'Cotización Courier';
-    }
-    if (deliveryGrid) {
-      deliveryGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
-    }
-    
-    if (isRM) {
-      if (lblRm) {
-        lblRm.style.pointerEvents = 'auto';
-        lblRm.style.opacity = '1';
-      }
-      if (lblReg) {
-        lblReg.style.pointerEvents = 'none';
-        lblReg.style.opacity = '0.4';
-      }
-      if (modo.value === 'regiones') {
-        modo.value = 'domicilio_rm';
-        window.selectRloRadioCard('rlo-modo-entrega', 'domicilio_rm');
-        return;
-      }
-    } else {
-      if (lblRm) {
-        lblRm.style.pointerEvents = 'none';
-        lblRm.style.opacity = '0.4';
-      }
-      if (lblReg) {
-        lblReg.style.pointerEvents = 'auto';
-        lblReg.style.opacity = '1';
-      }
-      if (modo.value === 'domicilio_rm') {
-        modo.value = 'regiones';
-        window.selectRloRadioCard('rlo-modo-entrega', 'regiones');
-        return;
-      }
-    }
+
+  // CASO 2: Envío a cargo del COMERCIO (cotización según comuna)
+  if (trackingLabel) {
+    trackingLabel.innerHTML = 'Tracking / Código Previo (Opcional)';
   }
-  
-  const selectedModo = modo.value;
-  infoBox.style.display = 'block';
-  
-  const row = document.getElementById('rlo-courier-tracking-row');
-  const courierWrapper = document.getElementById('rlo-courier-wrapper');
-  const trackingWrapper = document.getElementById('rlo-tracking-wrapper');
-  const courierInput = document.getElementById('rlo-courier');
-  const courierCardsContainer = document.getElementById('rlo-courier-cards');
-  const courierLabel = document.getElementById('rlo-courier-label');
-  
-  function showStandardCourierInput() {
-    if (courierInput) courierInput.style.display = 'block';
-    if (courierCardsContainer) {
-      courierCardsContainer.style.display = 'none';
-      courierCardsContainer.innerHTML = '';
-    }
-    if (courierLabel) courierLabel.textContent = 'Courier (Opcional)';
-    
-    if (selectedModo === 'sucursal') {
-      costVal.textContent = '$0';
-      costNote.textContent = 'Entrega o retiro en Punto Físico Ñuñoa. Sin costo para el comercio ni el usuario final.';
-    } else if (selectedModo === 'domicilio_rm') {
-      if (responsable === 'comercio') {
-        costVal.textContent = '$3.808 c/IVA ($3.200 + IVA)';
-        costNote.textContent = 'Costo cargado a la cuenta del comercio. Un repartidor realizará el cambio/devolución en el domicilio del cliente.';
-      } else {
-        costVal.textContent = '$0 para el comercio';
-        costNote.textContent = 'Costo de envío pagado por el usuario final (coordinación externa). Sin cargo para el comercio.';
-      }
-    } else {
-      if (responsable === 'comercio') {
-        costVal.textContent = 'Tarifa variable';
-        costNote.textContent = 'Comuna regional. Costo según cotización real de Starken/Bluexpress. Cargado a la cuenta del comercio.';
-      } else {
-        costVal.textContent = '$0 para el comercio';
-        costNote.textContent = 'Costo de envío a regiones pagado por el usuario final (Starken/Chilexpress por pagar). Sin cargo para el comercio.';
-      }
-    }
+  if (trackingInput) {
+    trackingInput.placeholder = 'Ej: 987654321';
+    trackingInput.required = false;
   }
-  
-  if (selectedModo === 'sucursal') {
-    if (row) row.style.display = 'none';
-    showStandardCourierInput();
-  } else if (responsable === 'usuario_final') {
-    if (row) {
-      row.style.display = 'grid';
-      row.style.gridTemplateColumns = '1fr 1fr';
-    }
-    if (courierWrapper) courierWrapper.style.display = 'block';
-    if (trackingWrapper) trackingWrapper.style.display = 'block';
-    showStandardCourierInput();
-  } else {
-    if (row) {
-      row.style.display = 'grid';
-      row.style.gridTemplateColumns = '1fr';
-    }
-    if (courierWrapper) courierWrapper.style.display = 'block';
-    if (trackingWrapper) trackingWrapper.style.display = 'none';
+  if (otherWrapper) {
+    otherWrapper.style.display = 'none';
+  }
+
+  if (modo !== 'regiones') {
+    courierCardsContainer.style.display = 'none';
+    courierInput.style.display = 'none';
+    return;
+  }
+
+  if (!comuna) {
+    courierCardsContainer.style.display = 'none';
+    courierInput.style.display = 'block';
+    if (courierLabel) courierLabel.textContent = 'Courier Preferido (Opcional)';
+    return;
+  }
+
+  const normalizedCity = comuna.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
     
-    if (selectedModo === 'domicilio_rm') {
-      if (courierInput) courierInput.style.display = 'none';
-      if (courierCardsContainer) {
-        courierCardsContainer.style.display = 'grid';
-        courierCardsContainer.innerHTML = `
-          <div class="rlo-courier-card" data-name="Stocka Courier" data-price="3200" onclick="window.selectRloCourierCard('Stocka Courier', 3200)" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
-            <i class="ri-truck-line" style="font-size: 1.2rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
-            <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">Stocka Courier</span>
-            <span style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem;">$3.808 c/IVA</span>
+  const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+  const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
+
+  if (bracketRates) {
+    const courierOptions = [];
+    if (bracketRates.bluexpress && bracketRates.bluexpress > 0) {
+      courierOptions.push({ name: 'Bluexpress', price: bracketRates.bluexpress, icon: 'ri-truck-line' });
+    }
+    if (bracketRates.starken && bracketRates.starken > 0) {
+      courierOptions.push({ name: 'Starken', price: bracketRates.starken, icon: 'ri-send-plane-line' });
+    }
+    if (bracketRates.chilexpress && bracketRates.chilexpress > 0) {
+      courierOptions.push({ name: 'Chilexpress', price: bracketRates.chilexpress, icon: 'ri-flashlight-line' });
+    }
+    
+    if (courierOptions.length > 0) {
+      const cheapestPrice = Math.min(...courierOptions.map(o => o.price));
+      courierInput.style.display = 'none';
+      courierCardsContainer.style.display = 'grid';
+      courierCardsContainer.style.gridTemplateColumns = 'repeat(3, 1fr)';
+      courierCardsContainer.innerHTML = courierOptions.map(opt => {
+        const total = Math.round(opt.price * 1.19);
+        const isCheapest = opt.price === cheapestPrice;
+        const badgeHtml = isCheapest 
+          ? `<span class="badge" style="position: absolute; top: -8px; right: 8px; background-color: var(--color-success, #10b981); color: white; font-size: 0.6rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 700; z-index: 1;">Recomendado</span>`
+          : '';
+          
+        return `
+          <div class="rlo-courier-card" data-name="${opt.name}" data-price="${opt.price}" onclick="window.selectRloCourierCard('${opt.name}', ${opt.price})" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+            ${badgeHtml}
+            <i class="${opt.icon}" style="font-size: 1.2rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
+            <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">${opt.name}</span>
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem;">${formatCLP(total)} c/IVA</span>
           </div>
         `;
-        window.selectRloCourierCard('Stocka Courier', 3200);
-      }
-      if (courierLabel) courierLabel.textContent = 'Courier';
-    } else {
-      const normalizedCity = comuna.toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/ñ/g, 'n')
-        .replace(/[^a-z\s]/g, '')
-        .trim();
-        
-      const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
-      const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
+      }).join('');
+
+      if (courierLabel) courierLabel.textContent = 'Selecciona Courier Preferido';
       
-      if (bracketRates) {
-        const courierOptions = [];
-        if (bracketRates.bluexpress && bracketRates.bluexpress > 0) {
-          courierOptions.push({ name: 'Bluexpress', price: bracketRates.bluexpress, icon: 'ri-truck-line' });
-        }
-        if (bracketRates.starken && bracketRates.starken > 0) {
-          courierOptions.push({ name: 'Starken', price: bracketRates.starken, icon: 'ri-send-plane-line' });
-        }
-        if (bracketRates.chilexpress && bracketRates.chilexpress > 0) {
-          courierOptions.push({ name: 'Chilexpress', price: bracketRates.chilexpress, icon: 'ri-flashlight-line' });
-        }
-        
-        if (courierOptions.length > 0) {
-          const cheapestPrice = Math.min(...courierOptions.map(o => o.price));
-          if (courierInput) courierInput.style.display = 'none';
-          if (courierCardsContainer) {
-            courierCardsContainer.style.display = 'grid';
-            courierCardsContainer.innerHTML = courierOptions.map(opt => {
-              const total = Math.round(opt.price * 1.19);
-              const isCheapest = opt.price === cheapestPrice;
-              const badgeHtml = isCheapest 
-                ? `<span class="badge" style="position: absolute; top: -8px; right: 8px; background-color: var(--color-success, #10b981); color: white; font-size: 0.6rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 700; z-index: 1;">Recomendado</span>`
-                : '';
-                
-              return `
-                <div class="rlo-courier-card" data-name="${opt.name}" data-price="${opt.price}" onclick="window.selectRloCourierCard('${opt.name}', ${opt.price})" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
-                  ${badgeHtml}
-                  <i class="${opt.icon}" style="font-size: 1.2rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
-                  <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">${opt.name}</span>
-                  <span style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem;">${formatCLP(total)} c/IVA</span>
-                </div>
-              `;
-            }).join('');
-          }
-          if (courierLabel) courierLabel.textContent = 'Selecciona Courier *';
-          
-          const currentVal = courierInput ? courierInput.value : '';
-          const foundOption = courierOptions.find(o => o.name.toLowerCase() === currentVal.toLowerCase());
-          
-          if (foundOption) {
-            window.selectRloCourierCard(foundOption.name, foundOption.price);
-          } else {
-            const cheapestOpt = courierOptions.find(o => o.price === cheapestPrice);
-            window.selectRloCourierCard(cheapestOpt.name, cheapestOpt.price);
-          }
-        } else {
-          showStandardCourierInput();
-        }
+      const currentVal = courierInput.value;
+      const foundOption = courierOptions.find(o => o.name.toLowerCase() === currentVal.toLowerCase());
+      if (foundOption) {
+        window.selectRloCourierCard(foundOption.name, foundOption.price);
       } else {
-        showStandardCourierInput();
+        const cheapestOpt = courierOptions.find(o => o.price === cheapestPrice);
+        window.selectRloCourierCard(cheapestOpt.name, cheapestOpt.price);
+      }
+      return;
+    }
+  }
+
+  courierCardsContainer.style.display = 'none';
+  courierInput.style.display = 'block';
+  if (courierLabel) courierLabel.textContent = 'Courier Preferido (Opcional)';
+};
+const updateRloRegionalCouriers = window.updateRloRegionalCouriers;
+
+window.loadRloCatalog = async function(commerceName) {
+  const form = document.getElementById('form-reverse-logistics-order');
+  if (form) form.dataset.currentCommerce = commerceName;
+
+  window.rloCatalogProducts = [];
+  window.rloCatalogTallas = [];
+  window.rloCatalogColors = [];
+  window.rloCatalogVar1 = [];
+  window.rloCatalogVar2 = [];
+  window.rloVariantNaming = {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  if (!commerceName) return;
+
+  // Cargar configuración de nombres de variantes del comercio
+  try {
+    let commerceCfg = null;
+    if (typeof getCommerceVariantConfig === 'function') {
+      commerceCfg = await getCommerceVariantConfig(commerceName);
+    } else {
+      const { data: addCfg } = await supabase
+        .from('comercios_adicional_config')
+        .select('plat_siglas_config')
+        .eq('comercio', commerceName)
+        .maybeSingle();
+      if (addCfg && addCfg.plat_siglas_config && addCfg.plat_siglas_config.variant_config) {
+        commerceCfg = addCfg.plat_siglas_config.variant_config;
       }
     }
+
+    if (commerceCfg && commerceCfg.naming) {
+      if (commerceCfg.naming.color) window.rloVariantNaming.color = commerceCfg.naming.color;
+      if (commerceCfg.naming.talla) window.rloVariantNaming.talla = commerceCfg.naming.talla;
+      if (commerceCfg.naming.var1) window.rloVariantNaming.var1 = commerceCfg.naming.var1;
+      if (commerceCfg.naming.var2) window.rloVariantNaming.var2 = commerceCfg.naming.var2;
+    }
+  } catch (cfgErr) {
+    console.warn('Could not load commerce variant config:', cfgErr);
+  }
+
+  try {
+    let rawProducts = [];
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, sku, name, is_pack, is_virtual, color, talla, variable_1, variable_2, options, inventory(quantity, committed_quantity)')
+        .eq('comercio', commerceName)
+        .neq('status', 'archived')
+        .order('name');
+      if (error) throw error;
+      rawProducts = data || [];
+    } catch (errCol) {
+      console.warn('Fallback loading catalog without variable_2 column:', errCol);
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, sku, name, is_pack, is_virtual, color, talla, variable_1, options, inventory(quantity, committed_quantity)')
+        .eq('comercio', commerceName)
+        .neq('status', 'archived')
+        .order('name');
+      if (!error) rawProducts = data || [];
+    }
+    
+    window.rloCatalogProducts = rawProducts
+      .filter(p => !p.is_pack && !p.is_virtual)
+      .map(p => {
+        const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
+          return acc + ((inv.quantity || 0) - (inv.committed_quantity || 0));
+        }, 0);
+        const variants = window.extractRloProductVariants(p, { naming: window.rloVariantNaming });
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          color: variants.color,
+          talla: variants.talla,
+          var1: variants.var1,
+          var2: variants.var2,
+          available_stock: totalAvailable
+        };
+      });
+
+    window.rloCatalogTallas = Array.from(new Set(
+      window.rloCatalogProducts.map(p => p.talla).filter(Boolean)
+    )).sort();
+
+    window.rloCatalogColors = Array.from(new Set(
+      window.rloCatalogProducts.map(p => p.color).filter(Boolean)
+    )).sort();
+
+    window.rloCatalogVar1 = Array.from(new Set(
+      window.rloCatalogProducts.map(p => p.var1).filter(Boolean)
+    )).sort();
+
+    window.rloCatalogVar2 = Array.from(new Set(
+      window.rloCatalogProducts.map(p => p.var2).filter(Boolean)
+    )).sort();
+
+  } catch (err) {
+    console.error('Error fetching catalog products for admin RLO modal:', err);
+  }
+
+  const hasCatalog = window.rloCatalogProducts.length > 0;
+  const manualModeWrapper = document.getElementById('rlo-manual-mode-wrapper');
+  const manualModeCheckbox = document.getElementById('rlo-manual-mode');
+
+  if (hasCatalog) {
+    if (manualModeWrapper) manualModeWrapper.style.display = 'none';
+    if (manualModeCheckbox) {
+      manualModeCheckbox.checked = false;
+    }
+  } else {
+    if (manualModeWrapper) manualModeWrapper.style.display = 'flex';
+    if (manualModeCheckbox) {
+      manualModeCheckbox.checked = true;
+    }
+  }
+};
+
+// MODAL SELECTOR DE PRODUCTOS CON FILTRO DE VARIANTES (TALLA, COLOR, VAR1, VAR2) Y NOMBRE COMPLETO
+window.openRloProductPicker = function(direction, targetRow) {
+  const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+  if (!commerce) {
+    Swal.fire({
+      title: 'Comercio no seleccionado',
+      text: 'Por favor, selecciona primero el comercio en el Paso 1 para cargar su catálogo de productos.',
+      icon: 'info',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    return;
+  }
+
+  window.rloPickerState.direction = direction;
+  window.rloPickerState.targetRow = targetRow;
+  window.rloPickerState.activeTalla = '';
+  window.rloPickerState.activeColor = '';
+  window.rloPickerState.activeVar1 = '';
+  window.rloPickerState.activeVar2 = '';
+  window.rloPickerState.activeSearch = '';
+  window.rloPickerState.stockOnly = direction === 'outgoing';
+
+  const badge = document.getElementById('rlo-picker-commerce-badge');
+  if (badge) badge.textContent = commerce;
+
+  const searchInput = document.getElementById('rlo-picker-search');
+  if (searchInput) searchInput.value = '';
+
+  // Renderizar barra de filtros dinámicos (Talla, Color, Variable 1, Variable 2)
+  const filterBar = document.getElementById('rlo-picker-variant-filters-bar');
+  if (filterBar) {
+    let barHtml = '';
+    const naming = window.rloVariantNaming || { color: 'Color', talla: 'Talla', var1: 'Variable 1', var2: 'Variable 2' };
+
+    if (window.rloCatalogTallas && window.rloCatalogTallas.length > 0) {
+      barHtml += `
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.talla}:</label>
+          <select id="rlo-picker-select-talla" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 105px;">
+            <option value="">Todas</option>
+            ${window.rloCatalogTallas.map(t => `<option value="${t}">${t}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+
+    if (window.rloCatalogColors && window.rloCatalogColors.length > 0) {
+      barHtml += `
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.color}:</label>
+          <select id="rlo-picker-select-color" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
+            <option value="">Todos</option>
+            ${window.rloCatalogColors.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+
+    if (window.rloCatalogVar1 && window.rloCatalogVar1.length > 0) {
+      barHtml += `
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.var1}:</label>
+          <select id="rlo-picker-select-var1" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
+            <option value="">Todas</option>
+            ${window.rloCatalogVar1.map(v => `<option value="${v}">${v}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+
+    if (window.rloCatalogVar2 && window.rloCatalogVar2.length > 0) {
+      barHtml += `
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); margin: 0;">${naming.var2}:</label>
+          <select id="rlo-picker-select-var2" class="form-input" style="padding: 0.3rem 0.6rem; font-size: 0.825rem; width: auto; min-width: 115px;">
+            <option value="">Todas</option>
+            ${window.rloCatalogVar2.map(v => `<option value="${v}">${v}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+
+    barHtml += `
+      <div style="display: flex; align-items: center; gap: 0.4rem; margin-left: auto;">
+        <input type="checkbox" id="rlo-picker-check-stock" ${window.rloPickerState.stockOnly ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
+        <label for="rlo-picker-check-stock" style="font-size: 0.8rem; font-weight: 600; cursor: pointer; color: var(--color-text-main); margin: 0;">
+          Solo con stock disponible
+        </label>
+      </div>
+    `;
+
+    filterBar.innerHTML = barHtml;
+
+    const selTalla = document.getElementById('rlo-picker-select-talla');
+    if (selTalla) {
+      selTalla.addEventListener('change', (e) => {
+        window.rloPickerState.activeTalla = e.target.value;
+        window.renderRloPickerProducts();
+      });
+    }
+
+    const selColor = document.getElementById('rlo-picker-select-color');
+    if (selColor) {
+      selColor.addEventListener('change', (e) => {
+        window.rloPickerState.activeColor = e.target.value;
+        window.renderRloPickerProducts();
+      });
+    }
+
+    const selVar1 = document.getElementById('rlo-picker-select-var1');
+    if (selVar1) {
+      selVar1.addEventListener('change', (e) => {
+        window.rloPickerState.activeVar1 = e.target.value;
+        window.renderRloPickerProducts();
+      });
+    }
+
+    const selVar2 = document.getElementById('rlo-picker-select-var2');
+    if (selVar2) {
+      selVar2.addEventListener('change', (e) => {
+        window.rloPickerState.activeVar2 = e.target.value;
+        window.renderRloPickerProducts();
+      });
+    }
+
+    const chkStock = document.getElementById('rlo-picker-check-stock');
+    if (chkStock) {
+      chkStock.addEventListener('change', (e) => {
+        window.rloPickerState.stockOnly = e.target.checked;
+        window.renderRloPickerProducts();
+      });
+    }
+  }
+
+  window.renderRloPickerProducts();
+
+  const pickerModal = document.getElementById('modal-rlo-product-picker');
+  if (pickerModal) pickerModal.classList.add('active');
+
+  setTimeout(() => {
+    if (searchInput) searchInput.focus();
+  }, 100);
+};
+
+window.closeRloProductPicker = function() {
+  const pickerModal = document.getElementById('modal-rlo-product-picker');
+  if (pickerModal) pickerModal.classList.remove('active');
+};
+
+window.renderRloPickerProducts = function() {
+  const listContainer = document.getElementById('rlo-picker-list-container');
+  const countSpan = document.getElementById('rlo-picker-results-count');
+  if (!listContainer) return;
+
+  const catalog = window.rloCatalogProducts || [];
+  const q = (window.rloPickerState.activeSearch || '').toLowerCase().trim();
+  const filterTalla = window.rloPickerState.activeTalla;
+  const filterColor = window.rloPickerState.activeColor;
+  const filterVar1 = window.rloPickerState.activeVar1;
+  const filterVar2 = window.rloPickerState.activeVar2;
+  const stockOnly = window.rloPickerState.stockOnly;
+  const isOut = window.rloPickerState.direction === 'outgoing';
+  const naming = window.rloVariantNaming || { color: 'Color', talla: 'Talla', var1: 'Variable 1', var2: 'Variable 2' };
+
+  const filtered = catalog.filter(p => {
+    if (q) {
+      const matchName = (p.name || '').toLowerCase().includes(q);
+      const matchSku = (p.sku || '').toLowerCase().includes(q);
+      if (!matchName && !matchSku) return false;
+    }
+    if (filterTalla && p.talla !== filterTalla) return false;
+    if (filterColor && p.color !== filterColor) return false;
+    if (filterVar1 && p.var1 !== filterVar1) return false;
+    if (filterVar2 && p.var2 !== filterVar2) return false;
+    if (stockOnly && (p.available_stock || 0) <= 0) return false;
+    return true;
+  });
+
+  if (countSpan) {
+    countSpan.textContent = `${filtered.length} producto${filtered.length === 1 ? '' : 's'} encontrado${filtered.length === 1 ? '' : 's'}`;
+  }
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = `
+      <div style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted);">
+        <i class="ri-search-line" style="font-size: 2.2rem; opacity: 0.4; display: block; margin-bottom: 0.5rem;"></i>
+        <strong style="display: block; font-size: 0.95rem; color: var(--color-text-main);">No se encontraron productos</strong>
+        <span style="font-size: 0.825rem;">Intenta con otros términos de búsqueda o desmarca los filtros de variantes.</span>
+      </div>
+    `;
+    return;
+  }
+
+  // Ordenar: primero los con stock disponible, luego alfabético por nombre
+  const sorted = [...filtered].sort((a, b) => {
+    const stockA = a.available_stock > 0 ? 1 : 0;
+    const stockB = b.available_stock > 0 ? 1 : 0;
+    if (stockA !== stockB) return stockB - stockA;
+    return a.name.localeCompare(b.name);
+  });
+
+  listContainer.innerHTML = sorted.map(p => {
+    const hasStock = (p.available_stock || 0) > 0;
+    const escape = window.escapeHtml || (s => s);
+    return `
+      <div class="rlo-picker-item" style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); gap: 1rem; transition: all 0.2s; ${!hasStock && isOut ? 'opacity: 0.7;' : ''}">
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main); word-break: break-word; line-height: 1.35; margin-bottom: 0.35rem;">
+            ${escape(p.name)}
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;">
+            <span style="font-family: monospace; font-size: 0.75rem; background: var(--color-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); color: var(--color-text-muted);">
+              SKU: ${escape(p.sku)}
+            </span>
+            ${p.talla ? `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(59, 130, 246, 0.25);">${escape(naming.talla)}: ${escape(p.talla)}</span>` : ''}
+            ${p.color ? `<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.25);">${escape(naming.color)}: ${escape(p.color)}</span>` : ''}
+            ${p.var1 ? `<span class="badge" style="background: rgba(139, 92, 246, 0.1); color: #7c3aed; font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.25);">${escape(naming.var1)}: ${escape(p.var1)}</span>` : ''}
+            ${p.var2 ? `<span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #b45309; font-size: 0.72rem; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.25);">${escape(naming.var2)}: ${escape(p.var2)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1rem; flex-shrink: 0;">
+          <div style="text-align: right; min-width: 90px;">
+            ${hasStock 
+              ? `<span class="badge badge-success" style="font-size: 0.78rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-check-line"></i> ${p.available_stock} disp.</span>` 
+              : `<span class="badge badge-danger" style="font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-line"></i> 0 disp.</span>`
+            }
+          </div>
+          <button type="button" class="btn btn-primary" onclick="window.selectRloPickerProduct('${p.id}')" style="padding: 0.45rem 1rem; font-size: 0.825rem; font-weight: 600; white-space: nowrap;">
+            Seleccionar
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+};
+
+window.selectRloPickerProduct = async function(productId) {
+  const product = (window.rloCatalogProducts || []).find(p => p.id === productId);
+  if (!product) return;
+
+  const isOut = window.rloPickerState.direction === 'outgoing';
+  if (isOut && (product.available_stock || 0) <= 0) {
+    const res = await Swal.fire({
+      title: 'Sin Stock en Bodega',
+      text: `El producto "${product.name}" no tiene stock físico disponible en el WMS (0 unidades). Para procesar el despacho de cambio se requiere stock. ¿Deseas seleccionarlo de todos modos?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, seleccionar',
+      cancelButtonText: 'Elegir otro producto',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    if (!res.isConfirmed) return;
+  }
+
+  if (window.rloPickerState.targetRow) {
+    window.setRloRowProduct(window.rloPickerState.targetRow, product, window.rloPickerState.direction);
+  }
+
+  window.closeRloProductPicker();
+};
+
+window.setRloRowProduct = function(rowElement, product, direction) {
+  if (!rowElement || !product) return;
+
+  const cell = rowElement.querySelector('.rlo-prod-cell');
+  if (!cell) return;
+
+  const escape = window.escapeHtml || (s => s);
+  const naming = window.rloVariantNaming || { color: 'Color', talla: 'Talla', var1: 'Variable 1', var2: 'Variable 2' };
+
+  rowElement.dataset.productId = product.id;
+  rowElement.dataset.sku = product.sku;
+  rowElement.dataset.name = product.name;
+  rowElement.dataset.availStock = product.available_stock || 0;
+
+  cell.innerHTML = `
+    <input type="hidden" class="rlo-prod-id" value="${product.id}">
+    <input type="hidden" class="rlo-prod-sku" value="${escape(product.sku)}">
+    <input type="hidden" class="rlo-prod-name" value="${escape(product.name)}">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); word-break: break-word; line-height: 1.35;">
+          ${escape(product.name)}
+        </div>
+        <div style="display: flex; gap: 0.4rem; align-items: center; margin-top: 0.25rem; flex-wrap: wrap;">
+          <span style="font-family: monospace; font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.1rem 0.35rem; border-radius: 3px; border: 1px solid var(--color-border);">
+            SKU: ${escape(product.sku)}
+          </span>
+          ${product.talla ? `<span class="badge" style="font-size: 0.7rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-weight: 700; border: 1px solid rgba(59, 130, 246, 0.25);">${escape(naming.talla)}: ${escape(product.talla)}</span>` : ''}
+          ${product.color ? `<span class="badge" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.1); color: #059669; font-weight: 700; border: 1px solid rgba(16, 185, 129, 0.25);">${escape(naming.color)}: ${escape(product.color)}</span>` : ''}
+          ${product.var1 ? `<span class="badge" style="font-size: 0.7rem; background: rgba(139, 92, 246, 0.1); color: #7c3aed; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.25);">${escape(naming.var1)}: ${escape(product.var1)}</span>` : ''}
+          ${product.var2 ? `<span class="badge" style="font-size: 0.7rem; background: rgba(245, 158, 11, 0.1); color: #b45309; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.25);">${escape(naming.var2)}: ${escape(product.var2)}</span>` : ''}
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline rlo-btn-change" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 0.2rem;">
+        <i class="ri-refresh-line"></i> Cambiar
+      </button>
+    </div>
+  `;
+
+  cell.querySelector('.rlo-btn-change').addEventListener('click', () => {
+    window.openRloProductPicker(direction, rowElement);
+  });
+
+  if (direction === 'outgoing') {
+    const stockCell = rowElement.querySelector('.rlo-stock-cell');
+    if (stockCell) {
+      if ((product.available_stock || 0) > 0) {
+        stockCell.innerHTML = `<span class="badge badge-success" style="font-size: 0.78rem; font-weight: 700;">${product.available_stock} disp.</span>`;
+      } else {
+        stockCell.innerHTML = `<span class="badge badge-danger" style="font-size: 0.78rem; font-weight: 700;">0 disp.</span>`;
+      }
+    }
+    const qtyInput = rowElement.querySelector('.rlo-prod-qty');
+    if (qtyInput && product.available_stock > 0) {
+      qtyInput.max = product.available_stock;
+    }
+  }
+};
+
+window.addRloRow = function(direction, isManual) {
+  const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return null;
+  const tr = document.createElement('tr');
+  tr.className = 'rlo-prod-row' + (isManual ? ' manual' : '');
+  
+  if (isManual) {
+    if (direction === 'incoming') {
+      tr.innerHTML = `
+        <td>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;">
+            <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
+          </div>
+        </td>
+        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+        <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
+        <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario / motivo..." style="width: 100%;"></td>
+        <td style="text-align: center;">
+          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;">
+            <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
+          </div>
+        </td>
+        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+        <td style="text-align: center;"><span class="badge" style="background: var(--color-bg); color: var(--color-text-muted);">Manual</span></td>
+        <td style="text-align: center;">
+          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      `;
+    }
+  } else {
+    // Catalog mode
+    if (direction === 'incoming') {
+      tr.innerHTML = `
+        <td class="rlo-prod-cell">
+          <input type="hidden" class="rlo-prod-id" value="">
+          <input type="hidden" class="rlo-prod-sku" value="">
+          <input type="hidden" class="rlo-prod-name" value="">
+          <button type="button" class="btn btn-outline rlo-btn-pick" style="width: 100%; justify-content: flex-start; text-align: left; padding: 0.55rem 0.85rem; border: 1.5px dashed var(--color-border); font-size: 0.85rem; color: var(--color-text-muted); background: var(--color-bg); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+            <i class="ri-search-line" style="color: var(--color-primary); font-size: 1rem;"></i> Seleccionar producto devuelto...
+          </button>
+        </td>
+        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+        <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
+        <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario / motivo..." style="width: 100%;"></td>
+        <td style="text-align: center;">
+          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td class="rlo-prod-cell">
+          <input type="hidden" class="rlo-prod-id" value="">
+          <input type="hidden" class="rlo-prod-sku" value="">
+          <input type="hidden" class="rlo-prod-name" value="">
+          <button type="button" class="btn btn-outline rlo-btn-pick" style="width: 100%; justify-content: flex-start; text-align: left; padding: 0.55rem 0.85rem; border: 1.5px dashed var(--color-border); font-size: 0.85rem; color: var(--color-text-muted); background: var(--color-bg); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+            <i class="ri-search-line" style="color: var(--color-success); font-size: 1rem;"></i> Seleccionar producto de reemplazo...
+          </button>
+        </td>
+        <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+        <td style="text-align: center;" class="rlo-stock-cell">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-muted);">-</span>
+        </td>
+        <td style="text-align: center;">
+          <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      `;
+    }
+
+    const btnPick = tr.querySelector('.rlo-btn-pick');
+    if (btnPick) {
+      btnPick.addEventListener('click', () => {
+        window.openRloProductPicker(direction, tr);
+      });
+    }
+  }
+
+  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.children.length > 1) {
+      tr.remove();
+    } else {
+      Swal.fire({
+        title: 'Atención',
+        text: 'Debes mantener al menos una fila de producto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    }
+  });
+
+  tbody.appendChild(tr);
+  return tr;
+};
+
+function addRloRowWithDataForAdmin(direction, isManual, itemData, maxQty = 9999) {
+  const tr = window.addRloRow(direction, isManual);
+  if (!tr) return;
+
+  if (isManual) {
+    const skuIn = tr.querySelector('.rlo-prod-sku');
+    const nameIn = tr.querySelector('.rlo-prod-name');
+    if (skuIn) skuIn.value = itemData.sku || '';
+    if (nameIn) nameIn.value = itemData.name || '';
+  } else {
+    // Buscar en catálogo existente
+    const catalogProd = (window.rloCatalogProducts || []).find(p => 
+      (itemData.product_id && p.id === itemData.product_id) || 
+      (itemData.sku && p.sku === itemData.sku)
+    );
+
+    if (catalogProd) {
+      window.setRloRowProduct(tr, catalogProd, direction);
+    } else if (itemData.sku || itemData.name) {
+      const mockProd = {
+        id: itemData.product_id || null,
+        sku: itemData.sku || '',
+        name: itemData.name || '',
+        talla: '',
+        color: '',
+        var1: '',
+        var2: '',
+        available_stock: 0
+      };
+      window.setRloRowProduct(tr, mockProd, direction);
+    }
+  }
+
+  const qtyInput = tr.querySelector('.rlo-prod-qty');
+  if (qtyInput) {
+    qtyInput.value = itemData.cantidad || 1;
+    if (maxQty && maxQty < 9999) qtyInput.max = maxQty;
+  }
+
+  const stockCb = tr.querySelector('.rlo-prod-stock-return');
+  if (stockCb && itemData.regresar_a_inventario !== undefined) {
+    stockCb.checked = Boolean(itemData.regresar_a_inventario);
+  }
+
+  const commentInput = tr.querySelector('.rlo-prod-comment');
+  if (commentInput && itemData.comentario) {
+    commentInput.value = itemData.comentario;
   }
 }
 
+function getRloProductsFromTable(direction) {
+  const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
+  const rows = document.querySelectorAll(`#${tbodyId} tr`);
+  const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
+  const products = [];
+
+  rows.forEach(row => {
+    let productId = null;
+    let sku = '';
+    let name = '';
+
+    if (isManual) {
+      const skuInput = row.querySelector('.rlo-prod-sku');
+      const nameInput = row.querySelector('.rlo-prod-name');
+      sku = skuInput ? skuInput.value.trim() : '';
+      name = nameInput ? nameInput.value.trim() : '';
+    } else {
+      const idInput = row.querySelector('.rlo-prod-id');
+      const skuInput = row.querySelector('.rlo-prod-sku');
+      const nameInput = row.querySelector('.rlo-prod-name');
+      
+      productId = idInput && idInput.value ? idInput.value : (row.dataset.productId || null);
+      sku = skuInput && skuInput.value ? skuInput.value.trim() : (row.dataset.sku || '');
+      name = nameInput && nameInput.value ? nameInput.value.trim() : (row.dataset.name || '');
+
+      if (!sku && !name) {
+        const legacyInput = row.querySelector('.rlo-prod-input');
+        if (legacyInput && legacyInput.value) {
+          const val = legacyInput.value.trim();
+          if (val.includes(' - ')) {
+            const parts = val.split(' - ');
+            sku = parts[0];
+            name = parts.slice(1).join(' - ');
+          } else {
+            sku = val;
+            name = val;
+          }
+        }
+      }
+    }
+
+    const qtyInput = row.querySelector('.rlo-prod-qty');
+    const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
+    const stockReturnCb = row.querySelector('.rlo-prod-stock-return');
+    const stockReturn = stockReturnCb ? stockReturnCb.checked : false;
+    const commentInput = row.querySelector('.rlo-prod-comment');
+    const itemComment = commentInput ? commentInput.value.trim() : '';
+
+    if (sku || name) {
+      products.push({
+        product_id: productId,
+        sku,
+        name,
+        cantidad: qty,
+        regresar_a_inventario: stockReturn,
+        comentario: itemComment
+      });
+    }
+  });
+
+  return products;
+}
+
 window.updateRloWizardUI = function() {
-  for (let i = 1; i <= 3; i++) {
+  const type = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
+  const isCambio = type === 'CAMBIO';
+
+  // Ajustar visibilidad de pestañas para DEVOLUCION (omite Paso 3 de salida)
+  const tab3 = document.getElementById('rlo-wizard-tab-3');
+  const line3 = document.getElementById('rlo-wizard-line-3');
+  const tab4Num = document.getElementById('rlo-tab-4-num');
+  
+  if (tab3) tab3.style.display = isCambio ? 'flex' : 'none';
+  if (line3) line3.style.display = isCambio ? 'block' : 'none';
+  if (tab4Num) tab4Num.textContent = isCambio ? '4' : '3';
+
+  // Ocultar todos los contenedores
+  for (let i = 1; i <= 4; i++) {
     const container = document.getElementById(`rlo-wizard-step-${i}`);
     if (container) container.style.display = 'none';
-    
+
     const tab = document.getElementById(`rlo-wizard-tab-${i}`);
     const line = document.getElementById(`rlo-wizard-line-${i}`);
     if (tab) {
@@ -71570,11 +71671,17 @@ window.updateRloWizardUI = function() {
       line.style.background = 'var(--color-border)';
     }
   }
-  
-  for (let i = 1; i <= window.currentRloWizardStep; i++) {
+
+  // Activar contenedor actual
+  const currentStep = window.currentRloWizardStep;
+  const activeContainer = document.getElementById(`rlo-wizard-step-${currentStep}`);
+  if (activeContainer) activeContainer.style.display = 'block';
+
+  // Iluminar pestañas completadas y actual
+  for (let i = 1; i <= currentStep; i++) {
     const tab = document.getElementById(`rlo-wizard-tab-${i}`);
     if (tab) {
-      const isCurrent = i === window.currentRloWizardStep;
+      const isCurrent = i === currentStep;
       tab.style.color = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
       const num = tab.querySelector('.step-num');
       if (num) {
@@ -71585,36 +71692,138 @@ window.updateRloWizardUI = function() {
         }
       }
     }
-    if (i < window.currentRloWizardStep) {
+    if (i < currentStep) {
       const line = document.getElementById(`rlo-wizard-line-${i}`);
       if (line) line.style.background = 'var(--color-success, #22c55e)';
     }
   }
-  
-  const activeContainer = document.getElementById(`rlo-wizard-step-${window.currentRloWizardStep}`);
-  if (activeContainer) activeContainer.style.display = 'block';
-  
+
+  // Si estamos en Paso 4, preparar la vista adaptada al modo de entrega
+  if (currentStep === 4) {
+    const modo = document.getElementById('rlo-modo-entrega') ? document.getElementById('rlo-modo-entrega').value : 'sucursal';
+    const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
+    const deliveryWrapper = document.getElementById('rlo-delivery-fields-wrapper');
+    const courierTrackingRow = document.getElementById('rlo-courier-tracking-row');
+    const banner = document.getElementById('rlo-step4-mode-banner');
+    const desc = document.getElementById('rlo-step4-description');
+    const summaryContainer = document.getElementById('rlo-step4-summary-content');
+
+    // Filtrar comunas para que coincidan exactamente con la cobertura del modo elegido
+    window.updateRloComunasSelect(modo);
+
+    if (modo === 'sucursal') {
+      if (deliveryWrapper) deliveryWrapper.style.display = 'none';
+      if (courierTrackingRow) courierTrackingRow.style.display = 'none';
+      if (desc) desc.textContent = 'Indica los datos de contacto del cliente para coordinar el retiro en nuestro Punto Físico de Ñuñoa.';
+      if (banner) {
+        banner.style.display = 'flex';
+        banner.style.background = 'rgba(16, 185, 129, 0.08)';
+        banner.style.border = '1px solid rgba(16, 185, 129, 0.25)';
+        banner.style.color = '#065f46';
+        banner.innerHTML = `
+          <i class="ri-store-2-line" style="font-size: 1.5rem; color: #10b981; flex-shrink: 0;"></i>
+          <div>
+            <strong style="display: block; font-size: 0.9rem;">Retiro en Punto Físico Stocka Ñuñoa</strong>
+            <span>El cliente retirará presencialmente en bodega. Solo requerimos su nombre y contacto para dar aviso cuando su pedido esté preparado. <strong>¡Sin costo de despacho!</strong></span>
+          </div>
+        `;
+      }
+    } else if (modo === 'domicilio_rm') {
+      if (deliveryWrapper) deliveryWrapper.style.display = 'block';
+      if (courierTrackingRow) {
+        courierTrackingRow.style.display = (responsable === 'usuario_final') ? 'grid' : 'none';
+      }
+      if (desc) desc.textContent = 'Indica los datos de contacto y la dirección de despacho en la Región Metropolitana.';
+      if (banner) {
+        banner.style.display = 'flex';
+        banner.style.background = 'rgba(59, 130, 246, 0.08)';
+        banner.style.border = '1px solid rgba(59, 130, 246, 0.25)';
+        banner.style.color = '#1e40af';
+        const costLabel = (responsable === 'comercio') ? ' ($3.200 + IVA)' : ' (Costo por cuenta del cliente)';
+        banner.innerHTML = `
+          <i class="ri-truck-line" style="font-size: 1.5rem; color: var(--color-primary); flex-shrink: 0;"></i>
+          <div>
+            <strong style="display: block; font-size: 0.9rem;">Despacho a Domicilio RM${costLabel}</strong>
+            <span>Stocka Courier realizará la entrega en la dirección indicada en la Región Metropolitana.</span>
+          </div>
+        `;
+      }
+      updateRloRegionalCouriers();
+    } else {
+      // Regiones
+      if (deliveryWrapper) deliveryWrapper.style.display = 'block';
+      if (courierTrackingRow) courierTrackingRow.style.display = 'grid';
+      if (desc) desc.textContent = 'Indica los datos de contacto, la dirección regional y preferencias de courier.';
+      if (banner) {
+        banner.style.display = 'flex';
+        banner.style.background = 'rgba(99, 102, 241, 0.08)';
+        banner.style.border = '1px solid rgba(99, 102, 241, 0.25)';
+        banner.style.color = '#3730a3';
+        banner.innerHTML = `
+          <i class="ri-earth-line" style="font-size: 1.5rem; color: #6366f1; flex-shrink: 0;"></i>
+          <div>
+            <strong style="display: block; font-size: 0.9rem;">Envío a Regiones (Courier Externo)</strong>
+            <span>Se coordinará el despacho a través de Chilexpress, Starken o Bluexpress a la comuna seleccionada.</span>
+          </div>
+        `;
+      }
+      updateRloRegionalCouriers();
+    }
+
+    // Renderizar resumen en Paso 4
+    if (summaryContainer) {
+      const incProds = getRloProductsFromTable('incoming');
+      const outProds = getRloProductsFromTable('outgoing');
+      const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+      const refPedido = document.getElementById('rlo-ref-pedido') ? document.getElementById('rlo-ref-pedido').value.trim() : '';
+      
+
+      let modoLabel = 'Punto Físico Ñuñoa';
+      if (modo === 'domicilio_rm') {
+        modoLabel = (responsable === 'comercio') ? 'Domicilio RM ($3.200 + IVA)' : 'Domicilio RM (A cargo del cliente)';
+      }
+      if (modo === 'regiones') modoLabel = 'A Regiones (Courier)';
+
+      summaryContainer.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.5rem 1rem; margin-bottom: 0.75rem;">
+          <div><strong style="color: var(--color-text-main);">Comercio:</strong> ${commerce || '-'}</div>
+          <div><strong style="color: var(--color-text-main);">Ref. Pedido:</strong> ${refPedido || '-'}</div>
+          <div><strong style="color: var(--color-text-main);">Modo Entrega:</strong> ${modoLabel}</div>
+          <div><strong style="color: var(--color-text-main);">Responsable Envío:</strong> ${responsable === 'comercio' ? 'Costeado por Comercio' : 'Usuario Final'}</div>
+        </div>
+        <div style="border-top: 1px dashed var(--color-border); padding-top: 0.6rem; display: flex; flex-direction: column; gap: 0.35rem;">
+          <div style="color: #ef4444; font-weight: 600; font-size: 0.8rem;">
+            ⬅️ ${incProds.length} producto(s) que ingresan (devolución del cliente)
+          </div>
+          ${isCambio ? `
+            <div style="color: #10b981; font-weight: 600; font-size: 0.8rem;">
+              ➡️ ${outProds.length} producto(s) de reemplazo que salen (despacho)
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+  }
+
+  // Botones de navegación
   const btnPrev = document.getElementById('btn-rlo-prev');
   const btnNext = document.getElementById('btn-rlo-next');
   const btnSubmit = document.getElementById('btn-rlo-save');
-  
-  if (btnPrev) btnPrev.style.display = window.currentRloWizardStep > 1 ? 'flex' : 'none';
-  if (btnNext) btnNext.style.display = window.currentRloWizardStep < 3 ? 'flex' : 'none';
-  if (btnSubmit) btnSubmit.style.display = window.currentRloWizardStep === 3 ? 'flex' : 'none';
+
+  if (btnPrev) btnPrev.style.display = currentStep > 1 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = currentStep < 4 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = currentStep === 4 ? 'flex' : 'none';
 };
 
 function validateRloStep(step) {
   if (step === 1) {
-    const commerce = document.getElementById('rlo-select-commerce').value;
-    const name = document.getElementById('rlo-customer-name').value.trim();
-    const email = document.getElementById('rlo-customer-email').value.trim();
-    const phone = document.getElementById('rlo-customer-phone').value.trim();
-    const address = document.getElementById('rlo-customer-address').value.trim();
-    
+    const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
+    const refPedido = document.getElementById('rlo-ref-pedido') ? document.getElementById('rlo-ref-pedido').value.trim() : '';
+
     if (!commerce) {
       Swal.fire({
-        title: 'Falta Comercio',
-        text: 'Por favor, selecciona el comercio asociado a la solicitud.',
+        title: 'Comercio requerido',
+        text: 'Por favor, selecciona el comercio asociado a la solicitud para acceder a su catálogo.',
         icon: 'warning',
         confirmButtonText: 'Entendido',
         confirmButtonColor: 'var(--color-primary)'
@@ -71622,299 +71831,174 @@ function validateRloStep(step) {
       return false;
     }
 
-    if (!name || !email || !phone || !address) {
+    if (!refPedido) {
       Swal.fire({
-        title: 'Faltan Datos',
-        text: 'Por favor, rellene todos los campos requeridos del cliente (nombre, email, teléfono, dirección).',
+        title: 'Referencia requerida',
+        text: 'Por favor, ingresa el número o referencia del pedido original.',
         icon: 'warning',
         confirmButtonText: 'Entendido',
         confirmButtonColor: 'var(--color-primary)'
       });
       return false;
     }
-  } else if (step === 2) {
-    const type = document.getElementById('rlo-type').value;
-    const incomingRows = document.querySelectorAll('#rlo-incoming-tbody tr');
-    const outgoingRows = document.querySelectorAll('#rlo-outgoing-tbody tr');
-    
-    if (incomingRows.length === 0) {
+    return true;
+  }
+
+  if (step === 2) {
+    const incomingProducts = getRloProductsFromTable('incoming');
+    if (incomingProducts.length === 0) {
       Swal.fire({
-        title: 'Faltan Productos',
-        text: 'Debe agregar al menos un producto devuelto.',
+        title: 'Faltan productos devueltos',
+        text: 'Debes agregar y seleccionar al menos un producto que ingresa a bodega.',
         icon: 'warning',
         confirmButtonText: 'Entendido',
         confirmButtonColor: 'var(--color-primary)'
       });
       return false;
     }
-    
+    return true;
+  }
+
+  if (step === 3) {
+    const type = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
     if (type === 'CAMBIO') {
-      if (outgoingRows.length === 0) {
+      const outgoingProducts = getRloProductsFromTable('outgoing');
+      if (outgoingProducts.length === 0) {
         Swal.fire({
-          title: 'Faltan Productos',
-          text: 'Debe agregar al menos un producto de salida para el cambio.',
+          title: 'Faltan productos de salida',
+          text: 'Debes agregar y seleccionar al menos un producto de reemplazo para el cambio.',
           icon: 'warning',
           confirmButtonText: 'Entendido',
           confirmButtonColor: 'var(--color-primary)'
         });
         return false;
       }
-      
-      const isManual = document.getElementById('rlo-manual-mode').checked;
+
+      const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
       if (!isManual) {
-        for (let row of outgoingRows) {
-          const input = row.querySelector('.rlo-prod-input');
-          const val = input ? input.value.trim() : '';
-          const qty = parseInt(row.querySelector('.rlo-prod-qty').value) || 1;
-          
-          if (!val) {
+        const rows = document.querySelectorAll('#rlo-outgoing-tbody tr');
+        for (let row of rows) {
+          const prodId = row.dataset.productId || (row.querySelector('.rlo-prod-id') ? row.querySelector('.rlo-prod-id').value : null);
+          const name = row.dataset.name || (row.querySelector('.rlo-prod-name') ? row.querySelector('.rlo-prod-name').value : '');
+          const qty = parseInt(row.querySelector('.rlo-prod-qty') ? row.querySelector('.rlo-prod-qty').value : '1') || 1;
+          const availStock = parseInt(row.dataset.availStock || '0');
+
+          if (!prodId && !name) {
             Swal.fire({
-              title: 'Producto no válido',
-              text: 'Debe seleccionar un producto del catálogo para todos los ítems de salida.',
+              title: 'Producto no seleccionado',
+              text: 'Por favor, selecciona un producto del catálogo para cada fila de salida.',
               icon: 'warning',
               confirmButtonText: 'Entendido',
               confirmButtonColor: 'var(--color-primary)'
             });
             return false;
           }
-          
-          const datalist = row.querySelector('datalist');
-          const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-          const productId = opt ? opt.getAttribute('data-id') || null : null;
-          
-          if (!productId) {
+
+          if (qty > availStock && availStock >= 0) {
             Swal.fire({
-              title: 'Producto no válido',
-              text: `El producto "${val}" no pertenece al catálogo o no se encontró.`,
-              icon: 'warning',
+              title: 'Stock Insuficiente',
+              text: `El producto "${name}" tiene ${availStock} unidades disponibles en WMS, pero solicitaste ${qty}. Por favor, reduce la cantidad o selecciona otra variante.`,
+              icon: 'error',
               confirmButtonText: 'Entendido',
               confirmButtonColor: 'var(--color-primary)'
             });
             return false;
-          }
-          
-          const catalogProd = (window.rloCatalogProducts || []).find(p => p.id === productId);
-          if (catalogProd) {
-            const availStock = catalogProd.available_stock || 0;
-            if (qty > availStock) {
-              Swal.fire({
-                title: 'Stock Insuficiente',
-                text: `El producto "${catalogProd.name}" tiene ${availStock} unidades disponibles en WMS, pero solicitaste ${qty}. Por favor, reduce la cantidad o selecciona otro producto.`,
-                icon: 'error',
-                confirmButtonText: 'Entendido',
-                confirmButtonColor: 'var(--color-primary)'
-              });
-              return false;
-            }
           }
         }
       }
     }
+    return true;
   }
+
+  if (step === 4) {
+    const name = document.getElementById('rlo-customer-name') ? document.getElementById('rlo-customer-name').value.trim() : '';
+    const email = document.getElementById('rlo-customer-email') ? document.getElementById('rlo-customer-email').value.trim() : '';
+    const phone = document.getElementById('rlo-customer-phone') ? document.getElementById('rlo-customer-phone').value.trim() : '';
+    const modo = document.getElementById('rlo-modo-entrega') ? document.getElementById('rlo-modo-entrega').value : 'sucursal';
+    const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
+
+    if (!name || !email || !phone) {
+      Swal.fire({
+        title: 'Faltan datos de contacto',
+        text: 'Por favor, completa el nombre, correo electrónico y teléfono del cliente.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return false;
+    }
+
+    if (modo !== 'sucursal') {
+      const address = document.getElementById('rlo-customer-address') ? document.getElementById('rlo-customer-address').value.trim() : '';
+      const comuna = document.getElementById('rlo-comuna') ? document.getElementById('rlo-comuna').value : '';
+
+      if (!address) {
+        Swal.fire({
+          title: 'Dirección requerida',
+          text: 'Por favor, ingresa la dirección de despacho (calle y número).',
+          icon: 'warning',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return false;
+      }
+
+      if (!comuna) {
+        Swal.fire({
+          title: 'Comuna requerida',
+          text: 'Por favor, selecciona la comuna de destino para el despacho.',
+          icon: 'warning',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return false;
+      }
+
+      // Validación cuando el envío está a cargo del Usuario Final
+      if (responsable === 'usuario_final') {
+        const tracking = document.getElementById('rlo-tracking') ? document.getElementById('rlo-tracking').value.trim() : '';
+        if (!tracking) {
+          Swal.fire({
+            title: 'Tracking Obligatorio',
+            text: 'Al ser un envío a cargo del usuario final, debes ingresar obligatoriamente el número de seguimiento o tracking del paquete.',
+            icon: 'warning',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: 'var(--color-primary)'
+          });
+          const trackingInput = document.getElementById('rlo-tracking');
+          if (trackingInput) {
+            trackingInput.focus();
+            trackingInput.style.borderColor = '#ef4444';
+            trackingInput.addEventListener('input', function() {
+              this.style.borderColor = '';
+            }, { once: true });
+          }
+          return false;
+        }
+
+        const courier = document.getElementById('rlo-courier') ? document.getElementById('rlo-courier').value.trim() : '';
+        const courierOther = document.getElementById('rlo-courier-other') ? document.getElementById('rlo-courier-other').value.trim() : '';
+        if (!courier || (courier.toLowerCase() === 'otros' && !courierOther)) {
+          Swal.fire({
+            title: 'Operador Requerido',
+            text: 'Por favor, selecciona o especifica el operador logístico utilizado por el cliente para el envío.',
+            icon: 'warning',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: 'var(--color-primary)'
+          });
+          const otherInput = document.getElementById('rlo-courier-other');
+          if (otherInput && otherInput.offsetParent !== null) {
+            otherInput.focus();
+            otherInput.style.borderColor = '#ef4444';
+          }
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   return true;
-}
-
-window.loadRloCatalog = async function(commerceName) {
-  const form = document.getElementById('form-reverse-logistics-order');
-  if (form) {
-    form.dataset.currentCommerce = commerceName;
-  }
-
-  window.rloCatalogProducts = [];
-  if (!commerceName) return;
-
-  try {
-    const { data: products, error } = await supabase
-      .from('products')
-      .select('id, sku, name, is_pack, is_virtual, inventory(quantity, committed_quantity)')
-      .eq('comercio', commerceName)
-      .neq('status', 'archived')
-      .order('name');
-    if (error) throw error;
-    
-    const rawProducts = products || [];
-    window.rloCatalogProducts = rawProducts
-      .filter(p => !p.is_pack && !p.is_virtual)
-      .map(p => {
-        const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
-          return acc + ((inv.quantity || 0) - (inv.committed_quantity || 0));
-        }, 0);
-        return {
-          id: p.id,
-          sku: p.sku,
-          name: p.name,
-          available_stock: totalAvailable
-        };
-      });
-  } catch (err) {
-    console.error('Error fetching catalog products for admin RLO modal:', err);
-  }
-
-  const hasCatalog = window.rloCatalogProducts.length > 0;
-  const manualModeWrapper = document.getElementById('rlo-manual-mode-wrapper');
-  const manualModeCheckbox = document.getElementById('rlo-manual-mode');
-
-  if (hasCatalog) {
-    if (manualModeWrapper) manualModeWrapper.style.display = 'none';
-    if (manualModeCheckbox) {
-      const wasChecked = manualModeCheckbox.checked;
-      manualModeCheckbox.checked = false;
-      if (wasChecked) {
-        manualModeCheckbox.dispatchEvent(new Event('change'));
-      } else {
-        document.getElementById('rlo-incoming-tbody').innerHTML = '';
-        document.getElementById('rlo-outgoing-tbody').innerHTML = '';
-        window.addRloRow('incoming', false);
-        if (document.getElementById('rlo-type').value === 'CAMBIO') {
-          window.addRloRow('outgoing', false);
-        }
-      }
-    }
-  } else {
-    if (manualModeWrapper) manualModeWrapper.style.display = 'flex';
-    if (manualModeCheckbox) {
-      const wasChecked = manualModeCheckbox.checked;
-      manualModeCheckbox.checked = true;
-      if (!wasChecked) {
-        manualModeCheckbox.dispatchEvent(new Event('change'));
-      } else {
-        document.getElementById('rlo-incoming-tbody').innerHTML = '';
-        document.getElementById('rlo-outgoing-tbody').innerHTML = '';
-        window.addRloRow('incoming', true);
-        if (document.getElementById('rlo-type').value === 'CAMBIO') {
-          window.addRloRow('outgoing', true);
-        }
-      }
-    }
-  }
-};
-
-window.addRloRow = function(direction, isManual) {
-  const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  const tr = document.createElement('tr');
-  tr.className = 'rlo-prod-row' + (isManual ? ' manual' : '');
-  
-  let prodCell = '';
-  if (isManual) {
-    prodCell = `
-      <div style="display: flex; gap: 0.5rem;">
-        <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;">
-        <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
-      </div>
-    `;
-  } else {
-    const uniqueId = Math.random().toString(36).substr(2, 9);
-    const options = (window.rloCatalogProducts || []).map(p => `<option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>`).join('');
-    prodCell = `
-      <input type="text" class="form-input rlo-prod-input" list="rlo-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;">
-      <datalist id="rlo-datalist-${uniqueId}">
-        ${options}
-      </datalist>
-    `;
-  }
-  
-  if (direction === 'incoming') {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
-      <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario..." style="width: 100%;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  } else {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rlo-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  }
-  
-  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
-    if (tbody.children.length > 1) {
-      tr.remove();
-    } else {
-      Swal.fire({
-        title: 'Atención',
-        text: 'Debes ingresar al menos un producto.',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        confirmButtonColor: 'var(--color-primary)'
-      });
-    }
-  });
-  
-  tbody.appendChild(tr);
-};
-
-function addRloRowWithDataForAdmin(direction, isManual, itemData, maxQty = 9999) {
-  const tbodyId = direction === 'incoming' ? 'rlo-incoming-tbody' : 'rlo-outgoing-tbody';
-  const tbody = document.getElementById(tbodyId);
-  if (!tbody) return;
-  const tr = document.createElement('tr');
-  tr.className = 'rlo-prod-row' + (isManual ? ' manual' : '');
-  
-  let prodCell = '';
-  if (isManual) {
-    prodCell = `
-      <div style="display: flex; gap: 0.5rem;">
-        <input type="text" class="form-input rlo-prod-sku" placeholder="SKU" required style="width: 40%;" value="${itemData.sku || ''}">
-        <input type="text" class="form-input rlo-prod-name" placeholder="Nombre Producto" required style="width: 60%;" value="${itemData.name || ''}">
-      </div>
-    `;
-  } else {
-    const uniqueId = Math.random().toString(36).substr(2, 9);
-    const options = (window.rloCatalogProducts || []).map(p => `
-      <option data-id="${p.id}" value="${p.sku} - ${p.name}" ${p.id === itemData.product_id ? 'selected' : ''}></option>
-    `).join('');
-    prodCell = `
-      <input type="text" class="form-input rlo-prod-input" list="rlo-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;" value="${itemData.sku ? itemData.sku + ' - ' + itemData.name : ''}">
-      <datalist id="rlo-datalist-${uniqueId}">
-        ${options}
-      </datalist>
-    `;
-  }
-  
-  if (direction === 'incoming') {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rlo-prod-qty" min="1" max="${maxQty}" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;"><input type="checkbox" class="rlo-prod-stock-return" ${itemData.regresar_a_inventario ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;"></td>
-      <td><input type="text" class="form-input rlo-prod-comment" placeholder="Comentario..." value="${itemData.comentario || ''}" style="width: 100%;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  } else {
-    tr.innerHTML = `
-      <td>${prodCell}</td>
-      <td><input type="number" class="form-input rlo-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
-      <td style="text-align: center;">
-        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
-      </td>
-    `;
-  }
-  
-  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
-    if (tbody.children.length > 1) {
-      tr.remove();
-    } else {
-      Swal.fire({
-        title: 'Atención',
-        text: 'Debes ingresar al menos un producto.',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        confirmButtonColor: 'var(--color-primary)'
-      });
-    }
-  });
-  
-  tbody.appendChild(tr);
 }
 
 async function handleRloSearchOrder() {
@@ -71983,9 +72067,22 @@ async function handleRloSearchOrder() {
       await window.loadRloCatalog(order.comercio);
     }
     
-    // Ajustar comuna
+    // Ajustar comuna y modo
     const city = order.shipping_city || '';
     const matchedComuna = findBestComunaMatchAdmin(city);
+
+    // Auto-detectar modo de entrega si la comuna es RM o regiones o retiro
+    let detectedModo = 'sucursal';
+    if (city && (city.toLowerCase().includes('sucursal') || city.toLowerCase().includes('retiro') || city.toLowerCase().includes('nunoa') || city.toLowerCase().includes('ñuñoa'))) {
+      detectedModo = 'sucursal';
+    } else if (matchedComuna && SANTIAGO_COMUNAS_ADMIN.includes(matchedComuna)) {
+      detectedModo = 'domicilio_rm';
+    } else if (matchedComuna) {
+      detectedModo = 'regiones';
+    }
+    window.selectRloRadioCard('rlo-modo-entrega', detectedModo);
+    window.updateRloComunasSelect(detectedModo);
+
     if (matchedComuna) {
       document.getElementById('rlo-comuna').value = matchedComuna;
     } else {
@@ -71996,7 +72093,7 @@ async function handleRloSearchOrder() {
     const tbodyIncoming = document.getElementById('rlo-incoming-tbody');
     tbodyIncoming.innerHTML = '';
     
-    const isManual = document.getElementById('rlo-manual-mode').checked;
+    const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
     
     if (order.order_items && order.order_items.length > 0) {
       order.order_items.forEach(oi => {
@@ -72034,7 +72131,7 @@ async function handleRloSearchOrder() {
       }
     }
     
-    updateRloShippingCost();
+    window.updateRloCostPreview();
     
     Swal.fire({
       title: '¡Pedido Cargado!',
@@ -72065,76 +72162,57 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
   const inputSearch = document.getElementById('rlo-search-order');
   if (inputSearch) inputSearch.value = '';
   
-  window.currentRloWizardStep = 1;
-  window.updateRloWizardUI();
-  
   document.getElementById('rlo-type').value = type;
   document.getElementById('rlo-modal-title').innerHTML = type === 'CAMBIO' ? 
     `<i class="ri-repeat-2-line" style="color: var(--color-success);"></i> Registrar Pedido de Cambio` : 
     `<i class="ri-shopping-bag-3-line" style="color: var(--color-danger);"></i> Registrar Pedido de Devolución`;
-    
-  document.getElementById('rlo-cost-info-box').style.display = 'none';
   
-  // Rellenar comunas
-  const comunaSelect = document.getElementById('rlo-comuna');
-  let comunaHtml = '<option value="">Selecciona comuna...</option>';
+  window.currentRloWizardStep = 1;
+  window.updateRloWizardUI();
   
-  comunaHtml += '<optgroup label="Región Metropolitana (Cobertura Stocka)">';
-  comunaHtml += SANTIAGO_COMUNAS_ADMIN.map(c => `<option value="${c}">${c}</option>`).join('');
-  comunaHtml += '</optgroup>';
+  // Inicializar comunas según el modo inicial (sucursal)
+  window.updateRloComunasSelect('sucursal');
+  const otherWrapper = document.getElementById('rlo-courier-other-wrapper');
+  if (otherWrapper) otherWrapper.style.display = 'none';
+  const otherInput = document.getElementById('rlo-courier-other');
+  if (otherInput) otherInput.value = '';
+  const reminderBanner = document.getElementById('rlo-user-paying-reminder');
+  if (reminderBanner) reminderBanner.style.display = 'none';
   
-  if (window.shippingRates) {
-    const regionComunas = Object.keys(window.shippingRates)
-      .map(k => k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
-      .filter(c => !SANTIAGO_COMUNAS_ADMIN.includes(c))
-      .sort();
-    
-    comunaHtml += '<optgroup label="Otras Comunas / Regiones">';
-    comunaHtml += regionComunas.map(c => `<option value="${c}">${c}</option>`).join('');
-    comunaHtml += '</optgroup>';
-  }
-  comunaSelect.innerHTML = comunaHtml;
-  
-  document.getElementById('rlo-manual-mode').checked = false;
+  const manualCb = document.getElementById('rlo-manual-mode');
+  if (manualCb) manualCb.checked = false;
+
   document.getElementById('rlo-incoming-tbody').innerHTML = '';
   document.getElementById('rlo-outgoing-tbody').innerHTML = '';
   
-  const outgoingSection = document.getElementById('rlo-outgoing-section');
-  const productsLayoutGrid = document.getElementById('rlo-products-layout-grid');
-  if (type === 'CAMBIO') {
-    outgoingSection.style.display = 'block';
-    if (productsLayoutGrid) productsLayoutGrid.style.gridTemplateColumns = '1fr 1fr';
-  } else {
-    outgoingSection.style.display = 'none';
-    if (productsLayoutGrid) productsLayoutGrid.style.gridTemplateColumns = '1fr';
-  }
-  
   // Poblar comercios para el Admin
   const selectCommerce = document.getElementById('rlo-select-commerce');
-  selectCommerce.innerHTML = '<option value="">Selecciona comercio...</option>';
-  window.rloCatalogProducts = [];
-  
-  try {
-    const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
-    const commercesSet = new Set();
-    if (profiles) {
-      profiles.forEach(p => {
-        if (p.comercio) {
-          p.comercio.split(',').forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
-              commercesSet.add(trimmed);
-            }
-          });
-        }
+  if (selectCommerce) {
+    selectCommerce.innerHTML = '<option value="">Selecciona comercio...</option>';
+    window.rloCatalogProducts = [];
+    
+    try {
+      const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
+      const commercesSet = new Set();
+      if (profiles) {
+        profiles.forEach(p => {
+          if (p.comercio) {
+            p.comercio.split(',').forEach(c => {
+              const trimmed = c.trim();
+              if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
+                commercesSet.add(trimmed);
+              }
+            });
+          }
+        });
+      }
+      const commercesList = Array.from(commercesSet).sort();
+      commercesList.forEach(c => {
+        selectCommerce.innerHTML += `<option value="${c}">${c}</option>`;
       });
+    } catch (err) {
+      console.error('Error fetching commerce list for RLO admin modal:', err);
     }
-    const commercesList = Array.from(commercesSet).sort();
-    commercesList.forEach(c => {
-      selectCommerce.innerHTML += `<option value="${c}">${c}</option>`;
-    });
-  } catch (err) {
-    console.error('Error fetching commerce list for RLO admin modal:', err);
   }
   
   // Inicializar listeners una sola vez
@@ -72155,12 +72233,26 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
         }
       });
     }
+
+    const pickerSearch = document.getElementById('rlo-picker-search');
+    if (pickerSearch) {
+      pickerSearch.addEventListener('input', (e) => {
+        window.rloPickerState.activeSearch = e.target.value;
+        window.renderRloPickerProducts();
+      });
+    }
     
     const btnNext = document.getElementById('btn-rlo-next');
     if (btnNext) {
       btnNext.addEventListener('click', () => {
-        if (validateRloStep(window.currentRloWizardStep)) {
-          window.currentRloWizardStep++;
+        const curr = window.currentRloWizardStep;
+        if (validateRloStep(curr)) {
+          const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
+          if (curr === 2 && typeVal === 'DEVOLUCION') {
+            window.currentRloWizardStep = 4;
+          } else {
+            window.currentRloWizardStep++;
+          }
           window.updateRloWizardUI();
         }
       });
@@ -72169,7 +72261,13 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
     const btnPrev = document.getElementById('btn-rlo-prev');
     if (btnPrev) {
       btnPrev.addEventListener('click', () => {
-        window.currentRloWizardStep--;
+        const curr = window.currentRloWizardStep;
+        const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
+        if (curr === 4 && typeVal === 'DEVOLUCION') {
+          window.currentRloWizardStep = 2;
+        } else {
+          window.currentRloWizardStep--;
+        }
         window.updateRloWizardUI();
       });
     }
@@ -72203,22 +72301,38 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
       });
     }
     
-    comunaSelect.addEventListener('change', updateRloShippingCost);
+    const comunaSelect = document.getElementById('rlo-comuna');
+    if (comunaSelect) {
+      comunaSelect.addEventListener('change', updateRloRegionalCouriers);
+    }
     
-    selectCommerce.addEventListener('change', async (e) => {
-      await window.loadRloCatalog(e.target.value);
-    });
+    if (selectCommerce) {
+      selectCommerce.addEventListener('change', async (e) => {
+        await window.loadRloCatalog(e.target.value);
+        document.getElementById('rlo-incoming-tbody').innerHTML = '';
+        document.getElementById('rlo-outgoing-tbody').innerHTML = '';
+        window.addRloRow('incoming', false);
+        if (document.getElementById('rlo-type').value === 'CAMBIO') {
+          window.addRloRow('outgoing', false);
+        }
+      });
+    }
     
-    for (let i = 1; i <= 3; i++) {
+    // Navegación por clic en pestañas
+    for (let i = 1; i <= 4; i++) {
       const tab = document.getElementById(`rlo-wizard-tab-${i}`);
       if (tab) {
         tab.addEventListener('click', () => {
+          const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
+          if (typeVal === 'DEVOLUCION' && i === 3) return;
+
           if (i < window.currentRloWizardStep) {
             window.currentRloWizardStep = i;
             window.updateRloWizardUI();
           } else if (i > window.currentRloWizardStep) {
             let canGo = true;
             for (let s = window.currentRloWizardStep; s < i; s++) {
+              if (typeVal === 'DEVOLUCION' && s === 3) continue;
               if (!validateRloStep(s)) {
                 canGo = false;
                 break;
@@ -72250,127 +72364,59 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
 async function handleRloFormSubmit(e) {
   e.preventDefault();
   
+  if (!validateRloStep(4)) return;
+
   const form = document.getElementById('form-reverse-logistics-order');
   const type = document.getElementById('rlo-type').value;
   const commerce = document.getElementById('rlo-select-commerce').value;
   const refPedido = document.getElementById('rlo-ref-pedido').value.trim();
   const responsablePago = document.getElementById('rlo-responsable-pago').value;
-  const comuna = document.getElementById('rlo-comuna').value;
   const modoEntrega = document.getElementById('rlo-modo-entrega').value;
-  const courier = document.getElementById('rlo-courier').value.trim();
-  const tracking = document.getElementById('rlo-tracking').value.trim();
-  const comments = document.getElementById('rlo-comments').value.trim();
-  const isManual = document.getElementById('rlo-manual-mode').checked;
+  let comuna = document.getElementById('rlo-comuna') ? document.getElementById('rlo-comuna').value : '';
+  let courier = document.getElementById('rlo-courier') ? document.getElementById('rlo-courier').value.trim() : '';
+  const courierOther = document.getElementById('rlo-courier-other') ? document.getElementById('rlo-courier-other').value.trim() : '';
+  if (courier.toLowerCase() === 'otros' && courierOther) {
+    courier = courierOther;
+  }
+  const tracking = document.getElementById('rlo-tracking') ? document.getElementById('rlo-tracking').value.trim() : '';
+  const comments = document.getElementById('rlo-comments') ? document.getElementById('rlo-comments').value.trim() : '';
+  const isManual = document.getElementById('rlo-manual-mode') && document.getElementById('rlo-manual-mode').checked;
   
   const customerName = document.getElementById('rlo-customer-name').value.trim();
   const customerEmail = document.getElementById('rlo-customer-email').value.trim();
   const customerPhone = document.getElementById('rlo-customer-phone').value.trim();
-  const customerAddress = document.getElementById('rlo-customer-address').value.trim();
-  const customerComplement = document.getElementById('rlo-customer-complement').value.trim();
+  let customerAddress = document.getElementById('rlo-customer-address') ? document.getElementById('rlo-customer-address').value.trim() : '';
+  const customerComplement = document.getElementById('rlo-customer-complement') ? document.getElementById('rlo-customer-complement').value.trim() : '';
   
-  if (!commerce) {
-    alert('Debe seleccionar el comercio.');
-    return;
-  }
-  if (!refPedido) {
-    alert('Debe ingresar la referencia del pedido.');
-    return;
-  }
-  if (!customerName || !customerEmail || !customerPhone || !customerAddress) {
-    alert('Debe ingresar todos los datos del cliente (nombre, email, teléfono, dirección).');
-    return;
-  }
-  if (!comuna) {
-    alert('Debe seleccionar una comuna de destino.');
-    return;
+  if (modoEntrega === 'sucursal') {
+    if (!customerAddress) customerAddress = 'Punto de Retiro Stocka Ñuñoa';
+    if (!comuna) comuna = 'Ñuñoa';
   }
 
-  const incomingRows = document.querySelectorAll('#rlo-incoming-tbody tr');
-  const outgoingRows = document.querySelectorAll('#rlo-outgoing-tbody tr');
-  
-  if (incomingRows.length === 0) {
+  const incomingProducts = getRloProductsFromTable('incoming');
+  const outgoingProducts = type === 'CAMBIO' ? getRloProductsFromTable('outgoing') : [];
+
+  if (incomingProducts.length === 0) {
     alert('Debe ingresar al menos un producto entrante.');
     return;
   }
-  if (type === 'CAMBIO' && outgoingRows.length === 0) {
+  if (type === 'CAMBIO' && outgoingProducts.length === 0) {
     alert('Debe ingresar al menos un producto saliente para el cambio.');
     return;
   }
-  
-  const incomingProducts = [];
-  incomingRows.forEach(row => {
-    let productId = null;
-    let sku = '';
-    let name = '';
-    if (isManual) {
-      sku = row.querySelector('.rlo-prod-sku').value.trim();
-      name = row.querySelector('.rlo-prod-name').value.trim();
-    } else {
-      const input = row.querySelector('.rlo-prod-input');
-      const val = input ? input.value.trim() : '';
-      const datalist = row.querySelector('datalist');
-      const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-      
-      productId = opt ? opt.getAttribute('data-id') || null : null;
-      if (val.includes(' - ')) {
-        const parts = val.split(' - ');
-        sku = parts[0];
-        name = parts.slice(1).join(' - ');
-      } else {
-        sku = val;
-        name = val;
-      }
-    }
-    
-    const qty = parseInt(row.querySelector('.rlo-prod-qty').value) || 1;
-    const stockReturn = row.querySelector('.rlo-prod-stock-return').checked;
-    const itemComment = row.querySelector('.rlo-prod-comment').value.trim();
-    
-    incomingProducts.push({
-      product_id: productId,
-      sku,
-      name,
-      cantidad: qty,
-      regresar_a_inventario: stockReturn,
-      comentario: itemComment
-    });
+
+  const costText = document.getElementById('rlo-cost-value') ? document.getElementById('rlo-cost-value').textContent : '$0';
+
+  const rlOrderNote = window.buildReverseLogisticsOrderNote({
+    type,
+    refPedido,
+    responsablePago,
+    courier,
+    tracking,
+    incomingProducts,
+    outgoingProducts,
+    comments
   });
-  
-  const outgoingProducts = [];
-  if (type === 'CAMBIO') {
-    outgoingRows.forEach(row => {
-      let productId = null;
-      let sku = '';
-      let name = '';
-      if (isManual) {
-        sku = row.querySelector('.rlo-prod-sku').value.trim();
-        name = row.querySelector('.rlo-prod-name').value.trim();
-      } else {
-        const input = row.querySelector('.rlo-prod-input');
-        const val = input ? input.value.trim() : '';
-        const datalist = row.querySelector('datalist');
-        const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-        
-        productId = opt ? opt.getAttribute('data-id') || null : null;
-        if (val.includes(' - ')) {
-          const parts = val.split(' - ');
-          sku = parts[0];
-          name = parts.slice(1).join(' - ');
-        } else {
-          sku = val;
-          name = val;
-        }
-      }
-      const qty = parseInt(row.querySelector('.rlo-prod-qty').value) || 1;
-      
-      outgoingProducts.push({
-        product_id: productId,
-        sku,
-        name,
-        cantidad: qty
-      });
-    });
-  }
 
   let summaryHtml = `
     <div style="text-align: left; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; border-top: 1px solid var(--color-border); padding-top: 0.8rem; max-height: 50vh; overflow-y: auto;">
@@ -72379,7 +72425,8 @@ async function handleRloFormSubmit(e) {
       <div style="background: var(--color-bg-dark, #f1f5f9); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); margin-bottom: 0.8rem; border: 1px solid var(--color-border);">
         <strong>Comercio:</strong> ${commerce}<br>
         <strong>Cliente:</strong> ${customerName}<br>
-        <strong>Dirección:</strong> ${customerAddress} ${customerComplement ? '(' + customerComplement + ')' : ''}, ${comuna}<br>
+        <strong>Modo de Entrega:</strong> ${modoEntrega === 'sucursal' ? 'Retiro en Punto Ñuñoa' : modoEntrega === 'domicilio_rm' ? 'Domicilio RM' : 'A Regiones'}<br>
+        ${modoEntrega !== 'sucursal' ? `<strong>Dirección:</strong> ${customerAddress} ${customerComplement ? '(' + customerComplement + ')' : ''}, ${comuna}<br>` : ''}
         <strong>Contacto:</strong> ${customerEmail} | ${customerPhone}
       </div>
       
@@ -72436,19 +72483,8 @@ async function handleRloFormSubmit(e) {
     `;
   }
 
-  const costText = document.getElementById('rlo-cost-value').textContent || '$0 c/IVA';
-
-  const rlOrderNote = window.buildReverseLogisticsOrderNote({
-    type,
-    refPedido,
-    incomingProducts,
-    outgoingProducts,
-    comments
-  });
-
   summaryHtml += `
       <div style="background: rgba(59, 130, 246, 0.05); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.15); margin-bottom: 0.8rem;">
-        <strong>Modo de Entrega:</strong> ${modoEntrega === 'sucursal' ? 'Retiro en Punto Ñuñoa' : modoEntrega === 'domicilio_rm' ? 'Domicilio RM' : 'A Regiones'}<br>
         <strong>Responsable de Pago:</strong> ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por Usuario Final'}<br>
         ${courier ? `<strong>Courier Asignado:</strong> ${courier}<br>` : ''}
         <strong>Costo de Envío:</strong> ${costText}
@@ -72469,7 +72505,7 @@ async function handleRloFormSubmit(e) {
   `;
 
   const confirmResult = await Swal.fire({
-    title: '¿Confirmar Pedido de Logística Inversa?',
+    title: `¿Confirmar Pedido de ${type === 'CAMBIO' ? 'Cambio' : 'Devolución'}?`,
     html: summaryHtml,
     icon: 'warning',
     showCancelButton: true,
@@ -72525,9 +72561,9 @@ async function handleRloFormSubmit(e) {
     } else if (modoEntrega === 'regiones' && responsablePago === 'comercio') {
       const normalizedCity = comuna.toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[\\u0300-\\u036f]/g, '')
         .replace(/ñ/g, 'n')
-        .replace(/[^a-z\s]/g, '')
+        .replace(/[^a-z\\s]/g, '')
         .trim();
       const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
       const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
@@ -72631,7 +72667,14 @@ async function handleRloFormSubmit(e) {
         is_reverse_logistics: true,
         rl_id: insertedRl.id,
         rl_type: type,
-        rl_reference: refPedido
+        rl_reference: refPedido,
+        no_stock_deduction: type === 'DEVOLUCION',
+        incoming_products: incomingProducts.map(p => ({
+          sku: p.sku,
+          name: p.name,
+          cantidad: p.cantidad,
+          regresar_a_inventario: p.regresar_a_inventario
+        }))
       }
     };
 
@@ -72662,7 +72705,7 @@ async function handleRloFormSubmit(e) {
       orderItemsPayload.push({
         order_id: insertedOrder.id,
         product_id: item.product_id,
-        warehouse_id: whId,
+        warehouse_id: type === 'DEVOLUCION' ? null : whId,
         quantity: item.cantidad
       });
     }
@@ -72867,7 +72910,7 @@ async function handleRloFormSubmit(e) {
     });
   } finally {
     btnSave.disabled = false;
-    btnSave.innerHTML = 'Enviar Solicitud <i class="ri-check-line"></i>';
+    btnSave.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
   }
 }
 
