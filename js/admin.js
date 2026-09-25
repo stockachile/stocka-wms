@@ -18120,6 +18120,7 @@ async function openAdminManageInventoryRequestModal(req) {
 
           // 2. Registrar en Movements
           const movType = diff > 0 ? 'in' : 'out';
+          const movQty = Math.abs(diff);
           const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
           const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
           await supabase
