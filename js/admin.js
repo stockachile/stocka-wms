@@ -18010,6 +18010,15 @@ async function openAdminManageInventoryRequestModal(req) {
       const supervisor = document.getElementById('manage-req-supervisor').value.trim();
       const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
 
+      if (newStatus === 'Finalizada' && !(req.admin_notes && req.admin_notes.includes('[Ajustes de stock aplicados al sistema]'))) {
+        const confirmSaveOnly = confirm('⚠️ ATENCIÓN: Has marcado el estado como "Finalizada", pero el botón "Guardar Avance" NO actualiza el stock en el catálogo ni crea los movimientos de auditoría en el Kardex.\n\nPara que los conteos físicos modifiquen el stock real de las bodegas, debes presionar el botón verde "Aplicar Ajustes de Stock en Sistema".\n\n¿Deseas guardar solo el formulario sin aplicar ajustes de stock?');
+        if (!confirmSaveOnly) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Avance';
+          return;
+        }
+      }
+
       const updatePayload = {
         status: newStatus,
         completed_by: supervisor || null,
@@ -18094,6 +18103,9 @@ async function openAdminManageInventoryRequestModal(req) {
         }
 
         if (finalWhId) {
+          const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
+          const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
+
           // 1. Actualizar o Insertar en Inventory
           const { data: existingInv } = await supabase
             .from('inventory')
@@ -18103,12 +18115,13 @@ async function openAdminManageInventoryRequestModal(req) {
             .maybeSingle();
 
           if (existingInv) {
-            await supabase
+            const { error: updErr } = await supabase
               .from('inventory')
               .update({ quantity: newQty })
               .eq('id', existingInv.id);
+            if (updErr) throw new Error(`Error actualizando stock de ${item.sku} en ${whName}: ${updErr.message}`);
           } else {
-            await supabase
+            const { error: insErr } = await supabase
               .from('inventory')
               .insert([{
                 product_id: prodId,
@@ -18116,14 +18129,13 @@ async function openAdminManageInventoryRequestModal(req) {
                 quantity: newQty,
                 committed_quantity: 0
               }]);
+            if (insErr) throw new Error(`Error creando stock de ${item.sku} en ${whName}: ${insErr.message}`);
           }
 
           // 2. Registrar en Movements
           const movType = diff > 0 ? 'in' : 'out';
           const movQty = Math.abs(diff);
-          const whObj = (window.allWarehousesList || []).find(w => w.id === finalWhId);
-          const whName = item.warehouse_name || (whObj ? whObj.name : (req.warehouse_name || 'Bodega'));
-          await supabase
+          const { error: movErr } = await supabase
             .from('movements')
             .insert([{
               product_id: prodId,
@@ -18132,6 +18144,7 @@ async function openAdminManageInventoryRequestModal(req) {
               quantity: movQty,
               reference_doc: `Ajuste Toma Inventario Folio ${folio} - ${whName} (${diff > 0 ? '+' : ''}${diff} uds)`
             }]);
+          if (movErr) throw new Error(`Error registrando movimiento de ${item.sku}: ${movErr.message}`);
         }
       }
 
