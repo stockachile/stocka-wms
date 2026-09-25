@@ -6291,7 +6291,7 @@ window.applyWmsFiltersAndRender = function() {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'optiroute_orders') {
-          if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+          if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
             globStatus = 'SIN MOVIMIENTO';
           } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
             globStatus = 'DESPACHADO';
