@@ -287,14 +287,21 @@ async function syncOrders(integration) {
 
       const isFulfilledInShopify = order.fulfillment_status === 'fulfilled' || (order.fulfillments && order.fulfillments.length > 0);
       const isCancelledInShopify = !!order.cancelled_at;
+      const orderDate = new Date(order.created_at);
+      const orderAgeDays = (Date.now() - orderDate.getTime()) / (1000 * 60 * 60 * 24);
 
       if (isCancelledInShopify) {
         orderDataToSave.status = 'cancelado';
         orderDataToSave.estado_wms = 'Cancelado';
-      } else if (isFulfilledInShopify) {
+      } else if (isFulfilledInShopify && orderAgeDays > 60) {
+        // Solo pedidos históricos muy antiguos (> 60 días) que ya venían cerrados antes de integrar WMS
         orderDataToSave.status = 'despachado';
         orderDataToSave.estado_wms = 'Despachado';
         orderDataToSave.stock_descontado = true;
+      } else {
+        orderDataToSave.status = 'para procesar';
+        orderDataToSave.estado_wms = 'En procesamiento';
+        orderDataToSave.stock_descontado = false;
       }
 
       let orderId;

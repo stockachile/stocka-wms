@@ -538,9 +538,11 @@ async function syncShopifyOrders(integration: any): Promise<number> {
     for (const order of orders) {
       const isFulfilledInShopify = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
       const isCancelledInShopify = !!order.cancelled_at;
+      const orderDate = new Date(order.created_at);
+      const orderAgeDays = (Date.now() - orderDate.getTime()) / (1000 * 60 * 60 * 24);
 
-      const initialStatus = isCancelledInShopify ? "cancelado" : (isFulfilledInShopify ? "despachado" : "para procesar");
-      const initialEstadoWms = isCancelledInShopify ? "Cancelado" : (isFulfilledInShopify ? "Despachado" : "En procesamiento");
+      const initialStatus = isCancelledInShopify ? "cancelado" : (isFulfilledInShopify && orderAgeDays > 60 ? "despachado" : "para procesar");
+      const initialEstadoWms = isCancelledInShopify ? "Cancelado" : (isFulfilledInShopify && orderAgeDays > 60 ? "Despachado" : "En procesamiento");
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,

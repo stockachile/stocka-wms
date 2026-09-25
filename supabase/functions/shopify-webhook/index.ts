@@ -255,9 +255,9 @@ async function handleOrderCreate(merchantId, comercio, order) {
     shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: order,
     created_at: new Date(order.created_at).toISOString(),
-    status: isCancelledInShopify ? "cancelado" : (isFulfilledInShopify ? "despachado" : "para procesar"),
-    estado_wms: isCancelledInShopify ? "Cancelado" : (isFulfilledInShopify ? "Despachado" : "En procesamiento"),
-    stock_descontado: isFulfilledInShopify
+    status: isCancelledInShopify ? "cancelado" : "para procesar",
+    estado_wms: isCancelledInShopify ? "Cancelado" : "En procesamiento",
+    stock_descontado: false
   };
 
   // Verificamos que no exista
@@ -456,18 +456,11 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     }
   }
 
-  // Si es cancelación, forzamos estado
+  // Si es cancelación, forzamos estado a Cancelado en WMS.
+  // En cualquier otro caso, preservamos el estado operacional WMS intacto (no sobreescribir a Despachado).
   if (topic === "orders/cancelled") {
       updatedData.status = "cancelado";
       updatedData.estado_wms = "Cancelado";
-  } else {
-    // Si en Shopify se marcó como cumplido/despachado (fulfilled)
-    const isFulfilled = order.fulfillment_status === "fulfilled" || (order.fulfillments && order.fulfillments.length > 0);
-    const curWms = (existingOrder.estado_wms || '').toLowerCase().trim();
-    if (isFulfilled && !['despachado', 'entregado', 'retirado', 'cancelado'].includes(curWms)) {
-      updatedData.status = "despachado";
-      updatedData.estado_wms = "Despachado";
-    }
   }
 
   // Actualizamos en BD

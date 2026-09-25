@@ -8634,7 +8634,7 @@ async function renderOrders() {
     try {
       const { data: configData } = await supabase
         .from('comercios_adicional_config')
-        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos');
+        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
       if (configData) {
         configData.forEach(cfg => {
           commerceConfigMap[cfg.comercio] = cfg;
@@ -8644,6 +8644,17 @@ async function renderOrders() {
       console.error('Error fetching commerce configs for client stock tracking check:', e);
     }
     window.clientCommerceConfigsMap = commerceConfigMap;
+
+    try {
+      if (!window.allWarehousesList || window.allWarehousesList.length === 0) {
+        const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
+        if (whList) {
+          window.allWarehousesList = whList;
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching warehouses for client:', e);
+    }
 
     if (window.fetchInventoryForClientOrders) {
       await window.fetchInventoryForClientOrders(window.clientLoadedOrders);
@@ -9928,30 +9939,74 @@ window.applyClientWmsFiltersAndRender = function() {
           ? `<span class="badge" style="background-color: rgba(99, 102, 241, 0.12); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.35rem;" title="Artículo bonificado por campaña"><i class="ri-gift-line"></i> ${tagLabel}</span>`
           : '';
         const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes((order.status || '').toLowerCase()) || ['Despachado', 'Cancelado', 'Archivado'].includes(order.estado_wms);
+        const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
-        } else if (isOrderTerminalOrShipped) {
-          stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
-        } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
-          const invMap = window.clientOrdersInventoryMap || {};
-          let available = (origItem.warehouse_id && invMap[origItem.product_id + '_' + origItem.warehouse_id] !== undefined)
-            ? invMap[origItem.product_id + '_' + origItem.warehouse_id]
-            : null;
-          if (available === null) {
-            let totalAcross = 0;
-            Object.keys(invMap).forEach(k => {
-              if (k.startsWith(origItem.product_id + '_')) totalAcross += (invMap[k] || 0);
-            });
-            available = totalAcross;
-          }
-          if (available < item.quantity) {
-            rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
-            stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
-          } else {
-            stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Disponible (${available} disp.)</span>`;
-          }
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
         } else if (origItem?.products?.is_virtual) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-seedling-line"></i> Virtual</span>`;
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto Virtual"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else if (origItem && !origItem.products?.is_virtual) {
+          const invMap = window.clientOrdersInventoryMap || {};
+          const prodId = origItem.product_id;
+          
+          // Bodega por defecto: la configurada para este comercio o Bodega Central
+          const defaultWhId = (order.comercio && window.clientCommerceConfigsMap?.[order.comercio]?.default_warehouse_id)
+            || 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+          const defaultWhObj = (window.allWarehousesList || []).find(w => w.id === defaultWhId);
+          const defaultWhName = defaultWhObj ? defaultWhObj.name : 'Bodega Central';
+          
+          // Stock global sumando todas las bodegas
+          let globalStock = 0;
+          if (prodId) {
+            Object.keys(invMap).forEach(k => {
+              if (k.startsWith(prodId + '_')) {
+                globalStock += (Number(invMap[k]) || 0);
+              }
+            });
+          }
+          
+          // Stock de la bodega por defecto
+          const defaultStock = (prodId && defaultWhId) ? (Number(invMap[prodId + '_' + defaultWhId]) || 0) : 0;
+          
+          if (isAlreadyDescontado) {
+            stockCellHtml = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; min-width: 44px; line-height: 1.2;" title="Stock ya descontado del pedido. Stock actual en sistema: Global: ${globalStock} un. | ${defaultWhName}: ${defaultStock} un.">
+                <span style="color: #10b981; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Descontado</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted);">
+                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock global: ${globalStock} un."><i class="ri-global-line"></i> ${globalStock}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock en ${defaultWhName}: ${defaultStock} un."><i class="ri-store-2-line"></i> ${defaultStock}</span>
+                </span>
+              </div>
+            `;
+          } else {
+            const isGlobalInsufficient = globalStock < item.quantity;
+            const isDefaultInsufficient = defaultStock < item.quantity;
+            
+            if (isGlobalInsufficient) {
+              rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
+            } else if (isDefaultInsufficient) {
+              rowStyle += ' background-color: rgba(245, 158, 11, 0.05);';
+            }
+            
+            const globalColor = isGlobalInsufficient ? '#ef4444' : '#10b981';
+            const defaultColor = isDefaultInsufficient ? '#ef4444' : '#10b981';
+            
+            const assignedInfo = (item.warehouseId && item.warehouseId !== defaultWhId) 
+              ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
+              : '';
+
+            stockCellHtml = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
+                  <i class="ri-global-line" style="font-size: 0.88rem;"></i>
+                  <span>${globalStock}</span>
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
+                  <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
+                  <span>${defaultStock}</span>
+                </span>
+              </div>
+            `;
+          }
         } else {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
         }
@@ -10550,7 +10605,7 @@ window.applyClientWmsFiltersAndRender = function() {
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
-                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;" title="Stock: Global (todas las bodegas) / Bodega por defecto">Stock</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
                     </tr>

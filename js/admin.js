@@ -907,11 +907,13 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
       if (resolvedStatus.isCompleted && order && order.estado_wms === 'En preparación') {
         const { error: wmsErr } = await supabase
           .from('orders')
-          .update({ estado_wms: 'Pickeado' })
+          .update({ estado_wms: 'Pickeado', status: 'preparado' })
           .eq('id', order.id);
 
         if (!wmsErr) {
           order.estado_wms = 'Pickeado';
+          order.status = 'preparado';
+          delete order._wmsTags;
         }
       }
 
@@ -1848,7 +1850,7 @@ window.resyncShopifyOrder = async function(orderId) {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+      order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
     `.replace(/\s+/g, ' ').trim();
 
     const { data: refreshedOrder, error: refreshErr } = await supabase
@@ -4045,7 +4047,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         periodo_facturacion,
         stock_descontado,
         stock_descontado_at,
-        order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+        order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
       `.replace(/\s+/g, ' ').trim();
 
       let allOrders = [];
@@ -4121,6 +4123,9 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
         const shipData = await fetchEnviosUnificadosByRefs(allRefs);
         window.loadedShipments = shipData || [];
+        if (window.clearWmsTagsCache) {
+          window.clearWmsTagsCache();
+        }
 
         if (window.fetchPickerOperators) {
           await window.fetchPickerOperators(orders);
@@ -4209,7 +4214,7 @@ async function renderAdminOrders() {
     try {
       const { data: configData } = await supabase
         .from('comercios_adicional_config')
-        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos');
+        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
       if (configData) {
         configData.forEach(cfg => {
           commerceConfigMap[cfg.comercio] = cfg;
@@ -4229,6 +4234,7 @@ async function renderAdminOrders() {
     try {
       const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
       if (whList) {
+        window.allWarehousesList = whList;
         warehouseOptions = whList.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
       }
     } catch (e) {
@@ -4408,6 +4414,92 @@ async function renderAdminOrders() {
           created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
           updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
         }];
+      }
+
+      // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris, Ripley, Walmart, simular uno a partir del estado de la orden
+      const platStr = String(order.origen || order.external_platform || '').toLowerCase().replace(/\s+/g, '');
+      const isMeli = platStr.includes('mercadolibre') || platStr.includes('meli') || !!order.raw_meli_data;
+      const isFalabella = platStr.includes('falabella') || !!order.raw_falabella_data;
+      const isParis = platStr.includes('paris') || !!order.raw_paris_data;
+      const isRipley = platStr.includes('ripley') || !!order.raw_ripley_data;
+      const isWalmart = platStr.includes('walmart') || !!order.raw_walmart_data;
+      const isVirtualPlatform = isMeli || isFalabella || isParis || isRipley || isWalmart;
+
+      if (orderShipments.length === 0 && isVirtualPlatform) {
+        let globStatus = 'SIN MOVIMIENTO';
+        
+        const wmsStatus = (order.status || '').toLowerCase().trim();
+        const channelStatus = (order.payment_status || '').toLowerCase().trim();
+        const estadoWmsLower = (order.estado_wms || '').toLowerCase().trim();
+        const meliShipStatus = (order.raw_meli_data?.shipping?.status || order.raw_meli_data?.shipping_status || order.raw_meli_data?.status || '').toLowerCase().trim();
+        const falabellaStatus = (order.raw_falabella_data?.status || '').toLowerCase().trim();
+        
+        const isShipped = wmsStatus === 'despachado' || 
+                          wmsStatus === 'entregado' || 
+                          wmsStatus === 'retirado' ||
+                          wmsStatus === 'shipped' || 
+                          wmsStatus === 'delivered' || 
+                          estadoWmsLower === 'despachado' ||
+                          channelStatus === 'shipped' || 
+                          channelStatus === 'delivered' || 
+                          channelStatus === 'shipped_by_seller' || 
+                          channelStatus === 'received' || 
+                          channelStatus === 'closed' ||
+                          meliShipStatus === 'shipped' ||
+                          meliShipStatus === 'delivered' ||
+                          falabellaStatus === 'shipped' ||
+                          falabellaStatus === 'delivered' ||
+                          falabellaStatus === 'despachado';
+                          
+        const isAlert = wmsStatus === 'cancelado' || 
+                        wmsStatus === 'incidencia' || 
+                        estadoWmsLower === 'incidencia' ||
+                        estadoWmsLower === 'cancelado' ||
+                        channelStatus === 'cancelled' || 
+                        channelStatus === 'refunded' || 
+                        channelStatus === 'refused' ||
+                        meliShipStatus === 'cancelled' ||
+                        falabellaStatus === 'cancelled' ||
+                        falabellaStatus === 'canceled';
+        
+        if (isShipped) {
+          globStatus = 'DESPACHADO';
+        } else if (isAlert) {
+          globStatus = 'ALERTA';
+        }
+        
+        const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : (isWalmart ? 'Walmart' : 'MercadoLibre')));
+        const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : (isWalmart ? 'walmart' : 'mercadolibre')));
+        
+        orderShipments = [{
+          id: `virtual:${order.id}`,
+          source_table: sourceTable,
+          source_id: order.id,
+          tracking: order.tracking_number || 'N/A',
+          tracking_url: order.tracking_url || 'N/A',
+          courier: order.courier || defaultCourier,
+          status: order.status,
+          global_status: globStatus,
+          created_at: order.created_at,
+          updated_at: order.created_at
+        }];
+      } else if (orderShipments.length === 0) {
+        const wmsStatus = (order.status || '').toLowerCase().trim();
+        const estadoWmsLower = (order.estado_wms || '').toLowerCase().trim();
+        if (wmsStatus === 'despachado' || wmsStatus === 'entregado' || wmsStatus === 'retirado' || wmsStatus === 'shipped' || wmsStatus === 'delivered' || estadoWmsLower === 'despachado') {
+          orderShipments = [{
+            id: `manual:${order.id}`,
+            source_table: 'manual',
+            source_id: order.id,
+            tracking: order.tracking_number || 'N/A',
+            tracking_url: order.tracking_url || 'N/A',
+            courier: order.courier || 'Transporte Propio',
+            status: order.status || order.estado_wms,
+            global_status: 'DESPACHADO',
+            created_at: order.created_at,
+            updated_at: order.created_at
+          }];
+        }
       }
 
       if (orderShipments.length === 0) {
@@ -4591,6 +4683,11 @@ async function renderAdminOrders() {
       const shipInfo = window.getOrderShipmentGlobalStatus(order);
       if (shipInfo && shipInfo.globStatus) {
         tags.add(shipInfo.globStatus);
+      }
+      const stLower = (order.status || '').toLowerCase().trim();
+      const ewLower = (order.estado_wms || '').toLowerCase().trim();
+      if (stLower === 'despachado' || stLower === 'entregado' || stLower === 'retirado' || stLower === 'shipped' || stLower === 'delivered' || ewLower === 'despachado') {
+        tags.add('DESPACHADO');
       }
 
       // 5. Estado Picker
@@ -5549,7 +5646,7 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const matchesWarehouse = !selectedWarehouse || (order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse);
-    const matchesTag = !selectedTag || orderTags.includes(selectedTag);
+    const matchesTag = !selectedTag || orderTags.some(t => String(t).trim().toUpperCase() === String(selectedTag).trim().toUpperCase());
 
     return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag;
   };
@@ -5708,218 +5805,9 @@ window.applyWmsFiltersAndRender = function() {
     const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
                        ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
 
-    // Buscar el envío en el listado cargado con control de colisiones por comercio
-    let orderShipments = shipments.filter(s => {
-      // Ignorar couriers no operativos (RECIBELO, WELIVERY, etc.)
-      const sCourierUpper = (s.courier || '').toUpperCase().trim();
-      if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
-          sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
-        return false;
-      }
-
-      const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
-      const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
-      const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
-      const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
-
-      const alphaOrderExt = alpha(order.external_order_number);
-      const alphaOrderId = alpha(order.id);
-      const alphaOrderTrack = alpha(order.tracking_number);
-      const alphaShipRef = alpha(s.pedido_referencia);
-      const alphaShipTrack = alpha(s.tracking);
-      const alphaShipSourceId = alpha(s.source_id);
-      const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
-      const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
-
-      const refMatches = s.pedido_referencia === order.id || 
-                         (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                         (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
-                         (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
-                         (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
-                         (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
-                         (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
-                         (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
-      if (!refMatches) return false;
-
-      // Validar coincidencia de comercio para evitar colisiones cruzadas
-      let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
-      const orderCommerce = (order.comercio || '').trim().toUpperCase();
-      if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
-      if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-      if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
-      if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
-      if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
-
-      let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
-      if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
-        const mapped = window.enviameIdToCommerceMap[envId];
-        if (mapped) shipCommerce = mapped.trim().toUpperCase();
-      }
-
-      return shipCommerce === orderCommerce;
-    });
-
-    // Fallback a raw_lightdata_data si no hay envío unificado vinculado pero el pedido tiene datos de LightData
-    if (orderShipments.length === 0 && order.raw_lightdata_data && order.raw_lightdata_data.status) {
-      const ldRaw = order.raw_lightdata_data;
-      let globStatus = 'SIN MOVIMIENTO';
-      let statusText = ldRaw.status || '';
-      if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
-        statusText = ldRaw.raw_data[23];
-      }
-      const rawStatusLower = statusText.toLowerCase().trim();
-      if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-        globStatus = 'DESPACHADO';
-      } else if (rawStatusLower === 'cancelado') {
-        globStatus = 'ALERTA';
-      } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
-        globStatus = 'SIN MOVIMIENTO';
-      }
-      orderShipments = [{
-        id: `lightdata_envios:${ldRaw.id || order.tracking_number}`,
-        source_table: 'lightdata_envios',
-        source_id: String(ldRaw.id || order.tracking_number || ''),
-        tracking: ldRaw.tracking || order.tracking_number || 'N/A',
-        tracking_url: ldRaw.tracking_url || order.tracking_url || (order.raw_lightdata_data?.raw_data?.[31]) || null,
-        courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
-        status: statusText,
-        global_status: globStatus,
-        created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
-        updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
-      }];
-    }
-
-    // Priorizar los envíos según:
-    // 1. Si tiene movimiento (global_status = 'DESPACHADO' o 'ALERTA', evaluado dinámicamente)
-    // 2. Coincidencia exacta con el tracking_number actual del pedido
-    // 3. Fecha de actualización más reciente
-    if (orderShipments.length > 1) {
-      orderShipments.sort((a, b) => {
-        const getMovedScore = (s) => {
-          let gStatus = s.global_status;
-          let statusText = s.status || '';
-          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-            if (s.raw_data && s.raw_data[23]) {
-              statusText = s.raw_data[23];
-            } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-              statusText = order.raw_lightdata_data.raw_data[23];
-            }
-          }
-          if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
-            gStatus = 'SIN MOVIMIENTO';
-          }
-          if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
-            const rawStatus = statusText.toLowerCase().trim();
-            if (s.source_table === 'lightdata_envios') {
-              if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-                gStatus = 'DESPACHADO';
-              } else if (rawStatus === 'cancelado') {
-                gStatus = 'ALERTA';
-              } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'bluex_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
-                gStatus = 'DESPACHADO';
-              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'starken_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
-                gStatus = 'DESPACHADO';
-              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'optiroute_orders') {
-              if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
-                gStatus = 'SIN MOVIMIENTO';
-              } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-                gStatus = 'DESPACHADO';
-              } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
-                gStatus = 'ALERTA';
-              }
-            }
-          }
-          return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 1 : 0;
-        };
-
-        const aMoved = getMovedScore(a);
-        const bMoved = getMovedScore(b);
-        if (aMoved !== bMoved) return bMoved - aMoved;
-
-        if (order.tracking_number) {
-          const aMatch = a.tracking === order.tracking_number ? 1 : 0;
-          const bMatch = b.tracking === order.tracking_number ? 1 : 0;
-          if (aMatch !== bMatch) return bMatch - aMatch;
-        }
-
-        const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-        const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-        return bDate - aDate;
-      });
-    }
-
-    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris o Ripley, simular uno a partir del estado de la orden
-    const isVirtualPlatform = order.origen === 'MercadoLibre' || 
-                              order.external_platform === 'MercadoLibre' || 
-                              order.origen === 'Falabella' || 
-                              order.external_platform === 'Falabella' ||
-                              order.origen === 'Paris' || 
-                              order.external_platform === 'Paris' ||
-                              order.origen === 'Ripley' || 
-                              order.external_platform === 'Ripley';
-
-    if (orderShipments.length === 0 && isVirtualPlatform) {
-      let globStatus = 'SIN MOVIMIENTO';
-      
-      const wmsStatus = (order.status || '').toLowerCase().trim();
-      const channelStatus = (order.payment_status || '').toLowerCase().trim();
-      
-      const isShipped = wmsStatus === 'despachado' || 
-                        wmsStatus === 'entregado' || 
-                        wmsStatus === 'retirado' ||
-                        channelStatus === 'shipped' || 
-                        channelStatus === 'delivered' || 
-                        channelStatus === 'shipped_by_seller' || 
-                        channelStatus === 'received' || 
-                        channelStatus === 'closed';
-                        
-      const isAlert = wmsStatus === 'cancelado' || 
-                      wmsStatus === 'incidencia' || 
-                      channelStatus === 'cancelled' || 
-                      channelStatus === 'refunded' || 
-                      channelStatus === 'refused';
-      
-      if (isShipped) {
-        globStatus = 'DESPACHADO';
-      } else if (isAlert) {
-        globStatus = 'ALERTA';
-      }
-      
-      const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
-      const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
-      const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
-      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
-      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
-      
-      orderShipments = [{
-        id: `virtual:${order.id}`,
-        source_table: sourceTable,
-        source_id: order.id,
-        tracking: order.tracking_number || 'N/A',
-        tracking_url: order.tracking_url || 'N/A',
-        courier: order.courier || defaultCourier,
-        status: order.status,
-        global_status: globStatus,
-        created_at: order.created_at,
-        updated_at: order.created_at
-      }];
-    }
+    // Obtener información de despacho unificada (incluye envíos de couriers y virtuales para marketplaces como Falabella / MercadoLibre)
+    const shipInfo = window.getOrderShipmentGlobalStatus ? window.getOrderShipmentGlobalStatus(order) : null;
+    let orderShipments = shipInfo ? (shipInfo.orderShipments || []) : [];
 
     // Detectar packs originales desde el canal de integración o desde los items del pedido
     let originalPacksHtml = '';
@@ -6048,54 +5936,7 @@ window.applyWmsFiltersAndRender = function() {
     let shipmentBadgeHtml = '';
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      let globStatus = shipment.global_status;
-      let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-        if (shipment.raw_data && shipment.raw_data[23]) {
-          statusText = shipment.raw_data[23];
-        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-          statusText = order.raw_lightdata_data.raw_data[23];
-        }
-      }
-      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
-        globStatus = 'SIN MOVIMIENTO';
-      }
-      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-        const rawStatus = statusText.toLowerCase().trim();
-        if (shipment.source_table === 'lightdata_envios') {
-          if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus === 'cancelado') {
-            globStatus = 'ALERTA';
-          } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'bluex_envios') {
-          if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'starken_envios') {
-          if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'optiroute_orders') {
-          if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
-            globStatus = 'SIN MOVIMIENTO';
-          } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-            globStatus = 'DESPACHADO';
-          } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
-            globStatus = 'ALERTA';
-          }
-        }
-      }
+      let globStatus = shipInfo ? shipInfo.globStatus : (shipment.global_status || 'SIN MOVIMIENTO');
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
       const courierName = shipment.courier || 'Courier';
@@ -6110,7 +5951,7 @@ window.applyWmsFiltersAndRender = function() {
         badgeColor = '#991b1b';
       }
       
-      const isShipActive = selectedTag === globStatus;
+      const isShipActive = selectedTag && String(selectedTag).trim().toUpperCase() === String(globStatus).trim().toUpperCase();
       shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${globStatus}', event)" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${badgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="${courierName}: ${shipment.tracking || ''} (Clic para filtrar)"><i class="ri-truck-line"></i> ${globStatus}</span>`;
     }
 
@@ -6504,24 +6345,72 @@ window.applyWmsFiltersAndRender = function() {
 
         const isAlreadyDescontado = isOrderTerminalOrShipped || !!order.stock_descontado;
         if (origItem && window.isOrderItemEliminated && window.isOrderItemEliminated(order, origItem)) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-close-circle-line"></i> No requerido (Eliminado)</span>`;
-        } else if (isAlreadyDescontado) {
-          stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Descontado (${item.quantity} un.)</span>`;
-        } else if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
-          const invMap = window.loadedOrdersInventoryMap || {};
-          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
-          if (available < item.quantity) {
-            rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
-            stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
-          } else {
-            stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Disponible (${available} disp.)</span>`;
-          }
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto eliminado del pedido"><i class="ri-close-circle-line"></i> Eliminado</span>`;
         } else if (origItem?.products?.is_virtual) {
-          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-seedling-line"></i> Virtual</span>`;
-        } else if (isStockTrackingActive && origItem && !origItem.products?.is_virtual) {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.75rem; font-style: italic;" title="Producto Virtual"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else if (origItem && !origItem.products?.is_virtual) {
           const invMap = window.loadedOrdersInventoryMap || {};
-          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
-          stockCellHtml = `<span style="color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;">${available} en bodega</span>`;
+          const prodId = origItem.product_id;
+          
+          // Bodega por defecto: la configurada para este comercio o Bodega Central
+          const defaultWhId = (order.comercio && window.loadedCommerceConfigsMap?.[order.comercio]?.default_warehouse_id)
+            || 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+          const defaultWhObj = (window.allWarehousesList || []).find(w => w.id === defaultWhId);
+          const defaultWhName = defaultWhObj ? defaultWhObj.name : 'Bodega Central';
+          
+          // Stock global sumando todas las bodegas
+          let globalStock = 0;
+          if (prodId) {
+            Object.keys(invMap).forEach(k => {
+              if (k.startsWith(prodId + '_')) {
+                globalStock += (Number(invMap[k]) || 0);
+              }
+            });
+          }
+          
+          // Stock de la bodega por defecto
+          const defaultStock = (prodId && defaultWhId) ? (Number(invMap[prodId + '_' + defaultWhId]) || 0) : 0;
+          
+          if (isAlreadyDescontado) {
+            stockCellHtml = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; min-width: 44px; line-height: 1.2;" title="Stock ya descontado del pedido. Stock actual en sistema: Global: ${globalStock} un. | ${defaultWhName}: ${defaultStock} un.">
+                <span style="color: #10b981; font-weight: 700; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Descontado</span>
+                <span style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; color: var(--color-text-muted);">
+                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock global: ${globalStock} un."><i class="ri-global-line"></i> ${globalStock}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.1rem;" title="Stock en ${defaultWhName}: ${defaultStock} un."><i class="ri-store-2-line"></i> ${defaultStock}</span>
+                </span>
+              </div>
+            `;
+          } else {
+            const isGlobalInsufficient = globalStock < item.quantity;
+            const isDefaultInsufficient = defaultStock < item.quantity;
+            
+            if (isGlobalInsufficient) {
+              rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
+            } else if (isDefaultInsufficient) {
+              rowStyle += ' background-color: rgba(245, 158, 11, 0.05);';
+            }
+            
+            const globalColor = isGlobalInsufficient ? '#ef4444' : '#10b981';
+            const defaultColor = isDefaultInsufficient ? '#ef4444' : '#10b981';
+            
+            const assignedInfo = (item.warehouseId && item.warehouseId !== defaultWhId) 
+              ? ` (Asignada: ${item.warehouseName} con ${Number(invMap[origItem.product_id + '_' + item.warehouseId]) || 0} un.)` 
+              : '';
+
+            stockCellHtml = `
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.18rem; min-width: 44px; line-height: 1.2;">
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; font-size: 0.82rem; color: ${globalColor}; cursor: help;" title="Stock global (todas las bodegas): ${globalStock} un. (Requerido: ${item.quantity})">
+                  <i class="ri-global-line" style="font-size: 0.88rem;"></i>
+                  <span>${globalStock}</span>
+                </span>
+                <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; font-size: 0.78rem; color: ${defaultColor}; cursor: help;" title="Stock en ${defaultWhName} (bodega por defecto): ${defaultStock} un.${assignedInfo}">
+                  <i class="ri-store-2-line" style="font-size: 0.82rem;"></i>
+                  <span>${defaultStock}</span>
+                </span>
+              </div>
+            `;
+          }
         } else {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
         }
@@ -6898,7 +6787,7 @@ window.applyWmsFiltersAndRender = function() {
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
-                        <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
+                        <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;" title="Stock: Global (todas las bodegas) / Bodega por defecto">Stock</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
                       </tr>
@@ -7174,7 +7063,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     periodo_facturacion,
     stock_descontado,
     stock_descontado_at,
-    order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+    order_items (quantity, product_id, warehouse_id, warehouses (id, name), tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
   `.replace(/\s+/g, ' ').trim();
 
   // Helper interno para fusionar (upsert) pedidos y actualizar dependencias
@@ -8295,6 +8184,8 @@ window.applyBulkWmsStatus = async function() {
         window.lastBulkWmsDeferredTrackingCount = 0;
         for (const order of successOrders) {
           order.estado_wms = 'En preparación';
+          order.status = 'en preparación';
+          delete order._wmsTags;
           if (!order.sucursal_pickeo) {
             order.sucursal_pickeo = formValues.sucursal;
           }
@@ -8326,6 +8217,7 @@ window.applyBulkWmsStatus = async function() {
             .from('orders')
             .update({
               estado_wms: 'En preparación',
+              status: 'en preparación',
               sucursal_pickeo: order.sucursal_pickeo,
               agenda: order.agenda,
               operador: order.operador || null,
@@ -8347,6 +8239,7 @@ window.applyBulkWmsStatus = async function() {
         // Todos los pedidos van a la misma sucursal (formValues.sucursal)
         const updatePayload = {
           estado_wms: 'En preparación',
+          status: 'en preparación',
           sucursal_pickeo: formValues.sucursal,
           agenda: formValues.agenda
         };
@@ -8378,6 +8271,8 @@ window.applyBulkWmsStatus = async function() {
         window.lastBulkWmsDeferredTrackingCount = 0;
         for (const order of successOrders) {
           order.estado_wms = 'En preparación';
+          order.status = 'en preparación';
+          delete order._wmsTags;
           order.sucursal_pickeo = formValues.sucursal;
           order.agenda = formValues.agenda;
           if (formValues.operador) {
@@ -8675,6 +8570,10 @@ window.applyBulkWmsStatus = async function() {
       const updateData = { estado_wms: newStatus };
       if (newStatus === 'Cancelado') {
         updateData.status = 'cancelado';
+      } else if (newStatus === 'En procesamiento') {
+        updateData.status = 'para procesar';
+      } else if (newStatus === 'Pickeado') {
+        updateData.status = 'preparado';
       }
       const { error } = await supabase
         .from('orders')
@@ -8683,7 +8582,7 @@ window.applyBulkWmsStatus = async function() {
         
       if (error) throw error;
 
-      if (newStatus !== 'Cancelado') {
+      if (newStatus !== 'Cancelado' && newStatus !== 'En procesamiento') {
         const toRestoreIds = [];
         if (window.loadedOrders) {
           idsToProcess.forEach(id => {
@@ -8707,9 +8606,10 @@ window.applyBulkWmsStatus = async function() {
           const order = window.loadedOrders.find(o => o.id === id);
           if (order) {
             order.estado_wms = newStatus;
-            if (newStatus === 'Cancelado') {
-              order.status = 'cancelado';
+            if (updateData.status) {
+              order.status = updateData.status;
             }
+            delete order._wmsTags;
           }
         });
       }
@@ -9953,6 +9853,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
       if (formValues.keepPicking) {
         order.estado_wms = 'En preparación';
+        order.status = 'en preparación';
+        delete order._wmsTags;
         if (!order.sucursal_pickeo) order.sucursal_pickeo = formValues.sucursal;
         if (!order.agenda) order.agenda = 'STK';
         if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
@@ -9975,6 +9877,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           .from('orders')
           .update({
             estado_wms: 'En preparación',
+            status: 'en preparación',
             sucursal_pickeo: order.sucursal_pickeo,
             agenda: order.agenda,
             fecha_procesamiento: order.fecha_procesamiento
@@ -10009,6 +9912,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
         const updateData = {
           estado_wms: 'En preparación',
+          status: 'en preparación',
           sucursal_pickeo: formValues.sucursal,
           agenda: formValues.agenda,
           fecha_procesamiento: formValues.fechaProc
@@ -10026,6 +9930,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         // Actualizar memoria local
         order.estado_wms = 'En preparación';
+        order.status = 'en preparación';
+        delete order._wmsTags;
         order.sucursal_pickeo = formValues.sucursal;
         order.agenda = formValues.agenda;
         if (formValues.operador) {
@@ -10259,6 +10165,10 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       const updateData = { estado_wms: newWmsStatus };
       if (newWmsStatus === 'Cancelado') {
         updateData.status = 'cancelado';
+      } else if (newWmsStatus === 'En procesamiento') {
+        updateData.status = 'para procesar';
+      } else if (newWmsStatus === 'Pickeado') {
+        updateData.status = 'preparado';
       } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
         updateData.status = 'para procesar';
       }
@@ -10270,11 +10180,10 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       if (error) throw error;
       
       order.estado_wms = newWmsStatus;
-      if (newWmsStatus === 'Cancelado') {
-        order.status = 'cancelado';
-      } else if (order.status === 'cancelado' && !order.raw_shopify_data?.cancelled_at) {
-        order.status = 'para procesar';
+      if (updateData.status) {
+        order.status = updateData.status;
       }
+      delete order._wmsTags;
       
       applyWmsFiltersAndRender();
     } catch (err) {
@@ -56959,13 +56868,15 @@ window.syncPickerStatusToWms = async function() {
         
         const { error: wmsErr } = await supabase
           .from('orders')
-          .update({ estado_wms: 'Pickeado' })
+          .update({ estado_wms: 'Pickeado', status: 'preparado' })
           .in('id', ids);
 
         if (wmsErr) throw wmsErr;
 
         ordersToUpdate.forEach(o => {
           o.estado_wms = 'Pickeado';
+          o.status = 'preparado';
+          delete o._wmsTags;
 
           const matchLog = logs.find(l => {
             const lNorm = String(l.pedido).trim().toUpperCase();
