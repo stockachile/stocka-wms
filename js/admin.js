@@ -6,7 +6,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.4';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.5';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;

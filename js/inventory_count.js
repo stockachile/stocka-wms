@@ -29,12 +29,14 @@ let sessionMerchants = [];
 let localOperatorName = localStorage.getItem('stocka_inv_operator_name') || 'Admin Móvil';
 let localDeviceId = localStorage.getItem('stocka_inv_device_id') || ('DEV-' + Math.random().toString(36).substring(2, 9).toUpperCase());
 let isFastMode = localStorage.getItem('stocka_inv_fast_mode') === 'true'; // Modo ráfaga (+1 continuo)
-let currentMatchMode = localStorage.getItem('stocka_inv_match_mode') || 'all'; // Criterio de búsqueda: 'all' | 'barcode' | 'barcode_origin' | 'barcode_wms' | 'sku'
+let currentMatchMode = localStorage.getItem('stocka_inv_match_mode') || 'all'; // Criterio de búsqueda: 'all' | 'barcode' | 'barcode_origin' | 'barcode_wms' | 'sku' | 'name'
+let keyboardMode = localStorage.getItem('stocka_inv_keyboard_mode') || 'numeric'; // 'numeric' o 'alpha'
+let isNumpadExpanded = localStorage.getItem('stocka_inv_numpad_expanded') !== 'false';
 
 localStorage.setItem('stocka_inv_device_id', localDeviceId);
 localStorage.setItem('stocka_inv_operator_name', localOperatorName);
 
-// Helper para sonido de escáner (Beep agudo agradable)
+// Helper para sonido de escáner (Beep agudo agradable y click de teclado)
 function playBeepSound(type = 'success') {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -61,6 +63,13 @@ function playBeepSound(type = 'success') {
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.25);
+    } else if (type === 'tap') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(850, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.04);
     }
   } catch (e) {
     console.warn('AudioContext not allowed or not supported:', e);
@@ -75,6 +84,8 @@ function triggerHaptic(type = 'success') {
         navigator.vibrate([60]);
       } else if (type === 'error') {
         navigator.vibrate([100, 50, 100]);
+      } else if (type === 'tap') {
+        navigator.vibrate([12]);
       }
     } catch (e) {}
   }
