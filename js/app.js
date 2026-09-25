@@ -10404,7 +10404,6 @@ window.applyClientWmsFiltersAndRender = function() {
 
     // 8. Tag de Fulfillment (Shopify)
     let fulfillmentBadgeHtml = '';
-    const rawShopify = order.raw_shopify_data;
     if (order.external_platform === 'Shopify' && rawShopify?.fulfillment_status) {
       const shpfyFullStatus = rawShopify.fulfillment_status;
       if (shpfyFullStatus === 'fulfilled') {
@@ -10421,9 +10420,9 @@ window.applyClientWmsFiltersAndRender = function() {
 
     // 9. Tag de Cancelado o Devolución
     let cancelBadgeHtml = '';
-    const isReturned = (order.status || '').toLowerCase() === 'devolución' || (order.status || '').toLowerCase() === 'devolucion';
-    const isCancelled = !isReturned && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
-    if (isReturned) {
+    const isReturnedOrder = (order.status || '').toLowerCase() === 'devolución' || (order.status || '').toLowerCase() === 'devolucion';
+    const isCancelled = !isReturnedOrder && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
+    if (isReturnedOrder) {
       const isRetActive = selectedTag === 'DEVOLUCIÓN';
       cancelBadgeHtml = `<span class="badge wms-order-tag-badge ${isRetActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('DEVOLUCIÓN', event)" style="background-color: #ffe4e6; color: #9f1239; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isRetActive ? 'outline: 2px solid #9f1239; box-shadow: 0 0 6px rgba(159,18,57,0.4);' : ''}" title="Devolución (Clic para filtrar)"><i class="ri-arrow-go-back-line" style="color: #9f1239;"></i> DEVOLUCIÓN</span>`;
     } else if (isCancelled) {
@@ -42669,24 +42668,30 @@ window.setupCustomerAutocomplete = function() {
   const dropdown = document.getElementById('order-customer-dropdown-list-db');
   if (!searchInput || !dropdown) return;
 
+  if (searchInput._hasCustomerAutocomplete) return;
+  searchInput._hasCustomerAutocomplete = true;
+
   let debounceTimeout = null;
 
   searchInput.addEventListener('input', function() {
-    const term = this.value.trim();
+    const rawTerm = this.value.trim();
     clearTimeout(debounceTimeout);
 
-    if (term.length < 3) {
+    // Limpiar caracteres especiales de búsqueda y prefijo '#' para números de pedido
+    const cleanTerm = rawTerm.replace(/^[#\s]+/, '').replace(/[,()]/g, '').trim();
+
+    if (cleanTerm.length < 2) {
       dropdown.style.display = 'none';
       return;
     }
 
     debounceTimeout = setTimeout(async () => {
       try {
-        const selectedCommerce = document.getElementById('order-select-commerce')?.value;
+        const selectedCommerce = document.getElementById('order-select-commerce')?.value || (typeof currentCompany !== 'undefined' && currentCompany ? currentCompany.split(',')[0].trim() : '');
         let query = supabase
           .from('orders')
-          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
-          .or(`customer_name.ilike.%${term}%,customer_email.ilike.%${term}%`)
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at')
+          .or(`customer_name.ilike.%${cleanTerm}%,customer_email.ilike.%${cleanTerm}%,external_order_number.ilike.%${cleanTerm}%,customer_phone.ilike.%${cleanTerm}%`)
           .order('created_at', { ascending: false })
           .limit(50);
 
@@ -42699,13 +42704,20 @@ window.setupCustomerAutocomplete = function() {
         const { data, error } = await query;
         if (error) throw error;
 
-        // Filtrar clientes duplicados en base a nombre y correo
+        // Filtrar clientes/pedidos
         const uniqueCustomers = [];
         const seenKeys = new Set();
         (data || []).forEach(order => {
-          const name = order.customer_name || '';
-          const email = order.customer_email || '';
-          const key = `${name.toLowerCase()}_${email.toLowerCase()}`;
+          const name = (order.customer_name || '').trim();
+          const email = (order.customer_email || '').trim();
+          const address = (order.shipping_address || '').trim();
+          const orderNum = (order.external_order_number || '').trim();
+
+          const isOrderSearch = orderNum && orderNum.toLowerCase().includes(cleanTerm.toLowerCase());
+          const key = isOrderSearch 
+            ? `order_${orderNum}` 
+            : `cust_${name.toLowerCase()}_${email.toLowerCase()}_${address.toLowerCase()}`;
+
           if (!seenKeys.has(key)) {
             seenKeys.add(key);
             uniqueCustomers.push(order);
@@ -42713,18 +42725,27 @@ window.setupCustomerAutocomplete = function() {
         });
 
         if (uniqueCustomers.length === 0) {
-          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes anteriores</div>';
+          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes o pedidos anteriores</div>';
           dropdown.style.display = 'block';
           return;
         }
 
         let html = '';
         uniqueCustomers.forEach(c => {
+          const displayName = c.customer_name || 'Sin nombre registrado';
+          const orderBadge = c.external_order_number
+            ? `<span style="font-size: 0.72rem; background: rgba(99, 102, 241, 0.12); color: var(--color-primary); padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: monospace;">Pedido #${c.external_order_number}</span>`
+            : '';
+          const addressText = [c.shipping_address, c.shipping_city].filter(Boolean).join(', ') || 'Sin dirección registrada';
+
           html += `
-            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-              <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main);">${c.customer_name}</span>
+            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.2rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayName}</span>
+                ${orderBadge}
+              </div>
               <span style="font-size: 0.75rem; color: var(--color-text-muted);">${c.customer_email || 'Sin correo'} | ${c.customer_phone || 'Sin teléfono'}</span>
-              <span style="font-size: 0.75rem; color: var(--color-primary);">${c.shipping_address}, ${c.shipping_city}</span>
+              <span style="font-size: 0.75rem; color: var(--color-primary);">${addressText}</span>
             </div>
           `;
         });

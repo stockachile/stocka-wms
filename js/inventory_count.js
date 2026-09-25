@@ -34,6 +34,11 @@ let keyboardMode = localStorage.getItem('stocka_inv_keyboard_mode') || 'numeric'
 let isNumpadExpanded = localStorage.getItem('stocka_inv_numpad_expanded') !== 'false';
 let currentReticleMode = localStorage.getItem('stocka_inv_reticle_mode') || 'standard'; // 'standard' | 'precision' | 'wide'
 let currentZoomLevel = 1.0;
+let currentInputSource = localStorage.getItem('stocka_inv_input_source') || (typeof window !== 'undefined' && window.innerWidth >= 992 ? 'scanner_gun' : 'camera'); // 'camera' | 'scanner_gun'
+let lastScannedItemInfo = null;
+let barcodeBuffer = '';
+let lastKeyTime = Date.now();
+let globalBarcodeListenerAttached = false;
 
 localStorage.setItem('stocka_inv_device_id', localDeviceId);
 localStorage.setItem('stocka_inv_operator_name', localOperatorName);
@@ -116,6 +121,33 @@ function getReticleModeLabel(mode) {
   if (mode === 'precision') return '🎯 Modo Precisión (Códigos pegados)';
   if (mode === 'wide') return '📏 Barras 1D (Franja ancha)';
   return 'Apunta al código (Toca para enfocar)';
+}
+
+function renderLastScannedBannerHtml() {
+  if (!lastScannedItemInfo) return '';
+  const timeStr = lastScannedItemInfo.timestamp 
+    ? new Date(lastScannedItemInfo.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) 
+    : '';
+  return `
+    <div class="inv-last-scan-card" style="margin-top: 0.85rem; width: 100%; box-sizing: border-box;">
+      <div style="min-width: 0; flex: 1;">
+        <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; color: #34d399; font-weight: 700;">
+          <i class="ri-checkbox-circle-fill"></i> Última lectura: <span>${timeStr}</span>
+        </div>
+        <div style="font-weight: 800; font-size: 0.86rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;">
+          ${escapeHtml(lastScannedItemInfo.name || 'Producto')}
+        </div>
+        <div style="font-size: 0.72rem; color: rgba(255,255,255,0.75); display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 2px;">
+          <span><strong>SKU:</strong> <span style="color: #93c5fd;">${escapeHtml(lastScannedItemInfo.sku || 'N/A')}</span></span>
+          <span><strong>Cód:</strong> ${escapeHtml(lastScannedItemInfo.barcode || 'N/A')}</span>
+        </div>
+      </div>
+      <div style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 6px; padding: 4px 10px; text-align: center; flex-shrink: 0;">
+        <span style="font-size: 0.65rem; color: #a7f3d0; display: block; text-transform: uppercase; font-weight: 700;">Sumado</span>
+        <strong style="font-size: 1.05rem; color: #34d399;">+${lastScannedItemInfo.quantity || 1}</strong>
+      </div>
+    </div>
+  `;
 }
 
 // Helper de escape HTML
@@ -401,8 +433,18 @@ function renderScannerView() {
       <!-- COLUMNA IZQUIERDA: CÁMARA Y ESCÁNER -->
       <div class="inv-scanner-card">
         
+        <!-- SELECTOR DE FUENTE DE ESCANEO: CÁMARA VS PISTOLA USB/BT -->
+        <div class="inv-input-source-tabs">
+          <button type="button" class="inv-input-source-tab ${currentInputSource === 'camera' ? 'active' : ''}" id="btn-source-camera" title="Escanear con cámara de teléfono o webcam">
+            <i class="ri-camera-lens-line"></i> Cámara Móvil
+          </button>
+          <button type="button" class="inv-input-source-tab ${currentInputSource === 'scanner_gun' ? 'active' : ''}" id="btn-source-gun" title="Escanear con pistola láser USB, Bluetooth o inalámbrica">
+            <i class="ri-barcode-box-line"></i> Pistola Escáner (USB / BT)
+          </button>
+        </div>
+
         <!-- VISOR DE CÁMARA CON ENFOQUE Y APUNTADO DE PRECISIÓN -->
-        <div class="inv-camera-container" id="inv-camera-frame" title="Toca en cualquier parte del visor para enfocar">
+        <div class="inv-camera-container" id="inv-camera-frame" style="${currentInputSource === 'camera' ? 'display: flex;' : 'display: none;'}" title="Toca en cualquier parte del visor para enfocar">
           <div id="inv-qr-reader"></div>
 
           <!-- Flash visual de éxito -->
@@ -448,6 +490,33 @@ function renderScannerView() {
             <button type="button" class="inv-cam-action-btn" id="btn-switch-camera" title="Cambiar Cámara Trasera / Frontal">
               <i class="ri-camera-switch-line"></i>
             </button>
+          </div>
+        </div>
+
+        <!-- ESTACIÓN DE PISTOLA ESCÁNER (Para computadores de escritorio y pistolas USB/BT) -->
+        <div class="inv-gun-station-card" id="inv-gun-station" style="${currentInputSource === 'scanner_gun' ? 'display: flex;' : 'display: none;'}">
+          <div class="inv-gun-status-badge">
+            <span class="inv-gun-status-dot"></span>
+            <span>Escáner USB / BT Listo</span>
+          </div>
+
+          <div class="inv-gun-target-icon">
+            <i class="ri-barcode-box-line"></i>
+          </div>
+
+          <h4 class="inv-gun-station-title">Estación de Pistola Láser Activa</h4>
+          <p class="inv-gun-station-subtitle">
+            Apunta tu lector de códigos de barra USB o Bluetooth y presiona el gatillo en cualquier momento.
+          </p>
+
+          <div class="inv-gun-active-pill">
+            <i class="ri-flashlight-line" style="color: #34d399;"></i>
+            <span>Captura global activa • No requieres hacer clic antes de pistolear</span>
+          </div>
+
+          <!-- Banner reactivo del último producto escaneado -->
+          <div id="inv-gun-last-scan-container" style="width: 100%;">
+            ${renderLastScannedBannerHtml()}
           </div>
         </div>
 
@@ -588,8 +657,17 @@ function renderScannerView() {
   initScannerControls();
   renderLiveFeedList();
 
-  // Iniciar la cámara si está soportada
-  startCameraScanner();
+  // Iniciar la cámara solo si la fuente seleccionada es 'camera'
+  if (currentInputSource === 'camera') {
+    startCameraScanner();
+  } else {
+    setTimeout(() => {
+      document.getElementById('input-manual-barcode')?.focus();
+    }, 150);
+  }
+
+  // Conectar listener global para pistolas de código de barras
+  attachGlobalBarcodeScannerListener();
 }
 
 function getMatchModeBadgeText(mode) {
@@ -796,12 +874,120 @@ function initScannerControls() {
       triggerCameraFocus(xPercent, yPercent);
     });
   }
+
+  // Control de Fuente de Escaneo: Cámara Móvil vs Pistola USB/BT
+  const btnSourceCamera = document.getElementById('btn-source-camera');
+  const btnSourceGun = document.getElementById('btn-source-gun');
+  const camFrame = document.getElementById('inv-camera-frame');
+  const gunStation = document.getElementById('inv-gun-station');
+
+  const setInputSource = async (source) => {
+    currentInputSource = source;
+    localStorage.setItem('stocka_inv_input_source', source);
+
+    if (btnSourceCamera && btnSourceGun) {
+      btnSourceCamera.classList.toggle('active', source === 'camera');
+      btnSourceGun.classList.toggle('active', source === 'scanner_gun');
+    }
+
+    if (source === 'camera') {
+      if (gunStation) gunStation.style.display = 'none';
+      if (camFrame) camFrame.style.display = 'flex';
+      await startCameraScanner();
+    } else {
+      if (camFrame) camFrame.style.display = 'none';
+      if (gunStation) gunStation.style.display = 'flex';
+      await stopScannerSafe();
+      setTimeout(() => {
+        manualInput?.focus();
+      }, 100);
+    }
+  };
+
+  btnSourceCamera?.addEventListener('click', () => setInputSource('camera'));
+  btnSourceGun?.addEventListener('click', () => setInputSource('scanner_gun'));
+
+  // Al hacer clic en la tarjeta de estación de pistola, enfocar el campo manual
+  gunStation?.addEventListener('click', () => {
+    manualInput?.focus();
+  });
+}
+
+// Listener Global Inteligente para Pistolas de Código de Barras USB / Bluetooth (Keyboard Wedge)
+function attachGlobalBarcodeScannerListener() {
+  if (globalBarcodeListenerAttached) return;
+  globalBarcodeListenerAttached = true;
+
+  window.addEventListener('keydown', (e) => {
+    // Si no estamos en la vista de inventario o no hay sesión activa, ignorar
+    const countContainer = document.getElementById('inventory-count-content');
+    if (!countContainer || !activeCountSession) {
+      barcodeBuffer = '';
+      return;
+    }
+
+    // Verificar si el foco está en un campo de texto ajeno (ej: notas o buscador de picker)
+    const activeEl = document.activeElement;
+    const isTypingInOtherField = activeEl && 
+      (activeEl.tagName === 'TEXTAREA' || 
+       (activeEl.tagName === 'INPUT' && activeEl.id !== 'input-manual-barcode'));
+
+    if (isTypingInOtherField) {
+      barcodeBuffer = '';
+      return;
+    }
+
+    const currentTime = Date.now();
+    const timeDiff = currentTime - lastKeyTime;
+    lastKeyTime = currentTime;
+
+    // Si pasaron más de 120ms entre teclas y no es Enter, descartar buffer (escritura manual lenta)
+    if (timeDiff > 120 && e.key !== 'Enter') {
+      barcodeBuffer = '';
+    }
+
+    // Procesar lectura al recibir Enter del escáner
+    if (e.key === 'Enter') {
+      const manualInput = document.getElementById('input-manual-barcode');
+      let scannedCode = '';
+
+      if (barcodeBuffer.trim().length >= 3) {
+        scannedCode = barcodeBuffer.trim();
+      } else if (manualInput && manualInput.value.trim().length >= 2) {
+        scannedCode = manualInput.value.trim();
+      }
+
+      if (scannedCode) {
+        e.preventDefault();
+        e.stopPropagation();
+        barcodeBuffer = '';
+        if (manualInput) manualInput.value = '';
+        onBarcodeScanned(scannedCode);
+      }
+      barcodeBuffer = '';
+      return;
+    }
+
+    // Acumular caracteres alfanuméricos imprimibles
+    if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      barcodeBuffer += e.key;
+
+      // Si el input manual no tenía el foco en modo pistola, redirigir visualmente
+      const manualInput = document.getElementById('input-manual-barcode');
+      if (manualInput && document.activeElement !== manualInput && currentInputSource === 'scanner_gun') {
+        manualInput.value = barcodeBuffer;
+      }
+    }
+  }, true);
 }
 
 // ==========================================
 // CONTROLADOR DE CÁMARA CON HTML5-QRCODE
 // ==========================================
 async function startCameraScanner() {
+  if (currentInputSource !== 'camera') {
+    return;
+  }
   const qrReaderDiv = document.getElementById('inv-qr-reader');
   if (!qrReaderDiv) return;
 
@@ -1567,6 +1753,19 @@ async function saveCountItemDirectly({ product, quantity, expiryDate, lotNumber,
 
 // Mostrar tarjeta con el último ítem escaneado
 function showLastScannedCard(product, qty) {
+  lastScannedItemInfo = {
+    barcode: product.barcode || product.codigo_barra || product.barcode_wms || product.sku,
+    sku: product.sku,
+    name: product.name,
+    quantity: qty,
+    timestamp: Date.now()
+  };
+
+  const gunContainer = document.getElementById('inv-gun-last-scan-container');
+  if (gunContainer) {
+    gunContainer.innerHTML = renderLastScannedBannerHtml();
+  }
+
   const container = document.getElementById('inv-last-scanned-container');
   if (!container) return;
 

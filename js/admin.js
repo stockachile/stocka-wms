@@ -6,7 +6,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.6';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.7';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -4945,10 +4945,16 @@ async function renderAdminOrders() {
       try {
         const { data: configComercios } = await supabase
           .from('v_comercios_config')
-          .select('nombre')
+          .select('nombre, sigla')
           .order('nombre', { ascending: true });
         if (configComercios) {
           window.wmsAllComercios = [...new Set(configComercios.map(c => c.nombre).filter(Boolean))].sort();
+          window.wmsComerciosSiglasMap = window.wmsComerciosSiglasMap || {};
+          configComercios.forEach(c => {
+            if (c.nombre && c.sigla) {
+              window.wmsComerciosSiglasMap[c.nombre.trim().toUpperCase()] = c.sigla.trim().toUpperCase();
+            }
+          });
         }
       } catch (err) {
         console.error('Error al cargar comercios desde v_comercios_config:', err);
@@ -7488,7 +7494,97 @@ function updateSelectAllCheckboxState() {
   cbAll.checked = allChecked;
 }
 
-window.copySelectedOrderNumbers = function(btn) {
+// Helper para extraer y normalizar el número de pedido según el modo de copiado
+window.extractOrderNumberByMode = function(order, mode = 'with_prefix') {
+  if (!order) return '';
+  const externalNo = String(order.external_order_number || '').trim();
+  const rawShopify = order.raw_shopify_data || {};
+  const rawShopifyName = String(rawShopify.name || '').trim();
+  const rawShopifyNumber = rawShopify.order_number != null ? String(rawShopify.order_number).trim() : '';
+  const orderNumber = order.order_number != null ? String(order.order_number).trim() : '';
+  const fallbackId = String(order.id || '').trim();
+
+  // 1. Modo Estándar con Prefijo (tal como figura en WMS)
+  if (mode === 'with_prefix') {
+    return externalNo || rawShopifyName || rawShopifyNumber || orderNumber || fallbackId;
+  }
+
+  // Resolver sigla del comercio si está disponible
+  const comName = String(order.comercio || '').trim().toUpperCase();
+  let sigla = '';
+  if (window.wmsComerciosSiglasMap && window.wmsComerciosSiglasMap[comName]) {
+    sigla = window.wmsComerciosSiglasMap[comName];
+  } else if (window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[order.comercio]?.sigla) {
+    sigla = window.loadedCommerceConfigsMap[order.comercio].sigla.trim().toUpperCase();
+  }
+
+  // 2. Modo Sin Prefijo Añadido (Quitar sigla de Stocka manteniendo formato de origen)
+  if (mode === 'without_prefix') {
+    // Si tenemos el nombre original de la tienda (Shopify) y no viene con la sigla de WMS
+    if (rawShopifyName && (!sigla || !rawShopifyName.toUpperCase().startsWith(sigla))) {
+      return rawShopifyName;
+    }
+    // Si WooCommerce tiene número original
+    if (order.raw_woocommerce_data?.number) {
+      return String(order.raw_woocommerce_data.number).trim();
+    }
+    // Si tiene order_number limpio y sin sigla
+    if (orderNumber && (!sigla || !orderNumber.toUpperCase().startsWith(sigla))) {
+      return orderNumber;
+    }
+    // Si tiene rawShopifyNumber
+    if (rawShopifyNumber && (!sigla || !rawShopifyNumber.toUpperCase().startsWith(sigla))) {
+      return rawShopifyName.startsWith('#') ? `#${rawShopifyNumber}` : rawShopifyNumber;
+    }
+    // Si tenemos external_order_number, quitar la sigla del comercio
+    if (externalNo) {
+      if (sigla && externalNo.toUpperCase().startsWith(sigla)) {
+        let stripped = externalNo.substring(sigla.length).trim();
+        if (stripped.startsWith('-') || stripped.startsWith('_')) {
+          stripped = stripped.substring(1).trim();
+        }
+        return stripped || externalNo;
+      }
+      // Detección automática por formato prefijo: ej "NOM#1018" -> "#1018", o "NOM-1018" -> "1018"
+      const prefixMatch = externalNo.match(/^([A-Z0-9]{2,8})(#.*|[-_].*)$/i);
+      if (prefixMatch) {
+        let stripped = prefixMatch[2];
+        if (stripped.startsWith('-') || stripped.startsWith('_')) {
+          stripped = stripped.substring(1).trim();
+        }
+        return stripped || externalNo;
+      }
+      return externalNo;
+    }
+    return fallbackId;
+  }
+
+  // 3. Modo Solo Dígitos / Numérico Limpio
+  if (mode === 'digits_only') {
+    if (rawShopifyNumber && /^\d+$/.test(rawShopifyNumber)) {
+      return rawShopifyNumber;
+    }
+    if (order.raw_woocommerce_data?.number && /^\d+$/.test(String(order.raw_woocommerce_data.number).trim())) {
+      return String(order.raw_woocommerce_data.number).trim();
+    }
+    const noPrefix = window.extractOrderNumberByMode(order, 'without_prefix');
+    const digits = (noPrefix.match(/\d+/g) || []).join('');
+    if (digits) return digits;
+
+    const allDigits = (externalNo.match(/\d+/g) || []).join('');
+    if (allDigits) return allDigits;
+
+    return noPrefix || externalNo || fallbackId;
+  }
+
+  return externalNo || fallbackId;
+};
+
+window.copySelectedOrderNumbers = async function(btn, options = {}) {
+  const mode = options.mode || window._wmsCopyNumbersMode || (function() {
+    try { return localStorage.getItem('wms_copy_numbers_mode'); } catch(e) { return null; }
+  })() || 'with_prefix';
+
   const selectedIds = window.wmsSelectedOrderIds;
   if (!selectedIds || selectedIds.size === 0) {
     if (typeof Swal !== 'undefined') {
@@ -7502,6 +7598,23 @@ window.copySelectedOrderNumbers = function(btn) {
       alert('Selecciona al menos un pedido usando las casillas de verificación para copiar sus números.');
     }
     return;
+  }
+
+  // Asegurar que las siglas de comercio estén en memoria
+  if (!window.wmsComerciosSiglasMap) {
+    window.wmsComerciosSiglasMap = {};
+    try {
+      const { data: comConfig } = await supabase.from('v_comercios_config').select('nombre, sigla');
+      if (comConfig) {
+        comConfig.forEach(c => {
+          if (c.nombre && c.sigla) {
+            window.wmsComerciosSiglasMap[c.nombre.trim().toUpperCase()] = c.sigla.trim().toUpperCase();
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Aviso cargando siglas de comercios:', e);
+    }
   }
 
   // Mantener el orden visual en que aparecen los pedidos en pantalla
@@ -7529,10 +7642,9 @@ window.copySelectedOrderNumbers = function(btn) {
     }
   });
 
-  // Extraer el número de pedido exacto (ej: GLS27881)
+  // Extraer el número de pedido según el modo seleccionado
   const orderNumbers = selectedOrders.map(o => {
-    const num = o.external_order_number || o.raw_shopify_data?.name || o.order_number || o.id;
-    return String(num || '').trim();
+    return window.extractOrderNumberByMode(o, mode);
   }).filter(Boolean);
 
   if (orderNumbers.length === 0) {
@@ -7550,12 +7662,17 @@ window.copySelectedOrderNumbers = function(btn) {
 
   const textToCopy = orderNumbers.join('\n');
 
+  let modeDesc = 'Formato con prefijo completo';
+  if (mode === 'without_prefix') modeDesc = 'Formato sin prefijo añadido (original de tienda)';
+  else if (mode === 'digits_only') modeDesc = 'Solo números / dígitos limpios';
+
   const doSuccessFeedback = () => {
-    if (btn) {
-      const origHtml = btn.innerHTML;
-      btn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Copiado (${orderNumbers.length})!`;
+    const targetBtn = btn || document.getElementById('btn-wms-copy-numbers-main');
+    if (targetBtn) {
+      const origHtml = targetBtn.innerHTML;
+      targetBtn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Copiado (${orderNumbers.length})!`;
       setTimeout(() => {
-        btn.innerHTML = origHtml;
+        targetBtn.innerHTML = origHtml;
       }, 2000);
     }
     if (typeof Swal !== 'undefined') {
@@ -7564,7 +7681,7 @@ window.copySelectedOrderNumbers = function(btn) {
         position: 'top-end',
         icon: 'success',
         title: `¡${orderNumbers.length} número(s) de pedido copiado(s)!`,
-        html: `<span style="font-size: 0.8rem; color: var(--color-text-muted);">Formato lista copiado al portapapeles</span>`,
+        html: `<span style="font-size: 0.8rem; color: var(--color-text-muted);">${modeDesc} copiado al portapapeles</span>`,
         showConfirmButton: false,
         timer: 2000,
         timerProgressBar: true
@@ -7581,6 +7698,65 @@ window.copySelectedOrderNumbers = function(btn) {
     fallbackCopyText(textToCopy, doSuccessFeedback);
   }
 };
+
+window.toggleWmsCopyNumbersMenu = function(e) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  const menu = document.getElementById('wms-copy-numbers-dropdown-menu');
+  const arrowIcon = document.getElementById('wms-copy-numbers-arrow-icon');
+  const toggleBtn = document.getElementById('btn-wms-copy-numbers-toggle');
+  if (menu) {
+    const isClosed = menu.style.display === 'none' || !menu.style.display;
+    menu.style.display = isClosed ? 'block' : 'none';
+    if (arrowIcon) {
+      arrowIcon.style.transform = isClosed ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+    if (toggleBtn) {
+      toggleBtn.style.background = isClosed ? '#075985' : '#0369a1';
+    }
+  }
+};
+
+window.closeWmsCopyNumbersMenu = function() {
+  const menu = document.getElementById('wms-copy-numbers-dropdown-menu');
+  const arrowIcon = document.getElementById('wms-copy-numbers-arrow-icon');
+  const toggleBtn = document.getElementById('btn-wms-copy-numbers-toggle');
+  if (menu) menu.style.display = 'none';
+  if (arrowIcon) arrowIcon.style.transform = 'rotate(0deg)';
+  if (toggleBtn) toggleBtn.style.background = '#0369a1';
+};
+
+window.selectWmsCopyNumbersMode = function(mode) {
+  window._wmsCopyNumbersMode = mode;
+  try {
+    localStorage.setItem('wms_copy_numbers_mode', mode);
+  } catch (e) {}
+
+  const mainBtn = document.getElementById('btn-wms-copy-numbers-main');
+  if (mainBtn) {
+    let badgeHtml = '';
+    if (mode === 'without_prefix') {
+      badgeHtml = '<span style="font-size: 0.65rem; background: #075985; color: #ffffff; padding: 0.05rem 0.35rem; border-radius: 99px;">Sin Prefijo</span>';
+    } else if (mode === 'digits_only') {
+      badgeHtml = '<span style="font-size: 0.65rem; background: #075985; color: #ffffff; padding: 0.05rem 0.35rem; border-radius: 99px;">Solo Números</span>';
+    }
+    mainBtn.innerHTML = `<i class="ri-file-copy-line"></i> <span>Copiar Números</span> ${badgeHtml}`;
+  }
+
+  // Ejecutar copia inmediatamente en el modo seleccionado
+  window.copySelectedOrderNumbers(mainBtn, { mode });
+};
+
+if (!window._wmsCopyNumbersMenuListenerAttached) {
+  window._wmsCopyNumbersMenuListenerAttached = true;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.wms-copy-numbers-split-btn')) {
+      window.closeWmsCopyNumbersMenu();
+    }
+  });
+}
 
 function renderWmsBulkActionsBar() {
   const selectedCount = window.wmsSelectedOrderIds.size;
@@ -7608,6 +7784,10 @@ function renderWmsBulkActionsBar() {
     return;
   }
   
+  const currentCopyMode = window._wmsCopyNumbersMode || (function() {
+    try { return localStorage.getItem('wms_copy_numbers_mode'); } catch(e) { return null; }
+  })() || 'with_prefix';
+
   container.innerHTML = `
     <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -7629,9 +7809,48 @@ function renderWmsBulkActionsBar() {
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem; flex-wrap: wrap;">
-          <button onclick="window.copySelectedOrderNumbers(this)" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" title="Copiar números de pedido seleccionados (formato lista con salto de línea)">
-            <i class="ri-file-copy-line"></i> Copiar Números
-          </button>
+          <!-- Botón Dual / Split para Copiar Números con Opciones -->
+          <div class="wms-copy-numbers-split-btn" style="position: relative; display: inline-flex; vertical-align: middle; box-shadow: 0 2px 4px rgba(0,0,0,0.15); border-radius: var(--radius-sm);">
+            <button id="btn-wms-copy-numbers-main" onclick="window.copySelectedOrderNumbers(this)" class="btn" style="background: #0284c7; color: white; border: none; font-weight: 600; padding: 0.25rem 0.65rem; font-size: 0.85rem; cursor: pointer; border-top-right-radius: 0; border-bottom-right-radius: 0; border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.35rem; transition: background 0.15s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'" title="Copiar números de pedidos seleccionados">
+              <i class="ri-file-copy-line"></i>
+              <span>Copiar Números</span>
+              ${currentCopyMode === 'without_prefix' ? '<span style="font-size: 0.65rem; background: #0369a1; color: #ffffff; padding: 0.05rem 0.35rem; border-radius: 99px; border: 1px solid rgba(255,255,255,0.3); font-weight: 700;">Sin Prefijo</span>' : (currentCopyMode === 'digits_only' ? '<span style="font-size: 0.65rem; background: #0369a1; color: #ffffff; padding: 0.05rem 0.35rem; border-radius: 99px; border: 1px solid rgba(255,255,255,0.3); font-weight: 700;">Solo Números</span>' : '')}
+            </button>
+            <button id="btn-wms-copy-numbers-toggle" type="button" onclick="window.toggleWmsCopyNumbersMenu(event)" class="btn" style="background: #0369a1; color: white; border: none; border-left: 1px solid rgba(255,255,255,0.25); font-weight: 600; padding: 0.25rem 0.5rem; font-size: 0.8rem; cursor: pointer; border-top-left-radius: 0; border-bottom-left-radius: 0; border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); display: inline-flex; align-items: center; justify-content: center; gap: 0.2rem; transition: background 0.15s;" onmouseover="this.style.background='#075985'" onmouseout="if(document.getElementById('wms-copy-numbers-dropdown-menu')?.style.display !== 'block'){ this.style.background='#0369a1'; }" title="Desplegar opciones de formato (con prefijo, sin prefijo, solo números)">
+              <span>Opciones</span>
+              <i class="ri-arrow-down-s-fill" id="wms-copy-numbers-arrow-icon" style="font-size: 0.85rem; transition: transform 0.2s;"></i>
+            </button>
+            <div id="wms-copy-numbers-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--color-surface, #ffffff); border: 1.5px solid #0284c7; border-radius: 10px; box-shadow: 0 12px 30px -4px rgba(2, 132, 199, 0.35), 0 6px 12px -2px rgba(0, 0, 0, 0.15); z-index: 1050; min-width: 320px; max-width: 95vw; padding: 0.45rem 0; text-align: left; color: var(--color-text-main, #1f2937);">
+              <div style="padding: 0.45rem 0.85rem; font-size: 0.72rem; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between;">
+                <span><i class="ri-file-copy-line"></i> Formato de Copiado</span>
+                <span style="font-size: 0.65rem; background: rgba(2, 132, 199, 0.1); color: #0284c7; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 700;">3 opciones</span>
+              </div>
+              <a href="#" onclick="event.preventDefault(); window.closeWmsCopyNumbersMenu(); window.selectWmsCopyNumbersMode('with_prefix');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main, #1f2937); transition: background 0.15s; ${currentCopyMode === 'with_prefix' ? 'background: rgba(2, 132, 199, 0.08);' : ''}" onmouseover="this.style.background='rgba(2, 132, 199, 0.12)'" onmouseout="this.style.background='${currentCopyMode === 'with_prefix' ? 'rgba(2, 132, 199, 0.08)' : 'transparent'}'">
+                <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #0369a1;">
+                  <i class="ri-file-copy-line" style="color: #0284c7; font-size: 1rem;"></i>
+                  <span>Copiar con Prefijo (Completo)</span>
+                  ${currentCopyMode === 'with_prefix' ? '<span style="background: #0284c7; color: #ffffff; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Activo</span>' : '<span style="background: rgba(2, 132, 199, 0.1); color: #0284c7; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Original WMS</span>'}
+                </div>
+                <span style="font-size: 0.73rem; color: var(--color-text-muted, #64748b); margin-top: 0.2rem; line-height: 1.3;">Copia tal cual figura en el sistema (ej: <code style='background:rgba(0,0,0,0.06); padding:0.1rem 0.3rem; border-radius:3px;'>NOM#1018</code>).</span>
+              </a>
+              <a href="#" onclick="event.preventDefault(); window.closeWmsCopyNumbersMenu(); window.selectWmsCopyNumbersMode('without_prefix');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main, #1f2937); transition: background 0.15s; border-top: 1px solid var(--color-border); ${currentCopyMode === 'without_prefix' ? 'background: rgba(13, 148, 136, 0.08);' : ''}" onmouseover="this.style.background='rgba(13, 148, 136, 0.12)'" onmouseout="this.style.background='${currentCopyMode === 'without_prefix' ? 'rgba(13, 148, 136, 0.08)' : 'transparent'}'">
+                <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #0f766e;">
+                  <i class="ri-scissors-cut-line" style="color: #0d9488; font-size: 1rem;"></i>
+                  <span>Copiar sin Prefijo Añadido</span>
+                  ${currentCopyMode === 'without_prefix' ? '<span style="background: #0d9488; color: #ffffff; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Activo</span>' : '<span style="background: rgba(13, 148, 136, 0.15); color: #0f766e; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Sin sigla</span>'}
+                </div>
+                <span style="font-size: 0.73rem; color: var(--color-text-muted, #64748b); margin-top: 0.2rem; line-height: 1.3;">Quita la sigla del comercio agregada por Stocka (ej: <code style='background:rgba(0,0,0,0.06); padding:0.1rem 0.3rem; border-radius:3px;'>#1018</code> o número de tienda).</span>
+              </a>
+              <a href="#" onclick="event.preventDefault(); window.closeWmsCopyNumbersMenu(); window.selectWmsCopyNumbersMode('digits_only');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main, #1f2937); transition: background 0.15s; border-top: 1px solid var(--color-border); ${currentCopyMode === 'digits_only' ? 'background: rgba(79, 70, 229, 0.08);' : ''}" onmouseover="this.style.background='rgba(79, 70, 229, 0.12)'" onmouseout="this.style.background='${currentCopyMode === 'digits_only' ? 'rgba(79, 70, 229, 0.08)' : 'transparent'}'">
+                <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #4338ca;">
+                  <i class="ri-hashtag" style="color: #4f46e5; font-size: 1rem;"></i>
+                  <span>Copiar Solo Números (Dígitos Limpios)</span>
+                  ${currentCopyMode === 'digits_only' ? '<span style="background: #4f46e5; color: #ffffff; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Activo</span>' : '<span style="background: rgba(79, 70, 229, 0.12); color: #4338ca; font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Solo cifras</span>'}
+                </div>
+                <span style="font-size: 0.73rem; color: var(--color-text-muted, #64748b); margin-top: 0.2rem; line-height: 1.3;">Elimina siglas y símbolos (#, -), dejando solo los números (ej: <code style='background:rgba(0,0,0,0.06); padding:0.1rem 0.3rem; border-radius:3px;'>1018</code>).</span>
+              </a>
+            </div>
+          </div>
           <button onclick="window.wmsCreateManifestFromSelected()" class="btn" style="background: #2563eb; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" title="Crear manifiesto de retiro con los pedidos seleccionados">
             <i class="ri-file-paper-2-line"></i> Crear Manifiesto
           </button>
@@ -77949,13 +78168,19 @@ window.setupAdminCustomerAutocomplete = function() {
   const dropdown = document.getElementById('order-customer-dropdown-list-db');
   if (!searchInput || !dropdown) return;
 
+  if (searchInput._hasCustomerAutocomplete) return;
+  searchInput._hasCustomerAutocomplete = true;
+
   let debounceTimeout = null;
 
   searchInput.addEventListener('input', function() {
-    const term = this.value.trim();
+    const rawTerm = this.value.trim();
     clearTimeout(debounceTimeout);
 
-    if (term.length < 3) {
+    // Limpiar caracteres especiales de búsqueda y prefijo '#' para números de pedido
+    const cleanTerm = rawTerm.replace(/^[#\s]+/, '').replace(/[,()]/g, '').trim();
+
+    if (cleanTerm.length < 2) {
       dropdown.style.display = 'none';
       return;
     }
@@ -77965,8 +78190,8 @@ window.setupAdminCustomerAutocomplete = function() {
         const selectedCommerce = document.getElementById('order-select-commerce')?.value;
         let query = supabase
           .from('orders')
-          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
-          .or(`customer_name.ilike.%${term}%,customer_email.ilike.%${term}%`)
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at')
+          .or(`customer_name.ilike.%${cleanTerm}%,customer_email.ilike.%${cleanTerm}%,external_order_number.ilike.%${cleanTerm}%,customer_phone.ilike.%${cleanTerm}%`)
           .order('created_at', { ascending: false })
           .limit(50);
 
@@ -77980,9 +78205,16 @@ window.setupAdminCustomerAutocomplete = function() {
         const uniqueCustomers = [];
         const seenKeys = new Set();
         (data || []).forEach(order => {
-          const name = order.customer_name || '';
-          const email = order.customer_email || '';
-          const key = `${name.toLowerCase()}_${email.toLowerCase()}`;
+          const name = (order.customer_name || '').trim();
+          const email = (order.customer_email || '').trim();
+          const address = (order.shipping_address || '').trim();
+          const orderNum = (order.external_order_number || '').trim();
+
+          const isOrderSearch = orderNum && orderNum.toLowerCase().includes(cleanTerm.toLowerCase());
+          const key = isOrderSearch 
+            ? `order_${orderNum}` 
+            : `cust_${name.toLowerCase()}_${email.toLowerCase()}_${address.toLowerCase()}`;
+
           if (!seenKeys.has(key)) {
             seenKeys.add(key);
             uniqueCustomers.push(order);
@@ -77990,18 +78222,27 @@ window.setupAdminCustomerAutocomplete = function() {
         });
 
         if (uniqueCustomers.length === 0) {
-          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes anteriores</div>';
+          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes o pedidos anteriores</div>';
           dropdown.style.display = 'block';
           return;
         }
 
         let html = '';
         uniqueCustomers.forEach(c => {
+          const displayName = c.customer_name || 'Sin nombre registrado';
+          const orderBadge = c.external_order_number
+            ? `<span style="font-size: 0.72rem; background: rgba(99, 102, 241, 0.12); color: var(--color-primary); padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: monospace;">Pedido #${c.external_order_number}</span>`
+            : '';
+          const addressText = [c.shipping_address, c.shipping_city].filter(Boolean).join(', ') || 'Sin dirección registrada';
+
           html += `
-            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-              <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main);">${c.customer_name}</span>
+            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.2rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayName}</span>
+                ${orderBadge}
+              </div>
               <span style="font-size: 0.75rem; color: var(--color-text-muted);">${c.customer_email || 'Sin correo'} | ${c.customer_phone || 'Sin teléfono'}</span>
-              <span style="font-size: 0.75rem; color: var(--color-primary);">${c.shipping_address}, ${c.shipping_city}</span>
+              <span style="font-size: 0.75rem; color: var(--color-primary);">${addressText}</span>
             </div>
           `;
         });
