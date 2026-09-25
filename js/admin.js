@@ -7234,12 +7234,13 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       const pageSize = window.wmsPageSize === 'All' ? filtered.length : parseInt(window.wmsPageSize, 10);
       const startIndex = (window.wmsCurrentPage - 1) * pageSize;
       const endIndex = pageSize === filtered.length ? filtered.length : Math.min(startIndex + pageSize, filtered.length);
+      const isUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const pageOrders = filtered.slice(startIndex, endIndex);
-      const pageIds = pageOrders.map(o => o.id).filter(Boolean);
+      const pageIds = pageOrders.map(o => o.id).filter(id => id && isUuidRegex.test(String(id)));
 
       if (pageIds.length === 0) {
         if (typeof Swal !== 'undefined') {
-          Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'No hay pedidos en la página actual.', showConfirmButton: false, timer: 2500 });
+          Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'No hay pedidos válidos en la página actual.', showConfirmButton: false, timer: 2500 });
         }
         return;
       }
@@ -7257,6 +7258,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     // ----------------------------------------------------
     // MODO FILTERED (Default): Actualización inteligente
     // ----------------------------------------------------
+    const isUuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const activeTab = window.wmsActiveTab || 'Todos';
     const merchantSelect = document.getElementById('filter-merchant');
     const selectedMerchant = merchantSelect ? merchantSelect.value : '';
@@ -7276,8 +7278,22 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     let query = supabase.from('orders').select(selectStr);
 
     if (multiselectRefs.length > 0) {
-      const refsClean = multiselectRefs.map(r => `"${r.replace(/"/g, '')}"`).join(',');
-      query = query.or(`external_order_number.in.(${refsClean}),id.in.(${refsClean})`);
+      const rawRefs = multiselectRefs.map(r => r.replace(/"/g, '').trim()).filter(Boolean);
+      const allExtRefs = new Set();
+      rawRefs.forEach(r => {
+        allExtRefs.add(r);
+        if (r.startsWith('#')) allExtRefs.add(r.substring(1));
+        else allExtRefs.add('#' + r);
+      });
+      const extClean = Array.from(allExtRefs).map(r => `"${r}"`).join(',');
+      const uuidRefs = rawRefs.filter(r => isUuidRegex.test(r));
+
+      if (uuidRefs.length > 0) {
+        const uuidClean = uuidRefs.map(r => `"${r}"`).join(',');
+        query = query.or(`external_order_number.in.(${extClean}),id.in.(${uuidClean})`);
+      } else {
+        query = query.or(`external_order_number.in.(${extClean})`);
+      }
     } else {
       if (dateFrom) {
         query = query.gte('created_at', new Date(dateFrom + 'T00:00:00').toISOString());
@@ -7298,8 +7314,9 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         query = query.eq('categoria_entrega', selectedCategoria);
       }
       if (activeTab !== 'Todos') {
-        if (currentlyVisibleIds.length > 0 && currentlyVisibleIds.length <= 100) {
-          const idsCsv = currentlyVisibleIds.map(id => `"${id}"`).join(',');
+        const validUuids = currentlyVisibleIds.filter(id => id && isUuidRegex.test(String(id)));
+        if (validUuids.length > 0 && validUuids.length <= 100) {
+          const idsCsv = validUuids.map(id => `"${id}"`).join(',');
           query = query.or(`estado_wms.eq.${activeTab},id.in.(${idsCsv})`);
         } else {
           query = query.eq('estado_wms', activeTab);
@@ -7308,7 +7325,12 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       if (searchText) {
         const cleanSearch = searchText.replace(/[#]/g, '').trim();
         if (cleanSearch) {
-          query = query.or(`external_order_number.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%,id.ilike.%${cleanSearch}%`);
+          const isUuid = isUuidRegex.test(cleanSearch);
+          if (isUuid) {
+            query = query.or(`external_order_number.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%,id.eq.${cleanSearch}`);
+          } else {
+            query = query.or(`external_order_number.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%`);
+          }
         }
       }
     }
