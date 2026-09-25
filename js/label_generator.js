@@ -10,6 +10,10 @@ import supabase from './supabase.js';
   // Current active tab in the labels module: 'catalog' | 'fragile' | 'expiry'
   let currentLabelTab = 'catalog';
 
+  // Commerce variant configuration state
+  let commerceVariantConfig = null;
+  let hasCommerceVariants = false;
+
   // Fragile / Warning label generator options
   const fragileState = {
     size: '10x15', // '10x15' | '10x10' | '5x5' | '5x2.5'
@@ -181,6 +185,169 @@ import supabase from './supabase.js';
       console.error("Error fetching catalog products for labels:", err);
       localCatalogProducts = [];
     }
+  }
+
+  /**
+   * Loads commerce variant configuration from comercios_adicional_config or global helper
+   */
+  async function loadCommerceVariantConfig(commerce) {
+    if (!commerce) return null;
+    if (typeof window.getCommerceVariantConfig === 'function') {
+      try {
+        return await window.getCommerceVariantConfig(commerce);
+      } catch (e) {
+        console.warn('Error calling getCommerceVariantConfig:', e);
+      }
+    }
+    try {
+      const { data } = await supabase
+        .from('comercios_adicional_config')
+        .select('plat_siglas_config')
+        .eq('comercio', commerce)
+        .maybeSingle();
+      if (data && data.plat_siglas_config && data.plat_siglas_config.variant_config) {
+        return data.plat_siglas_config.variant_config;
+      }
+    } catch (err) {
+      console.warn("Could not fetch variant config from Supabase:", err);
+    }
+    return null;
+  }
+
+  /**
+   * Extracts variant attributes (color, talla, var1, var2) from a product
+   */
+  function extractProductVariants(p, config) {
+    if (!p) return { color: '', talla: '', var1: '', var2: '' };
+    if (typeof window.extractRloProductVariants === 'function') {
+      return window.extractRloProductVariants(p, config);
+    }
+
+    const naming = (config && config.naming) || {
+      color: 'Color',
+      talla: 'Talla',
+      var1: 'Variable 1',
+      var2: 'Variable 2'
+    };
+
+    let colorVal = (p.color || '').trim();
+    let tallaVal = (p.talla || '').trim();
+    let var1Val = (p.variable_1 || p.var1 || '').trim();
+    let var2Val = (p.variable_2 || p.var2 || '').trim();
+
+    // Check options JSON
+    if (p.options) {
+      try {
+        let opts = typeof p.options === 'string' ? JSON.parse(p.options) : p.options;
+        if (opts && typeof opts === 'object') {
+          if (!Array.isArray(opts)) {
+            for (const [k, v] of Object.entries(opts)) {
+              const valStr = String(v || '').trim();
+              if (!valStr) continue;
+              const lk = k.toLowerCase().trim();
+              if (lk === 'color' || lk === 'colour' || (naming.color && lk === naming.color.toLowerCase())) {
+                if (!colorVal) colorVal = valStr;
+              } else if (lk === 'talla' || lk === 'size' || (naming.talla && lk === naming.talla.toLowerCase())) {
+                if (!tallaVal) tallaVal = valStr;
+              } else if (lk === 'variable_1' || lk === 'var1' || lk === 'manga' || (naming.var1 && lk === naming.var1.toLowerCase())) {
+                if (!var1Val) var1Val = valStr;
+              } else if (lk === 'variable_2' || lk === 'var2' || lk === 'cuello' || (naming.var2 && lk === naming.var2.toLowerCase())) {
+                if (!var2Val) var2Val = valStr;
+              } else if (!var1Val && !lk.includes('barcode') && !lk.includes('img') && !lk.includes('price')) {
+                var1Val = valStr;
+              } else if (!var2Val && !lk.includes('barcode') && !lk.includes('img') && !lk.includes('price')) {
+                var2Val = valStr;
+              }
+            }
+          } else if (Array.isArray(opts)) {
+            opts.forEach(o => {
+              if (o && o.name && o.value) {
+                const lk = String(o.name).toLowerCase().trim();
+                const valStr = String(o.value).trim();
+                if (lk === 'color' || lk === 'colour' || (naming.color && lk === naming.color.toLowerCase())) {
+                  if (!colorVal) colorVal = valStr;
+                } else if (lk === 'talla' || lk === 'size' || (naming.talla && lk === naming.talla.toLowerCase())) {
+                  if (!tallaVal) tallaVal = valStr;
+                } else if (lk === 'variable_1' || lk === 'var1' || lk === 'manga' || (naming.var1 && lk === naming.var1.toLowerCase())) {
+                  if (!var1Val) var1Val = valStr;
+                } else if (lk === 'variable_2' || lk === 'var2' || lk === 'cuello' || (naming.var2 && lk === naming.var2.toLowerCase())) {
+                  if (!var2Val) var2Val = valStr;
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Fallback if encoded with slashes in title: "Polera / Negro / L"
+    if ((!tallaVal || !colorVal) && p.name && p.name.includes('/')) {
+      const slashParts = p.name.split('/').map(s => s.trim());
+      if (slashParts.length >= 2) {
+        const lastPart = slashParts[slashParts.length - 1];
+        const secondLast = slashParts.length >= 3 ? slashParts[slashParts.length - 2] : '';
+        const commonSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', 'UNICA', 'ÚNICA'];
+        if (!tallaVal && commonSizes.includes(lastPart.toUpperCase())) {
+          tallaVal = lastPart.toUpperCase();
+          if (!colorVal && secondLast) colorVal = secondLast;
+        }
+      }
+    }
+
+    return { color: colorVal, talla: tallaVal, var1: var1Val, var2: var2Val };
+  }
+
+  /**
+   * Formats human-readable variants string for labels and previews
+   */
+  function formatProductVariantString(item, naming) {
+    if (!item) return '';
+    const n = naming || (commerceVariantConfig && commerceVariantConfig.naming) || {
+      color: 'Color',
+      talla: 'Talla',
+      var1: 'Variable 1',
+      var2: 'Variable 2'
+    };
+
+    const variants = extractProductVariants(item, { naming: n });
+    const parts = [];
+    if (variants.color) parts.push(`${n.color || 'Color'}: ${variants.color}`);
+    if (variants.talla) parts.push(`${n.talla || 'Talla'}: ${variants.talla}`);
+    if (variants.var1) parts.push(`${n.var1 || 'Var 1'}: ${variants.var1}`);
+    if (variants.var2) parts.push(`${n.var2 || 'Var 2'}: ${variants.var2}`);
+
+    return parts.join(' | ');
+  }
+
+  /**
+   * Checks if the commerce has active products with variants or configured options
+   */
+  function checkCommerceHasVariants(products, config) {
+    if (!products || products.length === 0) return false;
+
+    // Filter active products first (status !== 'archived' && status !== 'inactive')
+    const activeProducts = products.filter(p => p.status !== 'archived' && p.status !== 'inactive');
+    const prodsToCheck = activeProducts.length > 0 ? activeProducts : products;
+
+    const hasVariantsInCatalog = prodsToCheck.some(p => {
+      const v = extractProductVariants(p, config);
+      return !!(v.color || v.talla || v.var1 || v.var2);
+    });
+
+    if (hasVariantsInCatalog) return true;
+
+    // Also check if config has defined variant options
+    if (config && config.options) {
+      const opts = config.options;
+      if ((opts.color && opts.color.length > 0) ||
+          (opts.talla && opts.talla.length > 0) ||
+          (opts.var1 && opts.var1.length > 0) ||
+          (opts.var2 && opts.var2.length > 0)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -431,6 +598,10 @@ import supabase from './supabase.js';
     const assignedComercios = (window.currentCompany || '').split(',').map(c => c.trim()).filter(Boolean);
     const activeCommerce = isAdmin ? window.activeAdminComercio : (window.activeIntegrationCommerce || assignedComercios[0] || '');
 
+    // Fetch commerce variant configuration and check if commerce has active products with variants
+    commerceVariantConfig = await loadCommerceVariantConfig(activeCommerce);
+    hasCommerceVariants = checkCommerceHasVariants(localCatalogProducts, commerceVariantConfig);
+
     // Fetch stock declarations/incomes for this commerce
     let declarations = [];
     try {
@@ -495,6 +666,17 @@ import supabase from './supabase.js';
               <input type="checkbox" id="global-label-readable" checked style="width: auto; cursor: pointer;">
               <label for="global-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Lectura humana (texto bajo las barras)</label>
             </div>
+
+            ${hasCommerceVariants ? `
+            <div id="container-label-variants" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; background: rgba(59, 130, 246, 0.05); padding: 0.45rem 0.6rem; border-radius: var(--radius-md); border: 1px dashed rgba(59, 130, 246, 0.35);">
+              <input type="checkbox" id="global-label-variants" checked style="width: auto; cursor: pointer;">
+              <label for="global-label-variants" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main); font-weight: 500; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-price-tag-3-line" style="color: var(--color-primary); font-size: 0.95rem;"></i>
+                <span>Incorporar datos de variantes</span>
+                <span class="badge" style="font-size: 0.68rem; background: rgba(59, 130, 246, 0.15); color: var(--color-primary); padding: 0.1rem 0.35rem; border-radius: 4px;">Talla/Color</span>
+              </label>
+            </div>
+            ` : ''}
             
             <div>
               <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Origen del Código</label>
@@ -2668,6 +2850,7 @@ import supabase from './supabase.js';
     const templateSelect = document.getElementById('global-label-template');
     const readableCb = document.getElementById('global-label-readable');
     const sourceSelect = document.getElementById('global-label-source');
+    const variantsCb = document.getElementById('global-label-variants');
     
     const searchInput = document.getElementById('label-search-input');
     const dropdown = document.getElementById('label-autocomplete-dropdown');
@@ -2677,7 +2860,7 @@ import supabase from './supabase.js';
     const btnEmit = document.getElementById('btn-emit-bulk-labels');
 
     // Trigger update of preview on configurations change
-    [sizeSelect, templateSelect, readableCb, sourceSelect].forEach(element => {
+    [sizeSelect, templateSelect, readableCb, sourceSelect, variantsCb].forEach(element => {
       element?.addEventListener('change', () => {
         updateQueueUI();
       });
@@ -2704,18 +2887,23 @@ import supabase from './supabase.js';
       } else {
         dropdown.innerHTML = matches.map(p => {
           const qty = p.inventory && p.inventory[0] ? p.inventory[0].quantity : 0;
+          const varStr = formatProductVariantString(p, commerceVariantConfig?.naming);
+          const varBadge = varStr 
+            ? `<span class="badge" style="font-size:0.72rem;background:rgba(59,130,246,0.08);color:var(--color-primary);border:1px solid rgba(59,130,246,0.2);padding:0.1rem 0.35rem;border-radius:3px;margin-left:0.4rem;font-weight:600;"><i class="ri-price-tag-3-line" style="margin-right:2px;"></i>${escapeHtml(varStr)}</span>`
+            : '';
           const barcodeDetail = p.barcode_wms 
             ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:#2563eb;font-family:monospace;">[WMS: ${escapeHtml(p.barcode_wms)}]</span>`
             : (p.barcode ? `<span style="margin-left:0.5rem;font-size:0.75rem;color:var(--color-text-muted);font-family:monospace;">[${escapeHtml(p.barcode)}]</span>` : '');
 
           return `
             <div class="label-search-item" data-id="${p.id}" style="padding:0.6rem 0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);display:flex;justify-content:space-between;align-items:center;transition:background 0.15s;font-size:0.85rem;">
-              <div>
+              <div style="flex:1;min-width:0;margin-right:0.5rem;">
                 <strong style="color:var(--color-text-main);">${escapeHtml(p.sku)}</strong>
                 <span style="color:var(--color-text-muted);margin-left:0.5rem;font-size:0.8rem;">${escapeHtml(p.name)}</span>
+                ${varBadge}
                 ${barcodeDetail}
               </div>
-              <span class="badge" style="font-size:0.75rem;background:rgba(59,130,246,0.08);color:var(--color-primary);padding:0.15rem 0.4rem;border-radius:4px;">Stock: ${qty}</span>
+              <span class="badge" style="font-size:0.75rem;background:rgba(59,130,246,0.08);color:var(--color-primary);padding:0.15rem 0.4rem;border-radius:4px;white-space:nowrap;">Stock: ${qty}</span>
             </div>
           `;
         }).join('');
@@ -2742,6 +2930,11 @@ import supabase from './supabase.js';
             name: prod.name,
             barcode: prod.barcode || '',
             barcode_wms: prod.barcode_wms || '',
+            color: prod.color || '',
+            talla: prod.talla || '',
+            variable_1: prod.variable_1 || '',
+            variable_2: prod.variable_2 || '',
+            options: prod.options || null,
             qty: 1
           });
         }
@@ -2802,6 +2995,11 @@ import supabase from './supabase.js';
               name: p.name,
               barcode: p.barcode || '',
               barcode_wms: p.barcode_wms || '',
+              color: p.color || '',
+              talla: p.talla || '',
+              variable_1: p.variable_1 || '',
+              variable_2: p.variable_2 || '',
+              options: p.options || null,
               qty: qty
             };
           });
@@ -2828,12 +3026,14 @@ import supabase from './supabase.js';
       const template = templateSelect.value;
       const withHumanReadable = readableCb.checked;
       const dataSource = sourceSelect.value;
+      const withVariants = variantsCb ? variantsCb.checked : false;
 
       window.printLabels(printQueue, {
         size,
         template,
         withHumanReadable,
-        dataSource
+        dataSource,
+        withVariants
       });
     });
 
@@ -2849,12 +3049,14 @@ import supabase from './supabase.js';
       const template = templateSelect.value;
       const withHumanReadable = readableCb.checked;
       const dataSource = sourceSelect.value;
+      const withVariants = variantsCb ? variantsCb.checked : false;
 
       window.showZPLModal(printQueue, {
         size,
         template,
         withHumanReadable,
-        dataSource
+        dataSource,
+        withVariants
       });
     });
 
@@ -3407,6 +3609,7 @@ import supabase from './supabase.js';
     const template = document.getElementById('global-label-template')?.value || 'name+barcode';
     const withHumanReadable = document.getElementById('global-label-readable')?.checked || false;
     const dataSource = document.getElementById('global-label-source')?.value || 'barcode_wms';
+    const withVariants = hasCommerceVariants && (document.getElementById('global-label-variants')?.checked ?? false);
 
     // Sum physical copies
     const totalCopies = printQueue.reduce((acc, item) => acc + item.qty, 0);
@@ -3428,7 +3631,7 @@ import supabase from './supabase.js';
         </tr>
       `;
       // Render placeholder preview
-      renderLivePreview(null, { size, template, withHumanReadable, dataSource });
+      renderLivePreview(null, { size, template, withHumanReadable, dataSource, withVariants });
       return;
     }
 
@@ -3436,9 +3639,21 @@ import supabase from './supabase.js';
     tbody.innerHTML = printQueue.map((item, index) => {
       const codeVal = resolveLabelCode(item, dataSource);
       const badgeHtml = getLabelCodeSourceBadge(item, dataSource);
+      const varStr = formatProductVariantString(item, commerceVariantConfig?.naming);
+      const varBadge = varStr ? `
+        <div style="font-size:0.75rem;margin-top:3px;display:flex;align-items:center;gap:4px;">
+          <span class="badge" style="background:rgba(59,130,246,0.08);color:var(--color-primary);border:1px solid rgba(59,130,246,0.22);padding:0.1rem 0.35rem;border-radius:3px;font-size:0.7rem;font-weight:600;">
+            <i class="ri-price-tag-3-line" style="margin-right:2px;"></i>${escapeHtml(varStr)}
+          </span>
+        </div>
+      ` : '';
+
       return `
         <tr style="border-bottom:1px solid var(--color-border);background:var(--color-surface);vertical-align:middle;">
-          <td style="padding:0.75rem 0.8rem;font-weight:500;color:var(--color-text-main);">${escapeHtml(item.name)}</td>
+          <td style="padding:0.75rem 0.8rem;font-weight:500;color:var(--color-text-main);">
+            ${escapeHtml(item.name)}
+            ${varBadge}
+          </td>
           <td style="padding:0.75rem 0.8rem;color:var(--color-text-muted);font-family:monospace;font-size:0.8rem;">${escapeHtml(item.sku)}</td>
           <td style="padding:0.75rem 0.8rem;text-align:center;font-family:monospace;color:var(--color-primary);font-size:0.8rem;">
             ${escapeHtml(codeVal)}${badgeHtml}
@@ -3458,7 +3673,7 @@ import supabase from './supabase.js';
     }).join('');
 
     // Render preview of the first element in queue
-    renderLivePreview(printQueue[0], { size, template, withHumanReadable, dataSource });
+    renderLivePreview(printQueue[0], { size, template, withHumanReadable, dataSource, withVariants });
   }
 
   // Exposed helper functions for row actions
@@ -3502,6 +3717,7 @@ import supabase from './supabase.js';
 
     const valueToEncode = resolveLabelCode(item, options.dataSource);
     const barcodeSVG = window.generateBarcodeSVG(valueToEncode, options.withHumanReadable, options.size);
+    const variantStr = options.withVariants ? formatProductVariantString(item, commerceVariantConfig?.naming) : '';
 
     // Apply exact proportions for the simulated sticker inside the box
     let w = '200px';
@@ -3509,22 +3725,56 @@ import supabase from './supabase.js';
     let labelPadding = '6px';
     let nameFontSize = '7.5px';
     let maxNameHeight = '18px';
+    let nameLineClamp = 2;
+    let variantFontSize = '6.8px';
+    let variantPadding = '1px 3px';
+    let variantMarginBottom = '3px';
 
     if (options.size === '5x2.5') {
       w = '200px'; h = '100px'; // 2:1 Aspect Ratio
-      labelPadding = '6px';
-      nameFontSize = '7.5px';
-      maxNameHeight = '18px';
+      labelPadding = '5px 6px';
+      if (variantStr) {
+        nameFontSize = '7px';
+        maxNameHeight = '12px';
+        nameLineClamp = 1;
+        variantFontSize = '6.5px';
+        variantPadding = '0.5px 3px';
+        variantMarginBottom = '2px';
+      } else {
+        nameFontSize = '7.5px';
+        maxNameHeight = '18px';
+        nameLineClamp = 2;
+      }
     } else if (options.size === '5x5') {
       w = '160px'; h = '160px'; // 1:1 Aspect Ratio
-      labelPadding = '10px';
-      nameFontSize = '9px';
-      maxNameHeight = '30px';
+      labelPadding = '8px';
+      if (variantStr) {
+        nameFontSize = '8.5px';
+        maxNameHeight = '24px';
+        nameLineClamp = 2;
+        variantFontSize = '8px';
+        variantPadding = '1.5px 4px';
+        variantMarginBottom = '3px';
+      } else {
+        nameFontSize = '9px';
+        maxNameHeight = '30px';
+        nameLineClamp = 3;
+      }
     } else if (options.size === '10x15') {
       w = '160px'; h = '240px'; // 2:3 Aspect Ratio
-      labelPadding = '15px';
-      nameFontSize = '11px';
-      maxNameHeight = '42px';
+      labelPadding = '12px 14px';
+      if (variantStr) {
+        nameFontSize = '10px';
+        maxNameHeight = '32px';
+        nameLineClamp = 2;
+        variantFontSize = '9px';
+        variantPadding = '2px 6px';
+        variantMarginBottom = '6px';
+      } else {
+        nameFontSize = '11px';
+        maxNameHeight = '42px';
+        nameLineClamp = 3;
+      }
     }
 
     // Safety length warning for EAN codes on small tags
@@ -3561,16 +3811,34 @@ import supabase from './supabase.js';
             font-size: ${nameFontSize};
             font-weight: 700;
             line-height: 1.1;
-            margin-bottom: 4px;
+            margin-bottom: ${variantStr ? '2px' : '4px'};
             max-height: ${maxNameHeight};
             overflow: hidden;
             display: -webkit-box;
-            -webkit-line-clamp: 2;
+            -webkit-line-clamp: ${nameLineClamp};
             -webkit-box-orient: vertical;
             width: 100%;
             word-break: break-word;
             color: #000;
           ">${escapeHtml(item.name)}</div>
+        ` : ''}
+
+        ${variantStr ? `
+          <div class="label-variant" style="
+            font-size: ${variantFontSize};
+            font-weight: 700;
+            line-height: 1.1;
+            color: #1e3a8a;
+            background: rgba(59,130,246,0.08);
+            border: 1px solid rgba(59,130,246,0.22);
+            border-radius: 2px;
+            padding: ${variantPadding};
+            margin-bottom: ${variantMarginBottom};
+            max-width: 96%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          ">${escapeHtml(variantStr)}</div>
         ` : ''}
 
         <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; overflow: hidden;">
@@ -3579,7 +3847,7 @@ import supabase from './supabase.js';
 
         ${options.size === '10x15' ? `
           <div style="font-size: 8px; color: #555; text-align: left; width: 100%; border-top: 1px dashed #ddd; padding-top: 4px; margin-top: 4px; display: flex; justify-content: space-between;">
-            <span>SKU: ${escapeHtml(item.sku)}</span>
+            <span>SKU: ${escapeHtml(item.sku)}${variantStr ? ` | ${escapeHtml(variantStr)}` : ''}</span>
             <span>STOCKA WMS</span>
           </div>
         ` : ''}
@@ -3597,6 +3865,12 @@ import supabase from './supabase.js';
       Swal.fire('Error', 'No se encontró la información del producto.', 'error');
       return;
     }
+
+    const commerce = getActiveCommerce();
+    const modalVariantConfig = await loadCommerceVariantConfig(commerce);
+    const modalHasCommerceVariants = checkCommerceHasVariants(localCatalogProducts, modalVariantConfig);
+    const prodVariantStr = formatProductVariantString(product, modalVariantConfig?.naming);
+    const hasProductVariants = !!prodVariantStr;
 
     const defaultSku = product.sku || '';
     const defaultBarcode = product.barcode || '';
@@ -3630,6 +3904,19 @@ import supabase from './supabase.js';
           <input type="checkbox" id="swal-label-readable" checked style="width: auto; cursor: pointer; margin: 0;">
           <label for="swal-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color:var(--color-text-main);">Lectura humana (texto bajo barras)</label>
         </div>
+
+        ${modalHasCommerceVariants ? `
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.15rem; background: rgba(59, 130, 246, 0.05); padding: 0.45rem 0.6rem; border-radius: var(--radius-md); border: 1px dashed rgba(59, 130, 246, 0.35);">
+          <input type="checkbox" id="swal-label-variants" ${hasProductVariants ? 'checked' : ''} style="width: auto; cursor: pointer; margin: 0;">
+          <label for="swal-label-variants" style="font-size: 0.85rem; cursor: pointer; user-select: none; color:var(--color-text-main); font-weight: 500;">
+            <i class="ri-price-tag-3-line" style="color:var(--color-primary);margin-right:2px;"></i>
+            Incorporar datos de variantes
+            ${hasProductVariants 
+              ? `<span style="display:block;font-size:0.75rem;color:var(--color-primary);font-weight:600;margin-top:2px;">[${escapeHtml(prodVariantStr)}]</span>` 
+              : '<span style="display:block;font-size:0.75rem;color:var(--color-text-muted);margin-top:2px;">(Sin variantes asignadas a este producto)</span>'}
+          </label>
+        </div>
+        ` : ''}
 
         <div>
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Origen del Código de Barras</label>
@@ -3679,6 +3966,7 @@ import supabase from './supabase.js';
         template: document.getElementById('swal-label-template').value,
         withHumanReadable: document.getElementById('swal-label-readable').checked,
         dataSource: document.getElementById('swal-label-source').value,
+        withVariants: document.getElementById('swal-label-variants')?.checked || false,
         qty: parseInt(document.getElementById('swal-label-qty').value, 10) || 1
       };
     };
@@ -3701,6 +3989,7 @@ import supabase from './supabase.js';
         const templateSelect = modal.querySelector('#swal-label-template');
         const readableCb = modal.querySelector('#swal-label-readable');
         const sourceSelect = modal.querySelector('#swal-label-source');
+        const variantsCb = modal.querySelector('#swal-label-variants');
         const previewDiv = modal.querySelector('#swal-preview-wrapper');
 
         // Render preview inside swal dialog
@@ -3709,6 +3998,8 @@ import supabase from './supabase.js';
           const template = templateSelect.value;
           const withHumanReadable = readableCb.checked;
           const dataSource = sourceSelect.value;
+          const withVariants = variantsCb ? variantsCb.checked : false;
+          const variantStr = withVariants ? prodVariantStr : '';
 
           const codeVal = resolveLabelCode(product, dataSource);
           const barcodeSVG = window.generateBarcodeSVG(codeVal, withHumanReadable, size);
@@ -3717,13 +4008,53 @@ import supabase from './supabase.js';
           let labelPadding = '6px';
           let nameFontSize = '7.5px';
           let maxNameHeight = '18px';
+          let nameLineClamp = 2;
+          let variantFontSize = '6.8px';
+          let variantPadding = '1px 3px';
+          let variantMarginBottom = '3px';
 
           if (size === '5x2.5') {
-            w = '200px'; h = '100px'; labelPadding = '6px'; nameFontSize = '7.5px'; maxNameHeight = '18px';
+            w = '200px'; h = '100px'; labelPadding = '5px 6px';
+            if (variantStr) {
+              nameFontSize = '7px';
+              maxNameHeight = '12px';
+              nameLineClamp = 1;
+              variantFontSize = '6.5px';
+              variantPadding = '0.5px 3px';
+              variantMarginBottom = '2px';
+            } else {
+              nameFontSize = '7.5px';
+              maxNameHeight = '18px';
+              nameLineClamp = 2;
+            }
           } else if (size === '5x5') {
-            w = '140px'; h = '140px'; labelPadding = '8px'; nameFontSize = '9px'; maxNameHeight = '30px';
+            w = '140px'; h = '140px'; labelPadding = '7px';
+            if (variantStr) {
+              nameFontSize = '8px';
+              maxNameHeight = '22px';
+              nameLineClamp = 2;
+              variantFontSize = '7.5px';
+              variantPadding = '1px 4px';
+              variantMarginBottom = '3px';
+            } else {
+              nameFontSize = '9px';
+              maxNameHeight = '30px';
+              nameLineClamp = 3;
+            }
           } else if (size === '10x15') {
-            w = '140px'; h = '210px'; labelPadding = '12px'; nameFontSize = '10.5px'; maxNameHeight = '42px';
+            w = '140px'; h = '210px'; labelPadding = '10px 12px';
+            if (variantStr) {
+              nameFontSize = '9.5px';
+              maxNameHeight = '28px';
+              nameLineClamp = 2;
+              variantFontSize = '8.5px';
+              variantPadding = '2px 5px';
+              variantMarginBottom = '5px';
+            } else {
+              nameFontSize = '10.5px';
+              maxNameHeight = '42px';
+              nameLineClamp = 3;
+            }
           }
 
           let lengthWarning = '';
@@ -3756,23 +4087,42 @@ import supabase from './supabase.js';
                   font-size: ${nameFontSize};
                   font-weight: 700;
                   line-height: 1.1;
-                  margin-bottom: 4px;
+                  margin-bottom: ${variantStr ? '2px' : '4px'};
                   max-height: ${maxNameHeight};
                   overflow: hidden;
                   display: -webkit-box;
-                  -webkit-line-clamp: 2;
+                  -webkit-line-clamp: ${nameLineClamp};
                   -webkit-box-orient: vertical;
                   width: 100%;
                   word-break: break-word;
                   color: #000;
+                  text-align: center;
                 ">${escapeHtml(product.name)}</div>
+              ` : ''}
+              ${variantStr ? `
+                <div style="
+                  font-size: ${variantFontSize};
+                  font-weight: 700;
+                  line-height: 1.1;
+                  color: #1e3a8a;
+                  background: rgba(59,130,246,0.08);
+                  border: 1px solid rgba(59,130,246,0.22);
+                  border-radius: 2px;
+                  padding: ${variantPadding};
+                  margin-bottom: ${variantMarginBottom};
+                  max-width: 96%;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  text-align: center;
+                ">${escapeHtml(variantStr)}</div>
               ` : ''}
               <div style="width: 100%; display: flex; justify-content: center; align-items: center; flex: 1; overflow: hidden;">
                 ${barcodeSVG}
               </div>
               ${size === '10x15' ? `
                 <div style="font-size: 8px; color: #555; text-align: left; width: 100%; border-top: 1px dashed #ddd; padding-top: 4px; margin-top: 4px; display: flex; justify-content: space-between;">
-                  <span>SKU: ${escapeHtml(product.sku)}</span>
+                  <span>SKU: ${escapeHtml(product.sku)}${variantStr ? ` | ${escapeHtml(variantStr)}` : ''}</span>
                   <span>STOCKA WMS</span>
                 </div>
               ` : ''}
@@ -3781,7 +4131,7 @@ import supabase from './supabase.js';
         };
 
         // Attach listeners for live changes inside sweetalert
-        [sizeSelect, templateSelect, readableCb, sourceSelect].forEach(el => {
+        [sizeSelect, templateSelect, readableCb, sourceSelect, variantsCb].forEach(el => {
           el?.addEventListener('change', updateSwalPreview);
         });
 
@@ -3799,6 +4149,11 @@ import supabase from './supabase.js';
           name: product.name,
           barcode: product.barcode || '',
           barcode_wms: product.barcode_wms || '',
+          color: product.color || '',
+          talla: product.talla || '',
+          variable_1: product.variable_1 || '',
+          variable_2: product.variable_2 || '',
+          options: product.options || null,
           qty: opts.qty
         }];
         window.printLabels(singleQueue, opts);
@@ -3810,6 +4165,11 @@ import supabase from './supabase.js';
           name: product.name,
           barcode: product.barcode || '',
           barcode_wms: product.barcode_wms || '',
+          color: product.color || '',
+          talla: product.talla || '',
+          variable_1: product.variable_1 || '',
+          variable_2: product.variable_2 || '',
+          options: product.options || null,
           qty: opts.qty
         }];
         window.showZPLModal(singleQueue, opts);
@@ -3842,6 +4202,8 @@ import supabase from './supabase.js';
     queue.forEach(item => {
       const codeVal = resolveLabelCode(item, options.dataSource);
       const isReadable = options.withHumanReadable ? 'Y' : 'N';
+      const varStr = options.withVariants ? formatProductVariantString(item, commerceVariantConfig?.naming) : '';
+      const cleanVariant = (varStr || '').substring(0, 70).replace(/[\^\~]/g, '');
       
       const cleanName = (item.name || '').substring(0, 80).replace(/[\^\~]/g, ''); 
       const cleanSku = (item.sku || '').replace(/[\^\~]/g, '');
@@ -3858,39 +4220,71 @@ import supabase from './supabase.js';
           if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 30);
             const line2 = cleanName.substring(30, 60);
-            zpl += `^FO20,20^A0N,18,18^FD${line1}^FS\n`;
-            if (line2) {
-              zpl += `^FO20,40^A0N,18,18^FD${line2}^FS\n`;
+            zpl += `^FO20,16^A0N,17,16^FD${line1}^FS\n`;
+            if (cleanVariant) {
+              zpl += `^FO20,34^A0N,15,14^FD${cleanVariant.substring(0, 34)}^FS\n`;
+              zpl += `^BY${barcodeWidth},3,52^FT20,140^BCN,52,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              if (line2) {
+                zpl += `^FO20,36^A0N,17,16^FD${line2}^FS\n`;
+              }
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,150^BCN,70,${isReadable},N,N^FD${cleanCode}^FS\n`;
             }
-            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,150^BCN,70,${isReadable},N,N^FD${cleanCode}^FS\n`;
           } else {
-            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,130^BCN,90,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            if (cleanVariant) {
+              zpl += `^FO20,18^A0N,16,14^FD${cleanVariant.substring(0, 34)}^FS\n`;
+              zpl += `^BY${barcodeWidth},3,70^FT20,140^BCN,70,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,130^BCN,90,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
           }
         } else if (options.size === '5x5') {
           if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 25);
             const line2 = cleanName.substring(25, 50);
-            const line3 = cleanName.substring(50, 75);
-            zpl += `^FO20,30^A0N,22,20^FD${line1}^FS\n`;
-            if (line2) zpl += `^FO20,55^A0N,22,20^FD${line2}^FS\n`;
-            if (line3) zpl += `^FO20,80^A0N,22,20^FD${line3}^FS\n`;
-            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,320^BCN,140,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            zpl += `^FO20,25^A0N,22,20^FD${line1}^FS\n`;
+            if (cleanVariant) {
+              if (line2) zpl += `^FO20,48^A0N,20,18^FD${line2}^FS\n`;
+              const varY = line2 ? 72 : 50;
+              zpl += `^FO20,${varY}^A0N,19,17^FD[ ${cleanVariant.substring(0, 32)} ]^FS\n`;
+              zpl += `^BY${barcodeWidth},3,115^FT20,315^BCN,115,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              const line3 = cleanName.substring(50, 75);
+              if (line2) zpl += `^FO20,50^A0N,22,20^FD${line2}^FS\n`;
+              if (line3) zpl += `^FO20,75^A0N,22,20^FD${line3}^FS\n`;
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,320^BCN,140,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
           } else {
-            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,280^BCN,180,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            if (cleanVariant) {
+              zpl += `^FO20,35^A0N,22,20^FD[ ${cleanVariant.substring(0, 32)} ]^FS\n`;
+              zpl += `^BY${barcodeWidth},3,150^FT20,280^BCN,150,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT20,280^BCN,180,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
           }
         } else if (options.size === '10x15') {
           if (options.template === 'name+barcode') {
             const line1 = cleanName.substring(0, 35);
             const line2 = cleanName.substring(35, 70);
-            const line3 = cleanName.substring(70, 105);
-            zpl += `^FO40,60^A0N,36,32^FD${line1}^FS\n`;
-            if (line2) zpl += `^FO40,105^A0N,36,32^FD${line2}^FS\n`;
-            if (line3) zpl += `^FO40,150^A0N,36,32^FD${line3}^FS\n`;
-            zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,820^BCN,350,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            zpl += `^FO40,50^A0N,34,30^FD${line1}^FS\n`;
+            if (line2) zpl += `^FO40,90^A0N,34,30^FD${line2}^FS\n`;
+            if (cleanVariant) {
+              const varY = line2 ? 135 : 95;
+              zpl += `^FO40,${varY}^A0N,28,26^FD[ ${cleanVariant.substring(0, 45)} ]^FS\n`;
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,820^BCN,350,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            } else {
+              const line3 = cleanName.substring(70, 105);
+              if (line3) zpl += `^FO40,130^A0N,34,30^FD${line3}^FS\n`;
+              zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,820^BCN,350,${isReadable},N,N^FD${cleanCode}^FS\n`;
+            }
           } else {
+            if (cleanVariant) {
+              zpl += `^FO40,80^A0N,34,30^FD[ ${cleanVariant.substring(0, 45)} ]^FS\n`;
+            }
             zpl += `^BY${barcodeWidth},3,${barcodeHeight}^FT40,750^BCN,420,${isReadable},N,N^FD${cleanCode}^FS\n`;
           }
-          zpl += `^FO40,1100^A0N,26,24^FDSKU: ${cleanSku} | WMS STOCKA^FS\n`;
+          const footerVar = cleanVariant ? ` | ${cleanVariant.substring(0, 25)}` : '';
+          zpl += `^FO40,1100^A0N,26,24^FDSKU: ${cleanSku}${footerVar} | WMS STOCKA^FS\n`;
         }
         
         zpl += `^XZ\n`;
@@ -3988,13 +4382,18 @@ import supabase from './supabase.js';
     queue.forEach(item => {
       const codeVal = resolveLabelCode(item, options.dataSource);
       const barcodeSVG = window.generateBarcodeSVG(codeVal, options.withHumanReadable, options.size);
+      const varStr = options.withVariants ? formatProductVariantString(item, commerceVariantConfig?.naming) : '';
 
       // Render copies for physical printing pages
       for (let c = 0; c < item.qty; c++) {
         labelPagesHTML += `
-          <div class="label-page size-${options.size}">
+          <div class="label-page size-${options.size.replace('.', '-')} size-${options.size} ${varStr ? 'has-variant' : ''}">
             ${options.template === 'name+barcode' ? `
               <div class="label-name">${escapeHtml(item.name)}</div>
+            ` : ''}
+
+            ${varStr ? `
+              <div class="label-variant">${escapeHtml(varStr)}</div>
             ` : ''}
 
             <div class="barcode-container">
@@ -4005,7 +4404,7 @@ import supabase from './supabase.js';
               <div class="extra-info">
                 <div style="display: flex; justify-content: space-between;">
                   <strong>SKU: ${escapeHtml(item.sku)}</strong>
-                  <span>STOCKA WMS</span>
+                  <span>${varStr ? escapeHtml(varStr) + ' | ' : ''}STOCKA WMS</span>
                 </div>
               </div>
             ` : ''}
@@ -4051,12 +4450,12 @@ import supabase from './supabase.js';
           }
 
           /* 1. Size Format: 5x2.5 cm (horizontal) */
-          .size-5x2-5 {
+          .size-5x2-5, .size-5x2\\.5 {
             width: 5cm;
             height: 2.5cm;
-            padding: 0.2cm 0.25cm;
+            padding: 0.15cm 0.25cm;
           }
-          .size-5x2-5 .label-name {
+          .size-5x2-5 .label-name, .size-5x2\\.5 .label-name {
             font-size: 7.5px;
             font-weight: 700;
             line-height: 1.15;
@@ -4068,6 +4467,24 @@ import supabase from './supabase.js';
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             word-break: break-all;
+          }
+          .size-5x2-5.has-variant .label-name, .size-5x2\\.5.has-variant .label-name {
+            font-size: 6.8px;
+            max-height: 10px;
+            -webkit-line-clamp: 1;
+            margin-bottom: 1px;
+          }
+          .size-5x2-5 .label-variant, .size-5x2\\.5 .label-variant {
+            font-size: 6.5px;
+            font-weight: 700;
+            line-height: 1.1;
+            text-transform: uppercase;
+            width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-bottom: 2px;
+            padding: 0.5px 2px;
           }
           
           /* 2. Size Format: 5x5 cm (square) */
@@ -4089,6 +4506,24 @@ import supabase from './supabase.js';
             -webkit-box-orient: vertical;
             word-break: break-all;
           }
+          .size-5x5.has-variant .label-name {
+            -webkit-line-clamp: 2;
+            max-height: 26px;
+            margin-bottom: 2px;
+          }
+          .size-5x5 .label-variant {
+            font-size: 8.5px;
+            font-weight: 700;
+            line-height: 1.15;
+            margin-bottom: 4px;
+            padding: 1px 4px;
+            border: 1px solid #000;
+            border-radius: 2px;
+            max-width: 95%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
 
           /* 3. Size Format: 10x15 cm (large shipping) */
           .size-10x15 {
@@ -4108,6 +4543,25 @@ import supabase from './supabase.js';
             -webkit-line-clamp: 4;
             -webkit-box-orient: vertical;
             word-break: break-word;
+          }
+          .size-10x15.has-variant .label-name {
+            -webkit-line-clamp: 3;
+            max-height: 68px;
+            margin-bottom: 6px;
+          }
+          .size-10x15 .label-variant {
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.2;
+            margin-bottom: 10px;
+            padding: 3px 8px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            display: inline-block;
+            max-width: 90%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .barcode-container {
@@ -6746,6 +7200,11 @@ import supabase from './supabase.js';
                 name: finalName,
                 barcode: finalBarcode,
                 barcode_wms: finalBarcodeWms,
+                color: p.color || catalogProd?.color || '',
+                talla: p.talla || catalogProd?.talla || '',
+                variable_1: p.variable_1 || catalogProd?.variable_1 || '',
+                variable_2: p.variable_2 || catalogProd?.variable_2 || '',
+                options: p.options || catalogProd?.options || null,
                 qty: targetQty
               });
             }
