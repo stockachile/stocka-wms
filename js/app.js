@@ -8036,6 +8036,87 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     return isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
   }
 
+  if (orderShipments.length > 1) {
+    orderShipments.sort((a, b) => {
+      const getMovedScore = (s) => {
+        let gStatus = s.global_status;
+        let statusText = s.status || '';
+        if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+          if (s.raw_data && s.raw_data[23]) statusText = s.raw_data[23];
+          else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) statusText = order.raw_lightdata_data.raw_data[23];
+        }
+        if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
+          gStatus = 'SIN MOVIMIENTO';
+        }
+        const rawStatus = statusText.toLowerCase().trim();
+        if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+          gStatus = 'DEVOLUCIÓN';
+        } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
+          gStatus = 'ALERTA';
+        } else if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+          if (s.source_table === 'lightdata_envios') {
+            if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'bluex_envios') {
+            if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'starken_envios') {
+            if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (s.source_table === 'optiroute_orders') {
+            if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+              gStatus = 'SIN MOVIMIENTO';
+            } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
+              gStatus = 'ALERTA';
+            }
+          } else if (s.source_table === 'enviame_shipments') {
+            if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+              gStatus = 'DEVOLUCIÓN';
+            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+              gStatus = 'ALERTA';
+            } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          }
+        }
+        return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1;
+      };
+
+      const scoreA = getMovedScore(a);
+      const scoreB = getMovedScore(b);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+
+      const orderTrack = (order.tracking_number || '').trim().toUpperCase();
+      const matchA = orderTrack && ((a.tracking || '').trim().toUpperCase() === orderTrack);
+      const matchB = orderTrack && ((b.tracking || '').trim().toUpperCase() === orderTrack);
+      if (matchA && !matchB) return -1;
+      if (!matchA && matchB) return 1;
+
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return timeB - timeA;
+    });
+  }
+
   const shipment = orderShipments[0];
   let globStatus = shipment.global_status;
   let statusText = shipment.status || '';
@@ -8046,28 +8127,32 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
     globStatus = 'SIN MOVIMIENTO';
   }
-  if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-    const rawStatus = statusText.toLowerCase().trim();
+  const rawStatus = statusText.toLowerCase().trim();
+  if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+    globStatus = 'DEVOLUCIÓN';
+  } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
+    globStatus = 'ALERTA';
+  } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
     if (shipment.source_table === 'lightdata_envios') {
       if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
         globStatus = 'DESPACHADO';
-      } else if (rawStatus === 'cancelado') {
+      } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
         globStatus = 'ALERTA';
       } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
         globStatus = 'SIN MOVIMIENTO';
       }
     } else if (shipment.source_table === 'bluex_envios') {
-      if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+      if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
         globStatus = 'DESPACHADO';
-      } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+      } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
         globStatus = 'ALERTA';
-      } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+      } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
         globStatus = 'SIN MOVIMIENTO';
       }
     } else if (shipment.source_table === 'starken_envios') {
-      if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+      if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
         globStatus = 'DESPACHADO';
-      } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+      } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
         globStatus = 'ALERTA';
       } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
         globStatus = 'SIN MOVIMIENTO';
@@ -8079,6 +8164,16 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
         globStatus = 'DESPACHADO';
       } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
         globStatus = 'ALERTA';
+      }
+    } else if (shipment.source_table === 'enviame_shipments') {
+      if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+        globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+        globStatus = 'ALERTA';
+      } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+        globStatus = 'DESPACHADO';
+      } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+        globStatus = 'SIN MOVIMIENTO';
       }
     }
   }
@@ -9283,6 +9378,9 @@ window.applyClientWmsFiltersAndRender = function() {
 
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
+    const rawShopify = order.raw_shopify_data;
+    const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
+                       ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
     let orderShipments = shipments.filter(s => {
       // Ignorar couriers no operativos (RECIBELO, WELIVERY, etc.)
       const sCourierUpper = (s.courier || '').toUpperCase().trim();
@@ -9374,28 +9472,32 @@ window.applyClientWmsFiltersAndRender = function() {
           if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
             gStatus = 'SIN MOVIMIENTO';
           }
-          if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
-            const rawStatus = statusText.toLowerCase().trim();
+          const rawStatus = statusText.toLowerCase().trim();
+          if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+            gStatus = 'DEVOLUCIÓN';
+          } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
+            gStatus = 'ALERTA';
+          } else if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             if (s.source_table === 'lightdata_envios') {
               if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
                 gStatus = 'DESPACHADO';
-              } else if (rawStatus === 'cancelado') {
+              } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
                 gStatus = 'SIN MOVIMIENTO';
               }
             } else if (s.source_table === 'bluex_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad')) {
+              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
                 gStatus = 'DESPACHADO';
-              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid')) {
+              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
                 gStatus = 'ALERTA';
-              } else if (rawStatus.includes('pickup') || rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
+              } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             } else if (s.source_table === 'starken_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino')) {
+              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
                 gStatus = 'DESPACHADO';
-              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro')) {
+              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
@@ -9408,9 +9510,19 @@ window.applyClientWmsFiltersAndRender = function() {
               } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
                 gStatus = 'ALERTA';
               }
+            } else if (s.source_table === 'enviame_shipments') {
+              if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
+                gStatus = 'DEVOLUCIÓN';
+              } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+                gStatus = 'ALERTA';
+              } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+                gStatus = 'SIN MOVIMIENTO';
+              }
             }
           }
-          return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 1 : 0;
+          return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 1 : 0;
         };
 
         const aMoved = getMovedScore(a);
@@ -9598,8 +9710,8 @@ window.applyClientWmsFiltersAndRender = function() {
       badgeColor = '#e0f2fe'; // blue
       badgeTextColor = '#0369a1';
     } else if (order.status === 'cancelado' || order.status === 'incidencia') {
-      badgeColor = '#fee2e2'; // red
-      badgeTextColor = '#991b1b';
+      badgeColor = isReturned ? '#ffe4e6' : '#fee2e2'; // rose for returned, red for cancelled
+      badgeTextColor = isReturned ? '#9f1239' : '#991b1b';
     } else if (order.status === 'para procesar') {
       badgeColor = '#e0e7ff'; // indigo
       badgeTextColor = '#3730a3';
@@ -9716,28 +9828,32 @@ window.applyClientWmsFiltersAndRender = function() {
         if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
           globStatus = 'SIN MOVIMIENTO';
         }
-        if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-          const rawStatusLower = statusText.toLowerCase().trim();
+        const rawStatusLower = statusText.toLowerCase().trim();
+        if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
+          globStatus = 'DEVOLUCIÓN';
+        } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
+          globStatus = 'ALERTA';
+        } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
           if (shipment.source_table === 'lightdata_envios') {
             if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
               globStatus = 'DESPACHADO';
-            } else if (rawStatusLower === 'cancelado') {
+            } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
               globStatus = 'SIN MOVIMIENTO';
             }
           } else if (shipment.source_table === 'bluex_envios') {
-            if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad')) {
+            if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
               globStatus = 'DESPACHADO';
-            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid')) {
+            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
               globStatus = 'ALERTA';
-            } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
+            } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           } else if (shipment.source_table === 'starken_envios') {
-            if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+            if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
               globStatus = 'DESPACHADO';
-            } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+            } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
               globStatus = 'SIN MOVIMIENTO';
@@ -9750,6 +9866,16 @@ window.applyClientWmsFiltersAndRender = function() {
             } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
               globStatus = 'ALERTA';
             }
+          } else if (shipment.source_table === 'enviame_shipments') {
+            if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
+              globStatus = 'DEVOLUCIÓN';
+            } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
+              globStatus = 'ALERTA';
+            } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('entregad') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
+              globStatus = 'SIN MOVIMIENTO';
+            }
           }
         }
         if (!globStatus) globStatus = 'SIN MOVIMIENTO';
@@ -9757,7 +9883,11 @@ window.applyClientWmsFiltersAndRender = function() {
         let badgeBg = '#e5e7eb';
         let badgeColor = '#4b5563';
         
-        if (globStatus === 'DESPACHADO') {
+        if (isReturned || globStatus === 'DEVOLUCIÓN') {
+          globStatus = 'DEVOLUCIÓN';
+          badgeBg = '#ffe4e6';
+          badgeColor = '#9f1239';
+        } else if (globStatus === 'DESPACHADO') {
           badgeBg = '#d1fae5';
           badgeColor = '#065f46';
         } else if (globStatus === 'ALERTA') {
@@ -9766,8 +9896,9 @@ window.applyClientWmsFiltersAndRender = function() {
         }
         
         const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
-        const rawStatusSpan = (rawStatus && rawStatus !== '-') 
-          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${rawStatus}</span>` 
+        const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
+        const rawStatusSpan = (displayRawStatus && displayRawStatus !== '-') 
+          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${displayRawStatus}</span>` 
           : '';
 
         const shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
@@ -9791,28 +9922,32 @@ window.applyClientWmsFiltersAndRender = function() {
       if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
         globStatus = 'SIN MOVIMIENTO';
       }
-      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-        const rawStatusLower = statusText.toLowerCase().trim();
+      const rawStatusLower = statusText.toLowerCase().trim();
+      if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
+        globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
+        globStatus = 'ALERTA';
+      } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         if (shipment.source_table === 'lightdata_envios') {
           if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
             globStatus = 'DESPACHADO';
-          } else if (rawStatusLower === 'cancelado') {
+          } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'bluex_envios') {
-          if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad')) {
+          if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
             globStatus = 'DESPACHADO';
-          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid')) {
+          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
             globStatus = 'ALERTA';
-          } else if (rawStatusLower.includes('pickup') || rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
+          } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'starken_envios') {
-          if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino')) {
+          if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
             globStatus = 'DESPACHADO';
-          } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro')) {
+          } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
@@ -9825,15 +9960,30 @@ window.applyClientWmsFiltersAndRender = function() {
           } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
             globStatus = 'ALERTA';
           }
+        } else if (shipment.source_table === 'enviame_shipments') {
+          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
+            globStatus = 'DEVOLUCIÓN';
+          } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('entregad') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
+            globStatus = 'SIN MOVIMIENTO';
+          }
         }
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
       const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
+      const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
       let badgeBg = '#e5e7eb';
       let badgeColor = '#4b5563';
       
-      if (globStatus === 'DESPACHADO') {
+      if (isReturned || globStatus === 'DEVOLUCIÓN') {
+        globStatus = 'DEVOLUCIÓN';
+        badgeBg = '#ffe4e6';
+        badgeColor = '#9f1239';
+      } else if (globStatus === 'DESPACHADO') {
         badgeBg = '#d1fae5';
         badgeColor = '#065f46';
       } else if (globStatus === 'ALERTA') {
@@ -9861,7 +10011,7 @@ window.applyClientWmsFiltersAndRender = function() {
             ${globStatus}
           </span>
           ${platformBadge}
-          ${rawStatus && rawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${rawStatus}</span>` : ''}
+          ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
         </p>
         <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
           <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
@@ -15322,12 +15472,17 @@ async function renderShipments() {
         const dateObj = s.created_at ? new Date(s.created_at) : null;
         const dateStr = dateObj ? dateObj.toLocaleDateString() : '-';
         
+        let curGlobStatus = s.global_status;
+        const stLower = (s.status || '').toLowerCase().trim();
+        if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
+          curGlobStatus = 'ALERTA';
+        }
         let badgeClass = 'badge-neutral';
-        if (s.global_status === 'DESPACHADO') {
+        if (curGlobStatus === 'DESPACHADO') {
           badgeClass = 'badge-success';
-        } else if (s.global_status === 'SIN MOVIMIENTO') {
+        } else if (curGlobStatus === 'SIN MOVIMIENTO') {
           badgeClass = 'badge-warning';
-        } else if (s.global_status === 'ALERTA') {
+        } else if (curGlobStatus === 'ALERTA') {
           badgeClass = 'badge-danger';
         }
 
