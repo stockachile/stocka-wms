@@ -116,11 +116,31 @@ window.enrichInventoryProductsBarcodes = async function(req) {
 };
 
 /**
- * Genera y descarga la Hoja Oficial de Toma de Inventario Físico en formato PDF
- * Diseñada específicamente con cuadrícula y espacio para conteo manual en terreno
- * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ * Obtiene la lista de bodegas distintas presentes en una solicitud de inventario
+ * @param {Object} req - Solicitud de inventario
+ * @returns {Array<{id: string|null, name: string, count: number}>}
  */
-window.generateInventoryCountPdf = async function(req) {
+window.getRequestDistinctWarehouses = function(req) {
+  if (!req || !Array.isArray(req.products_list)) return [];
+  const whMap = new Map();
+  req.products_list.forEach(p => {
+    const whName = (p.warehouse_name || req.warehouse_name || 'Bodega Principal').trim();
+    if (!whMap.has(whName)) {
+      whMap.set(whName, { id: p.warehouse_id || null, name: whName, count: 0 });
+    }
+    whMap.get(whName).count++;
+  });
+  return Array.from(whMap.values());
+};
+
+/**
+ * Genera y descarga la Hoja Oficial de Toma de Inventario Físico en formato PDF
+ * Diseñada específicamente con cuadrícula y espacio para conteo manual en terreno.
+ * Permite emitir el documento Consolidado o individual por Bodega física.
+ * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ * @param {string|Object|null} targetWarehouse - Filtro opcional de bodega ('all', objeto {id, name} o string de nombre)
+ */
+window.generateInventoryCountPdf = async function(req, targetWarehouse = null) {
   if (!req) {
     alert('Error: Datos de solicitud de inventario no disponibles.');
     return;
@@ -133,14 +153,32 @@ window.generateInventoryCountPdf = async function(req) {
 
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
   const comercio = req.comercio || 'Todos';
-  const warehouseName = req.warehouse_name || 'Todas las bodegas';
   const reason = req.reason || 'Auditoría / Cuadratura Periódica';
   const priority = req.priority || 'Normal';
   const typeStr = (req.type === 'selectivo' || req.type === 'parcial') ? 'Inventario Selectivo (Parcial)' : 'Inventario Completo (General)';
   const requestedBy = req.requested_by || 'Cliente WMS';
   const notes = req.notes || 'Sin observaciones adicionales.';
-  const products = Array.isArray(req.products_list) ? req.products_list : [];
-  
+  const allProducts = Array.isArray(req.products_list) ? req.products_list : [];
+
+  let products = allProducts;
+  let isFilteredWh = false;
+  let filterWhName = '';
+
+  if (targetWarehouse && targetWarehouse !== 'all') {
+    filterWhName = typeof targetWarehouse === 'string' ? targetWarehouse : (targetWarehouse.name || '');
+    products = allProducts.filter(p => {
+      if (typeof targetWarehouse === 'object' && targetWarehouse.id && p.warehouse_id) {
+        return String(p.warehouse_id) === String(targetWarehouse.id);
+      }
+      return (p.warehouse_name || '').toLowerCase().trim() === filterWhName.toLowerCase().trim();
+    });
+    isFilteredWh = true;
+  }
+
+  const warehouseName = isFilteredWh ? filterWhName : (req.warehouse_name || 'Todas las bodegas');
+  const warehouseDisplay = isFilteredWh ? `${filterWhName} (Hoja Exclusiva de Bodega)` : `${warehouseName} (Consolidado)`;
+  const sheetHeaderTitle = isFilteredWh ? `Hoja de Toma de Inventario - ${filterWhName}` : `Hoja de Toma de Inventario Físico (Consolidado)`;
+
   const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
   }) : new Date().toLocaleString('es-CL');
@@ -234,8 +272,8 @@ window.generateInventoryCountPdf = async function(req) {
         <div style="display: flex; align-items: center; gap: 14px;">
           <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 42px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
           <div>
-            <h1 style="margin: 0; font-size: 14pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
-              Hoja de Toma de Inventario Físico
+            <h1 style="margin: 0; font-size: 13.5pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
+              ${sheetHeaderTitle}
             </h1>
             <p style="margin: 2px 0 0 0; font-size: 8pt; color: #64748b; font-weight: 500;">
               STOCKA WMS & Fulfillment • Control Operativo de Bodega y Cuadratura de Stock
@@ -259,7 +297,7 @@ window.generateInventoryCountPdf = async function(req) {
             <td style="padding: 3px 6px; width: 14%; font-weight: 700; color: #475569;">Cliente / Comercio:</td>
             <td style="padding: 3px 6px; width: 36%; font-weight: 700; color: #0f172a; font-size: 9pt;">${comercio}</td>
             <td style="padding: 3px 6px; width: 14%; font-weight: 700; color: #475569;">Bodega Asignada:</td>
-            <td style="padding: 3px 6px; width: 36%; font-weight: 600; color: #0f172a;">${warehouseName}</td>
+            <td style="padding: 3px 6px; width: 36%; font-weight: 700; color: ${isFilteredWh ? '#1e40af' : '#0f172a'};">${warehouseDisplay}</td>
           </tr>
           <tr>
             <td style="padding: 3px 6px; font-weight: 700; color: #475569;">Tipo Conteo:</td>
@@ -366,7 +404,8 @@ window.generateInventoryCountPdf = async function(req) {
     const printableArea = container.querySelector('#pdf-printable-area');
     const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `Hoja_Inventario_${safeFolio}_${safeCommerce}.pdf`;
+    const safeWh = isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado';
+    const filename = `Hoja_Inventario_${safeFolio}_${safeWh}_${safeCommerce}.pdf`;
 
     const opt = {
       margin:       [8, 10, 8, 10], // Margen en mm [top, left, bottom, right]
@@ -392,9 +431,11 @@ window.generateInventoryCountPdf = async function(req) {
 
 /**
  * Genera y descarga la planilla Excel (XLSX) con la estructura de conteo de inventario
+ * Permite emitir el documento Consolidado o individual por Bodega física.
  * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ * @param {string|Object|null} targetWarehouse - Filtro opcional de bodega ('all', objeto {id, name} o string de nombre)
  */
-window.generateInventoryCountExcel = async function(req) {
+window.generateInventoryCountExcel = async function(req, targetWarehouse = null) {
   if (!req) {
     alert('Error: Datos de solicitud de inventario no disponibles.');
     return;
@@ -412,17 +453,32 @@ window.generateInventoryCountExcel = async function(req) {
 
   const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
   const comercio = req.comercio || 'Todos';
-  const warehouseName = req.warehouse_name || 'Todas las bodegas';
   const reason = req.reason || 'Auditoría / Cuadratura Periódica';
   const priority = req.priority || 'Normal';
   const notes = req.notes || '';
-  const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const allProducts = Array.isArray(req.products_list) ? req.products_list : [];
 
+  let products = allProducts;
+  let isFilteredWh = false;
+  let filterWhName = '';
+
+  if (targetWarehouse && targetWarehouse !== 'all') {
+    filterWhName = typeof targetWarehouse === 'string' ? targetWarehouse : (targetWarehouse.name || '');
+    products = allProducts.filter(p => {
+      if (typeof targetWarehouse === 'object' && targetWarehouse.id && p.warehouse_id) {
+        return String(p.warehouse_id) === String(targetWarehouse.id);
+      }
+      return (p.warehouse_name || '').toLowerCase().trim() === filterWhName.toLowerCase().trim();
+    });
+    isFilteredWh = true;
+  }
+
+  const warehouseName = isFilteredWh ? `${filterWhName} (Exclusiva)` : (req.warehouse_name || 'Todas las bodegas (Consolidado)');
   const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
 
   // Construir filas del libro Excel
   const excelRows = [
-    ['STOCKA WMS - HOJA DE TOMA DE INVENTARIO FÍSICO'],
+    [isFilteredWh ? `STOCKA WMS - HOJA DE CONTEO FÍSICO (${filterWhName.toUpperCase()})` : 'STOCKA WMS - HOJA DE CONTEO FÍSICO (CONSOLIDADO)'],
     ['Folio Solicitud:', folio, '', 'Fecha Emisión:', formattedDate],
     ['Comercio:', comercio, '', 'Bodega:', warehouseName],
     ['Motivo:', reason, '', 'Prioridad:', priority],
@@ -487,13 +543,199 @@ window.generateInventoryCountExcel = async function(req) {
     { wch: 35 }  // Observaciones
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, 'Toma de Inventario');
+  XLSX.utils.book_append_sheet(wb, ws, isFilteredWh ? filterWhName.substring(0, 31) : 'Toma Consolidada');
 
   const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const filename = `Planilla_Toma_Inventario_${safeFolio}_${safeCommerce}.xlsx`;
+  const safeWh = isFilteredWh ? filterWhName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Consolidado';
+  const filename = `Planilla_Toma_Inventario_${safeFolio}_${safeWh}_${safeCommerce}.xlsx`;
 
   XLSX.writeFile(wb, filename);
+};
+
+/**
+ * Modal interactivo para seleccionar la emisión de Hojas de Inventario (PDF y Excel):
+ * Permite descargar el documento Consolidado o la hoja individual de cada bodega física.
+ * @param {Object} req - Solicitud de inventario
+ * @param {string} defaultFormat - 'pdf' o 'excel'
+ */
+window.openInventoryPdfOptionsModal = function(req, defaultFormat = 'pdf') {
+  if (!req) return;
+  const distinctWhs = window.getRequestDistinctWarehouses(req);
+  if (distinctWhs.length <= 1) {
+    if (defaultFormat === 'excel') {
+      window.generateInventoryCountExcel(req);
+    } else {
+      window.generateInventoryCountPdf(req);
+    }
+    return;
+  }
+
+  let existingModal = document.getElementById('modal-inventory-pdf-options');
+  if (existingModal) existingModal.remove();
+
+  const folio = req.folio || req.id?.substring(0, 8) || 'S/F';
+  const totalSkus = (req.products_list || []).length;
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-inventory-pdf-options';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '10005';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 620px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 20px 45px rgba(0,0,0,0.35); overflow: hidden;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-file-copy-2-line" style="color: #6366f1;"></i> Hojas de Inventario por Bodega
+          </h3>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Folio: <strong style="color: #6366f1; font-family: monospace;">${folio}</strong> • Comercio: <strong>${req.comercio}</strong>
+          </p>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-inventory-pdf-options').remove()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-height: 72vh; overflow-y: auto;">
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1.1rem; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.45;">
+          Esta solicitud incluye <strong>${totalSkus} SKUs</strong> distribuidos en <strong>${distinctWhs.length} bodegas físicas</strong>. Puedes descargar el <strong>documento consolidado</strong> o la <strong>hoja de terreno de cada bodega</strong> para enviarla directamente a su respectiva cuadrilla:
+        </div>
+
+        <!-- Tarjeta Documento Consolidado -->
+        <div style="background: var(--color-bg); border: 1.5px solid #6366f1; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 700; color: #4338ca; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-file-list-3-fill"></i> Documento Consolidado (Todas las bodegas)
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 3px;">
+              Incluye las ${distinctWhs.length} bodegas completas (${totalSkus} artículos)
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.45rem;">
+            <button type="button" class="btn btn-primary btn-sm btn-download-consolidated-pdf" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-file-pdf-line"></i> PDF Consolidado
+            </button>
+            <button type="button" class="btn btn-outline btn-sm btn-download-consolidated-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-file-excel-line"></i> Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Hojas Individuales por Bodega -->
+        <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.25rem;">
+          <h4 style="margin: 0.25rem 0 0.15rem 0; font-size: 0.825rem; font-weight: 700; text-transform: uppercase; color: var(--color-text-muted); letter-spacing: 0.5px;">
+            Hojas Operativas Individuales por Bodega:
+          </h4>
+          ${distinctWhs.map(wh => `
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <div>
+                <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-store-2-line" style="color: #6366f1;"></i> ${wh.name}
+                </div>
+                <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px;">
+                  ${wh.count} artículos físicos a contar en este recinto
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.4rem;">
+                <button type="button" class="btn btn-outline btn-sm btn-wh-pdf" data-wh-name="${wh.name}" data-wh-id="${wh.id || ''}" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
+                  <i class="ri-file-pdf-line"></i> PDF Hoja
+                </button>
+                <button type="button" class="btn btn-outline btn-sm btn-wh-excel" data-wh-name="${wh.name}" data-wh-id="${wh.id || ''}" style="border-color: #059669; color: #059669; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;">
+                  <i class="ri-file-excel-line"></i> Excel
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <!-- Botón Ráfaga Descargar Todo -->
+        <div style="margin-top: 0.5rem; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px dashed var(--color-border); text-align: center;">
+          <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
+            ¿Necesitas imprimir todas las hojas a la vez para despachar a terreno?
+          </div>
+          <button type="button" class="btn btn-outline btn-sm btn-download-all-burst" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.06); font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+            <i class="ri-download-cloud-2-line"></i> Descargar Todo en Ráfaga (Consolidado + Cada Bodega)
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-inventory-pdf-options').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Listeners
+  modal.querySelector('.btn-download-consolidated-pdf').addEventListener('click', () => {
+    window.generateInventoryCountPdf(req, 'all');
+  });
+
+  modal.querySelector('.btn-download-consolidated-excel').addEventListener('click', () => {
+    window.generateInventoryCountExcel(req, 'all');
+  });
+
+  modal.querySelectorAll('.btn-wh-pdf').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const whName = btn.getAttribute('data-wh-name');
+      const whId = btn.getAttribute('data-wh-id');
+      window.generateInventoryCountPdf(req, { id: whId, name: whName });
+    });
+  });
+
+  modal.querySelectorAll('.btn-wh-excel').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const whName = btn.getAttribute('data-wh-name');
+      const whId = btn.getAttribute('data-wh-id');
+      window.generateInventoryCountExcel(req, { id: whId, name: whName });
+    });
+  });
+
+  modal.querySelector('.btn-download-all-burst').addEventListener('click', async () => {
+    const burstBtn = modal.querySelector('.btn-download-all-burst');
+    burstBtn.disabled = true;
+    burstBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Generando archivos...';
+
+    try {
+      // 1. Consolidado
+      await window.generateInventoryCountPdf(req, 'all');
+      
+      // 2. Cada bodega
+      for (const wh of distinctWhs) {
+        await new Promise(r => setTimeout(r, 650));
+        await window.generateInventoryCountPdf(req, wh);
+      }
+      burstBtn.innerHTML = '<i class="ri-check-line"></i> ¡Todas las hojas generadas!';
+      setTimeout(() => {
+        burstBtn.disabled = false;
+        burstBtn.innerHTML = '<i class="ri-download-cloud-2-line"></i> Descargar Todo en Ráfaga (Consolidado + Cada Bodega)';
+      }, 3000);
+    } catch (e) {
+      console.error(e);
+      burstBtn.disabled = false;
+      burstBtn.innerHTML = '<i class="ri-download-cloud-2-line"></i> Descargar Todo en Ráfaga (Consolidado + Cada Bodega)';
+    }
+  });
+};
+
+/**
+ * Helper unificado para descargar la hoja de inventario (PDF o Excel).
+ * Si la solicitud es multibodega, despliega el modal interactivo con opciones por bodega y consolidado.
+ * Si es bodega única, inicia la descarga directa en el formato solicitado.
+ */
+window.downloadInventoryRequestSheet = function(req, format = 'pdf') {
+  if (!req) return;
+  const distinct = window.getRequestDistinctWarehouses ? window.getRequestDistinctWarehouses(req) : [];
+  if (distinct.length > 1 && typeof window.openInventoryPdfOptionsModal === 'function') {
+    window.openInventoryPdfOptionsModal(req, format);
+  } else {
+    if (format === 'excel') {
+      window.generateInventoryCountExcel(req);
+    } else {
+      window.generateInventoryCountPdf(req);
+    }
+  }
 };
 
 /**

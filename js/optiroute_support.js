@@ -462,12 +462,16 @@ export async function renderOptirouteSupport() {
           }
         }
 
+        const optiUuid = detailedOrder.uuid || (detailedOrder.tracking && detailedOrder.tracking.includes('-') ? detailedOrder.tracking : null) || null;
+        const optiTracking = (detailedOrder.tracking || '').trim() || optiUuid || String(detailedOrder.id);
+        const optiTrackingUrl = (detailedOrder.tracking_url || '').trim() || (optiUuid ? `https://app.optiroute.cl/service_requets/tracking/${optiUuid}/` : null);
+
         payloads.push({
           id: String(detailedOrder.id),
           referencia: detailedOrder.reference ? detailedOrder.reference.trim() : null,
           empresa_comercio_proveedor: commerceName || 'STOCKA',
-          tracking: (detailedOrder.tracking || '').trim() || null,
-          tracking_url: (detailedOrder.tracking_url || '').trim() || null,
+          tracking: optiTracking,
+          tracking_url: optiTrackingUrl,
           courier: 'STOCKA X',
           status: getOptirouteStatusName(detailedOrder.status),
           created_at: detailedOrder.created_at || null,

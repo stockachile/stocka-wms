@@ -8011,8 +8011,10 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
       statusText = ldRaw.raw_data[23];
     }
     const rawStatusLower = statusText.toLowerCase().trim();
-    if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-      globStatus = 'DESPACHADO';
+    if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
+      globStatus = 'ENTREGADO';
+    } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+      globStatus = 'EN TRÁNSITO';
     } else if (rawStatusLower === 'cancelado') {
       globStatus = 'ALERTA';
     } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
@@ -8053,61 +8055,82 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
           gStatus = 'DEVOLUCIÓN';
         } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
           gStatus = 'ALERTA';
-        } else if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+        } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
           if (s.source_table === 'lightdata_envios') {
-            if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-              gStatus = 'DESPACHADO';
+            if (rawStatus.includes('entregado') || rawStatus.includes('entregada') || rawStatus.includes('delivered')) {
+              gStatus = 'ENTREGADO';
+            } else if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+              gStatus = 'EN TRÁNSITO';
             } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
               gStatus = 'ALERTA';
             } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
               gStatus = 'SIN MOVIMIENTO';
             }
           } else if (s.source_table === 'bluex_envios') {
-            if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
-              gStatus = 'DESPACHADO';
+            if (rawStatus.includes('delivered') || rawStatus.includes('entregad')) {
+              gStatus = 'ENTREGADO';
+            } else if (rawStatus.includes('transit') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
+              gStatus = 'EN TRÁNSITO';
             } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           } else if (s.source_table === 'starken_envios') {
-            if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
-              gStatus = 'DESPACHADO';
+            if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+              gStatus = 'ENTREGADO';
+            } else if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
+              gStatus = 'EN TRÁNSITO';
             } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           } else if (s.source_table === 'optiroute_orders') {
-            if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+            if (rawStatus.includes('deliver') || rawStatus.includes('entregad')) {
+              gStatus = 'ENTREGADO';
+            } else if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
               gStatus = 'SIN MOVIMIENTO';
-            } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+              gStatus = 'EN TRÁNSITO';
             } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
               gStatus = 'ALERTA';
             }
           } else if (s.source_table === 'enviame_shipments') {
             if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
               gStatus = 'DEVOLUCIÓN';
+            } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+              gStatus = 'ENTREGADO';
             } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
               gStatus = 'ALERTA';
-            } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
-              gStatus = 'DESPACHADO';
+            } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+              gStatus = 'EN TRÁNSITO';
             } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }
         }
-        return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1;
+        if (gStatus === 'DESPACHADO') {
+          gStatus = (rawStatus.includes('entregad') || rawStatus.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+        }
+        return (gStatus === 'ENTREGADO' ? 3 : (gStatus === 'EN TRÁNSITO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1);
       };
 
       const scoreA = getMovedScore(a);
       const scoreB = getMovedScore(b);
       if (scoreA !== scoreB) return scoreB - scoreA;
 
+      const isValidTrack = (t) => {
+        if (!t) return false;
+        const up = String(t).trim().toUpperCase();
+        return up !== '' && up !== 'NO INFORMADO' && up !== 'N/A' && up !== '-' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
+      };
       const orderTrack = (order.tracking_number || '').trim().toUpperCase();
-      const matchA = orderTrack && ((a.tracking || '').trim().toUpperCase() === orderTrack);
-      const matchB = orderTrack && ((b.tracking || '').trim().toUpperCase() === orderTrack);
+      const hasValidOrderTrack = isValidTrack(orderTrack);
+      const trackA = (a.tracking || (a.source_table === 'optiroute_orders' ? a.raw_data?.uuid : '') || '').trim().toUpperCase();
+      const trackB = (b.tracking || (b.source_table === 'optiroute_orders' ? b.raw_data?.uuid : '') || '').trim().toUpperCase();
+      const matchA = hasValidOrderTrack && trackA === orderTrack;
+      const matchB = hasValidOrderTrack && trackB === orderTrack;
       if (matchA && !matchB) return -1;
       if (!matchA && matchB) return 1;
 
@@ -8132,50 +8155,63 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     globStatus = 'DEVOLUCIÓN';
   } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
     globStatus = 'ALERTA';
-  } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+  } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
     if (shipment.source_table === 'lightdata_envios') {
-      if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-        globStatus = 'DESPACHADO';
+      if (rawStatus.includes('entregado') || rawStatus.includes('entregada') || rawStatus.includes('delivered')) {
+        globStatus = 'ENTREGADO';
+      } else if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
         globStatus = 'ALERTA';
       } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
         globStatus = 'SIN MOVIMIENTO';
       }
     } else if (shipment.source_table === 'bluex_envios') {
-      if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
-        globStatus = 'DESPACHADO';
+      if (rawStatus.includes('delivered') || rawStatus.includes('entregad')) {
+        globStatus = 'ENTREGADO';
+      } else if (rawStatus.includes('transit') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
         globStatus = 'ALERTA';
       } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
         globStatus = 'SIN MOVIMIENTO';
       }
     } else if (shipment.source_table === 'starken_envios') {
-      if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
-        globStatus = 'DESPACHADO';
+      if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+        globStatus = 'ENTREGADO';
+      } else if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
         globStatus = 'ALERTA';
       } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
         globStatus = 'SIN MOVIMIENTO';
       }
     } else if (shipment.source_table === 'optiroute_orders') {
-      if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+      if (rawStatus.includes('deliver') || rawStatus.includes('entregad')) {
+        globStatus = 'ENTREGADO';
+      } else if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
         globStatus = 'SIN MOVIMIENTO';
-      } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-        globStatus = 'DESPACHADO';
+      } else if (rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
         globStatus = 'ALERTA';
       }
     } else if (shipment.source_table === 'enviame_shipments') {
       if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
         globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+        globStatus = 'ENTREGADO';
       } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
         globStatus = 'ALERTA';
-      } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
-        globStatus = 'DESPACHADO';
+      } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
         globStatus = 'SIN MOVIMIENTO';
       }
     }
+  }
+  if (globStatus === 'DESPACHADO') {
+    globStatus = (rawStatus.includes('entregad') || rawStatus.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
   }
   if (!globStatus) globStatus = 'SIN MOVIMIENTO';
   if (isReturned) globStatus = 'DEVOLUCIÓN';
@@ -8472,10 +8508,12 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
   ];
 
   const courierTags = [
-    { key: 'DESPACHADO', label: 'Despachado' },
+    { key: 'EN TRÁNSITO', label: 'En Tránsito' },
     { key: 'ENTREGADO', label: 'Entregado' },
     { key: 'ALERTA', label: 'Alerta / Problema' },
-    { key: 'DEVOLUCIÓN', label: 'Devolución' }
+    { key: 'DEVOLUCIÓN', label: 'Devolución' },
+    { key: 'SIN MOVIMIENTO', label: 'Sin Movimiento' },
+    { key: 'DESPACHADO', label: 'Despachado' }
   ];
 
   const pickerTags = [
@@ -9435,8 +9473,10 @@ window.applyClientWmsFiltersAndRender = function() {
         statusText = ldRaw.raw_data[23];
       }
       const rawStatusLower = statusText.toLowerCase().trim();
-      if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-        globStatus = 'DESPACHADO';
+      if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
+        globStatus = 'ENTREGADO';
+      } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+        globStatus = 'EN TRÁNSITO';
       } else if (rawStatusLower === 'cancelado') {
         globStatus = 'ALERTA';
       } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
@@ -9477,61 +9517,81 @@ window.applyClientWmsFiltersAndRender = function() {
             gStatus = 'DEVOLUCIÓN';
           } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
             gStatus = 'ALERTA';
-          } else if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+          } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
             if (s.source_table === 'lightdata_envios') {
-              if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-                gStatus = 'DESPACHADO';
+              if (rawStatus.includes('entregado') || rawStatus.includes('entregada') || rawStatus.includes('delivered')) {
+                gStatus = 'ENTREGADO';
+              } else if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+                gStatus = 'EN TRÁNSITO';
               } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
                 gStatus = 'SIN MOVIMIENTO';
               }
             } else if (s.source_table === 'bluex_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('delivered') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('entregad') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
-                gStatus = 'DESPACHADO';
+              if (rawStatus.includes('delivered') || rawStatus.includes('entregad')) {
+                gStatus = 'ENTREGADO';
+              } else if (rawStatus.includes('transit') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
+                gStatus = 'EN TRÁNSITO';
               } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             } else if (s.source_table === 'starken_envios') {
-              if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('entregad') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
-                gStatus = 'DESPACHADO';
+              if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+                gStatus = 'ENTREGADO';
+              } else if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
+                gStatus = 'EN TRÁNSITO';
               } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             } else if (s.source_table === 'optiroute_orders') {
-              if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
+              if (rawStatus.includes('deliver') || rawStatus.includes('entregad')) {
+                gStatus = 'ENTREGADO';
+              } else if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
                 gStatus = 'SIN MOVIMIENTO';
-              } else if (rawStatus.includes('deliver') || rawStatus.includes('entregad') || rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
+                gStatus = 'EN TRÁNSITO';
               } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
                 gStatus = 'ALERTA';
               }
             } else if (s.source_table === 'enviame_shipments') {
               if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
                 gStatus = 'DEVOLUCIÓN';
+              } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
+                gStatus = 'ENTREGADO';
               } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
                 gStatus = 'ALERTA';
-              } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('entregad') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
-                gStatus = 'DESPACHADO';
+              } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
+                gStatus = 'EN TRÁNSITO';
               } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
           }
-          return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 1 : 0;
+          if (gStatus === 'DESPACHADO') {
+            gStatus = (rawStatus.includes('entregad') || rawStatus.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+          }
+          return (gStatus === 'ENTREGADO' ? 3 : (gStatus === 'EN TRÁNSITO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1);
         };
 
         const aMoved = getMovedScore(a);
         const bMoved = getMovedScore(b);
         if (aMoved !== bMoved) return bMoved - aMoved;
 
-        if (order.tracking_number) {
-          const aMatch = a.tracking === order.tracking_number ? 1 : 0;
-          const bMatch = b.tracking === order.tracking_number ? 1 : 0;
+        const isValidTrack = (t) => {
+          if (!t) return false;
+          const up = String(t).trim().toUpperCase();
+          return up !== '' && up !== 'NO INFORMADO' && up !== 'N/A' && up !== '-' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
+        };
+        if (order.tracking_number && isValidTrack(order.tracking_number)) {
+          const orderTrack = String(order.tracking_number).trim().toUpperCase();
+          const getTrack = (s) => (s.tracking || (s.source_table === 'optiroute_orders' ? s.raw_data?.uuid : '') || '').trim().toUpperCase();
+          const aMatch = getTrack(a) === orderTrack ? 1 : 0;
+          const bMatch = getTrack(b) === orderTrack ? 1 : 0;
           if (aMatch !== bMatch) return bMatch - aMatch;
         }
 
@@ -9572,8 +9632,15 @@ window.applyClientWmsFiltersAndRender = function() {
                       channelStatus === 'refunded' || 
                       channelStatus === 'refused';
       
-      if (isShipped) {
-        globStatus = 'DESPACHADO';
+      const isDelivered = wmsStatus === 'entregado' || 
+                          channelStatus === 'delivered' || 
+                          channelStatus === 'received' || 
+                          channelStatus === 'closed';
+
+      if (isDelivered) {
+        globStatus = 'ENTREGADO';
+      } else if (isShipped) {
+        globStatus = 'EN TRÁNSITO';
       } else if (isAlert) {
         globStatus = 'ALERTA';
       }
@@ -9766,9 +9833,13 @@ window.applyClientWmsFiltersAndRender = function() {
 
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      if (shipment.tracking) {
-        const courierName = shipment.courier || 'Seguimiento';
+      const effTrack = shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null);
+      if (effTrack) {
+        const courierName = shipment.courier || (shipment.source_table === 'optiroute_orders' ? 'STOCKA X' : 'Seguimiento');
         let trackingUrl = shipment.tracking_url;
+        if (shipment.source_table === 'optiroute_orders' && !trackingUrl && effTrack) {
+          trackingUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
+        }
 
         // Recuperación de URL de seguimiento de LightData
         if (shipment.source_table === 'lightdata_envios') {
@@ -9788,7 +9859,7 @@ window.applyClientWmsFiltersAndRender = function() {
           const ldData = order.raw_lightdata_data;
           const ldTracking = (ldData?.tracking || '').trim();
           const ldId = String(ldData?.id || ldData?.did || '').trim();
-          const trackingNum = (shipment.tracking || order.tracking_number || '').trim();
+          const trackingNum = (effTrack || order.tracking_number || '').trim();
           if (ldData?.tracking_url) {
             trackingUrl = ldData.tracking_url;
           } else if (ldData?.raw_data && ldData.raw_data[31] && String(ldData.raw_data[31]).startsWith('http')) {
@@ -9799,13 +9870,13 @@ window.applyClientWmsFiltersAndRender = function() {
         }
         // Limpiar trackingUrl si corresponde al API interna de Envíame
         if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
-          trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(shipment.tracking)}`;
+          trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(effTrack)}`;
         }
-        if (shipment.source_table === 'bluex_envios' && !trackingUrl && shipment.tracking) {
-          trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(shipment.tracking)}`;
+        if (shipment.source_table === 'bluex_envios' && !trackingUrl && effTrack) {
+          trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTrack)}`;
         }
-        if (shipment.source_table === 'starken_envios' && !trackingUrl && shipment.tracking) {
-          trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(shipment.tracking)}`;
+        if (shipment.source_table === 'starken_envios' && !trackingUrl && effTrack) {
+          trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTrack)}`;
         }
         // Limpiar si no es una URL real
         if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
@@ -9813,8 +9884,8 @@ window.applyClientWmsFiltersAndRender = function() {
         }
 
         const trackingLink = trackingUrl && trackingUrl !== 'N/A'
-          ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
-          : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
+          ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
+          : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</span>`;
         
         let globStatus = shipment.global_status;
         let statusText = shipment.status || '';
@@ -9833,63 +9904,79 @@ window.applyClientWmsFiltersAndRender = function() {
           globStatus = 'DEVOLUCIÓN';
         } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
           globStatus = 'ALERTA';
-        } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+        } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
           if (shipment.source_table === 'lightdata_envios') {
-            if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-              globStatus = 'DESPACHADO';
+            if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
+              globStatus = 'ENTREGADO';
+            } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+              globStatus = 'EN TRÁNSITO';
             } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
               globStatus = 'SIN MOVIMIENTO';
             }
           } else if (shipment.source_table === 'bluex_envios') {
-            if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
-              globStatus = 'DESPACHADO';
+            if (rawStatusLower.includes('delivered') || rawStatusLower.includes('entregad')) {
+              globStatus = 'ENTREGADO';
+            } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
+              globStatus = 'EN TRÁNSITO';
             } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           } else if (shipment.source_table === 'starken_envios') {
-            if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
-              globStatus = 'DESPACHADO';
+            if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
+              globStatus = 'ENTREGADO';
+            } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
+              globStatus = 'EN TRÁNSITO';
             } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           } else if (shipment.source_table === 'optiroute_orders') {
-            if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+            if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad')) {
+              globStatus = 'ENTREGADO';
+            } else if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
               globStatus = 'SIN MOVIMIENTO';
-            } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
-              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+              globStatus = 'EN TRÁNSITO';
             } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
               globStatus = 'ALERTA';
             }
           } else if (shipment.source_table === 'enviame_shipments') {
             if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
               globStatus = 'DEVOLUCIÓN';
+            } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
+              globStatus = 'ENTREGADO';
             } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
               globStatus = 'ALERTA';
-            } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('entregad') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
-              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
+              globStatus = 'EN TRÁNSITO';
             } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           }
         }
+        if (globStatus === 'DESPACHADO') {
+          globStatus = (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+        }
         if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
-        let badgeBg = '#e5e7eb';
-        let badgeColor = '#4b5563';
+        let badgeBg = '#f1f5f9';
+        let badgeColor = '#475569';
         
         if (isReturned || globStatus === 'DEVOLUCIÓN') {
           globStatus = 'DEVOLUCIÓN';
           badgeBg = '#ffe4e6';
           badgeColor = '#9f1239';
-        } else if (globStatus === 'DESPACHADO') {
+        } else if (globStatus === 'ENTREGADO') {
           badgeBg = '#d1fae5';
           badgeColor = '#065f46';
+        } else if (globStatus === 'EN TRÁNSITO') {
+          badgeBg = '#e0f2fe';
+          badgeColor = '#0369a1';
         } else if (globStatus === 'ALERTA') {
           badgeBg = '#fee2e2';
           badgeColor = '#991b1b';
@@ -9927,65 +10014,81 @@ window.applyClientWmsFiltersAndRender = function() {
         globStatus = 'DEVOLUCIÓN';
       } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
         globStatus = 'ALERTA';
-      } else if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+      } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
         if (shipment.source_table === 'lightdata_envios') {
-          if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-            globStatus = 'DESPACHADO';
+          if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
+            globStatus = 'ENTREGADO';
+          } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+            globStatus = 'EN TRÁNSITO';
           } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'bluex_envios') {
-          if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivered') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('entregad') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
-            globStatus = 'DESPACHADO';
+          if (rawStatusLower.includes('delivered') || rawStatusLower.includes('entregad')) {
+            globStatus = 'ENTREGADO';
+          } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
+            globStatus = 'EN TRÁNSITO';
           } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'starken_envios') {
-          if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('entregad') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
-            globStatus = 'DESPACHADO';
+          if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
+            globStatus = 'ENTREGADO';
+          } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
+            globStatus = 'EN TRÁNSITO';
           } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         } else if (shipment.source_table === 'optiroute_orders') {
-          if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
+          if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad')) {
+            globStatus = 'ENTREGADO';
+          } else if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
             globStatus = 'SIN MOVIMIENTO';
-          } else if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad') || rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
-            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
+            globStatus = 'EN TRÁNSITO';
           } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
             globStatus = 'ALERTA';
           }
         } else if (shipment.source_table === 'enviame_shipments') {
-          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
+          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatus === 'devuelto') {
             globStatus = 'DEVOLUCIÓN';
+          } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
+            globStatus = 'ENTREGADO';
           } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
             globStatus = 'ALERTA';
-          } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('entregad') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
-            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
+            globStatus = 'EN TRÁNSITO';
           } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
       }
+      if (globStatus === 'DESPACHADO') {
+        globStatus = (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+      }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
       const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
       const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
-      let badgeBg = '#e5e7eb';
-      let badgeColor = '#4b5563';
+      let badgeBg = '#f1f5f9';
+      let badgeColor = '#475569';
       
       if (isReturned || globStatus === 'DEVOLUCIÓN') {
         globStatus = 'DEVOLUCIÓN';
         badgeBg = '#ffe4e6';
         badgeColor = '#9f1239';
-      } else if (globStatus === 'DESPACHADO') {
+      } else if (globStatus === 'ENTREGADO') {
         badgeBg = '#d1fae5';
         badgeColor = '#065f46';
+      } else if (globStatus === 'EN TRÁNSITO') {
+        badgeBg = '#e0f2fe';
+        badgeColor = '#0369a1';
       } else if (globStatus === 'ALERTA') {
         badgeBg = '#fee2e2';
         badgeColor = '#991b1b';
@@ -10259,21 +10362,37 @@ window.applyClientWmsFiltersAndRender = function() {
     let shipmentBadgeHtml = '';
     const shipInfo = window.getClientOrderShipmentGlobalStatus ? window.getClientOrderShipmentGlobalStatus(order) : null;
     if (shipInfo && shipInfo.globStatus) {
-      const shipGlobStatus = shipInfo.globStatus;
-      let shipBadgeBg = '#e5e7eb';
-      let shipBadgeColor = '#4b5563';
+      let shipGlobStatus = shipInfo.globStatus;
       if (shipGlobStatus === 'DESPACHADO') {
+        const rawLower = (shipInfo.rawStatus || '').toLowerCase();
+        shipGlobStatus = (rawLower.includes('entregad') || rawLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+      }
+      let shipBadgeBg = '#f1f5f9';
+      let shipBadgeColor = '#475569';
+      let shipIcon = 'ri-truck-line';
+      if (shipGlobStatus === 'ENTREGADO') {
         shipBadgeBg = '#d1fae5';
         shipBadgeColor = '#065f46';
+        shipIcon = 'ri-checkbox-circle-line';
+      } else if (shipGlobStatus === 'EN TRÁNSITO') {
+        shipBadgeBg = '#e0f2fe';
+        shipBadgeColor = '#0369a1';
+        shipIcon = 'ri-truck-line';
+      } else if (shipGlobStatus === 'DESPACHADO') {
+        shipBadgeBg = '#d1fae5';
+        shipBadgeColor = '#065f46';
+        shipIcon = 'ri-truck-line';
       } else if (shipGlobStatus === 'ALERTA') {
         shipBadgeBg = '#fee2e2';
         shipBadgeColor = '#991b1b';
+        shipIcon = 'ri-alert-line';
       } else if (shipGlobStatus === 'DEVOLUCIÓN') {
         shipBadgeBg = '#ffe4e6';
         shipBadgeColor = '#9f1239';
+        shipIcon = 'ri-arrow-go-back-line';
       }
       const isShipActive = selectedTag === shipGlobStatus;
-      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${shipGlobStatus}', event)" style="background-color: ${shipBadgeBg}; color: ${shipBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${shipBadgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Despacho: ${shipGlobStatus} (Clic para filtrar)"><i class="ri-truck-line" style="color: ${shipBadgeColor};"></i> ${shipGlobStatus}</span>`;
+      shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${shipGlobStatus}', event)" style="background-color: ${shipBadgeBg}; color: ${shipBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${shipBadgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="Despacho: ${shipGlobStatus} (Clic para filtrar)"><i class="${shipIcon}" style="color: ${shipBadgeColor};"></i> ${shipGlobStatus}</span>`;
     }
 
     // 4. Tag de Picker
@@ -15476,12 +15595,19 @@ async function renderShipments() {
         if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
           curGlobStatus = 'ALERTA';
         }
-        let badgeClass = 'badge-neutral';
         if (curGlobStatus === 'DESPACHADO') {
+          curGlobStatus = (stLower.includes('entregad') || stLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+        }
+        let badgeClass = 'badge-neutral';
+        if (curGlobStatus === 'ENTREGADO') {
           badgeClass = 'badge-success';
+        } else if (curGlobStatus === 'EN TRÁNSITO') {
+          badgeClass = 'badge-info';
         } else if (curGlobStatus === 'SIN MOVIMIENTO') {
           badgeClass = 'badge-warning';
         } else if (curGlobStatus === 'ALERTA') {
+          badgeClass = 'badge-danger';
+        } else if (curGlobStatus === 'DEVOLUCIÓN') {
           badgeClass = 'badge-danger';
         }
 
@@ -15514,7 +15640,13 @@ async function renderShipments() {
             <td>${trackingDisplay}</td>
             <td>
               <span class="badge ${badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
-                ${getDisplayStatusName(s.status)}
+                ${(() => {
+                  let statusText = s.status || '';
+                  if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
+                    statusText = s.raw_data[23];
+                  }
+                  return getDisplayStatusName(statusText);
+                })()}
               </span>
             </td>
             <td>
@@ -16035,7 +16167,7 @@ function showShipmentDetailsModal(shipment) {
     : shipment.source_table === 'bluex_envios' ? 'Blue Express' 
     : shipment.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
 
-  // Calculate timeline stepper progress
+  // Stepper timeline
   let step1Class = 'completed';
   let step2Class = '';
   let step3Class = '';
@@ -16044,28 +16176,35 @@ function showShipmentDetailsModal(shipment) {
   const gs = shipment.global_status;
   const rawStatus = (shipment.status || '').toLowerCase();
 
-  const isDelivered = (gs === 'DESPACHADO') && (
-    rawStatus.includes('entregado') || 
-    rawStatus.includes('delivered') || 
-    rawStatus.includes('nadie') || 
-    rawStatus.includes('exito')
+  const isDelivered = (gs === 'ENTREGADO') || (
+    (gs === 'DESPACHADO' || !gs) && (
+      rawStatus.includes('entregado') || 
+      rawStatus.includes('delivered') || 
+      rawStatus.includes('nadie') || 
+      rawStatus.includes('exito')
+    )
   );
 
-  if (gs === 'DESPACHADO') {
+  const isAlert = (gs === 'ALERTA');
+  const isReturn = (gs === 'DEVOLUCIÓN');
+  const isTransit = (gs === 'EN TRÁNSITO') || ((gs === 'DESPACHADO') && !isDelivered);
+
+  if (isDelivered) {
+    step1Class = 'completed';
     step2Class = 'completed';
+    step3Class = 'completed';
+    progressBarWidth = '100%';
+  } else if (isTransit) {
+    step1Class = 'completed';
+    step2Class = 'active'; // Transit state
     progressBarWidth = '50%';
-    if (isDelivered) {
-      step3Class = 'completed';
-      progressBarWidth = '100%';
-    } else {
-      step2Class = 'active'; // Transit state
-    }
+  } else if (isAlert || isReturn) {
+    step1Class = 'completed';
+    step2Class = 'warning';
+    progressBarWidth = '50%';
   } else if (gs === 'SIN MOVIMIENTO') {
     step1Class = 'active';
     progressBarWidth = '0%';
-  } else if (gs === 'ALERTA') {
-    step2Class = 'warning';
-    progressBarWidth = '50%';
   }
 
   // Stepper timeline
@@ -16077,8 +16216,8 @@ function showShipmentDetailsModal(shipment) {
         <div class="timeline-label">Creado</div>
       </div>
       <div class="timeline-step ${step2Class}">
-        <div class="timeline-bubble">${gs === 'ALERTA' ? '<i class="ri-error-warning-line"></i>' : '2'}</div>
-        <div class="timeline-label">${gs === 'ALERTA' ? 'Incidencia' : 'En Tránsito'}</div>
+        <div class="timeline-bubble">${isAlert ? '<i class="ri-error-warning-line"></i>' : (isReturn ? '<i class="ri-arrow-go-back-line"></i>' : '2')}</div>
+        <div class="timeline-label">${isAlert ? 'Incidencia' : (isReturn ? 'Devolución' : 'En Tránsito')}</div>
       </div>
       <div class="timeline-step ${step3Class}">
         <div class="timeline-bubble">3</div>
@@ -16140,7 +16279,13 @@ function showShipmentDetailsModal(shipment) {
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Estado:</span>
-                <span class="detail-info-value"><span style="background: rgba(99,102,241,0.12); color: var(--color-accent); padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">${getDisplayStatusName(shipment.status)}</span></span>
+                <span class="detail-info-value"><span style="background: rgba(99,102,241,0.12); color: var(--color-accent); padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">${(() => {
+                  let statusText = shipment.status || '';
+                  if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
+                    statusText = shipment.raw_data[23];
+                  }
+                  return getDisplayStatusName(statusText);
+                })()}</span></span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Ingresado al Sistema:</span>
@@ -41190,8 +41335,12 @@ async function openRequestInventoryModal(commerce, onComplete) {
           cancelButtonText: 'Listo',
           confirmButtonColor: '#6366f1'
         }).then((res) => {
-          if (res.isConfirmed && typeof window.generateInventoryCountPdf === 'function') {
-            window.generateInventoryCountPdf(createdReq);
+          if (res.isConfirmed) {
+            if (typeof window.downloadInventoryRequestSheet === 'function') {
+              window.downloadInventoryRequestSheet(createdReq, 'pdf');
+            } else if (typeof window.generateInventoryCountPdf === 'function') {
+              window.generateInventoryCountPdf(createdReq);
+            }
           }
         });
       } else {
@@ -41412,10 +41561,10 @@ function renderClientInventoryRequestsTabRows(allRequests, commerce) {
                 <i class="ri-file-excel-2-line"></i>
               </button>
             ` : ''}
-            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja de Terreno (PDF)" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.06); cursor: pointer; border-radius: 6px;">
+            <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'pdf')" title="Descargar Hoja de Terreno (PDF)" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: rgba(239, 68, 68, 0.06); cursor: pointer; border-radius: 6px;">
               <i class="ri-file-pdf-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla de Conteo (Excel)" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: rgba(16, 185, 129, 0.06); cursor: pointer; border-radius: 6px;">
+            <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'excel')" title="Descargar Planilla de Conteo (Excel)" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: rgba(16, 185, 129, 0.06); cursor: pointer; border-radius: 6px;">
               <i class="ri-file-excel-line"></i>
             </button>
             <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Desglose y Cuadratura" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: 6px;">
@@ -41613,10 +41762,10 @@ async function openClientInventoryRequestsModal(commerce) {
                   <i class="ri-file-excel-2-line"></i>
                 </button>
               ` : ''}
-              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja PDF para Terreno" style="padding: 0.25rem 0.45rem; border-color: #ef4444; color: #ef4444; cursor: pointer;">
+              <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'pdf')" title="Descargar Hoja PDF para Terreno" style="padding: 0.25rem 0.45rem; border-color: #ef4444; color: #ef4444; cursor: pointer;">
                 <i class="ri-file-pdf-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981; cursor: pointer;">
+              <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'excel')" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981; cursor: pointer;">
                 <i class="ri-file-excel-line"></i>
               </button>
               <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Respuestas y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
@@ -41681,6 +41830,7 @@ async function openViewInventoryRequestDetailModal(req) {
 
   const folio = req.folio || req.id.substring(0, 8);
   const products = Array.isArray(req.products_list) ? req.products_list : [];
+  const distinctWarehouses = window.getRequestDistinctWarehouses ? window.getRequestDistinctWarehouses(req) : [];
   const isFinalized = req.status === 'Finalizada' || products.some(p => p.counted_qty !== null && p.counted_qty !== undefined);
   const requiresInfo = req.status === 'Requiere Información' || (req.admin_notes && req.admin_notes.includes('[ESTADO: Requiere Información]'));
 
@@ -41709,7 +41859,7 @@ async function openViewInventoryRequestDetailModal(req) {
     const barcode = p.barcode || p.codigo_barra || '';
 
     return `
-      <tr style="border-bottom: 1px solid var(--color-border);">
+      <tr style="border-bottom: 1px solid var(--color-border);" data-wh-id="${p.warehouse_id || ''}" data-wh-name="${p.warehouse_name || ''}">
         <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
         <td style="padding: 0.5rem 0.6rem; vertical-align: middle;">
           <div style="font-weight: 600; font-family: monospace; color: var(--color-text-main);">${p.sku || '-'}</div>
@@ -41891,10 +42041,43 @@ async function openViewInventoryRequestDetailModal(req) {
 
         <!-- Tabla de Artículos -->
         <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700;">Listado de Productos y Resultados de Conteo</h4>
-            <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">${products.length} artículos</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700;">Listado de Productos y Resultados de Conteo</h4>
+              <p style="margin: 2px 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                ${distinctWarehouses.length > 1 ? 'Filtra por bodega o busca por SKU/código de barras para auditar cada equipo por separado.' : 'Detalle de existencias y conteos físicos registrados.'}
+              </p>
+            </div>
+            <span id="detail-req-count-badge" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">${products.length} artículos</span>
           </div>
+
+          <!-- Barra de Filtro por Bodega y Buscador Rápido -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.65rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            ${distinctWarehouses.length > 1 ? `
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;" id="detail-req-wh-tabs">
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-right: 0.25rem;">
+                  <i class="ri-store-2-line"></i> Bodega:
+                </span>
+                <button type="button" class="btn btn-sm btn-wh-detail-pill active" data-wh-filter="all" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 700; border-radius: 9999px; cursor: pointer; border: 1.5px solid #6366f1; background: #6366f1; color: #ffffff;">
+                  Todas (${products.length})
+                </button>
+                ${distinctWarehouses.map(w => `
+                  <button type="button" class="btn btn-sm btn-wh-detail-pill" data-wh-filter="${w.id || w.name}" data-wh-name="${w.name}" style="padding: 0.25rem 0.65rem; font-size: 0.775rem; font-weight: 600; border-radius: 9999px; cursor: pointer; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                    ${w.name} (${w.count})
+                  </button>
+                `).join('')}
+              </div>
+            ` : `
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-store-2-line"></i> Bodega: <strong>${req.warehouse_name || 'Central'}</strong> (${products.length} SKUs)
+              </div>
+            `}
+
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex: 1; max-width: 280px; margin-left: auto;">
+              <input type="text" id="detail-req-search-filter" class="form-input" placeholder="🔍 Buscar SKU, producto o CB..." style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); width: 100%; background: var(--color-surface);">
+            </div>
+          </div>
+
           <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 320px; overflow-y: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.825rem; text-align: left;">
               <thead>
@@ -41909,7 +42092,7 @@ async function openViewInventoryRequestDetailModal(req) {
                   <th style="padding: 0.5rem 0.6rem;">Notas</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="detail-req-tbody">
                 ${trs.length > 0 ? trs : '<tr><td colspan="8" style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">Sin productos.</td></tr>'}
               </tbody>
             </table>
@@ -41996,7 +42179,9 @@ async function openViewInventoryRequestDetailModal(req) {
   const btnSheetPdf = modal.querySelector('#btn-client-modal-sheet-pdf');
   if (btnSheetPdf) {
     btnSheetPdf.addEventListener('click', () => {
-      if (typeof window.generateInventoryCountPdf === 'function') {
+      if (typeof window.downloadInventoryRequestSheet === 'function') {
+        window.downloadInventoryRequestSheet(req, 'pdf');
+      } else if (typeof window.generateInventoryCountPdf === 'function') {
         window.generateInventoryCountPdf(req);
       }
     });
@@ -42005,9 +42190,84 @@ async function openViewInventoryRequestDetailModal(req) {
   const btnSheetExcel = modal.querySelector('#btn-client-modal-sheet-excel');
   if (btnSheetExcel) {
     btnSheetExcel.addEventListener('click', () => {
-      if (typeof window.generateInventoryCountExcel === 'function') {
+      if (typeof window.downloadInventoryRequestSheet === 'function') {
+        window.downloadInventoryRequestSheet(req, 'excel');
+      } else if (typeof window.generateInventoryCountExcel === 'function') {
         window.generateInventoryCountExcel(req);
       }
+    });
+  }
+
+  // Filtrado dinámico por bodega y buscador en el modal de detalle
+  let activeDetailWhFilter = 'all';
+  let activeDetailSearchTerm = '';
+
+  function applyDetailFiltering() {
+    const rows = modal.querySelectorAll('#detail-req-tbody tr');
+    let visibleCount = 0;
+
+    rows.forEach(tr => {
+      if (!tr.hasAttribute('data-wh-id') && !tr.hasAttribute('data-wh-name')) return;
+
+      const whId = (tr.getAttribute('data-wh-id') || '').trim();
+      const whName = (tr.getAttribute('data-wh-name') || '').trim().toLowerCase();
+
+      let matchesWh = true;
+      if (activeDetailWhFilter !== 'all') {
+        const filterVal = activeDetailWhFilter.toLowerCase().trim();
+        matchesWh = (whId && whId.toLowerCase() === filterVal) || (whName && whName === filterVal);
+      }
+
+      let matchesSearch = true;
+      if (activeDetailSearchTerm) {
+        const rowText = tr.textContent.toLowerCase();
+        matchesSearch = rowText.includes(activeDetailSearchTerm);
+      }
+
+      if (matchesWh && matchesSearch) {
+        tr.style.display = '';
+        visibleCount++;
+      } else {
+        tr.style.display = 'none';
+      }
+    });
+
+    const badgeCount = modal.querySelector('#detail-req-count-badge');
+    if (badgeCount) {
+      if (activeDetailWhFilter !== 'all' || activeDetailSearchTerm) {
+        badgeCount.textContent = `${visibleCount} de ${products.length} artículos`;
+      } else {
+        badgeCount.textContent = `${products.length} artículos`;
+      }
+    }
+  }
+
+  const detailWhPills = modal.querySelectorAll('.btn-wh-detail-pill');
+  detailWhPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      detailWhPills.forEach(p => {
+        p.classList.remove('active');
+        p.style.background = 'var(--color-surface)';
+        p.style.color = 'var(--color-text-main)';
+        p.style.borderColor = 'var(--color-border)';
+        p.style.fontWeight = '600';
+      });
+      pill.classList.add('active');
+      pill.style.background = '#6366f1';
+      pill.style.color = '#ffffff';
+      pill.style.borderColor = '#6366f1';
+      pill.style.fontWeight = '700';
+
+      activeDetailWhFilter = pill.getAttribute('data-wh-filter') || 'all';
+      applyDetailFiltering();
+    });
+  });
+
+  const detailSearchInput = modal.querySelector('#detail-req-search-filter');
+  if (detailSearchInput) {
+    detailSearchInput.addEventListener('input', (e) => {
+      activeDetailSearchTerm = (e.target.value || '').trim().toLowerCase();
+      applyDetailFiltering();
     });
   }
 
