@@ -129,8 +129,19 @@ function resolvePickerSku(prod, order, commerceStrict) {
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
 function resolveOrderTracking(order) {
   if (!order) return '';
-  if (order.tracking_number && String(order.tracking_number).trim()) {
+  if (order.tracking_number && String(order.tracking_number).trim() && String(order.tracking_number).trim().toLowerCase() !== 'no informado') {
     return String(order.tracking_number).trim();
+  }
+  // Shopify fulfillments tracking fallback
+  if (order.raw_shopify_data?.fulfillments && Array.isArray(order.raw_shopify_data.fulfillments)) {
+    for (const f of order.raw_shopify_data.fulfillments) {
+      if (f.tracking_number && String(f.tracking_number).trim()) {
+        return String(f.tracking_number).trim();
+      }
+      if (Array.isArray(f.tracking_numbers) && f.tracking_numbers[0] && String(f.tracking_numbers[0]).trim()) {
+        return String(f.tracking_numbers[0]).trim();
+      }
+    }
   }
   // MercadoLibre shipment ID fallback
   if (order.external_platform === 'MercadoLibre' || order.raw_meli_data) {
@@ -168,6 +179,8 @@ async function run() {
         shipping_address,
         shipping_city,
         shipping_complement,
+        shipping_method,
+        courier,
         tracking_number,
         estado_wms,
         agenda,
@@ -227,13 +240,39 @@ async function run() {
         return pNo === cleanOrderNo;
       });
 
-      const isStk = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK');
-      const isRetiro = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO');
+      const opUpper = String(wmsOrder.operador || '').toUpperCase().trim();
+      const curUpper = String(wmsOrder.courier || '').toUpperCase().trim();
+      const shipMethodUpper = String(wmsOrder.shipping_method || '').toUpperCase().trim();
+      const agendaUpper = String(wmsOrder.agenda || '').toUpperCase().trim();
+
+      const isStk = agendaUpper === 'STK';
+      const isRetiro = agendaUpper === 'RETIRO';
+      const isBodegaCompra = agendaUpper === 'COMPRA EN BODEGA';
+      const isPorPagar = opUpper.includes('POR PAGAR') || curUpper.includes('POR PAGAR') || shipMethodUpper.includes('POR PAGAR');
+      const isSucursal = opUpper.includes('SUCURSAL') || curUpper.includes('SUCURSAL');
+
       const resolvedTrack = resolveOrderTracking(wmsOrder);
-      const cleanTracking = isStk 
-        ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) 
-        : (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : resolvedTrack);
-      const isCourier = !isStk && !isRetiro;
+
+      // Backfill tracking_number en WMS si se resolvió desde raw_shopify_data
+      if (resolvedTrack && (!wmsOrder.tracking_number || String(wmsOrder.tracking_number).trim().toLowerCase() === 'no informado')) {
+        wmsClient.from('orders').update({ tracking_number: resolvedTrack }).eq('id', wmsOrder.id).then(() => {}).catch(() => {});
+        wmsOrder.tracking_number = resolvedTrack;
+      }
+
+      let cleanTracking = '';
+      if (isStk) {
+        cleanTracking = String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo;
+      } else if (isRetiro) {
+        cleanTracking = String(orderNo).replace(/[^a-zA-Z0-9]/g, '');
+      } else if (isPorPagar) {
+        cleanTracking = resolvedTrack || '-';
+      } else if (isBodegaCompra || isSucursal) {
+        cleanTracking = resolvedTrack || String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || '-';
+      } else {
+        cleanTracking = resolvedTrack;
+      }
+
+      const isCourier = !isStk && !isRetiro && !isPorPagar && !isBodegaCompra && !isSucursal;
 
       if (pickerItemsForOrder.length > 0) {
         const firstAct = pickerItemsForOrder[0];
@@ -378,8 +417,8 @@ async function run() {
               manga: mangaVal ? String(mangaVal).trim() : null,
               cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
-              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) : resolveOrderTracking(wmsOrder),
-              operator: wmsOrder.operador || '',
+              tracking: cleanTracking,
+              operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : (isPorPagar ? 'POR PAGAR' : '')),
               totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
               observation: buildPickerObservation(wmsOrder, `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`),
@@ -539,7 +578,7 @@ async function run() {
               cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: cleanTracking,
-              operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : ''),
+              operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : (isPorPagar ? 'POR PAGAR' : '')),
               totu: totu,
               sheet_status: 'EN PREPARACIÓN',
               observation: buildPickerObservation(wmsOrder, ''),

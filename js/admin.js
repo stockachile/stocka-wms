@@ -1636,8 +1636,19 @@ window.buildPickerObservation = function(order, prodDescription) {
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
 window.resolveOrderTracking = function(order) {
   if (!order) return '';
-  if (order.tracking_number && String(order.tracking_number).trim()) {
+  if (order.tracking_number && String(order.tracking_number).trim() && String(order.tracking_number).trim().toLowerCase() !== 'no informado') {
     return String(order.tracking_number).trim();
+  }
+  // Shopify fulfillments tracking fallback
+  if (order.raw_shopify_data?.fulfillments && Array.isArray(order.raw_shopify_data.fulfillments)) {
+    for (const f of order.raw_shopify_data.fulfillments) {
+      if (f.tracking_number && String(f.tracking_number).trim()) {
+        return String(f.tracking_number).trim();
+      }
+      if (Array.isArray(f.tracking_numbers) && f.tracking_numbers[0] && String(f.tracking_numbers[0]).trim()) {
+        return String(f.tracking_numbers[0]).trim();
+      }
+    }
   }
   // MercadoLibre shipment ID fallback
   if (order.external_platform === 'MercadoLibre' || order.raw_meli_data) {
@@ -54841,7 +54852,7 @@ window.sendSingleOrderToPicker = async function(order) {
     try {
       const { data: freshOrder } = await supabase
         .from('orders')
-        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, observation')
+        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, shipping_method')
         .eq('id', order.id)
         .maybeSingle();
       if (freshOrder) {
@@ -54854,22 +54865,47 @@ window.sendSingleOrderToPicker = async function(order) {
 
   const opUpper = (order.operador || '').toUpperCase().trim();
   const curUpper = (order.courier || '').toUpperCase().trim();
+  const shipMethodUpper = (order.shipping_method || '').toUpperCase().trim();
+  const agendaUpper = (order.agenda || '').toUpperCase().trim();
+
   const isIgnoredOperator = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
                             opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY');
   const isIgnoredCourier = curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
                            curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
 
-  const isStkAgenda = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
-  const isRetiro = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'RETIRO');
+  const isStkAgenda = agendaUpper === 'STK';
+  const isRetiro = agendaUpper === 'RETIRO';
+  const isBodegaCompra = agendaUpper === 'COMPRA EN BODEGA';
+  const isPorPagar = opUpper.includes('POR PAGAR') || curUpper.includes('POR PAGAR') || shipMethodUpper.includes('POR PAGAR');
+  const isSucursal = opUpper.includes('SUCURSAL') || curUpper.includes('SUCURSAL');
+
   const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
   const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
-  const cleanTracking = isStkAgenda 
-    ? cleanStkTracking 
-    : (isRetiro ? String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') : ((isIgnoredCourier || isIgnoredOperator) ? '' : resolvedTrack));
-  const cleanOperator = isIgnoredOperator ? '' : (order.operador || '');
 
-  // VALIDACIÓN ESTRICTA: Pedidos con courier/despacho externo (no STK y no RETIRO) NO deben enviarse al Picker sin tracking
-  if (!isStkAgenda && !isRetiro && (!cleanTracking || String(cleanTracking).trim() === '' || String(cleanTracking).trim().toLowerCase() === 'no informado')) {
+  // Backfill tracking_number en WMS si se resolvió desde integraciones
+  if (resolvedTrack && (!order.tracking_number || String(order.tracking_number).trim().toLowerCase() === 'no informado') && order.id) {
+    supabase.from('orders').update({ tracking_number: resolvedTrack }).eq('id', order.id).then(() => {}).catch(() => {});
+    order.tracking_number = resolvedTrack;
+  }
+
+  let cleanTracking = '';
+  if (isStkAgenda) {
+    cleanTracking = cleanStkTracking;
+  } else if (isRetiro) {
+    cleanTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '');
+  } else if (isPorPagar) {
+    cleanTracking = resolvedTrack || '-';
+  } else if (isBodegaCompra || isSucursal) {
+    cleanTracking = resolvedTrack || String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || '-';
+  } else {
+    cleanTracking = (isIgnoredCourier || isIgnoredOperator) ? '' : resolvedTrack;
+  }
+
+  const cleanOperator = isIgnoredOperator ? '' : (order.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : (isPorPagar ? 'POR PAGAR' : '')));
+
+  // VALIDACIÓN ESTRICTA: Pedidos con courier/despacho externo (no STK, no RETIRO, no POR PAGAR, no COMPRA EN BODEGA, no SUCURSAL) NO deben enviarse al Picker sin tracking
+  const requiresExternalTracking = !isStkAgenda && !isRetiro && !isPorPagar && !isBodegaCompra && !isSucursal;
+  if (requiresExternalTracking && (!cleanTracking || String(cleanTracking).trim() === '' || String(cleanTracking).trim().toLowerCase() === 'no informado')) {
     console.warn(`⏳ [PICKER GUARD] Pedido ${orderNumber} (${order.operador || 'Courier'}) no tiene tracking asignado aún en WMS. Se pospone el envío al Picker hasta que cuente con su número de seguimiento.`);
     return { skipped: true, reason: 'missing_tracking', orderNumber };
   }
