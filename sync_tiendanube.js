@@ -1,3 +1,12 @@
+
+function extractTiendanubeName(rawName, fallback = 'Producto Tiendanube') {
+  if (!rawName) return fallback;
+  if (typeof rawName === 'string') return rawName.trim();
+  if (typeof rawName === 'object') {
+    return rawName.es || rawName.pt || Object.values(rawName)[0] || fallback;
+  }
+  return String(rawName);
+}
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
@@ -154,28 +163,37 @@ async function syncMerchantTiendanube(integration) {
  */
 async function syncProducts(integration, storeId, headers) {
   console.log('--> Extrayendo productos desde Tiendanube...');
-  const url = `https://api.tiendanube.com/v1/${storeId}/products?per_page=100`;
 
   try {
-    const response = await fetch(url, { method: 'GET', headers });
-    if (!response.ok) {
-      throw new Error(`Error en API Tiendanube Productos: Status ${response.status} ${response.statusText}`);
+    let page = 1;
+    const allProducts = [];
+    while (true) {
+      const url = `https://api.tiendanube.com/v1/${storeId}/products?per_page=100&page=${page}`;
+      const response = await fetch(url, { method: 'GET', headers });
+      if (!response.ok) {
+        throw new Error(`Error en API Tiendanube Productos: Status ${response.status} ${response.statusText}`);
+      }
+      const products = await response.json();
+      if (!products || products.length === 0) break;
+      allProducts.push(...products);
+      if (products.length < 100) break;
+      page++;
     }
 
-    const products = await response.json();
-    console.log(`Se encontraron ${products.length} productos base.`);
+    console.log(`Se encontraron ${allProducts.length} productos base.`);
 
     const seenSkus = new Set();
     const productsToUpsert = [];
-    for (const product of products) {
-      // Tiendanube soporta variantes
+    for (const product of allProducts) {
       const mainImageUrl = product.images && product.images.length > 0 ? product.images[0].src : null;
       const status = product.published ? 'published' : 'hidden';
 
       for (const variant of product.variants) {
         let variantSku = variant.sku || '';
         let cleanSku = variantSku.trim().replace(/\s+/g, '');
-        if (!cleanSku) continue; // Ignorar productos sin SKU
+        if (!cleanSku) {
+          cleanSku = `TN-${product.id}-${variant.id}`;
+        }
 
         const upperSku = cleanSku.toUpperCase();
         if (seenSkus.has(upperSku)) {
@@ -189,7 +207,6 @@ async function syncProducts(integration, storeId, headers) {
         }
         seenSkus.add(cleanSku.toUpperCase());
 
-        // Si la variante tiene una imagen asignada en Tiendanube, la usamos, si no la del producto base
         let imageUrl = mainImageUrl;
         if (variant.image_id && product.images) {
           const matchedImg = product.images.find(img => img.id === variant.image_id);
@@ -198,11 +215,9 @@ async function syncProducts(integration, storeId, headers) {
           }
         }
 
-        // Construir nombre combinando el del producto con las opciones de variante (talle, color, etc.)
         const variantNameParts = [];
         if (variant.values) {
           for (const langKey of Object.keys(variant.values)) {
-            // Tomamos el primer idioma disponible o español si existe
             const val = variant.values[langKey];
             if (val) {
               variantNameParts.push(val);
@@ -211,10 +226,7 @@ async function syncProducts(integration, storeId, headers) {
           }
         }
         
-        let productName = '';
-        if (product.name) {
-          productName = product.name.es || product.name.pt || Object.values(product.name)[0] || 'Producto sin nombre';
-        }
+        const productName = extractTiendanubeName(product.name, 'Producto sin nombre');
         const finalName = variantNameParts.length > 0 ? `${productName} - ${variantNameParts.join(' / ')}` : productName;
 
         productsToUpsert.push({
@@ -230,11 +242,14 @@ async function syncProducts(integration, storeId, headers) {
     }
 
     if (productsToUpsert.length > 0) {
-      const { error: upsertErr } = await supabase
-        .from('synced_products')
-        .upsert(productsToUpsert, { onConflict: 'comercio,platform,sku' });
+      for (let i = 0; i < productsToUpsert.length; i += 100) {
+        const batch = productsToUpsert.slice(i, i + 100);
+        const { error: upsertErr } = await supabase
+          .from('synced_products')
+          .upsert(batch, { onConflict: 'comercio,platform,sku' });
 
-      if (upsertErr) throw upsertErr;
+        if (upsertErr) throw upsertErr;
+      }
       console.log(`📥 Se han sincronizado ${productsToUpsert.length} variantes de Tiendanube en synced_products.`);
     }
   } catch (error) {
@@ -383,7 +398,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         let mappedSku = skuMap[sku] || sku;
         itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
 
-        const name = item.name ? (item.name.es || item.name.pt || Object.values(item.name)[0] || 'Producto') : 'Producto';
+        const name = extractTiendanubeName(item.name, 'Producto');
         if (name && !itemNames.includes(name)) {
           itemNames.push(name);
         }
@@ -529,9 +544,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
               return mappedItemSku === sku;
             });
 
-            const pName = itemDetail?.name 
-              ? (itemDetail.name.es || itemDetail.name.pt || Object.values(itemDetail.name)[0] || 'Producto Tiendanube ' + sku) 
-              : 'Producto Tiendanube ' + sku;
+            const pName = extractTiendanubeName(itemDetail?.name, 'Producto Tiendanube ' + sku);
             const productPrice = Number(itemDetail?.price || 0);
 
             const { data: newProd, error: prodErr } = await supabase

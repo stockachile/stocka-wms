@@ -174,7 +174,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     let mappedSku = skuMap[sku] || sku;
     itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
 
-    const name = item.name ? (item.name.es || item.name.pt || Object.values(item.name)[0] || "Producto") : "Producto";
+    const name = typeof item.name === "string" ? item.name.trim() : (item.name?.es || item.name?.pt || (typeof item.name === "object" && item.name ? Object.values(item.name)[0] : "Producto") || "Producto");
     if (name && !itemNames.includes(name)) {
       itemNames.push(name);
     }
@@ -265,9 +265,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
         return mappedItemSku === sku;
       });
 
-      const pName = itemDetail?.name 
-        ? (itemDetail.name.es || itemDetail.name.pt || Object.values(itemDetail.name)[0] || "Producto Tiendanube " + sku) 
-        : "Producto Tiendanube " + sku;
+      const pName = typeof itemDetail?.name === "string" ? itemDetail.name.trim() : (itemDetail?.name?.es || itemDetail?.name?.pt || (typeof itemDetail?.name === "object" && itemDetail?.name ? Object.values(itemDetail.name)[0] : "Producto Tiendanube " + sku) || "Producto Tiendanube " + sku);
       const productPrice = Number(itemDetail?.price || 0);
 
       const { data: newProd, error: prodErr } = await supabase
