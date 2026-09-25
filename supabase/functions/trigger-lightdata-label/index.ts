@@ -24,13 +24,17 @@ serve(async (req) => {
       })
     }
 
-    const token = authHeader.replace('Bearer ', '')
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim()
     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey)
 
     // Validar sesión del usuario
     const { data: { user }, error: authErr } = await supabaseClient.auth.getUser(token)
     if (authErr || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      console.error('Error validando token en trigger-lightdata-label:', authErr?.message)
+      return new Response(JSON.stringify({ 
+        error: authErr?.message === 'JWT expired' ? 'Sesión expirada' : 'Unauthorized',
+        details: authErr?.message 
+      }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })

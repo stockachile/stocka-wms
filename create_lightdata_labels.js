@@ -192,6 +192,13 @@ async function sendSingleOrderToPicker(order) {
   if (!pickerSupabase) return;
 
   const orderNumber = String(order.external_order_number || order.id);
+  const isStk = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
+  const isRetiro = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'RETIRO');
+  const trk = String(order.tracking_number || '').trim();
+  if (!isStk && !isRetiro && (!trk || trk.toLowerCase() === 'no informado')) {
+    console.warn(`⏳ [PICKER GUARD] Pedido ${orderNumber} sin tracking válido. No se envía al Picker.`);
+    return;
+  }
   console.log(`📡 Enviando pedido ${orderNumber} al Picker (tracking: ${order.tracking_number})...`);
 
   let commerceStrict = false;

@@ -10459,7 +10459,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
         <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -10539,8 +10539,9 @@ window.applyClientWmsFiltersAndRender = function() {
 
             <!-- Col 2: Desglose de Productos -->
             <div class="order-detail-card" style="background: var(--color-surface); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-basket-2-line"></i> Ítems del Pedido</span>
+                ${(window.canSplitOrder && window.canSplitOrder(order)) ? `<button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles"><i class="ri-scissors-2-line"></i> Dividir Pedido</button>` : ''}
               </h4>
               <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
@@ -12056,10 +12057,12 @@ async function renderIntegrations() {
                   <div class="form-group" style="margin-bottom: 1.25rem;">
                     <label class="form-label" style="font-weight: 600;">Store ID (ID de la Tienda)</label>
                     <input type="text" id="tiendanube-url" class="form-input" placeholder="ej. 1234567 o URL de tu tienda" value="${tiendanubeUrl}" ${hasTiendanube ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <small style="display: block; margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.78rem;">Número en la URL de tu panel: admin.tiendanube.com/<strong>1234567</strong>/</small>
                   </div>
                   <div class="form-group" style="margin-bottom: 1.25rem; ${hasTiendanube ? 'display:none;' : ''}">
                     <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
-                    <input type="password" id="tiendanube-token" class="form-input" placeholder="Ingresa el Token generado para la API" value="${tiendanubeToken}" ${hasTiendanube ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <input type="password" id="tiendanube-token" class="form-input" placeholder="Ingresa el Access Token generado en Aplicaciones a medida" value="${tiendanubeToken}" ${hasTiendanube ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <small style="display: block; margin-top: 0.35rem; color: var(--color-text-muted); font-size: 0.78rem;">Generado en <em>«Aplicaciones a medida»</em> (disponible en Planes Avanzado / Evolución de Tiendanube).</small>
                   </div>
                   <div class="form-group" style="margin-bottom: 1.25rem; ${hasTiendanube ? 'display:none;' : ''}">
                     <label class="form-label" style="font-weight: 600;">Webhook Secret (Opcional - Clave de Firma)</label>
@@ -12078,6 +12081,14 @@ async function renderIntegrations() {
                 </h3>
               </div>
               <div class="card-body" style="padding: 1.5rem;">
+                <div style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.82rem; line-height: 1.5; color: var(--color-text-main);">
+                  <div style="font-weight: 700; color: #0891b2; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                    <i class="ri-information-line" style="font-size: 1rem;"></i> Requisito de Plan en Tiendanube
+                  </div>
+                  <div>
+                    La creación de credenciales API se realiza desde la sección <strong>«Aplicaciones a medida»</strong>. Esta función está habilitada por Tiendanube exclusivamente en planes <strong>Avanzado</strong> y <strong>Evolución</strong>. Si tu tienda tiene Plan Básico y no ves esta opción en el menú, contáctanos a soporte para asistirte con la conexión.
+                  </div>
+                </div>
                 <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
                   <li>
                     <strong style="color: var(--color-text-main);">Obtener tu Store ID (ID de tienda):</strong>
@@ -12085,7 +12096,7 @@ async function renderIntegrations() {
                   </li>
                   <li>
                     <strong>Obtener Credenciales de la API (Access Token):</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel administrador de Tiendanube, ve a <strong>Mis aplicaciones &gt; Ver todas las aplicaciones &gt; Crear aplicación privada / API</strong>. Crea una credencial de tipo API asignándole permisos de lectura de productos y órdenes, y copia el token generado.</p>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de Tiendanube, ve al menú lateral izquierdo a <strong>«Aplicaciones a medida»</strong>. Presiona <strong>«Crear aplicación a medida»</strong>, nómbrala <code>Stocka WMS</code>, activa permisos de lectura y escritura de <strong>Productos</strong> y <strong>Órdenes / Pedidos</strong>, y copia el <strong>Access Token</strong> generado.</p>
                   </li>
                   <li>
                     <strong>Configurar Webhooks (Tiempo Real):</strong>
@@ -24672,7 +24683,9 @@ async function fetchAndRenderClientDeclarations() {
           statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
           break;
         case 'En proceso de conteo/clasificación':
-          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+          statusBadge = dec.parallel_count
+            ? '<span class="badge" style="background-color: rgba(95, 6, 250, 0.15); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.35); font-weight: 700;"><i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo (Stock Disponible)</span>'
+            : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
           break;
         case 'Recepción Parcial':
           statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
@@ -24732,6 +24745,13 @@ async function fetchAndRenderClientDeclarations() {
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
             <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
             ${dec.title}
+            ${dec.parallel_count ? `
+            <div style="margin-top: 3px;">
+              <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;" title="Stock cargado provisionalmente en inventario para ventas">
+                <i class="ri-checkbox-circle-line" style="color: var(--color-success);"></i> Stock Disponible en Bodega (Conteo en Paralelo)
+              </span>
+            </div>
+            ` : ''}
             ${hasAdminEdit ? `
             <div style="margin-top: 3px;">
               <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Este ingreso registra modificaciones realizadas por Administración">
@@ -24986,17 +25006,32 @@ window.viewDeclarationDetail = async function(id) {
     const surchargeCostReal = surchargeCostEst > 0 ? (0.75 * finalVolume) : 0;
 
     // Componente Etiquetado
-    const labelingQty = dec.labeling_qty_requested || (dec.labeling_type === 'completely' ? totalDeclared : 0);
-    const labelingCostEst = (dec.labeling_type && dec.labeling_type !== 'none' && labelingQty > 0)
-      ? (labelingQty * (100 / ufRate))
+    const labelingQtyEst = dec.labeling_qty_requested || (dec.labeling_type === 'completely' ? totalDeclared : 0);
+    const labelingQtyReal = (dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null)
+      ? dec.labeling_qty_confirmed
+      : labelingQtyEst;
+
+    const labelingCostEst = (dec.labeling_type && dec.labeling_type !== 'none' && labelingQtyEst > 0)
+      ? (labelingQtyEst * (100 / ufRate))
       : 0;
+
+    const labelingCostReal = (dec.labeling_type && dec.labeling_type !== 'none' && labelingQtyReal > 0)
+      ? (labelingQtyReal * (100 / ufRate))
+      : 0;
+
+    // Componente Costos Adicionales de Recepción (Admin)
+    const additionalCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+    const additionalCostsTotalUf = additionalCosts.reduce((sum, item) => sum + (parseFloat(item.amount_uf) || 0), 0);
+    const additionalCostsTotalClp = additionalCosts.reduce((sum, item) => sum + (parseFloat(item.amount_clp) || ((parseFloat(item.amount_uf) || 0) * ufRate)), 0);
+
+    const calculatedRealTotalUF = unloadingCostReal + surchargeCostReal + labelingCostReal + additionalCostsTotalUf;
 
     const estimatedTotalUF = dec.estimated_cost !== undefined && dec.estimated_cost !== null
       ? parseFloat(dec.estimated_cost)
       : (unloadingCostEst + surchargeCostEst + labelingCostEst);
 
     const hasRealCost = dec.real_cost !== undefined && dec.real_cost !== null && dec.real_cost > 0;
-    const realTotalUF = hasRealCost ? parseFloat(dec.real_cost) : estimatedTotalUF;
+    const realTotalUF = hasRealCost ? parseFloat(dec.real_cost) : (calculatedRealTotalUF > 0 ? calculatedRealTotalUF : estimatedTotalUF);
 
     // 6. Preparación de Ítems / Tabla de Productos
     const skuSet = new Set(products.map(p => p.sku).filter(Boolean));
@@ -25094,9 +25129,9 @@ window.viewDeclarationDetail = async function(id) {
       },
       {
         idx: 3,
-        title: 'Conteo & Control de Calidad',
-        subtitle: 'Revisión de bultos y validación de SKUs',
-        icon: 'ri-scan-2-line'
+        title: dec.parallel_count ? 'Conteo en Paralelo' : 'Conteo & Control de Calidad',
+        subtitle: dec.parallel_count ? 'Stock disponible en bodega mientras se audita' : 'Revisión de bultos y validación de SKUs',
+        icon: dec.parallel_count ? 'ri-refresh-line' : 'ri-scan-2-line'
       },
       {
         idx: 4,
@@ -25389,6 +25424,24 @@ window.viewDeclarationDetail = async function(id) {
           
           <!-- TAB 1: RESUMEN & LOGÍSTICA -->
           <div id="dec-pane-summary" class="dec-tab-pane">
+            ${dec.parallel_count ? `
+            <!-- Banner Informativo Conteo en Paralelo -->
+            <div style="background: rgba(95, 6, 250, 0.08); border: 1.5px solid rgba(95, 6, 250, 0.35); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
+              <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(95, 6, 250, 0.15); color: #5f06fa; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+                <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i>
+              </div>
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <strong style="color: #5f06fa; font-size: 0.95rem;">Ingreso con Stock Disponible (Conteo en Paralelo)</strong>
+                  <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; font-weight: 700;">Stock Activo para Ventas</span>
+                </div>
+                <div style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 3px; line-height: 1.4;">
+                  Tus productos declarados ya fueron ingresados y se encuentran <strong>disponibles en bodega para despacho inmediato</strong>. Nuestro equipo operativo está concluyendo el conteo físico y auditoría final en paralelo.
+                </div>
+              </div>
+            </div>
+            ` : ''}
+
             <!-- KPI METRICS ROW -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
               <div class="dec-kpi-card" style="border-left: 4px solid var(--color-primary);">
@@ -25674,13 +25727,33 @@ window.viewDeclarationDetail = async function(id) {
                   <tr style="border-bottom: 1px solid var(--color-border);">
                     <td style="padding: 0.85rem 1rem;">
                       <div style="font-weight: 600; color: var(--color-text-main);">Servicio de Etiquetado y Acondicionamiento</div>
-                      <div style="font-size: 0.75rem; color: var(--color-text-muted);">${labelingQty > 0 ? `Solicitado para ${labelingQty} unidades (${dec.labeling_type === 'completely' ? 'Completo' : 'Parcial'})` : 'No solicitado'}</div>
+                      <div style="font-size: 0.75rem; color: var(--color-text-muted);">${(dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null) ? `${labelingQtyReal} unidades confirmadas en bodega` : (labelingQtyEst > 0 ? `Solicitado para ${labelingQtyEst} unidades (${dec.labeling_type === 'completely' ? 'Completo' : 'Parcial'})` : 'No solicitado')}</div>
                     </td>
                     <td style="padding: 0.85rem 1rem; color: var(--color-text-muted);">$ 100 CLP / ud</td>
-                    <td style="padding: 0.85rem 1rem; text-align: center; font-weight: 600;">${labelingQty > 0 ? labelingQty + ' uds' : '—'}</td>
-                    <td style="padding: 0.85rem 1rem; text-align: right; font-weight: 700; color: var(--color-text-main);">${labelingCostEst.toFixed(4)} UF</td>
-                    <td style="padding: 0.85rem 1rem; text-align: right; color: var(--color-text-muted);">$ ${Math.round(labelingQty * 100).toLocaleString('es-CL')}</td>
+                    <td style="padding: 0.85rem 1rem; text-align: center; font-weight: 600;">${labelingQtyReal > 0 ? labelingQtyReal + ' uds' : '—'}</td>
+                    <td style="padding: 0.85rem 1rem; text-align: right; font-weight: 700; color: var(--color-text-main);">${labelingCostReal.toFixed(4)} UF</td>
+                    <td style="padding: 0.85rem 1rem; text-align: right; color: var(--color-text-muted);">$ ${Math.round(labelingQtyReal * 100).toLocaleString('es-CL')}</td>
                   </tr>
+
+                  ${additionalCosts.length > 0 ? additionalCosts.map(cost => {
+                    const cUf = parseFloat(cost.amount_uf) || 0;
+                    const cClp = parseFloat(cost.amount_clp) || (cUf * ufRate);
+                    return `
+                      <tr style="border-bottom: 1px solid var(--color-border); background: rgba(59, 130, 246, 0.03);">
+                        <td style="padding: 0.85rem 1rem;">
+                          <div style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                            <i class="ri-add-circle-fill" style="color: var(--color-primary); font-size: 0.95rem;"></i>
+                            ${cost.name}
+                          </div>
+                          <div style="font-size: 0.75rem; color: var(--color-text-muted);">${cost.notes ? `Detalle: ${cost.notes}` : 'Servicio / Cobro adicional en recepción'}</div>
+                        </td>
+                        <td style="padding: 0.85rem 1rem; color: var(--color-text-muted);">Costo Extra</td>
+                        <td style="padding: 0.85rem 1rem; text-align: center; font-weight: 600;">1 servicio</td>
+                        <td style="padding: 0.85rem 1rem; text-align: right; font-weight: 700; color: var(--color-primary);">${cUf.toFixed(4)} UF</td>
+                        <td style="padding: 0.85rem 1rem; text-align: right; color: var(--color-text-muted);">$ ${Math.round(cClp).toLocaleString('es-CL')}</td>
+                      </tr>
+                    `;
+                  }).join('') : ''}
                 </tbody>
                 <tfoot>
                   <tr style="background: var(--color-surface-hover); font-weight: 800;">
@@ -35342,19 +35415,91 @@ window.exportDeclarationToPDF = async function(id) {
             <p style="margin: 4px 0;"><strong>Bultos Totales:</strong> ${dec.package_count} (${dec.package_type})</p>
             <p style="margin: 4px 0; font-size: 11px; color: #64748b; margin-left: 10px;">• C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}</p>
             <p style="margin: 4px 0;"><strong>Método de Envío:</strong> ${dec.delivery_method}</p>
-            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado' : 'No solicitado'}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado (0.1 UF/m³)' : 'No solicitado ($0)'}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Etiquetado:</strong> ${(() => {
+              const lt = dec.labeling_type || 'completely';
+              const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+              const lqConf = (dec.labeling_qty_confirmed !== null && dec.labeling_qty_confirmed !== undefined) ? dec.labeling_qty_confirmed : null;
+              if (lt === 'completely') return 'Completamente Etiquetado (0 uds - Sin costo adicional)';
+              if (lt === 'partially') return `Parcialmente Etiquetado (${lqReq} uds solicitadas${lqConf !== null ? ` | ${lqConf} uds confirmadas` : ''})`;
+              return `Sin Etiquetado - Solicitud Total (${lqReq} uds solicitadas${lqConf !== null ? ` | ${lqConf} uds confirmadas` : ''})`;
+            })()}</p>
           </div>
         </div>
 
-        <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; line-height: 1.4;">
-          <div>
-            <h3 style="margin: 0 0 2px 0; font-size: 13px; color: #166534; font-weight: 700;">Resumen Económico Estimado</h3>
-            <span style="color: #475569; font-size: 10px;">* El costo definitivo se liquidará con el volumen físico confirmado en bodega.</span>
-          </div>
-          <div style="text-align: right;">
-            <span style="font-size: 15px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 6px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">Total: ${(dec.estimated_cost || 0).toFixed(2)} UF</span>
-          </div>
-        </div>
+        <!-- Resumen Económico Desglosado -->
+        ${(() => {
+          const vol = Number(dec.volume_declared || 0);
+          const volConf = Number(dec.volume_confirmed || 0);
+          const finalVol = (dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' && volConf > 0) ? volConf : vol;
+          const unlEst = dec.requires_unloading ? (0.1 * vol) : 0;
+          let surEst = 0;
+          if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+            const arrDate = new Date(dec.estimated_arrival_date + 'T00:00:00');
+            const creDate = new Date(dec.created_at || new Date());
+            const diffH = (arrDate.getTime() - creDate.getTime()) / (1000 * 60 * 60);
+            if (diffH < 24) surEst = 0.75 * vol;
+          }
+          const lt = dec.labeling_type || 'completely';
+          const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+          const lqConf = (dec.labeling_qty_confirmed !== null && dec.labeling_qty_confirmed !== undefined) ? dec.labeling_qty_confirmed : null;
+          const ufR = window.currentUfValue || 38200;
+          const labEstClp = lqReq * 100;
+          const labEstUf = labEstClp / ufR;
+
+          // Costos adicionales registrados por administración
+          const addCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          const addCostsUf = addCosts.reduce((s, c) => s + (parseFloat(c.amount_uf) || 0), 0);
+          const addCostsClp = addCosts.reduce((s, c) => s + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufR)), 0);
+
+          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null && Number(dec.real_cost) > 0;
+          const totRealUf = hasReal ? Number(dec.real_cost) : ((dec.requires_unloading ? (0.1 * finalVol) : 0) + (surEst > 0 ? (0.75 * finalVol) : 0) + ((lqConf !== null ? lqConf : lqReq) * 100 / ufR) + addCostsUf);
+          const totEstUf = (dec.estimated_cost !== undefined && dec.estimated_cost !== null && dec.estimated_cost > 0)
+            ? Number(dec.estimated_cost)
+            : (unlEst + surEst + labEstUf);
+          const displayTotUf = hasReal ? totRealUf : totEstUf;
+          const displayTotClp = Math.round(displayTotUf * ufR);
+
+          return `
+            <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 11px; line-height: 1.5;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #bbf7d0; padding-bottom: 8px; margin-bottom: 10px;">
+                <div>
+                  <h3 style="margin: 0; font-size: 13px; color: #166534; font-weight: 700; text-transform: uppercase;">Desglose y Liquidación de Costos</h3>
+                  <span style="color: #475569; font-size: 10px;">Valor UF Referencial: $${Math.round(ufR).toLocaleString('es-CL')} CLP</span>
+                </div>
+                <div style="text-align: right;">
+                  <span style="font-size: 14px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 5px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">
+                    ${hasReal ? 'Total Confirmado:' : 'Total Estimado:'} ${displayTotUf.toFixed(4)} UF (~ $${displayTotClp.toLocaleString('es-CL')} CLP)
+                  </span>
+                </div>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 10.5px; color: #334155;">
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">1. Descarga (0.1 UF/m³):</strong><br>
+                  ${dec.requires_unloading ? `${(0.1 * finalVol).toFixed(4)} UF (~ $${Math.round((0.1 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">2. Recargo Tardío (&lt; 24h):</strong><br>
+                  ${surEst > 0 ? `${(0.75 * finalVol).toFixed(4)} UF (~ $${Math.round((0.75 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">3. Etiquetado ($100 CLP/ud):</strong><br>
+                  ${(lqConf !== null ? lqConf : lqReq) > 0 ? `${(((lqConf !== null ? lqConf : lqReq) * 100) / ufR).toFixed(4)} UF ($${Math.round((lqConf !== null ? lqConf : lqReq) * 100).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
+                </div>
+                ${addCosts.map((extra, eIdx) => `
+                  <div style="background: rgba(239, 246, 255, 0.85); padding: 8px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                    <strong style="color: #1d4ed8;">${eIdx + 4}. ${extra.name}:</strong><br>
+                    ${(parseFloat(extra.amount_uf) || 0).toFixed(4)} UF ($${Math.round(extra.amount_clp || ((parseFloat(extra.amount_uf) || 0) * ufR)).toLocaleString('es-CL')} CLP)
+                    ${extra.notes ? `<div style="font-size: 9px; color: #64748b; font-style: italic;">(${extra.notes})</div>` : ''}
+                  </div>
+                `).join('')}
+              </div>
+              <div style="margin-top: 8px; font-size: 9.5px; color: #64748b;">
+                * ${hasReal ? 'Valores liquidados con cubicaje definitivo y servicios registrados en bodega.' : 'El costo definitivo se liquida según el volumen físico y unidades de etiquetado efectivamente confirmadas en bodega.'}
+              </div>
+            </div>
+          `;
+        })()}
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; font-size: 11px; color: #475569; line-height: 1.5;">
           <div>

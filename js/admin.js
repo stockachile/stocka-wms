@@ -2153,6 +2153,78 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
   }
 };
 
+// Helper robusto para invocar Edge Functions de Supabase con auto-refresh de sesión y tolerancia a expiración
+window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+  const url = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/${functionName}`;
+
+  // 1. Obtener la sesión activa
+  let session = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    session = data?.session;
+  } catch (sessErr) {
+    console.warn('[fetchWmsEdgeFunction] Error al leer sesión:', sessErr);
+  }
+
+  // 2. Refrescar proactivamente si falta sesión, está expirada o vence en menos de 2 minutos
+  const now = Math.floor(Date.now() / 1000);
+  if (!session || (session.expires_at && (session.expires_at - now < 120))) {
+    try {
+      console.log('[fetchWmsEdgeFunction] Token expirado o próximo a expirar, renovando sesión...');
+      const { data: refreshed, error: refErr } = await supabase.auth.refreshSession();
+      if (!refErr && refreshed?.session) {
+        session = refreshed.session;
+      }
+    } catch (refEx) {
+      console.warn('[fetchWmsEdgeFunction] Refresh proactivo falló:', refEx);
+    }
+  }
+
+  if (!session?.access_token) {
+    throw new Error('Tu sesión en el WMS ha expirado o no está activa. Por favor recarga la página (F5) o inicia sesión nuevamente.');
+  }
+
+  const doFetch = async (token) => {
+    return await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'apikey': SUPABASE_ANON_KEY,
+        ...(options.headers || {})
+      }
+    });
+  };
+
+  let response = await doFetch(session.access_token);
+
+  // 3. Si responde 401 (Unauthorized / token expirado en gateway o función), intentar forzar un refresh y reintentar
+  if (response.status === 401) {
+    console.warn(`[fetchWmsEdgeFunction] 401 devuelto por ${functionName}. Forzando refresh de sesión y reintentando...`);
+    try {
+      const { data: refreshed, error: refErr } = await supabase.auth.refreshSession();
+      if (!refErr && refreshed?.session?.access_token) {
+        session = refreshed.session;
+        response = await doFetch(session.access_token);
+      }
+    } catch (retryEx) {
+      console.warn('[fetchWmsEdgeFunction] Reintento tras 401 falló:', retryEx);
+    }
+  }
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Tu sesión ha caducado por inactividad. Por favor recarga la página (F5) para renovar tus credenciales.');
+    }
+    throw new Error(result.error || `Error del servidor (${response.status})`);
+  }
+
+  return result;
+};
+
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
   // Validación previa de fono y comuna
@@ -2210,22 +2282,10 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
   btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando...`;
   
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error("No autenticado en el WMS.");
-    
-    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label`, {
+    const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
     });
-    
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || `Error del servidor: ${response.status}`);
-    }
     
     Swal.fire({
       icon: 'success',
@@ -2318,22 +2378,10 @@ window.bulkCreateLightDataLabels = async function(btn) {
   btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando masivo...`;
   
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error("No autenticado en el WMS.");
-    
-    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label`, {
+    const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`
-      },
       body: JSON.stringify({ mode: 'bulk', orderIds: ids.join(',') })
     });
-    
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || `Error del servidor: ${response.status}`);
-    }
     
     Swal.fire({
       icon: 'success',
@@ -2576,6 +2624,32 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
             tracking: trackingNum,
             status: match.status
           });
+
+          // Sincronizar inmediatamente al Picker si está activo o en preparación
+          if (pickerSupabase) {
+            try {
+              const orderNo = String(order.external_order_number || order.id);
+              const { data: actCheck } = await pickerSupabase
+                .from('active_orders')
+                .select('id')
+                .eq('order_number', orderNo)
+                .limit(1);
+
+              if (actCheck && actCheck.length > 0) {
+                await pickerSupabase
+                  .from('active_orders')
+                  .update({ tracking: trackingNum, operator: 'ALPHA' })
+                  .eq('order_number', orderNo);
+                console.log(`✅ Tracking actualizado en Picker active_orders para ${orderNo}: ${trackingNum}`);
+              } else if (order.estado_wms === 'En preparación') {
+                order.tracking_number = trackingNum;
+                await window.sendSingleOrderToPicker(order);
+                console.log(`✅ Pedido ${orderNo} enviado al Picker con su nuevo tracking: ${trackingNum}`);
+              }
+            } catch (pErr) {
+              console.warn(`Error sincronizando tracking al Picker para ${order.id}:`, pErr);
+            }
+          }
         }
       } else {
         notFoundOrders.push(order.external_order_number || order.id.split('-')[0]);
@@ -2719,6 +2793,15 @@ window.formatCLP = function(value) {
 };
 
 window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, checkTerminal = true) {
+  if (!order) return false;
+
+  // Regla Logística Inversa: Devoluciones nunca descuentan ni comprometen stock en WMS
+  if (order.raw_shopify_data?.no_stock_deduction || 
+      (order.origen === 'Logística Inversa' && (order.raw_shopify_data?.rl_type === 'DEVOLUCION' || (order.shipping_method || '').includes('DEVOLUCION'))) ||
+      (order.is_reverse_logistics && order.raw_shopify_data?.rl_type === 'DEVOLUCION')) {
+    return false;
+  }
+
   // Si no hay configuración para este comercio, por defecto no hacemos seguimiento
   if (!config) return false;
 
@@ -3537,6 +3620,9 @@ async function updateOrderStatus(orderId, newStatus) {
       .eq('id', orderId);
       
     if (error) throw error;
+    if (['despachado', 'entregado'].includes(newStatus) && window.syncReverseLogisticsOnOrdersDispatched) {
+      await window.syncReverseLogisticsOnOrdersDispatched([orderId]);
+    }
     alert(`Pedido actualizado a: ${newStatus}`);
     renderAdminOrders();
   } catch (err) {
@@ -4087,9 +4173,15 @@ async function renderAdminOrders() {
   await window.loadConfigOptions();
 
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const d7 = new Date();
+  d7.setDate(d7.getDate() - 6);
+  const sevenDaysAgoStr = `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`;
   const startOfMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const initialDateFrom = sevenDaysAgoStr;
+  const initialDateTo = todayStr;
+  window.wmsActiveDatePreset = window.wmsActiveDatePreset || '7days';
 
   try {
     // Cargar todos los packs de todos los comercios para trazabilidad en Admin
@@ -4107,10 +4199,10 @@ async function renderAdminOrders() {
     }
     window.currentPackSkusList = packSkusList;
 
-    window.lastFetchedDateFrom = startOfMonthStr;
-    window.lastFetchedDateTo = todayStr;
+    window.lastFetchedDateFrom = initialDateFrom;
+    window.lastFetchedDateTo = initialDateTo;
 
-    await window.fetchWmsOrdersData(null, null);
+    await window.fetchWmsOrdersData(initialDateFrom, initialDateTo);
 
     // Cargar configuraciones adicionales de los comercios
     let commerceConfigMap = {};
@@ -4857,11 +4949,54 @@ async function renderAdminOrders() {
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Desde</label>
-            <input type="date" id="filter-date-from" class="form-input" value="${startOfMonthStr}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+            <input type="date" id="filter-date-from" class="form-input" value="${initialDateFrom}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
           </div>
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Hasta</label>
-            <input type="date" id="filter-date-to" class="form-input" value="${todayStr}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+            <input type="date" id="filter-date-to" class="form-input" value="${initialDateTo}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
+        </div>
+
+        <!-- Pastillas de Filtros Rápidos de Fecha (Presets) -->
+        <style>
+          .wms-date-preset-btn {
+            padding: 0.2rem 0.55rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border-radius: 9999px;
+            border: 1px solid var(--color-border);
+            background: var(--color-surface);
+            color: var(--color-text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+          }
+          .wms-date-preset-btn:hover {
+            border-color: var(--color-primary);
+            color: var(--color-primary);
+            background: rgba(79, 70, 229, 0.05);
+          }
+          .wms-date-preset-btn.active {
+            background: var(--color-primary) !important;
+            color: #ffffff !important;
+            border-color: var(--color-primary) !important;
+            font-weight: 600;
+            box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+          }
+        </style>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-calendar-event-line"></i> Rangos predeterminados:
+            </span>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'today' ? 'active' : ''}" data-preset="today" onclick="window.setWmsDatePreset('today')">Hoy</button>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'yesterday' ? 'active' : ''}" data-preset="yesterday" onclick="window.setWmsDatePreset('yesterday')">Ayer</button>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${(!window.wmsActiveDatePreset || window.wmsActiveDatePreset === '7days') ? 'active' : ''}" data-preset="7days" onclick="window.setWmsDatePreset('7days')">Últimos 7 días</button>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '14days' ? 'active' : ''}" data-preset="14days" onclick="window.setWmsDatePreset('14days')">Últimos 14 días</button>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '30days' ? 'active' : ''}" data-preset="30days" onclick="window.setWmsDatePreset('30days')">Últimos 30 días</button>
+            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'month' ? 'active' : ''}" data-preset="month" onclick="window.setWmsDatePreset('month')">Este mes</button>
+          </div>
+          <div id="wms-date-preset-indicator" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">
+            <i class="ri-information-line"></i> Carga inicial: últimos 7 días (${initialDateFrom} al ${initialDateTo})
           </div>
         </div>
       </div>
@@ -4893,9 +5028,50 @@ async function renderAdminOrders() {
             <button onclick="window.previewAndCopyExportData()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-color: #2e7d32; color: #2e7d32; background: rgba(46, 125, 50, 0.05);" title="Previsualizar y copiar datos en formato planilla de pedidos seleccionados">
               <i class="ri-file-copy-2-line"></i> Previsualizar / Copiar
             </button>
-            <button onclick="window.refreshWmsOrders(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
-              <i class="ri-refresh-line"></i> Actualizar
-            </button>
+            <!-- Botón Dual / Split de Actualización con Opciones Visibles -->
+            <div class="wms-refresh-split-btn" style="position: relative; display: inline-flex; vertical-align: middle; box-shadow: 0 1px 3px rgba(79, 70, 229, 0.2); border-radius: 6px;">
+              <button id="btn-wms-refresh-main" onclick="window.refreshWmsOrders(this, 'filtered')" class="btn" style="padding: 0.3rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; cursor: pointer; border: 1.5px solid #4f46e5; border-right: none; border-top-right-radius: 0; border-bottom-right-radius: 0; background: #eef2ff; color: #4338ca; transition: all 0.15s;" onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='#eef2ff'" title="Actualización Rápida: Refresca pedidos aplicando los filtros activos y pestaña actual (< 1s)">
+                <i class="ri-refresh-line" id="icon-wms-refresh-main" style="font-size: 0.95rem; font-weight: bold;"></i>
+                <span>Actualizar</span>
+                <span style="font-size: 0.67rem; font-weight: 700; background: #4f46e5; color: #ffffff; padding: 0.1rem 0.42rem; border-radius: 99px; display: inline-flex; align-items: center; gap: 0.2rem; letter-spacing: 0.02em; box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25);">
+                  <i class="ri-flashlight-fill" style="font-size: 0.72rem; color: #fbbf24;"></i> Rápido
+                </span>
+              </button>
+              <button id="btn-wms-refresh-toggle" type="button" onclick="window.toggleWmsRefreshMenu(event)" class="btn" style="padding: 0.3rem 0.55rem; font-size: 0.78rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border: 1.5px solid #4f46e5; border-left: 1px solid rgba(79, 70, 229, 0.3); border-top-left-radius: 0; border-bottom-left-radius: 0; background: #e0e7ff; color: #4338ca; transition: all 0.15s;" onmouseover="this.style.background='#4f46e5'; this.style.color='#ffffff';" onmouseout="if(document.getElementById('wms-refresh-dropdown-menu')?.style.display !== 'block'){ this.style.background='#e0e7ff'; this.style.color='#4338ca'; }" title="Desplegar modos de actualización (Filtros, Página visible, Completo)">
+                <span>Opciones</span>
+                <i class="ri-arrow-down-s-fill" id="wms-refresh-arrow-icon" style="font-size: 0.9rem; transition: transform 0.2s;"></i>
+              </button>
+              <div id="wms-refresh-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--color-surface, #ffffff); border: 1.5px solid #4f46e5; border-radius: 10px; box-shadow: 0 12px 30px -4px rgba(79, 70, 229, 0.25), 0 6px 12px -2px rgba(0, 0, 0, 0.1); z-index: 1050; min-width: 290px; padding: 0.45rem 0; text-align: left;">
+                <div style="padding: 0.4rem 0.85rem; font-size: 0.72rem; font-weight: 700; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between;">
+                  <span><i class="ri-refresh-line"></i> Modos de Actualización</span>
+                  <span style="font-size: 0.65rem; background: rgba(79, 70, 229, 0.1); color: #4f46e5; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 700;">3 opciones</span>
+                </div>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsRefreshMenu(); window.refreshWmsOrders(document.getElementById('btn-wms-refresh-main'), 'filtered');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s;" onmouseover="this.style.background='rgba(79, 70, 229, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #4338ca;">
+                    <i class="ri-flashlight-fill" style="color: #4f46e5; font-size: 1rem;"></i>
+                    <span>Actualizar Vista Filtrada</span>
+                    <span style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Recomendado</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Refresca rápido según los filtros activos y pestaña actual en pantalla (&lt; 1s).</span>
+                </a>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsRefreshMenu(); window.refreshWmsOrders(document.getElementById('btn-wms-refresh-main'), 'page');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s; border-top: 1px solid var(--color-border);" onmouseover="this.style.background='rgba(79, 70, 229, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: var(--color-text-main);">
+                    <i class="ri-file-list-3-line" style="color: #2563eb; font-size: 1rem;"></i>
+                    <span>Actualizar Solo Página Visible</span>
+                    <span style="background: rgba(37, 99, 235, 0.1); color: #2563eb; font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Página actual</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Consulta únicamente los pedidos mostrados en la pantalla en este momento.</span>
+                </a>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsRefreshMenu(); window.refreshWmsOrders(document.getElementById('btn-wms-refresh-main'), 'full');" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s; border-top: 1px solid var(--color-border);" onmouseover="this.style.background='rgba(79, 70, 229, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: var(--color-text-main);">
+                    <i class="ri-database-2-line" style="color: #f59e0b; font-size: 1rem;"></i>
+                    <span>Actualizar Todo el Rango (Completo)</span>
+                    <span style="background: rgba(245, 158, 11, 0.12); color: #d97706; font-size: 0.68rem; padding: 0.12rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Exhaustivo</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Descarga completa de todos los pedidos y sus dependencias del período.</span>
+                </a>
+              </div>
+            </div>
             <button onclick="window.manageWmsConfigOptions()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-settings-3-line"></i> Gestionar Opciones
             </button>
@@ -5000,6 +5176,155 @@ async function renderAdminOrders() {
       applyWmsFiltersAndRender();
     };
 
+    window.setWmsDatePreset = async function(presetKey) {
+      window.wmsActiveDatePreset = presetKey;
+      const now = new Date();
+      const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      let fromStr = '';
+      let toStr = formatYMD(now);
+
+      if (presetKey === 'today') {
+        fromStr = toStr;
+      } else if (presetKey === 'yesterday') {
+        const d = new Date();
+        d.setDate(d.getDate() - 1);
+        fromStr = formatYMD(d);
+        toStr = fromStr;
+      } else if (presetKey === '7days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 6);
+        fromStr = formatYMD(d);
+      } else if (presetKey === '14days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 13);
+        fromStr = formatYMD(d);
+      } else if (presetKey === '30days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 29);
+        fromStr = formatYMD(d);
+      } else if (presetKey === 'month') {
+        fromStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      }
+
+      // Actualizar inputs del DOM
+      const fromInput = document.getElementById('filter-date-from');
+      const toInput = document.getElementById('filter-date-to');
+      if (fromInput) fromInput.value = fromStr;
+      if (toInput) toInput.value = toStr;
+
+      // Actualizar pastillas activas
+      document.querySelectorAll('.wms-date-preset-btn').forEach(btn => {
+        if (btn.getAttribute('data-preset') === presetKey) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      // Indicador de rango
+      const indicator = document.getElementById('wms-date-preset-indicator');
+      if (indicator) {
+        indicator.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> Rango activo: ${fromStr} al ${toStr}`;
+      }
+
+      // Si ya está contenido en lo que se ha descargado en memoria, renderizar inmediatamente (0 ms)
+      const hasRangeInMemory = window.loadedOrders && window.loadedOrders.length > 0 &&
+        window.lastFetchedDateFrom && window.lastFetchedDateTo &&
+        fromStr >= window.lastFetchedDateFrom && toStr <= window.lastFetchedDateTo;
+
+      if (hasRangeInMemory) {
+        window.wmsCurrentPage = 1;
+        applyWmsFiltersAndRender();
+        return;
+      }
+
+      // De lo contrario, descargar la data correspondiente
+      const tbody = document.getElementById('orders-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="14" style="text-align: center; padding: 3rem;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                <style>
+                  @keyframes wms-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+                <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+                <span style="font-size: 0.9rem; color: var(--color-text-muted);">Consultando pedidos (${fromStr} al ${toStr})...</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
+      try {
+        if (!window.lastFetchedDateFrom || fromStr < window.lastFetchedDateFrom) {
+          window.lastFetchedDateFrom = fromStr;
+        }
+        if (!window.lastFetchedDateTo || toStr > window.lastFetchedDateTo) {
+          window.lastFetchedDateTo = toStr;
+        }
+
+        await window.fetchWmsOrdersData(window.lastFetchedDateFrom, window.lastFetchedDateTo);
+        if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+        if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+        window.wmsCurrentPage = 1;
+        applyWmsFiltersAndRender();
+      } catch (err) {
+        console.error('Error fetching date preset:', err);
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="14" style="text-align: center; padding: 2rem; color: var(--color-red);">Error: ${err.message}</td></tr>`;
+        }
+      }
+    };
+
+    window.toggleWmsRefreshMenu = function(e) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+      const menu = document.getElementById('wms-refresh-dropdown-menu');
+      const arrowIcon = document.getElementById('wms-refresh-arrow-icon');
+      const toggleBtn = document.getElementById('btn-wms-refresh-toggle');
+      if (menu) {
+        const isClosed = menu.style.display === 'none' || !menu.style.display;
+        menu.style.display = isClosed ? 'block' : 'none';
+        if (arrowIcon) {
+          arrowIcon.style.transform = isClosed ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+        if (toggleBtn) {
+          if (isClosed) {
+            toggleBtn.style.background = '#4f46e5';
+            toggleBtn.style.color = '#ffffff';
+          } else {
+            toggleBtn.style.background = '#e0e7ff';
+            toggleBtn.style.color = '#4338ca';
+          }
+        }
+      }
+    };
+
+    window.closeWmsRefreshMenu = function() {
+      const menu = document.getElementById('wms-refresh-dropdown-menu');
+      const arrowIcon = document.getElementById('wms-refresh-arrow-icon');
+      const toggleBtn = document.getElementById('btn-wms-refresh-toggle');
+      if (menu) menu.style.display = 'none';
+      if (arrowIcon) arrowIcon.style.transform = 'rotate(0deg)';
+      if (toggleBtn) {
+        toggleBtn.style.background = '#e0e7ff';
+        toggleBtn.style.color = '#4338ca';
+      }
+    };
+
+    if (!window._wmsRefreshMenuListenerAttached) {
+      window._wmsRefreshMenuListenerAttached = true;
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.wms-refresh-split-btn')) {
+          window.closeWmsRefreshMenu();
+        }
+      });
+    }
+
     let isFetchingDates = false;
     let dateDebounceTimeout = null;
     const handleDateChange = () => {
@@ -5010,6 +5335,23 @@ async function renderAdminOrders() {
         window.wmsCurrentPage = 1;
         const dateFrom = dateFromInput ? dateFromInput.value : '';
         const dateTo = dateToInput ? dateToInput.value : '';
+
+        // Desactivar pastillas preset al editar fecha manualmente
+        document.querySelectorAll('.wms-date-preset-btn').forEach(btn => btn.classList.remove('active'));
+        window.wmsActiveDatePreset = null;
+        const indicator = document.getElementById('wms-date-preset-indicator');
+        if (indicator) {
+          indicator.innerHTML = `<i class="ri-calendar-line"></i> Rango manual: ${dateFrom || 'Inicio'} al ${dateTo || 'Fin'}`;
+        }
+
+        // Si el rango seleccionado ya está contenido dentro de lo que se descargó en memoria, filtrar inmediatamente
+        if (dateFrom && dateTo && window.lastFetchedDateFrom && window.lastFetchedDateTo &&
+            dateFrom >= window.lastFetchedDateFrom && dateTo <= window.lastFetchedDateTo &&
+            window.loadedOrders && window.loadedOrders.length > 0) {
+          isFetchingDates = false;
+          applyWmsFiltersAndRender();
+          return;
+        }
         
         const tbody = document.getElementById('orders-tbody');
         if (tbody) {
@@ -5032,6 +5374,13 @@ async function renderAdminOrders() {
         }
 
         try {
+          if (!window.lastFetchedDateFrom || (dateFrom && dateFrom < window.lastFetchedDateFrom)) {
+            window.lastFetchedDateFrom = dateFrom;
+          }
+          if (!window.lastFetchedDateTo || (dateTo && dateTo > window.lastFetchedDateTo)) {
+            window.lastFetchedDateTo = dateTo;
+          }
+
           await window.fetchWmsOrdersData(dateFrom, dateTo);
           if (window.updateMerchantFilterOptions) {
             window.updateMerchantFilterOptions();
@@ -6407,7 +6756,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -6535,6 +6884,11 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                       <i class="ri-edit-line"></i> Editar
                     </button>
+                    ${(window.canSplitOrder && window.canSplitOrder(order)) ? `
+                      <button type="button" onclick="event.stopPropagation(); window.openSplitOrderModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.725rem; font-weight: 700; color: #7c3aed; border-color: #c4b5fd; background: rgba(124, 58, 237, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;" title="Dividir este pedido para realizar un envío parcial de los productos disponibles">
+                        <i class="ri-scissors-2-line"></i> Dividir Pedido
+                      </button>
+                    ` : ''}
                   </div>
                 </h4>
                 <div style="overflow-x: auto;">
@@ -6769,11 +7123,11 @@ window.setWmsPage = function(page) {
   applyWmsFiltersAndRender();
 };
 
-window.refreshWmsOrders = async function(btn) {
-  window.loadedOrdersInventoryMap = {}; // Limpiar caché al refrescar
+window.refreshWmsOrders = async function(btn, mode = 'filtered') {
+  const startTime = Date.now();
   if (btn) {
     btn.disabled = true;
-    const icon = btn.querySelector('i');
+    const icon = btn.querySelector('#icon-wms-refresh-main') || btn.querySelector('i');
     if (icon) icon.className = 'ri-refresh-line spin';
   }
 
@@ -6782,45 +7136,312 @@ window.refreshWmsOrders = async function(btn) {
   const dateFrom = dateFromInput ? dateFromInput.value : '';
   const dateTo = dateToInput ? dateToInput.value : '';
 
-  // Mostrar spinner en la tabla
-  const tbody = document.getElementById('orders-tbody');
-  if (tbody) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="13" style="text-align: center; padding: 3rem;">
-          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
-            <style>
-              @keyframes wms-spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
+  const selectStr = `
+    id,
+    status,
+    estado_wms,
+    created_at,
+    external_order_number,
+    external_platform,
+    origen,
+    item,
+    cantidad,
+    sku,
+    total_value,
+    customer_name,
+    customer_email,
+    customer_phone,
+    shipping_address,
+    shipping_city,
+    shipping_complement,
+    shipping_method,
+    payment_status,
+    tracking_number,
+    tracking_url,
+    courier,
+    shopify_exported,
+    raw_shopify_data,
+    raw_woocommerce_data,
+    raw_meli_data,
+    raw_jumpseller_data,
+    raw_tiendanube_data,
+    comercio,
+    categoria_entrega,
+    agenda,
+    operador,
+    fecha_procesamiento,
+    sucursal_pickeo,
+    periodo_facturacion,
+    stock_descontado,
+    stock_descontado_at,
+    order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products (id, sku, name, is_virtual, price, image_url, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, options, color, talla, variable_1, variable_2))
+  `.replace(/\s+/g, ' ').trim();
+
+  // Helper interno para fusionar (upsert) pedidos y actualizar dependencias
+  const syncOrderSubset = async (refreshedOrders, modeLabel) => {
+    if (!refreshedOrders || refreshedOrders.length === 0) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'info',
+          title: 'Sin cambios en los pedidos consultados',
+          showConfirmButton: false,
+          timer: 2500
+        });
+      }
+      return;
+    }
+
+    // 1. Fusionar (upsert) en window.loadedOrders
+    const updatedMap = new Map(refreshedOrders.map(o => [o.id, o]));
+    const currentOrders = window.loadedOrders || [];
+    const mergedLoadedOrders = currentOrders.map(o => updatedMap.has(o.id) ? updatedMap.get(o.id) : o);
+    
+    // Si hay pedidos recién creados o nuevos, agregarlos al inicio
+    const existingIds = new Set(currentOrders.map(o => o.id));
+    const newlyCreated = refreshedOrders.filter(o => !existingIds.has(o.id));
+    window.loadedOrders = [...newlyCreated, ...mergedLoadedOrders];
+
+    // 2. Extraer referencias solo de los pedidos actualizados
+    const orderRefs = [];
+    refreshedOrders.forEach(o => {
+      if (o.external_order_number) {
+        const ext = String(o.external_order_number).trim();
+        orderRefs.push(ext);
+        orderRefs.push(ext.replace(/^#/, '').trim());
+        orderRefs.push(ext.replace(/#/g, '').trim());
+        const cleanAlpha = ext.replace(/[^a-zA-Z0-9]/g, '').trim();
+        if (cleanAlpha) orderRefs.push(cleanAlpha);
+      }
+      if (o.id) {
+        orderRefs.push(o.id);
+        orderRefs.push(String(o.id).replace(/^#/, '').trim());
+      }
+      if (o.tracking_number) {
+        const tr = String(o.tracking_number).trim();
+        orderRefs.push(tr);
+        const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
+        if (cleanAlphaTrack) orderRefs.push(cleanAlphaTrack);
+      }
+      if (o.raw_lightdata_data) {
+        const ld = o.raw_lightdata_data;
+        if (ld.id) orderRefs.push(String(ld.id).trim());
+        if (ld.did) orderRefs.push(String(ld.did).trim());
+        if (ld.tracking) orderRefs.push(String(ld.tracking).trim());
+      }
+    });
+    const uniqueSubsetRefs = [...new Set(orderRefs.filter(Boolean))];
+
+    // 3. Sincronizar envíos unificados solo para las referencias del subconjunto
+    if (uniqueSubsetRefs.length > 0 && typeof fetchEnviosUnificadosByRefs === 'function') {
+      try {
+        const newShipData = await fetchEnviosUnificadosByRefs(uniqueSubsetRefs);
+        const shipMap = new Map((window.loadedShipments || []).map(s => [s.id, s]));
+        (newShipData || []).forEach(s => {
+          if (s && s.id) shipMap.set(s.id, s);
+        });
+        window.loadedShipments = Array.from(shipMap.values());
+      } catch (shipErr) {
+        console.warn('[Sync Subset] Error actualizando envíos unificados:', shipErr);
+      }
+    }
+
+    // 4. Sincronizar picker operators solo para estos pedidos
+    if (typeof window.fetchPickerOperators === 'function') {
+      try {
+        await window.fetchPickerOperators(refreshedOrders);
+      } catch (pickerErr) {
+        console.warn('[Sync Subset] Error actualizando picker:', pickerErr);
+      }
+    }
+
+    // 5. Sincronizar inventario solo para los productos de estos pedidos
+    if (typeof window.fetchInventoryForOrders === 'function') {
+      try {
+        if (window.loadedOrdersInventoryMap) {
+          refreshedOrders.forEach(o => {
+            (o.order_items || []).forEach(oi => {
+              if (oi.product_id) {
+                Object.keys(window.loadedOrdersInventoryMap).forEach(key => {
+                  if (key.startsWith(oi.product_id + '_')) {
+                    delete window.loadedOrdersInventoryMap[key];
+                  }
+                });
               }
-            </style>
-            <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
-            <span style="font-size: 0.9rem; color: var(--color-text-muted);">Sincronizando y actualizando pedidos...</span>
-          </div>
-        </td>
-      </tr>
-    `;
-  }
+            });
+          });
+        }
+        await window.fetchInventoryForOrders(refreshedOrders);
+      } catch (invErr) {
+        console.warn('[Sync Subset] Error actualizando inventario:', invErr);
+      }
+    }
+
+    // 6. Actualizar dropdowns si cambiaron comercios o etiquetas
+    if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+    if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+
+    // 7. Re-renderizar vista
+    applyWmsFiltersAndRender();
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Actualizados ${refreshedOrders.length} pedidos (${modeLabel}) en ${elapsed}s`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  };
 
   try {
-    await window.fetchWmsOrdersData(dateFrom, dateTo);
+    // ----------------------------------------------------
+    // MODO FULL: Descarga exhaustiva tradicional del período
+    // ----------------------------------------------------
+    if (mode === 'full') {
+      window.loadedOrdersInventoryMap = {};
+      const tbody = document.getElementById('orders-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="14" style="text-align: center; padding: 3rem;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                <style>@keyframes wms-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+                <span style="font-size: 0.9rem; color: var(--color-text-muted);">Sincronización completa del período en curso...</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+      await window.fetchWmsOrdersData(dateFrom, dateTo);
+      if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+      if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+      applyWmsFiltersAndRender();
 
-    if (window.updateMerchantFilterOptions) {
-      window.updateMerchantFilterOptions();
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `Sincronización completa (${(window.loadedOrders || []).length} pedidos) en ${elapsed}s`,
+          showConfirmButton: false,
+          timer: 3500
+        });
+      }
+      return;
     }
-    if (window.updateOrderTagFilterOptions) {
-      window.updateOrderTagFilterOptions();
+
+    // ----------------------------------------------------
+    // MODO PAGE: Actualizar solo las filas de la página visible actual
+    // ----------------------------------------------------
+    if (mode === 'page') {
+      const filtered = window.wmsLastFilteredOrders || [];
+      const pageSize = window.wmsPageSize === 'All' ? filtered.length : parseInt(window.wmsPageSize, 10);
+      const startIndex = (window.wmsCurrentPage - 1) * pageSize;
+      const endIndex = pageSize === filtered.length ? filtered.length : Math.min(startIndex + pageSize, filtered.length);
+      const pageOrders = filtered.slice(startIndex, endIndex);
+      const pageIds = pageOrders.map(o => o.id).filter(Boolean);
+
+      if (pageIds.length === 0) {
+        if (typeof Swal !== 'undefined') {
+          Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'No hay pedidos en la página actual.', showConfirmButton: false, timer: 2500 });
+        }
+        return;
+      }
+
+      const { data: refreshedOrders, error: refErr } = await supabase
+        .from('orders')
+        .select(selectStr)
+        .in('id', pageIds);
+
+      if (refErr) throw refErr;
+      await syncOrderSubset(refreshedOrders || [], 'Página Visible');
+      return;
     }
-    applyWmsFiltersAndRender();
+
+    // ----------------------------------------------------
+    // MODO FILTERED (Default): Actualización inteligente
+    // ----------------------------------------------------
+    const activeTab = window.wmsActiveTab || 'Todos';
+    const merchantSelect = document.getElementById('filter-merchant');
+    const selectedMerchant = merchantSelect ? merchantSelect.value : '';
+    const statusSelect = document.getElementById('filter-status');
+    const selectedStatus = statusSelect ? statusSelect.value : '';
+    const origenSelect = document.getElementById('filter-origen');
+    const selectedOrigen = origenSelect ? origenSelect.value : '';
+    const categoriaSelect = document.getElementById('filter-categoria-entrega');
+    const selectedCategoria = categoriaSelect ? categoriaSelect.value : '';
+    const searchInput = document.getElementById('search-orders');
+    const searchText = (searchInput ? searchInput.value : '').trim();
+    const multiselectText = window.wmsMultiselectText || '';
+
+    const multiselectRefs = multiselectText.split(/[\n,; \t]+/).map(r => r.trim()).filter(Boolean);
+    const currentlyVisibleIds = (window.wmsLastFilteredOrders || []).map(o => o.id).filter(Boolean);
+
+    let query = supabase.from('orders').select(selectStr);
+
+    if (multiselectRefs.length > 0) {
+      const refsClean = multiselectRefs.map(r => `"${r.replace(/"/g, '')}"`).join(',');
+      query = query.or(`external_order_number.in.(${refsClean}),id.in.(${refsClean})`);
+    } else {
+      if (dateFrom) {
+        query = query.gte('created_at', new Date(dateFrom + 'T00:00:00').toISOString());
+      }
+      if (dateTo) {
+        query = query.lte('created_at', new Date(dateTo + 'T23:59:59').toISOString());
+      }
+      if (selectedMerchant) {
+        query = query.eq('comercio', selectedMerchant);
+      }
+      if (selectedStatus) {
+        query = query.eq('status', selectedStatus);
+      }
+      if (selectedOrigen) {
+        query = query.or(`origen.ilike.%${selectedOrigen}%,external_platform.ilike.%${selectedOrigen}%`);
+      }
+      if (selectedCategoria) {
+        query = query.eq('categoria_entrega', selectedCategoria);
+      }
+      if (activeTab !== 'Todos') {
+        if (currentlyVisibleIds.length > 0 && currentlyVisibleIds.length <= 100) {
+          const idsCsv = currentlyVisibleIds.map(id => `"${id}"`).join(',');
+          query = query.or(`estado_wms.eq.${activeTab},id.in.(${idsCsv})`);
+        } else {
+          query = query.eq('estado_wms', activeTab);
+        }
+      }
+      if (searchText) {
+        const cleanSearch = searchText.replace(/[#]/g, '').trim();
+        if (cleanSearch) {
+          query = query.or(`external_order_number.ilike.%${cleanSearch}%,tracking_number.ilike.%${cleanSearch}%,id.ilike.%${cleanSearch}%`);
+        }
+      }
+    }
+
+    query = query.order('created_at', { ascending: false }).limit(500);
+
+    const { data: refreshedOrders, error: queryErr } = await query;
+    if (queryErr) throw queryErr;
+
+    await syncOrderSubset(refreshedOrders || [], activeTab !== 'Todos' ? `Pestaña ${activeTab}` : 'Vista Filtrada');
 
   } catch (err) {
     console.error('Error refreshing orders:', err);
-    alert('Error al actualizar pedidos: ' + err.message);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({ icon: 'error', title: 'Error al actualizar pedidos', text: err.message });
+    } else {
+      alert('Error al actualizar pedidos: ' + err.message);
+    }
   } finally {
     if (btn) {
       btn.disabled = false;
-      const icon = btn.querySelector('i');
+      const icon = btn.querySelector('#icon-wms-refresh-main') || btn.querySelector('i');
       if (icon) icon.className = 'ri-refresh-line';
     }
   }
@@ -7026,9 +7647,6 @@ function renderWmsBulkActionsBar() {
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} pedidos seleccionados</span>
-        <button onclick="window.copySelectedOrderNumbers(this)" class="btn" style="background: rgba(255, 255, 255, 0.2); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.4); padding: 0.25rem 0.65rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s;" title="Copiar lista de números de pedidos seleccionados (separados por salto de línea)">
-          <i class="ri-file-copy-line"></i> Copiar Números
-        </button>
         <button onclick="window.clearWmsSelection()" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
       </div>
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -7091,6 +7709,7 @@ function getWarehouseIdFromSucursal(sucursalName) {
   }
   return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central / Default
 }
+window.getWarehouseIdFromSucursal = getWarehouseIdFromSucursal;
 
 window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
   if (!selectedOrders || selectedOrders.length === 0) {
@@ -7452,38 +8071,48 @@ window.applyBulkWmsStatus = async function() {
 
     if (!formValues) return;
 
-    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    let stockValidationPassed = false;
+    let failedDetails = [];
     const failedOrders = new Set();
 
-    // A. Validar stock físico disponible para cada pedido (excluyendo virtuales) en la bodega de la sucursal destino
-    // Solo para comercios con seguimiento de stock activo
-    const allItemsToCheck = [];
-    selectedOrders.forEach(order => {
-      const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-      const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
-      if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
+    while (!stockValidationPassed) {
+      failedOrders.clear();
+      failedDetails = [];
+      const allItemsToCheck = [];
+      const currentSelectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
 
-      const effectiveSucursal = (formValues.keepPicking && order.sucursal_pickeo) ? order.sucursal_pickeo : formValues.sucursal;
-      const orderWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
+      currentSelectedOrders.forEach(order => {
+        const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+        const isStockTrackingActive = window.shouldProcessOrderStockLocal 
+          ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) 
+          : !!(config && config.inventario_seguimiento);
+        if (!isStockTrackingActive) return;
 
-      (order.order_items || []).forEach(item => {
-        if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
-          allItemsToCheck.push({
-            orderId: order.id,
-            orderNum: order.external_order_number || order.id,
-            comercio: order.comercio,
-            merchant_id: order.merchant_id,
-            product_id: item.product_id,
-            warehouse_id: orderWarehouseId,
-            quantity: item.quantity,
-            sku: item.products?.sku || 'Sin SKU',
-            name: item.products?.name || 'Producto'
-          });
-        }
+        const effectiveSucursal = order.sucursal_pickeo || formValues.sucursal;
+        const orderWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
+
+        (order.order_items || []).forEach(item => {
+          if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
+            allItemsToCheck.push({
+              orderId: order.id,
+              orderNum: order.external_order_number || order.id,
+              comercio: order.comercio,
+              merchant_id: order.merchant_id,
+              product_id: item.product_id,
+              warehouse_id: orderWarehouseId,
+              quantity: item.quantity,
+              sku: item.products?.sku || 'Sin SKU',
+              name: item.products?.name || 'Producto'
+            });
+          }
+        });
       });
-    });
 
-    if (allItemsToCheck.length > 0) {
+      if (allItemsToCheck.length === 0) {
+        stockValidationPassed = true;
+        break;
+      }
+
       const productIds = Array.from(new Set(allItemsToCheck.map(item => item.product_id)));
       const { data: invData, error: invErr } = await supabase
         .from('inventory')
@@ -7492,109 +8121,161 @@ window.applyBulkWmsStatus = async function() {
 
       if (invErr) {
         console.error('Error al consultar inventario:', invErr);
-      } else {
-        const invMap = {};
-        (invData || []).forEach(inv => {
-          invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
-        });
+        stockValidationPassed = true;
+        break;
+      }
 
-        const tempInv = { ...invMap };
-        const failedDetails = [];
+      const invMap = {};
+      (invData || []).forEach(inv => {
+        invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+      });
 
-        for (const item of allItemsToCheck) {
-          const key = `${item.product_id}_${item.warehouse_id}`;
-          const available = tempInv[key] || 0;
-          if (available < item.quantity) {
-            failedOrders.add(item.orderId);
-            failedDetails.push({
-              orderNum: item.orderNum,
-              sku: item.sku,
-              requested: item.quantity,
-              available: available,
-              comercio: item.comercio,
-              merchant_id: item.merchant_id,
-              orderId: item.orderId
-            });
-          } else {
-            tempInv[key] -= item.quantity;
-          }
-        }
+      const tempInv = { ...invMap };
 
-        if (failedOrders.size > 0) {
-          const failuresByOrderMap = new Map();
-          for (const f of failedDetails) {
-            const o = selectedOrders.find(order => order.id === f.orderId);
-            const matchingItem = allItemsToCheck.find(i => i.sku === f.sku && i.orderId === f.orderId) || allItemsToCheck.find(i => i.sku === f.sku);
-            const orderId = f.orderId;
-            if (!failuresByOrderMap.has(orderId)) {
-              failuresByOrderMap.set(orderId, {
-                order: o,
-                orderNum: f.orderNum,
-                comercio: f.comercio,
-                customer: o?.customer_name,
-                warehouseName: o?.sucursal_pickeo || 'Sucursal Asignada',
-                items: []
-              });
-            }
-            failuresByOrderMap.get(orderId).items.push({
-              sku: f.sku,
-              name: matchingItem?.name || '',
-              productId: matchingItem?.product_id,
-              warehouseId: matchingItem?.warehouse_id,
-              requested: f.requested,
-              available: f.available
-            });
-          }
-
-          const failuresByOrder = Array.from(failuresByOrderMap.values());
-          const successIds = ids.filter(id => !failedOrders.has(id));
-
-          const shortageSwalRes = await window.showStockShortageSlidesModal({
-            title: 'Stock Insuficiente Detectado',
-            subtitle: successIds.length > 0
-              ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ids.length} seleccionados. Hay <strong>${successIds.length} pedidos listos</strong> para ser enviados al Picker:`
-              : `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y no pueden ser enviados al Picker:`,
-            failuresByOrder,
-            validOrdersCount: successIds.length,
-            actionButtonText: `<i class="ri-send-plane-line"></i> Enviar los ${successIds.length} pedidos restantes al Picker`
+      for (const item of allItemsToCheck) {
+        const key = `${item.product_id}_${item.warehouse_id}`;
+        const available = tempInv[key] || 0;
+        if (available < item.quantity) {
+          failedOrders.add(item.orderId);
+          failedDetails.push({
+            orderNum: item.orderNum,
+            sku: item.sku,
+            requested: item.quantity,
+            available: available,
+            comercio: item.comercio,
+            merchant_id: item.merchant_id,
+            orderId: item.orderId
           });
-
-          if (successIds.length === 0 || (shortageSwalRes && !shortageSwalRes.isConfirmed)) {
-            applyWmsFiltersAndRender();
-            return;
-          }
-
-          for (const f of failedDetails) {
-            try {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('comercio', f.comercio)
-                .maybeSingle();
-
-              const userId = profile?.id || f.merchant_id;
-
-              await supabase
-                .from('incidencias')
-                .insert({
-                  user_id: userId,
-                  comercio: f.comercio,
-                  title: `Falta de stock crítico - Pedido ${f.orderNum}`,
-                  description: `El pedido ${f.orderNum} no se pudo despachar por falta de stock del SKU ${f.sku} (Faltan ${f.requested - f.available} un.).`,
-                  type: 'stock',
-                  severity: 'critico',
-                  status: 'pendiente',
-                  solution: ''
-                });
-            } catch (innerErr) {
-              console.error('Error al registrar incidencia masiva:', innerErr);
-            }
-          }
-
-          ids.length = 0;
-          ids.push(...successIds);
+        } else {
+          tempInv[key] -= item.quantity;
         }
       }
+
+      if (failedOrders.size === 0) {
+        stockValidationPassed = true;
+        break;
+      }
+
+      // Hubo pedidos con falta de stock
+      const failuresByOrderMap = new Map();
+      for (const f of failedDetails) {
+        const o = currentSelectedOrders.find(order => order.id === f.orderId);
+        const matchingItem = allItemsToCheck.find(i => i.sku === f.sku && i.orderId === f.orderId) || allItemsToCheck.find(i => i.sku === f.sku);
+        const orderId = f.orderId;
+        if (!failuresByOrderMap.has(orderId)) {
+          failuresByOrderMap.set(orderId, {
+            order: o,
+            orderNum: f.orderNum,
+            comercio: f.comercio,
+            customer: o?.customer_name,
+            warehouseName: o?.sucursal_pickeo || formValues.sucursal || 'Sucursal Asignada',
+            items: []
+          });
+        }
+        failuresByOrderMap.get(orderId).items.push({
+          sku: f.sku,
+          name: matchingItem?.name || '',
+          productId: matchingItem?.product_id,
+          warehouseId: matchingItem?.warehouse_id,
+          requested: f.requested,
+          available: f.available
+        });
+      }
+
+      const failuresByOrder = Array.from(failuresByOrderMap.values());
+      const successIds = ids.filter(id => !failedOrders.has(id));
+
+      const shortageSwalRes = await window.showStockShortageSlidesModal({
+        title: 'Stock Insuficiente Detectado',
+        subtitle: successIds.length > 0
+          ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ids.length} seleccionados. Hay <strong>${successIds.length} pedidos listos</strong> para ser enviados al Picker:`
+          : `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y no pueden ser enviados al Picker:`,
+        failuresByOrder,
+        validOrdersCount: successIds.length,
+        actionButtonText: `<i class="ri-send-plane-line"></i> Enviar los ${successIds.length} pedidos restantes al Picker`,
+        totalSelectedCount: ids.length,
+        allSelectedOrderIds: ids,
+        allowReassignment: true
+      });
+
+      if (shortageSwalRes && shortageSwalRes.isReassigned) {
+        Swal.fire({
+          title: 'Reasignando bodega de destino...',
+          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);">Reasignando <strong>${shortageSwalRes.orderIds.length}</strong> pedido(s) a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
+          allowOutsideClick: false,
+          didOpen: () => { Swal.showLoading(); }
+        });
+
+        const newWarehouseId = getWarehouseIdFromSucursal(shortageSwalRes.targetSucursal);
+
+        // 1. Actualizar sucursal_pickeo en base de datos
+        const { error: updOrdErr } = await supabase
+          .from('orders')
+          .update({ sucursal_pickeo: shortageSwalRes.targetSucursal })
+          .in('id', shortageSwalRes.orderIds);
+        if (updOrdErr) console.error('Error al actualizar sucursal_pickeo en orders:', updOrdErr);
+
+        // 2. Actualizar warehouse_id en order_items en base de datos
+        const { error: updItmErr } = await supabase
+          .from('order_items')
+          .update({ warehouse_id: newWarehouseId })
+          .in('order_id', shortageSwalRes.orderIds);
+        if (updItmErr) console.error('Error al actualizar warehouse_id en order_items:', updItmErr);
+
+        // 3. Actualizar memoria local en window.loadedOrders
+        for (const ordId of shortageSwalRes.orderIds) {
+          const ord = window.loadedOrders?.find(o => o.id === ordId);
+          if (ord) {
+            ord.sucursal_pickeo = shortageSwalRes.targetSucursal;
+            (ord.order_items || []).forEach(it => { it.warehouse_id = newWarehouseId; });
+          }
+        }
+
+        if (shortageSwalRes.scope === 'all') {
+          formValues.sucursal = shortageSwalRes.targetSucursal;
+        }
+
+        // Bucle revalidará stock con la nueva sucursal asignada
+        continue;
+      }
+
+      if (successIds.length === 0 || (shortageSwalRes && !shortageSwalRes.isConfirmed)) {
+        applyWmsFiltersAndRender();
+        return;
+      }
+
+      // Si el usuario decide enviar solo los pedidos que sí tienen stock disponible
+      for (const f of failedDetails) {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('comercio', f.comercio)
+            .maybeSingle();
+
+          const userId = profile?.id || f.merchant_id;
+
+          await supabase
+            .from('incidencias')
+            .insert({
+              user_id: userId,
+              comercio: f.comercio,
+              title: `Falta de stock crítico - Pedido ${f.orderNum}`,
+              description: `El pedido ${f.orderNum} no se pudo despachar por falta de stock del SKU ${f.sku} (Faltan ${f.requested - f.available} un.).`,
+              type: 'stock',
+              severity: 'critico',
+              status: 'pendiente',
+              solution: ''
+            });
+        } catch (innerErr) {
+          console.error('Error al registrar incidencia masiva:', innerErr);
+        }
+      }
+
+      ids.length = 0;
+      ids.push(...successIds);
+      stockValidationPassed = true;
+      break;
     }
 
     try {
@@ -7605,19 +8286,25 @@ window.applyBulkWmsStatus = async function() {
       });
 
       const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+      const distinctSucursales = new Set(successOrders.map(o => o.sucursal_pickeo || formValues.sucursal));
+      const hasMixedSucursales = distinctSucursales.size > 1;
 
-      if (formValues.keepPicking) {
-        // 1. Modo: Conservar datos de picking existentes de cada pedido
+      if (formValues.keepPicking || hasMixedSucursales) {
+        // Enviar cada pedido con su respectiva sucursal asignada
+        window.lastBulkWmsSentPickerCount = 0;
+        window.lastBulkWmsDeferredTrackingCount = 0;
         for (const order of successOrders) {
           order.estado_wms = 'En preparación';
           if (!order.sucursal_pickeo) {
             order.sucursal_pickeo = formValues.sucursal;
           }
-          if (!order.agenda) {
-            order.agenda = 'STK';
-          }
-          if (!order.fecha_procesamiento) {
-            order.fecha_procesamiento = todayDDMM;
+          if (!formValues.keepPicking) {
+            if (formValues.agenda) order.agenda = formValues.agenda;
+            if (formValues.operador) order.operador = formValues.operador;
+            if (formValues.fechaProc) order.fecha_procesamiento = formValues.fechaProc;
+          } else {
+            if (!order.agenda) order.agenda = 'STK';
+            if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
           }
 
           const effWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
@@ -7634,24 +8321,30 @@ window.applyBulkWmsStatus = async function() {
             console.error('Error al actualizar bodega de items para orden:', order.id, itemErr);
           }
 
-          // Actualizar orden en WMS conservando sus datos individuales
+          // Actualizar orden en WMS
           const { error: wmsErr } = await supabase
             .from('orders')
             .update({
               estado_wms: 'En preparación',
               sucursal_pickeo: order.sucursal_pickeo,
               agenda: order.agenda,
+              operador: order.operador || null,
               fecha_procesamiento: order.fecha_procesamiento
             })
             .eq('id', order.id);
 
           if (wmsErr) throw wmsErr;
 
-          // Enviar a Picker con sus datos intactos
-          await window.sendSingleOrderToPicker(order);
+          // Enviar a Picker con sus datos (con verificación de tracking)
+          const pickRes = await window.sendSingleOrderToPicker(order);
+          if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+            window.lastBulkWmsDeferredTrackingCount++;
+          } else {
+            window.lastBulkWmsSentPickerCount++;
+          }
         }
       } else {
-        // 1. Actualizar en WMS con valores del formulario
+        // Todos los pedidos van a la misma sucursal (formValues.sucursal)
         const updatePayload = {
           estado_wms: 'En preparación',
           sucursal_pickeo: formValues.sucursal,
@@ -7664,17 +8357,16 @@ window.applyBulkWmsStatus = async function() {
           updatePayload.fecha_procesamiento = formValues.fechaProc;
         }
 
-        // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos PRIMERO
+        const effWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
         const { error: itemsErr } = await supabase
           .from('order_items')
-          .update({ warehouse_id: targetWarehouseId })
+          .update({ warehouse_id: effWarehouseId })
           .in('order_id', ids);
 
         if (itemsErr) {
           console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
         }
 
-        // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
         const { error: wmsErr } = await supabase
           .from('orders')
           .update(updatePayload)
@@ -7682,7 +8374,8 @@ window.applyBulkWmsStatus = async function() {
 
         if (wmsErr) throw wmsErr;
 
-        // 2. Enviar a Picker de forma masiva
+        window.lastBulkWmsSentPickerCount = 0;
+        window.lastBulkWmsDeferredTrackingCount = 0;
         for (const order of successOrders) {
           order.estado_wms = 'En preparación';
           order.sucursal_pickeo = formValues.sucursal;
@@ -7694,13 +8387,32 @@ window.applyBulkWmsStatus = async function() {
             order.fecha_procesamiento = formValues.fechaProc;
           }
           (order.order_items || []).forEach(item => {
-            item.warehouse_id = targetWarehouseId;
+            item.warehouse_id = effWarehouseId;
           });
-          await window.sendSingleOrderToPicker(order);
+          const pickRes = await window.sendSingleOrderToPicker(order);
+          if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+            window.lastBulkWmsDeferredTrackingCount++;
+          } else {
+            window.lastBulkWmsSentPickerCount++;
+          }
         }
       }
 
-      if (failedOrders.size > 0) {
+      if (window.lastBulkWmsDeferredTrackingCount > 0) {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Pedidos En Preparación!',
+          html: `
+            <div style="text-align: left; font-size: 0.9rem;">
+              <p>Se actualizaron <strong>${ids.length}</strong> pedidos a 'En preparación' en WMS.</p>
+              <p>📦 <strong>${window.lastBulkWmsSentPickerCount}</strong> pedido(s) con tracking asignado fueron enviados al Picker inmediatamente.</p>
+              <p style="color: #d97706; font-weight: 600;">⏳ <strong>${window.lastBulkWmsDeferredTrackingCount}</strong> pedido(s) con operador sin tracking quedaron en espera y se sincronizarán al Picker automáticamente en cuanto se genere su etiqueta.</p>
+              ${failedOrders.size > 0 ? `<p style="color: #ef4444; font-weight: 600; margin-top: 0.5rem;">⚠️ ${failedOrders.size} pedido(s) con stock insuficiente quedaron pendientes.</p>` : ''}
+            </div>
+          `,
+          confirmButtonColor: '#7117eb'
+        });
+      } else if (failedOrders.size > 0) {
         Swal.fire({
           icon: 'success',
           title: '¡Enviados al Picker!',
@@ -7885,6 +8597,10 @@ window.applyBulkWmsStatus = async function() {
             .update(normalUpdateData)
             .in('id', normalIds);
           if (errNormal) throw errNormal;
+        }
+
+        if (window.syncReverseLogisticsOnOrdersDispatched) {
+          await window.syncReverseLogisticsOnOrdersDispatched(idsToProcess);
         }
 
         try {
@@ -8136,6 +8852,10 @@ window.onManifestCreated = async function (newManifest, shipmentIds) {
 
         if (error) throw error;
 
+        if (window.syncReverseLogisticsOnOrdersDispatched) {
+          await window.syncReverseLogisticsOnOrdersDispatched(matchingIds);
+        }
+
         // Actualizar en memoria local
         matchingIds.forEach(id => {
           const ord = (window.loadedOrders || []).find(o => o.id === id);
@@ -8247,7 +8967,10 @@ window.showStockShortageSlidesModal = async function({
   subtitle = '',
   failuresByOrder = [],
   validOrdersCount = 0,
-  actionButtonText = null
+  actionButtonText = null,
+  totalSelectedCount = 0,
+  allSelectedOrderIds = [],
+  allowReassignment = true
 }) {
   if (!failuresByOrder || failuresByOrder.length === 0) return { isConfirmed: false };
 
@@ -8262,6 +8985,7 @@ window.showStockShortageSlidesModal = async function({
 
   const totalSlides = failuresByOrder.length;
   const hasValidOrders = validOrdersCount > 0;
+  const totalCount = totalSelectedCount || (validOrdersCount + totalSlides);
 
   const slidesHtml = failuresByOrder.map((orderFail, idx) => {
     const isFirst = idx === 0;
@@ -8298,7 +9022,7 @@ window.showStockShortageSlidesModal = async function({
         </div>
 
         <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-          Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${whName}</strong> desde la sección <strong>Hub Central / Reubicar</strong>.
+          Si el stock se encuentra en Bodega Central u otra sucursal, puedes cambiar la sucursal de destino directamente abajo o realizar un traslado desde <strong>Hub Central / Reubicar</strong>.
         </p>
       </div>
     `;
@@ -8324,23 +9048,78 @@ window.showStockShortageSlidesModal = async function({
     </div>
   ` : '';
 
+  const sucursalesList = [
+    { value: 'Sucursal La Reina', label: 'Sucursal La Reina (CDD La Reina)' },
+    { value: 'Sucursal Ñuñoa', label: 'Sucursal Ñuñoa (Matriz Ñuñoa)' },
+    { value: 'Sucursal Recoleta', label: 'Sucursal Recoleta (CDD Recoleta)' },
+    { value: 'Sucursal Virtual (Hub)', label: 'Sucursal Virtual (Hub / Bodega Central)' }
+  ];
+
+  let suggestedSucursal = 'Sucursal La Reina';
+  const firstWhName = (failuresByOrder[0]?.warehouseName || '').toLowerCase();
+  if (firstWhName.includes('ñuñoa')) suggestedSucursal = 'Sucursal La Reina';
+  else if (firstWhName.includes('la reina')) suggestedSucursal = 'Sucursal Ñuñoa';
+  else if (firstWhName.includes('recoleta')) suggestedSucursal = 'Sucursal La Reina';
+
+  const reassignBoxHtml = allowReassignment ? `
+    <div id="shortage-reassign-container" style="background: rgba(37, 99, 235, 0.05); border: 1.5px solid rgba(37, 99, 235, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-top: 0.85rem; text-align: left;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
+        <span style="font-weight: 700; color: #1d4ed8; font-size: 0.88rem; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-store-2-line" style="font-size: 1.15rem;"></i> Cambiar Bodega de Destino Asignada
+        </span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">Reasigna la sucursal de pickeo directamente desde este modal</span>
+      </div>
+
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <div style="flex: 1 1 200px; min-width: 170px;">
+          <select id="swal-shortage-reassign-select" class="swal2-select" style="width: 100%; height: 38px; font-size: 0.85rem; margin: 0; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface, #fff); color: var(--color-text-main); font-weight: 600;">
+            ${sucursalesList.map(s => `<option value="${s.value}" ${s.value === suggestedSucursal ? 'selected' : ''}>${s.label}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+          <button type="button" id="btn-reassign-shortage-failed" class="btn" style="background: #2563eb; color: #fff; border: none; font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(37,99,235,0.25); height: 38px;" title="Cambiar la sucursal de destino a los pedidos con stock insuficiente y revalidar">
+            <i class="ri-refresh-line"></i> Reasignar pedidos sin stock (${totalSlides})
+          </button>
+
+          ${totalCount > totalSlides ? `
+          <button type="button" id="btn-reassign-shortage-all" class="btn btn-outline" style="border: 1px solid #2563eb; color: #2563eb; background: rgba(37,99,235,0.06); font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; height: 38px;" title="Cambiar la sucursal a todos los ${totalCount} pedidos seleccionados y revalidar">
+            <i class="ri-checkbox-multiple-line"></i> Reasignar a todos (${totalCount})
+          </button>
+          ` : ''}
+
+          ${totalSlides > 1 ? `
+          <button type="button" id="btn-reassign-shortage-current" class="btn btn-outline" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); font-weight: 600; padding: 0.45rem 0.75rem; font-size: 0.78rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; height: 38px;" title="Reasignar solo al pedido que estás visualizando">
+            Solo este (<span id="reassign-current-order-badge">${failuresByOrder[0]?.orderNum || 'este'}</span>)
+          </button>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  ` : '';
+
   const modalHtml = `
     <div style="text-align: left; font-size: 0.9rem;">
       <p style="margin-bottom: 0.6rem; color: var(--color-text-muted);">
         ${subtitle || (totalSlides > 1 ? `Se detectaron <strong>${totalSlides} pedidos con stock insuficiente</strong> en su sucursal:` : 'No se puede procesar el pedido por falta de stock físico:')}
       </p>
       ${navControlsHtml}
-      <div id="stock-slides-container" style="max-height: 480px; overflow-y: auto; padding-right: 0.25rem;">
+      <div id="stock-slides-container" style="max-height: 380px; overflow-y: auto; padding-right: 0.25rem;">
         ${slidesHtml}
       </div>
+      ${reassignBoxHtml}
     </div>
   `;
 
-  return await Swal.fire({
+  let reassignAction = null;
+
+  let currentIdx = 0;
+
+  const res = await Swal.fire({
     icon: 'error',
     title: title,
     html: modalHtml,
-    width: totalSlides > 1 ? '640px' : '540px',
+    width: totalSlides > 1 ? '700px' : '600px',
     showCancelButton: hasValidOrders,
     confirmButtonText: hasValidOrders 
       ? (actionButtonText || `Procesar los ${validOrdersCount} pedidos restantes`)
@@ -8350,9 +9129,51 @@ window.showStockShortageSlidesModal = async function({
     cancelButtonColor: '#64748b',
     reverseButtons: true,
     didOpen: () => {
+      // Reasignación masiva / individual listeners
+      document.getElementById('btn-reassign-shortage-failed')?.addEventListener('click', () => {
+        const selectEl = document.getElementById('swal-shortage-reassign-select');
+        const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
+        const failedIds = failuresByOrder.map(f => f.order?.id || f.orderId).filter(Boolean);
+        reassignAction = {
+          isReassigned: true,
+          targetSucursal,
+          orderIds: failedIds,
+          scope: 'failed'
+        };
+        Swal.close();
+      });
+
+      document.getElementById('btn-reassign-shortage-all')?.addEventListener('click', () => {
+        const selectEl = document.getElementById('swal-shortage-reassign-select');
+        const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
+        const allIds = (allSelectedOrderIds && allSelectedOrderIds.length > 0)
+          ? allSelectedOrderIds
+          : failuresByOrder.map(f => f.order?.id || f.orderId).filter(Boolean);
+        reassignAction = {
+          isReassigned: true,
+          targetSucursal,
+          orderIds: allIds,
+          scope: 'all'
+        };
+        Swal.close();
+      });
+
+      document.getElementById('btn-reassign-shortage-current')?.addEventListener('click', () => {
+        const selectEl = document.getElementById('swal-shortage-reassign-select');
+        const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
+        const curFail = failuresByOrder[currentIdx];
+        const curId = curFail?.order?.id || curFail?.orderId;
+        reassignAction = {
+          isReassigned: true,
+          targetSucursal,
+          orderIds: curId ? [curId] : [],
+          scope: 'single'
+        };
+        Swal.close();
+      });
+
       if (totalSlides <= 1) return;
 
-      let currentIdx = 0;
       const updateSlideView = () => {
         document.querySelectorAll('.stock-shortage-slide').forEach((el, i) => {
           el.style.display = i === currentIdx ? 'block' : 'none';
@@ -8363,6 +9184,11 @@ window.showStockShortageSlidesModal = async function({
         const titleEl = document.getElementById('slide-order-title');
         if (titleEl) {
           titleEl.textContent = failuresByOrder[currentIdx]?.orderNum || '';
+        }
+
+        const curBadge = document.getElementById('reassign-current-order-badge');
+        if (curBadge) {
+          curBadge.textContent = failuresByOrder[currentIdx]?.orderNum || 'este';
         }
 
         const btnPrev = document.getElementById('btn-slide-prev');
@@ -8419,9 +9245,13 @@ window.showStockShortageSlidesModal = async function({
       }
     }
   });
+
+  if (reassignAction) {
+    return reassignAction;
+  }
+  return res;
 };
 
-// Helper para verificar si un pedido ya cuenta con movimiento de salida o stock descontado previamente
 window.checkOrderExistingStockMovement = async function(order) {
   if (!order) return { hasMovement: false, movement: null };
   if (order.stock_descontado) {
@@ -8479,6 +9309,184 @@ window.checkOrderExistingStockMovement = async function(order) {
   }
 
   return { hasMovement: false, movement: null };
+};
+
+window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
+  if (!orderIds || (Array.isArray(orderIds) && orderIds.length === 0)) return;
+  const ids = Array.isArray(orderIds) ? orderIds : [orderIds];
+
+  try {
+    // 1. Consultar registros de reverse_logistics pendientes vinculados a estos pedidos
+    const { data: rlRecords, error: rlErr } = await supabase
+      .from('reverse_logistics')
+      .select('*')
+      .in('wms_order_id', ids)
+      .eq('status', 'pendiente');
+
+    if (rlErr) {
+      console.warn('[syncReverseLogisticsOnOrdersDispatched] Error fetching reverse_logistics:', rlErr);
+      return;
+    }
+
+    if (!rlRecords || rlRecords.length === 0) return;
+
+    // Obtener bodega Central por defecto para reingresos si no hay sucursal específica
+    let defaultWhId = null;
+    let defaultWhName = 'Bodega Central';
+    try {
+      const { data: centralWh } = await supabase
+        .from('warehouses')
+        .select('id, name')
+        .ilike('name', '%Central%')
+        .limit(1)
+        .single();
+      if (centralWh) {
+        defaultWhId = centralWh.id;
+        defaultWhName = centralWh.name;
+      } else {
+        const { data: anyWh } = await supabase.from('warehouses').select('id, name').limit(1).maybeSingle();
+        if (anyWh) {
+          defaultWhId = anyWh.id;
+          defaultWhName = anyWh.name;
+        }
+      }
+    } catch (e) {
+      console.warn('[syncReverseLogisticsOnOrdersDispatched] Error fetching default warehouse:', e);
+    }
+
+    for (const rl of rlRecords) {
+      const orderId = rl.wms_order_id;
+      const type = (rl.tipo || '').toUpperCase();
+      
+      let order = (window.loadedOrders || []).find(o => o.id === orderId);
+      if (!order) {
+        const { data: dbOrder } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', orderId)
+          .maybeSingle();
+        order = dbOrder;
+      }
+
+      // Determinar bodega de destino
+      let targetWhId = defaultWhId;
+      let targetWhName = defaultWhName;
+      if (order && order.sucursal_pickeo) {
+        const whId = typeof getWarehouseIdFromSucursal === 'function' ? getWarehouseIdFromSucursal(order.sucursal_pickeo) : null;
+        if (whId) {
+          targetWhId = whId;
+          targetWhName = order.sucursal_pickeo;
+        }
+      }
+
+      // Procesar reingreso de ítems para DEVOLUCION (o incoming de CAMBIO)
+      let incomingItems = [];
+      if (rl.productos_cambio && Array.isArray(rl.productos_cambio.incoming) && rl.productos_cambio.incoming.length > 0) {
+        incomingItems = rl.productos_cambio.incoming;
+      } else if (order?.raw_shopify_data?.incoming_products && Array.isArray(order.raw_shopify_data.incoming_products)) {
+        incomingItems = order.raw_shopify_data.incoming_products;
+      } else if (Array.isArray(rl.productos) && rl.productos.length > 0) {
+        incomingItems = rl.productos;
+      }
+
+      // Verificar si ya existe movimiento 'in' para este pedido en movements (antiduplicación)
+      const { data: existingInMovs } = await supabase
+        .from('movements')
+        .select('id, product_id')
+        .eq('order_id', orderId)
+        .eq('type', 'in');
+
+      const existingProdIds = new Set((existingInMovs || []).map(m => m.product_id));
+
+      for (const item of incomingItems) {
+        if (item.regresar_a_inventario === false) continue;
+
+        let prodId = item.product_id || null;
+        const qty = parseInt(item.cantidad || item.quantity) || 1;
+
+        if (!prodId && item.sku) {
+          const { data: prodData } = await supabase
+            .from('products')
+            .select('id')
+            .eq('sku', item.sku)
+            .limit(1)
+            .maybeSingle();
+          if (prodData) prodId = prodData.id;
+        }
+
+        if (prodId && !existingProdIds.has(prodId) && targetWhId) {
+          const { data: invRecord } = await supabase
+            .from('inventory')
+            .select('id, quantity')
+            .eq('product_id', prodId)
+            .eq('warehouse_id', targetWhId)
+            .maybeSingle();
+
+          if (invRecord) {
+            await supabase
+              .from('inventory')
+              .update({ quantity: (invRecord.quantity || 0) + qty })
+              .eq('id', invRecord.id);
+          } else {
+            await supabase
+              .from('inventory')
+              .insert([{
+                product_id: prodId,
+                warehouse_id: targetWhId,
+                quantity: qty
+              }]);
+          }
+
+          await supabase
+            .from('movements')
+            .insert([{
+              product_id: prodId,
+              warehouse_id: targetWhId,
+              type: 'in',
+              quantity: qty,
+              order_id: orderId,
+              reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} [Ped: ${rl.referencia_pedido || order?.external_order_number || 'N/A'}]`
+            }]);
+
+          existingProdIds.add(prodId);
+        }
+      }
+
+      // Actualizar estado en reverse_logistics a 'procesado'
+      const updateRlPayload = {
+        status: 'procesado'
+      };
+      if (!rl.sucursal && targetWhName) {
+        updateRlPayload.sucursal = targetWhName;
+      }
+      await supabase
+        .from('reverse_logistics')
+        .update(updateRlPayload)
+        .eq('id', rl.id);
+
+      // Asegurar que la orden quede marcada como stock_descontado para evitar duplicados
+      await supabase
+        .from('orders')
+        .update({
+          stock_descontado: true,
+          stock_descontado_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+
+      if (order) {
+        order.stock_descontado = true;
+      }
+    }
+
+    // Si la tabla de logística inversa está visible en el DOM, refrescarla
+    if (typeof fetchAndRenderAdminReturnsData === 'function') {
+      try {
+        await fetchAndRenderAdminReturnsData();
+      } catch (e) {}
+    }
+  } catch (err) {
+    console.error('[syncReverseLogisticsOnOrdersDispatched] Error during synchronization:', err);
+  }
 };
 
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
@@ -8868,7 +9876,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         }
 
         if (insufficientItem) {
-          await window.showStockShortageSlidesModal({
+          const shortageSwalRes = await window.showStockShortageSlidesModal({
             title: 'Falta de Stock en Sucursal',
             subtitle: `No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${formValues.sucursal}</strong>:`,
             failuresByOrder: [{
@@ -8885,8 +9893,25 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 requested: insufficientItem.requested,
                 available: insufficientItem.available
               }]
-            }]
+            }],
+            totalSelectedCount: 1,
+            allowReassignment: true
           });
+
+          if (shortageSwalRes && shortageSwalRes.isReassigned) {
+            Swal.fire({
+              title: 'Reasignando bodega de destino...',
+              html: `<div style="font-size:0.9rem; color:var(--color-text-muted);">Reasignando pedido a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock...</div>`,
+              allowOutsideClick: false,
+              didOpen: () => { Swal.showLoading(); }
+            });
+            const newWarehouseId = getWarehouseIdFromSucursal(shortageSwalRes.targetSucursal);
+            await supabase.from('orders').update({ sucursal_pickeo: shortageSwalRes.targetSucursal }).eq('id', order.id);
+            await supabase.from('order_items').update({ warehouse_id: newWarehouseId }).eq('order_id', order.id);
+            order.sucursal_pickeo = shortageSwalRes.targetSucursal;
+            (order.order_items || []).forEach(it => { it.warehouse_id = newWarehouseId; });
+            return window.updateWmsOrderStatus(orderId, 'En preparación');
+          }
 
           try {
             const { data: profile } = await supabase
@@ -8958,9 +9983,17 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         if (wmsErr) throw wmsErr;
 
-        await window.sendSingleOrderToPicker(order);
-
-        Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente conservando sus datos.', 'success');
+        const pickRes = await window.sendSingleOrderToPicker(order);
+        if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+          Swal.fire({
+            icon: 'info',
+            title: 'Pedido En Preparación',
+            text: 'El pedido fue actualizado a "En preparación" en WMS. Se enviará al Picker automáticamente una vez que se genere su número de tracking.',
+            confirmButtonColor: '#7117eb'
+          });
+        } else {
+          Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente conservando sus datos.', 'success');
+        }
         applyWmsFiltersAndRender();
       } else {
         // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos PRIMERO
@@ -9004,9 +10037,17 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         });
 
         // 2. Insertar en Picker active_orders
-        await window.sendSingleOrderToPicker(order);
-
-        Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente.', 'success');
+        const pickRes = await window.sendSingleOrderToPicker(order);
+        if (pickRes && pickRes.skipped && pickRes.reason === 'missing_tracking') {
+          Swal.fire({
+            icon: 'info',
+            title: 'Pedido En Preparación',
+            text: 'El pedido fue actualizado a "En preparación" en WMS. Se enviará al Picker automáticamente una vez que se genere su número de tracking.',
+            confirmButtonColor: '#7117eb'
+          });
+        } else {
+          Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente.', 'success');
+        }
         applyWmsFiltersAndRender();
       }
     } catch (err) {
@@ -9167,6 +10208,10 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           .eq('id', orderId);
           
         if (error) throw error;
+
+        if (window.syncReverseLogisticsOnOrdersDispatched) {
+          await window.syncReverseLogisticsOnOrdersDispatched([orderId]);
+        }
         
         order.estado_wms = 'Despachado';
         if (!hadPriorMovement) {
@@ -31671,7 +32716,9 @@ function buildDeclarationRowHtml(dec) {
       statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
       break;
     case 'En proceso de conteo/clasificación':
-      statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+      statusBadge = dec.parallel_count
+        ? '<span class="badge" style="background-color: rgba(95, 6, 250, 0.15); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.35); font-weight: 700;"><i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo</span>'
+        : '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
       break;
     case 'Recepción Parcial':
       statusBadge = '<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.35); font-weight: 600;"><i class="ri-pie-chart-2-line"></i> Recepción Parcial</span>';
@@ -31762,6 +32809,13 @@ function buildDeclarationRowHtml(dec) {
           ` : ''}
         </div>
         <div style="font-weight: 600;">${dec.title}</div>
+        ${dec.parallel_count ? `
+        <div style="margin-top: 3px;">
+          <span class="badge" style="background: rgba(95, 6, 250, 0.12); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 700;">
+            <i class="ri-refresh-line" style="animation: spin 3s linear infinite;"></i> Conteo en Paralelo (Stock Ingresado)
+          </span>
+        </div>
+        ` : ''}
         ${hasAdminEdit ? `
         <div style="margin-top: 3px;">
           <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Registra modificaciones realizadas por Administración">
@@ -31926,6 +32980,7 @@ window.filterAndRenderDeclarationsAdminTable = function() {
 
   const counts = {
     pending: 0,
+    parallelCount: 0,
     'Creada': 0,
     'Bodega Asignada': 0,
     'En Recepción - Pendiente Conteo': 0,
@@ -31944,6 +32999,9 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     } else {
       counts.completed++;
     }
+    if (dec.parallel_count) {
+      counts.parallelCount++;
+    }
     if (counts[dec.status] !== undefined) {
       counts[dec.status]++;
     }
@@ -31955,6 +33013,7 @@ window.filterAndRenderDeclarationsAdminTable = function() {
     { id: 'Bodega Asignada', label: '2. Bodega Asignada', icon: 'ri-building-line', count: counts['Bodega Asignada'] || 0 },
     { id: 'En Recepción - Pendiente Conteo', label: '3. En Recepción', icon: 'ri-truck-line', count: counts['En Recepción - Pendiente Conteo'] || 0 },
     { id: 'En proceso de conteo/clasificación', label: '4. En Conteo', icon: 'ri-calculator-line', count: counts['En proceso de conteo/clasificación'] || 0 },
+    { id: 'parallel_count', label: 'Conteo en Paralelo', icon: 'ri-refresh-line', count: counts.parallelCount || 0, badgeClass: counts.parallelCount > 0 ? 'has-pending' : '' },
     { id: 'Recepción Parcial', label: 'Recepción Parcial', icon: 'ri-pie-chart-2-line', count: counts['Recepción Parcial'] || 0 },
     { id: 'Recibido Conforme', label: 'Recibido Conforme', icon: 'ri-checkbox-circle-line', count: counts['Recibido Conforme'] || 0, badgeClass: counts['Recibido Conforme'] > 0 ? 'has-success' : '' },
     { id: 'Recibido con Incidencias', label: 'Con Incidencias', icon: 'ri-error-warning-line', count: counts['Recibido con Incidencias'] || 0, badgeClass: counts['Recibido con Incidencias'] > 0 ? 'has-incidents' : '' },
@@ -31991,6 +33050,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
       if (isCompleted) return false;
     } else if (currentTab === 'completed') {
       if (!isCompleted) return false;
+    } else if (currentTab === 'parallel_count') {
+      if (!dec.parallel_count) return false;
     } else if (currentTab === 'all') {
       // Mostrar todos
     } else {
@@ -32059,7 +33120,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
         adminNotes.includes(q) ||
         billingNotes.includes(q) ||
         warehouse.includes(q) ||
-        productsMatch;
+        productsMatch ||
+        (q.includes('paralelo') && dec.parallel_count);
 
       if (!matches) return false;
     }
@@ -32505,10 +33567,52 @@ window.renderStageTransitionController = function(dec, targetStatus) {
     </div>
   `;
 
-  // 1. ACCIÓN: AVANZAR ETAPA
   const nextStatus = getNextStageStatus(currentStatus);
   const isCountingPhase = currentStatus === 'En proceso de conteo/clasificación' || currentStatus === 'Recepción Parcial';
   const isFinalized = currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias';
+
+  // Tarjeta especial: Conteo en Paralelo
+  if (dec.parallel_count) {
+    html += `
+      <div class="stage-action-card" onclick="window.confirmDeclarationFinalCount()" style="border: 2px solid var(--color-success); background: rgba(16, 185, 129, 0.08); cursor: pointer; margin-bottom: 0.65rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);">
+        <div style="width: 38px; height: 38px; border-radius: 8px; background: var(--color-success); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-checkbox-circle-line"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <strong style="color: #166534; font-size: 0.92rem;">Confirmar Conteo Final y Conciliar Stock</strong>
+            <span class="badge" style="background: var(--color-success); color: white; font-size: 0.68rem; padding: 2px 6px; font-weight: 700;">Acción Directa</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px;">
+            Compara el conteo físico real con el stock provisional ya cargado, aplica los ajustes (sobrantes/faltantes) a bodega y finaliza la recepción.
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" style="background: var(--color-success); border-color: var(--color-success); font-size: 0.82rem; padding: 0.4rem 0.85rem; font-weight: 700; white-space: nowrap;">
+          <i class="ri-check-double-line"></i> Conciliar y Cerrar
+        </button>
+      </div>
+    `;
+  } else if (!isFinalized && currentStatus !== 'Creada') {
+    html += `
+      <div class="stage-action-card" onclick="window.startParallelCountStockIntake()" style="border: 1.5px dashed #5f06fa; background: rgba(95, 6, 250, 0.04); cursor: pointer; margin-bottom: 0.65rem;">
+        <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(95, 6, 250, 0.12); color: #5f06fa; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-refresh-line"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <strong style="color: #5f06fa; font-size: 0.9rem;">Ingresar a Inventario (Conteo en Paralelo)</strong>
+            <span class="badge" style="background: rgba(95, 6, 250, 0.15); color: #5f06fa; font-size: 0.68rem; padding: 2px 6px; font-weight: 700;">Disponibilidad Inmediata</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 2px;">
+            Acredita inmediatamente las unidades declaradas en bodega para venta y despacho, permitiendo continuar con el conteo físico en paralelo.
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline" style="border-color: #5f06fa; color: #5f06fa; font-size: 0.8rem; padding: 0.35rem 0.75rem; white-space: nowrap; font-weight: 600;">
+          <i class="ri-play-line"></i> Activar
+        </button>
+      </div>
+    `;
+  }
 
   if (nextStatus) {
     const isSelected = activeTarget === nextStatus;
@@ -33567,6 +34671,25 @@ window.manageDeclaration = async function(id) {
         }
       };
     }
+
+    // Inicializar costos adicionales registrados
+    window.currentDeclarationAdditionalCosts = Array.isArray(dec.additional_costs) 
+      ? JSON.parse(JSON.stringify(dec.additional_costs)) 
+      : [];
+    if (typeof window.renderDeclarationAdditionalCostsList === 'function') {
+      window.renderDeclarationAdditionalCostsList();
+    }
+
+    // Limpiar formulario de costo adicional nuevo
+    const extraNameInput = document.getElementById('manage-extra-cost-name');
+    if (extraNameInput) extraNameInput.value = '';
+    const extraClpInput = document.getElementById('manage-extra-cost-clp');
+    if (extraClpInput) extraClpInput.value = '';
+    const extraUfInput = document.getElementById('manage-extra-cost-uf');
+    if (extraUfInput) extraUfInput.value = '';
+    const extraNotesInput = document.getElementById('manage-extra-cost-notes');
+    if (extraNotesInput) extraNotesInput.value = '';
+
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
     
     // Sugerir costo estimado si el costo real no está confirmado
@@ -33606,6 +34729,12 @@ window.manageDeclaration = async function(id) {
     const billingNotesEl = document.getElementById('manage-dec-billing-notes');
     if (billingNotesEl) {
       billingNotesEl.value = dec.billing_notes || '';
+    }
+
+    // Mostrar u ocultar banner de Conteo en Paralelo
+    const parallelBanner = document.getElementById('manage-dec-parallel-count-banner');
+    if (parallelBanner) {
+      parallelBanner.style.display = dec.parallel_count ? 'block' : 'none';
     }
 
     // Inicializar Stepper y Transición de Etapas Bidireccional (Ingresos 2.0)
@@ -34155,6 +35284,7 @@ document.addEventListener('submit', async (e) => {
         billing_status: billingStatus,
         billing_notes: billingNotes,
         real_cost: realCost,
+        additional_costs: window.currentDeclarationAdditionalCosts || [],
         updated_at: new Date().toISOString()
       };
 
@@ -34198,7 +35328,7 @@ document.addEventListener('submit', async (e) => {
         updateData.quantity_declared = updateData.products_list.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
       }
 
-      if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+      if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1 || (labelingQtyConfirmedInput && labelingQtyConfirmedInput.value !== '')) {
         updateData.volume_confirmed = volumeConfirmed;
         updateData.labeling_qty_confirmed = labelingQtyConfirmed;
       }
@@ -34212,16 +35342,32 @@ document.addEventListener('submit', async (e) => {
         }
       }
 
+      // Mantener o desactivar parallel_count si se finaliza
+      const isFinishingStatus = ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
+      updateData.parallel_count = isFinishingStatus ? false : (latestDec.parallel_count || false);
+      if (latestDec.parallel_count_data) {
+        updateData.parallel_count_data = latestDec.parallel_count_data;
+      }
+
       let { error } = await supabase
         .from('stock_declarations')
         .update(updateData)
         .eq('id', id);
 
-      if (error && error.message && error.message.includes('billing_status')) {
-        console.warn('Column billing_status not yet in SQL schema, falling back without billing columns:', error);
-        delete updateData.billing_status;
-        delete updateData.billing_notes;
-        delete updateData.billed_at;
+      if (error && error.message && (error.message.includes('billing_status') || error.message.includes('additional_costs') || error.message.includes('parallel_count'))) {
+        console.warn('Column billing_status, additional_costs or parallel_count not yet in SQL schema, falling back without new columns:', error);
+        if (error.message.includes('parallel_count')) {
+          delete updateData.parallel_count;
+          delete updateData.parallel_count_data;
+        }
+        if (error.message.includes('additional_costs')) {
+          delete updateData.additional_costs;
+        }
+        if (error.message.includes('billing_status')) {
+          delete updateData.billing_status;
+          delete updateData.billing_notes;
+          delete updateData.billed_at;
+        }
         const resFallback = await supabase
           .from('stock_declarations')
           .update(updateData)
@@ -34232,7 +35378,6 @@ document.addEventListener('submit', async (e) => {
       }
 
       // 2.5 Actualizar inventario físico de productos (credito incremental delta) y actualizar catálogo de medidas
-      const isFinishingStatus = ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
       const isStockReceivingStatus = ['Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(status);
 
       if (isFinishingStatus) {
@@ -34263,7 +35408,7 @@ document.addEventListener('submit', async (e) => {
                 : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
 
               const alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
-              const deltaToAdd = Math.max(0, itemQty - alreadyAdded);
+              const delta = itemQty - alreadyAdded;
 
               const confLargo = (item.confirmed_largo !== undefined && item.confirmed_largo !== null && item.confirmed_largo !== '') ? parseFloat(item.confirmed_largo) : (parseFloat(item.largo) || null);
               const confAncho = (item.confirmed_ancho !== undefined && item.confirmed_ancho !== null && item.confirmed_ancho !== '') ? parseFloat(item.confirmed_ancho) : (parseFloat(item.ancho) || null);
@@ -34290,7 +35435,7 @@ document.addEventListener('submit', async (e) => {
                 let productId = prod ? prod.id : null;
 
                 if (!productId) {
-                  // Si el producto no existía en el catálogo (por ejemplo un producto undeclared o personalizado), crearlo automáticamente
+                  // Si el producto no existía en el catálogo, crearlo automáticamente
                   try {
                     const { data: newProd, error: newProdErr } = await supabase
                       .from('products')
@@ -34333,8 +35478,8 @@ document.addEventListener('submit', async (e) => {
                   }
                 }
 
-                if (productId && deltaToAdd > 0) {
-                  // Buscar o crear registro de inventario
+                if (productId && delta !== 0) {
+                  // Buscar registro de inventario
                   const { data: inv, error: invErr } = await supabase
                     .from('inventory')
                     .select('id, quantity')
@@ -34343,35 +35488,57 @@ document.addEventListener('submit', async (e) => {
                     .maybeSingle();
 
                   if (!invErr) {
-                    if (inv) {
-                      const newQty = (inv.quantity || 0) + deltaToAdd;
+                    if (delta > 0) {
+                      // Sobrante / Aumento de inventario
+                      if (inv) {
+                        const newQty = (inv.quantity || 0) + delta;
+                        await supabase
+                          .from('inventory')
+                          .update({ quantity: newQty })
+                          .eq('id', inv.id);
+                      } else {
+                        await supabase
+                          .from('inventory')
+                          .insert([{
+                            product_id: productId,
+                            warehouse_id: targetWarehouseId,
+                            quantity: delta,
+                            committed_quantity: 0
+                          }]);
+                      }
+
+                      await supabase
+                        .from('movements')
+                        .insert([{
+                          product_id: productId,
+                          warehouse_id: targetWarehouseId,
+                          type: 'in',
+                          quantity: delta,
+                          reference_doc: alreadyAdded > 0 
+                            ? `Ajuste Conteo Final (Sobrante +${delta} uds): ${latestDec.title}`
+                            : `Ingreso de Stock (${status}): ${latestDec.title}`
+                        }]);
+                    } else if (delta < 0 && inv) {
+                      // Faltante / Ajuste de inventario hacia abajo
+                      const toDeduct = Math.abs(delta);
+                      const newQty = Math.max(0, (inv.quantity || 0) - toDeduct);
                       await supabase
                         .from('inventory')
                         .update({ quantity: newQty })
                         .eq('id', inv.id);
-                    } else {
+
                       await supabase
-                        .from('inventory')
+                        .from('movements')
                         .insert([{
                           product_id: productId,
                           warehouse_id: targetWarehouseId,
-                          quantity: deltaToAdd,
-                          committed_quantity: 0
+                          type: 'out',
+                          quantity: toDeduct,
+                          reference_doc: `Ajuste Conteo Final (Faltante -${toDeduct} uds): ${latestDec.title}`
                         }]);
                     }
 
-                    // Registrar movimiento de stock incremental
-                    await supabase
-                      .from('movements')
-                      .insert([{
-                        product_id: productId,
-                        warehouse_id: targetWarehouseId,
-                        type: 'in',
-                        quantity: deltaToAdd,
-                        reference_doc: `Ingreso de Stock (${status}): ${latestDec.title}`
-                      }]);
-
-                    item.qty_inventory_added = alreadyAdded + deltaToAdd;
+                    item.qty_inventory_added = itemQty;
                     inventoryModified = true;
                   }
                 }
@@ -34526,6 +35693,715 @@ document.addEventListener('submit', async (e) => {
     }
   }
 });
+
+// --- CONTEO EN PARALELO (STOCK INGRESADO Y CONCILIACIÓN FINAL) ---
+
+window.startParallelCountStockIntake = async function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+
+  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse')?.value;
+  if (!warehouseId) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'warning',
+        title: 'Bodega requerida',
+        text: 'Debes asignar una bodega de destino antes de ingresar stock a inventario.'
+      });
+    } else {
+      alert('Debes asignar una bodega de destino antes de ingresar stock a inventario.');
+    }
+    return;
+  }
+
+  // Leer productos
+  const products = (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0)
+    ? window.currentDeclarationProductsEditing
+    : (getDeclarationProducts(dec) || []);
+
+  if (products.length === 0) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'warning',
+        title: 'Sin productos',
+        text: 'La recepción no contiene productos registrados para ingresar.'
+      });
+    } else {
+      alert('La recepción no contiene productos registrados para ingresar.');
+    }
+    return;
+  }
+
+  let totalDeclared = 0;
+  let totalAlreadyAdded = 0;
+  let totalToCredit = 0;
+  const itemsToCredit = [];
+
+  products.forEach(p => {
+    const declaredQty = parseInt(p.qty, 10) || 0;
+    const added = parseInt(p.qty_inventory_added, 10) || 0;
+    const toCredit = Math.max(0, declaredQty - added);
+    totalDeclared += declaredQty;
+    totalAlreadyAdded += added;
+    totalToCredit += toCredit;
+    itemsToCredit.push({ item: p, toCredit, declaredQty, added });
+  });
+
+  if (totalToCredit <= 0) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'info',
+        title: 'Stock ya ingresado',
+        text: `Todas las unidades declaradas (${totalDeclared} uds) ya se encuentran acreditadas en inventario.`
+      });
+    } else {
+      alert(`Todas las unidades declaradas (${totalDeclared} uds) ya se encuentran acreditadas en inventario.`);
+    }
+    return;
+  }
+
+  const whName = dec.warehouses?.name || 'la bodega seleccionada';
+  const confirmResult = await Swal.fire({
+    title: '¿Iniciar Conteo en Paralelo?',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; line-height: 1.5; color: var(--color-text-main);">
+        <p style="margin-bottom: 0.75rem;">
+          Se ingresarán inmediatamente <strong>${totalToCredit.toLocaleString()} unidades</strong> de <strong>${products.length} SKU(s)</strong> al inventario de <strong>${whName}</strong>.
+        </p>
+        <div style="background: rgba(95, 6, 250, 0.08); border-left: 3px solid #5f06fa; padding: 0.65rem 0.85rem; border-radius: 0 6px 6px 0; margin-bottom: 0.75rem; font-size: 0.82rem;">
+          <strong style="color: #5f06fa; display: block; margin-bottom: 2px;">⚡ Ventajas del Conteo en Paralelo:</strong>
+          • Las unidades quedan <strong>disponibles de inmediato</strong> para venta y despacho.<br>
+          • La recepción pasa a <strong>"En proceso de conteo/clasificación"</strong>.<br>
+          • El personal de bodega puede auditar físicamente la mercadería en simultáneo.<br>
+          • Al terminar, el sistema concilia automáticamente diferencias (faltantes o sobrantes).
+        </div>
+      </div>
+    `,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, Acreditar Stock e Iniciar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    cancelButtonColor: '#64748b'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Acreditando inventario...',
+    text: 'Ingresando productos a inventario y registrando movimientos...',
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  try {
+    let currentUserEmail = 'Administración Stocka';
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email) currentUserEmail = user.email;
+    } catch (uErr) { /* ignore */ }
+
+    for (const { item, toCredit } of itemsToCredit) {
+      if (toCredit <= 0 || !item.sku) continue;
+
+      let productId = item.product_id || null;
+      if (!productId) {
+        const { data: prod } = await supabase
+          .from('products')
+          .select('id')
+          .eq('comercio', dec.comercio)
+          .ilike('sku', item.sku.trim())
+          .limit(1)
+          .maybeSingle();
+
+        if (prod) {
+          productId = prod.id;
+        } else {
+          const { data: newProd, error: newProdErr } = await supabase
+            .from('products')
+            .insert([{
+              sku: item.sku.trim(),
+              name: item.name || item.sku.trim(),
+              comercio: dec.comercio,
+              volumen: parseFloat(item.volumen) || parseFloat(item.vol) || 0,
+              largo: parseFloat(item.largo) || null,
+              ancho: parseFloat(item.ancho) || null,
+              alto: parseFloat(item.alto) || null,
+              price: item.price || 0,
+              barcode: item.barcode || ''
+            }])
+            .select('id')
+            .single();
+
+          if (!newProdErr && newProd) productId = newProd.id;
+        }
+      }
+
+      if (productId) {
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', productId)
+          .eq('warehouse_id', warehouseId)
+          .maybeSingle();
+
+        if (inv) {
+          await supabase
+            .from('inventory')
+            .update({ quantity: (inv.quantity || 0) + toCredit })
+            .eq('id', inv.id);
+        } else {
+          await supabase
+            .from('inventory')
+            .insert([{
+              product_id: productId,
+              warehouse_id: warehouseId,
+              quantity: toCredit,
+              committed_quantity: 0
+            }]);
+        }
+
+        await supabase
+          .from('movements')
+          .insert([{
+            product_id: productId,
+            warehouse_id: warehouseId,
+            type: 'in',
+            quantity: toCredit,
+            reference_doc: `Ingreso Provisional (Conteo en Paralelo): ${dec.title}`
+          }]);
+
+        item.qty_inventory_added = (parseInt(item.qty_inventory_added, 10) || 0) + toCredit;
+      }
+    }
+
+    const newStatus = 'En proceso de conteo/clasificación';
+    const existingHistory = dec.history || [];
+    const newHistoryEntry = {
+      status: newStatus,
+      timestamp: new Date().toISOString(),
+      comment: `[CONTEO EN PARALELO] Stock acreditado en bodega (+${totalToCredit} uds). Conteo físico en paralelo iniciado por ${currentUserEmail}.`
+    };
+    const updatedHistory = [...existingHistory, newHistoryEntry];
+
+    const updatePayload = {
+      status: newStatus,
+      warehouse_id: warehouseId,
+      parallel_count: true,
+      parallel_count_data: {
+        initiated_at: new Date().toISOString(),
+        initiated_by: currentUserEmail,
+        initial_qty_added: totalToCredit
+      },
+      products_list: products,
+      history: updatedHistory,
+      updated_at: new Date().toISOString()
+    };
+
+    let { error: updateErr } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .eq('id', dec.id);
+
+    if (updateErr && updateErr.message && updateErr.message.includes('parallel_count')) {
+      console.warn('parallel_count column not yet in SQL schema, falling back without new columns:', updateErr);
+      delete updatePayload.parallel_count;
+      delete updatePayload.parallel_count_data;
+      const resFallback = await supabase
+        .from('stock_declarations')
+        .update(updatePayload)
+        .eq('id', dec.id);
+      if (resFallback.error) throw resFallback.error;
+    } else if (updateErr) {
+      throw updateErr;
+    }
+
+    if (window.sendStockInboundNotification) {
+      try {
+        const { data: updatedDec } = await supabase
+          .from('stock_declarations')
+          .select('*, warehouses(id, name, address, comuna, operating_days)')
+          .eq('id', dec.id)
+          .single();
+        if (updatedDec) {
+          await window.sendStockInboundNotification({
+            event: 'received',
+            declarationId: dec.id,
+            comercio: dec.comercio,
+            title: dec.title,
+            decData: updatedDec,
+            warehouse: updatedDec.warehouses,
+            status: newStatus,
+            stageComment: `Stock disponible en inventario (+${totalToCredit} uds). Conteo en paralelo en curso.`
+          });
+        }
+      } catch (notifErr) {
+        console.error('Error enviando notificación inbound:', notifErr);
+      }
+    }
+
+    dec.status = newStatus;
+    dec.warehouse_id = warehouseId;
+    dec.parallel_count = true;
+    dec.parallel_count_data = updatePayload.parallel_count_data;
+    dec.products_list = products;
+    dec.history = updatedHistory;
+    window.currentDeclarationEditing = dec;
+    window.currentDeclarationProductsEditing = products;
+
+    const statusSelect = document.getElementById('manage-dec-status');
+    if (statusSelect) statusSelect.value = newStatus;
+
+    const parallelBanner = document.getElementById('manage-dec-parallel-count-banner');
+    if (parallelBanner) parallelBanner.style.display = 'block';
+
+    window.renderDeclarationStepper(newStatus, newStatus);
+    window.renderStageTransitionController(dec, newStatus);
+    if (window.renderDeclarationHistoryTimeline) {
+      window.renderDeclarationHistoryTimeline(dec);
+    }
+    if (window.renderManageDeclarationProducts) {
+      window.renderManageDeclarationProducts(dec, newStatus);
+    }
+    if (window.recalculateManageDeclarationTotals) {
+      window.recalculateManageDeclarationTotals();
+    }
+
+    renderDeclarationsAdmin();
+
+    Swal.fire({
+      icon: 'success',
+      title: '¡Conteo en Paralelo Activado!',
+      html: `Se han acreditado <strong>${totalToCredit.toLocaleString()} unidades</strong> en bodega.<br>El stock ya se encuentra disponible para venta y despacho.`,
+      confirmButtonColor: '#10b981'
+    });
+  } catch (err) {
+    console.error('Error iniciando conteo en paralelo:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al activar',
+      text: err.message || 'Ocurrió un error inesperado al acreditar el inventario.'
+    });
+  }
+};
+
+window.confirmDeclarationFinalCount = async function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+
+  const warehouseId = dec.warehouse_id || document.getElementById('manage-dec-warehouse')?.value;
+  if (!warehouseId) {
+    Swal.fire({ icon: 'warning', title: 'Bodega requerida', text: 'Esta recepción no tiene una bodega asignada.' });
+    return;
+  }
+
+  // Leer productos y sincronizar con inputs en DOM
+  const products = window.currentDeclarationProductsEditing || getDeclarationProducts(dec) || [];
+  if (products.length === 0) {
+    Swal.fire({ icon: 'warning', title: 'Sin productos', text: 'No hay productos para conciliar.' });
+    return;
+  }
+
+  // Sincronizar cantidades confirmadas desde los inputs
+  products.forEach((p, idx) => {
+    const qtyInp = document.querySelector(`.manage-dec-prod-qty-input[data-index="${idx}"]`);
+    if (qtyInp && qtyInp.value !== '') {
+      p.qty_confirmed = parseInt(qtyInp.value, 10) || 0;
+    } else if (p.qty_confirmed === undefined || p.qty_confirmed === null) {
+      p.qty_confirmed = parseInt(p.qty, 10) || 0;
+    }
+
+    const lInp = document.querySelector(`.manage-dec-dim-largo[data-index="${idx}"]`);
+    const anInp = document.querySelector(`.manage-dec-dim-ancho[data-index="${idx}"]`);
+    const alInp = document.querySelector(`.manage-dec-dim-alto[data-index="${idx}"]`);
+    if (lInp && anInp && alInp) {
+      const l = parseFloat(lInp.value) || 0;
+      const an = parseFloat(anInp.value) || 0;
+      const al = parseFloat(alInp.value) || 0;
+      p.confirmed_largo = l > 0 ? l : null;
+      p.confirmed_ancho = an > 0 ? an : null;
+      p.confirmed_alto = al > 0 ? al : null;
+      p.confirmed_volumen = (l > 0 && an > 0 && al > 0) ? (l * an * al) / 1000000 : 0;
+    }
+  });
+
+  // Calcular deltas y resumen de conciliación
+  let totalDeclared = 0;
+  let totalConfirmed = 0;
+  let totalAlreadyInStock = 0;
+  let totalSurplus = 0;
+  let totalShortage = 0;
+  const reconciliationRows = [];
+
+  products.forEach((p, idx) => {
+    const declared = parseInt(p.qty, 10) || 0;
+    const confirmed = parseInt(p.qty_confirmed, 10) || 0;
+    const alreadyAdded = parseInt(p.qty_inventory_added, 10) || 0;
+    const delta = confirmed - alreadyAdded;
+
+    totalDeclared += declared;
+    totalConfirmed += confirmed;
+    totalAlreadyInStock += alreadyAdded;
+
+    if (delta > 0) totalSurplus += delta;
+    if (delta < 0) totalShortage += Math.abs(delta);
+
+    reconciliationRows.push({
+      item: p,
+      sku: p.sku || 'S/SKU',
+      name: p.name || 'Sin nombre',
+      declared,
+      alreadyAdded,
+      confirmed,
+      delta
+    });
+  });
+
+  const finalStatus = (totalShortage > 0) ? 'Recibido con Incidencias' : 'Recibido Conforme';
+  const statusColor = finalStatus === 'Recibido Conforme' ? 'var(--color-success)' : 'var(--color-danger)';
+  const statusIcon = finalStatus === 'Recibido Conforme' ? 'ri-checkbox-circle-line' : 'ri-error-warning-line';
+
+  // Construir tabla de conciliación en modal
+  let rowsHtml = reconciliationRows.map(r => {
+    let deltaBadge = '';
+    if (r.delta > 0) {
+      deltaBadge = `<span style="color: #166534; background: rgba(16, 185, 129, 0.15); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">+${r.delta} uds (Sobrante)</span>`;
+    } else if (r.delta < 0) {
+      deltaBadge = `<span style="color: #991b1b; background: rgba(239, 68, 68, 0.15); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">-${Math.abs(r.delta)} uds (Faltante)</span>`;
+    } else {
+      deltaBadge = `<span style="color: #64748b; background: var(--color-surface-hover); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.8rem;">0 (Exacto)</span>`;
+    }
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.82rem;">
+        <td style="padding: 8px 10px; font-weight: 600; font-family: monospace; color: var(--color-primary);">${r.sku}</td>
+        <td style="padding: 8px 10px; color: var(--color-text-main); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.name}">${r.name}</td>
+        <td style="padding: 8px 10px; text-align: right; color: var(--color-text-muted);">${r.declared}</td>
+        <td style="padding: 8px 10px; text-align: right; font-weight: 600;">${r.alreadyAdded}</td>
+        <td style="padding: 8px 10px; text-align: right; font-weight: 700; color: var(--color-text-main);">${r.confirmed}</td>
+        <td style="padding: 8px 10px; text-align: center;">${deltaBadge}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const modalHtml = `
+    <div style="text-align: left; font-size: 0.85rem; color: var(--color-text-main);">
+      <!-- KPI Resumen -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 1rem; text-align: center;">
+        <div style="background: var(--color-surface-hover); padding: 8px; border-radius: 6px; border: 1px solid var(--color-border);">
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">Declarado</div>
+          <strong style="font-size: 1rem; color: var(--color-text-main);">${totalDeclared}</strong>
+        </div>
+        <div style="background: rgba(95, 6, 250, 0.08); padding: 8px; border-radius: 6px; border: 1px solid rgba(95, 6, 250, 0.2);">
+          <div style="font-size: 0.7rem; color: #5f06fa;">En Inventario</div>
+          <strong style="font-size: 1rem; color: #5f06fa;">${totalAlreadyInStock}</strong>
+        </div>
+        <div style="background: rgba(16, 185, 129, 0.08); padding: 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+          <div style="font-size: 0.7rem; color: var(--color-success);">Físico Confirmado</div>
+          <strong style="font-size: 1rem; color: var(--color-success);">${totalConfirmed}</strong>
+        </div>
+        <div style="background: ${totalShortage > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(16, 185, 129, 0.08)'}; padding: 8px; border-radius: 6px; border: 1px solid ${totalShortage > 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)'};">
+          <div style="font-size: 0.7rem; color: ${totalShortage > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">Ajuste Neto</div>
+          <strong style="font-size: 1rem; color: ${totalShortage > 0 ? 'var(--color-danger)' : 'var(--color-success)'};">
+            ${totalSurplus > 0 ? `+${totalSurplus}` : ''}${totalShortage > 0 ? `-${totalShortage}` : (totalSurplus === 0 ? '0' : '')} uds
+          </strong>
+        </div>
+      </div>
+
+      <!-- Estado de cierre propuesto -->
+      <div style="background: ${finalStatus === 'Recibido Conforme' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'}; border: 1px solid ${finalStatus === 'Recibido Conforme' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="${statusIcon}" style="color: ${statusColor}; font-size: 1.3rem;"></i>
+          <div>
+            <strong style="color: ${statusColor}; font-size: 0.9rem;">Estado Final: ${finalStatus}</strong>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+              ${finalStatus === 'Recibido Conforme' ? 'Todas las unidades cuadradas o con sobrantes sin averías.' : `Se registran faltantes (-${totalShortage} uds) que serán descontados del inventario e ingresados como incidencias.`}
+            </div>
+          </div>
+        </div>
+        <span class="badge" style="background: ${statusColor}; color: white; font-weight: 700; font-size: 0.75rem;">${finalStatus}</span>
+      </div>
+
+      <!-- Tabla de conciliación -->
+      <div style="max-height: 220px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; margin-bottom: 0.75rem;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: var(--color-bg); position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--color-border); font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">
+              <th style="padding: 6px 10px; text-align: left;">SKU</th>
+              <th style="padding: 6px 10px; text-align: left;">Producto</th>
+              <th style="padding: 6px 10px; text-align: right;">Decl.</th>
+              <th style="padding: 6px 10px; text-align: right;">En Stock</th>
+              <th style="padding: 6px 10px; text-align: right;">Físico</th>
+              <th style="padding: 6px 10px; text-align: center;">Ajuste Stock</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+        * Al confirmar, el sistema aplicará los movimientos automáticos de inventario (ingresos por sobrantes y salidas por faltantes), actualizará el catálogo con las dimensiones físicas confirmadas y cerrará la recepción.
+      </p>
+    </div>
+  `;
+
+  const confirmRes = await Swal.fire({
+    title: 'Conciliación Final de Conteo',
+    html: modalHtml,
+    width: '720px',
+    showCancelButton: true,
+    confirmButtonText: 'Confirmar y Finalizar Recepción',
+    cancelButtonText: 'Volver a Revisar',
+    confirmButtonColor: finalStatus === 'Recibido Conforme' ? '#10b981' : '#ef4444',
+    cancelButtonColor: '#64748b'
+  });
+
+  if (!confirmRes.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Conciliando stock...',
+    text: 'Aplicando ajustes a bodega y cerrando recepción...',
+    allowOutsideClick: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  try {
+    let currentUserEmail = 'Administración Stocka';
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email) currentUserEmail = user.email;
+    } catch (uErr) { /* ignore */ }
+
+    // 1. Aplicar ajustes de inventario para cada producto
+    const incidentsList = [];
+
+    for (const r of reconciliationRows) {
+      const { item, sku, delta, confirmed } = r;
+      if (!sku) continue;
+
+      let productId = item.product_id || null;
+      if (!productId) {
+        const { data: prod } = await supabase
+          .from('products')
+          .select('id')
+          .eq('comercio', dec.comercio)
+          .ilike('sku', sku.trim())
+          .limit(1)
+          .maybeSingle();
+        if (prod) productId = prod.id;
+      }
+
+      // Actualizar catálogo con dimensiones físicas si fueron confirmadas
+      if (productId && item.confirmed_largo && item.confirmed_ancho && item.confirmed_alto) {
+        try {
+          await supabase
+            .from('products')
+            .update({
+              largo: item.confirmed_largo,
+              ancho: item.confirmed_ancho,
+              alto: item.confirmed_alto,
+              volumen: item.confirmed_volumen
+            })
+            .eq('id', productId);
+        } catch (catErr) {
+          console.warn('Error actualizando dimensiones en catálogo:', catErr);
+        }
+      }
+
+      if (productId && delta !== 0) {
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', productId)
+          .eq('warehouse_id', warehouseId)
+          .maybeSingle();
+
+        if (delta > 0) {
+          // Sobrante: Acreditar delta a inventario
+          if (inv) {
+            await supabase
+              .from('inventory')
+              .update({ quantity: (inv.quantity || 0) + delta })
+              .eq('id', inv.id);
+          } else {
+            await supabase
+              .from('inventory')
+              .insert([{
+                product_id: productId,
+                warehouse_id: warehouseId,
+                quantity: delta,
+                committed_quantity: 0
+              }]);
+          }
+
+          await supabase
+            .from('movements')
+            .insert([{
+              product_id: productId,
+              warehouse_id: warehouseId,
+              type: 'in',
+              quantity: delta,
+              reference_doc: `Ajuste Conteo Final (Sobrante +${delta} uds): ${dec.title}`
+            }]);
+        } else if (delta < 0 && inv) {
+          // Faltante: Deducir delta de inventario
+          const toDeduct = Math.abs(delta);
+          const newQty = Math.max(0, (inv.quantity || 0) - toDeduct);
+          await supabase
+            .from('inventory')
+            .update({ quantity: newQty })
+            .eq('id', inv.id);
+
+          await supabase
+            .from('movements')
+            .insert([{
+              product_id: productId,
+              warehouse_id: warehouseId,
+              type: 'out',
+              quantity: toDeduct,
+              reference_doc: `Ajuste Conteo Final (Faltante -${toDeduct} uds): ${dec.title}`
+            }]);
+        }
+      }
+
+      // Registrar incidencia si hubo faltante
+      if (delta < 0) {
+        incidentsList.push({
+          sku: sku,
+          type: 'shortage',
+          quantity: Math.abs(delta),
+          reason: `Faltante de ${Math.abs(delta)} unidad(es) detectado tras conteo físico final en paralelo.`
+        });
+      }
+
+      // Marcar producto como totalmente ingresado con cantidad confirmada
+      item.qty_inventory_added = confirmed;
+    }
+
+    // 2. Calcular volumen confirmado total y costo real
+    let totalVolumeConfirmed = 0;
+    products.forEach(item => {
+      const rec = parseInt(item.qty_confirmed, 10) || 0;
+      const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+        ? parseFloat(item.confirmed_volumen)
+        : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+      totalVolumeConfirmed += (unitVol * rec);
+    });
+
+    const finalRealCost = window.lastCalculatedRealCostUf || parseFloat(dec.real_cost) || parseFloat(dec.estimated_cost) || 0;
+
+    // 3. Bitácora de cierre
+    const existingHistory = dec.history || [];
+    const newHistoryEntry = {
+      status: finalStatus,
+      timestamp: new Date().toISOString(),
+      comment: `[CIERRE CONTEO EN PARALELO] Conteo físico finalizado: ${totalConfirmed} uds confirmadas. Ajustes de inventario aplicados (Sobrantes: +${totalSurplus}, Faltantes: -${totalShortage}). Cierre en estado: ${finalStatus}. Operador: ${currentUserEmail}.`
+    };
+    const updatedHistory = [...existingHistory, newHistoryEntry];
+
+    // 4. Actualizar declaración en Supabase
+    const updatePayload = {
+      status: finalStatus,
+      parallel_count: false,
+      quantity_received: totalConfirmed,
+      quantity_incidents: totalShortage,
+      incidents_list: finalStatus === 'Recibido con Incidencias' ? incidentsList : [],
+      products_list: products,
+      volume_confirmed: totalVolumeConfirmed,
+      real_cost: finalRealCost,
+      additional_costs: window.currentDeclarationAdditionalCosts || [],
+      history: updatedHistory,
+      updated_at: new Date().toISOString()
+    };
+
+    let { error: updateErr } = await supabase
+      .from('stock_declarations')
+      .update(updatePayload)
+      .eq('id', dec.id);
+
+    if (updateErr && updateErr.message && updateErr.message.includes('parallel_count')) {
+      delete updatePayload.parallel_count;
+      delete updatePayload.parallel_count_data;
+      const resFallback = await supabase
+        .from('stock_declarations')
+        .update(updatePayload)
+        .eq('id', dec.id);
+      if (resFallback.error) throw resFallback.error;
+    } else if (updateErr) {
+      throw updateErr;
+    }
+
+    // 5. Limpiar orden en Picker si correspondía
+    if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
+      try {
+        const orderNumber = `ING-${dec.id.substring(0, 8).toUpperCase()}`;
+        await pickerSupabase
+          .from('active_orders')
+          .delete()
+          .eq('order_number', orderNumber);
+      } catch (pErr) {
+        console.warn('Error al limpiar del Picker al finalizar conteo en paralelo:', pErr);
+      }
+    }
+
+    // 6. Notificaciones automáticas de cierre
+    if (window.sendStockInboundNotification) {
+      try {
+        const { data: updatedDec } = await supabase
+          .from('stock_declarations')
+          .select('*, warehouses(id, name, address, comuna, operating_days)')
+          .eq('id', dec.id)
+          .single();
+
+        if (updatedDec) {
+          await window.sendStockInboundNotification({
+            event: 'completed',
+            declarationId: dec.id,
+            comercio: dec.comercio,
+            title: dec.title,
+            decData: updatedDec,
+            warehouse: updatedDec.warehouses,
+            status: finalStatus,
+            stageComment: `Conteo en paralelo finalizado: ${totalConfirmed} uds confirmadas. Ajustes aplicados.`,
+            incidentsList: finalStatus === 'Recibido con Incidencias' ? incidentsList : [],
+            productsList: products
+          });
+        }
+      } catch (notifErr) {
+        console.error('Error enviando notificación de cierre:', notifErr);
+      }
+    }
+
+    // 7. Cerrar modal y refrescar tabla
+    document.getElementById('modal-manage-declaration')?.classList.remove('active');
+    window.currentDeclarationProductsEditing = null;
+    window.currentDeclarationProductsEditing_id = null;
+    window.currentDeclarationEditing = null;
+
+    renderDeclarationsAdmin();
+
+    Swal.fire({
+      icon: finalStatus === 'Recibido Conforme' ? 'success' : 'warning',
+      title: '¡Recepción Finalizada!',
+      html: `
+        La recepción ha sido cerrada en estado <strong>"${finalStatus}"</strong>.<br><br>
+        <strong>Resumen de Ajustes de Stock:</strong><br>
+        • Físico confirmado: <strong>${totalConfirmed} uds</strong><br>
+        • Sobrantes sumados a bodega: <strong>+${totalSurplus} uds</strong><br>
+        • Faltantes descontados: <strong>-${totalShortage} uds</strong>
+      `,
+      confirmButtonColor: finalStatus === 'Recibido Conforme' ? '#10b981' : '#ef4444'
+    });
+  } catch (err) {
+    console.error('Error finalizando conteo en paralelo:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al finalizar',
+      text: err.message || 'Ocurrió un error inesperado al cerrar la recepción.'
+    });
+  }
+};
 
 // --- EDICIÓN DE DECLARACIONES DE INGRESO (ADMIN 2.0 CON TRANSPARENCIA) ---
 
@@ -52704,6 +54580,44 @@ window.sendSingleOrderToPicker = async function(order) {
 
   const orderNumber = String(order.external_order_number || order.id);
 
+  // 1. Refrescar datos de cabecera de la orden desde Supabase para evitar datos obsoletos en memoria local
+  if (order.id) {
+    try {
+      const { data: freshOrder } = await supabase
+        .from('orders')
+        .select('id, external_order_number, tracking_number, operador, courier, agenda, sucursal_pickeo, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, raw_shopify_data, raw_meli_data, raw_woocommerce_data, raw_jumpseller_data, raw_tiendanube_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_walmart_data, cantidad, item, sku, observation')
+        .eq('id', order.id)
+        .maybeSingle();
+      if (freshOrder) {
+        Object.assign(order, freshOrder);
+      }
+    } catch (e) {
+      console.warn("No se pudieron refrescar datos de la cabecera del pedido antes de enviar al Picker:", orderNumber, e);
+    }
+  }
+
+  const opUpper = (order.operador || '').toUpperCase().trim();
+  const curUpper = (order.courier || '').toUpperCase().trim();
+  const isIgnoredOperator = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
+                            opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY');
+  const isIgnoredCourier = curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
+                           curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
+
+  const isStkAgenda = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
+  const isRetiro = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'RETIRO');
+  const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
+  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
+  const cleanTracking = isStkAgenda 
+    ? cleanStkTracking 
+    : (isRetiro ? String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') : ((isIgnoredCourier || isIgnoredOperator) ? '' : resolvedTrack));
+  const cleanOperator = isIgnoredOperator ? '' : (order.operador || '');
+
+  // VALIDACIÓN ESTRICTA: Pedidos con courier/despacho externo (no STK y no RETIRO) NO deben enviarse al Picker sin tracking
+  if (!isStkAgenda && !isRetiro && (!cleanTracking || String(cleanTracking).trim() === '' || String(cleanTracking).trim().toLowerCase() === 'no informado')) {
+    console.warn(`⏳ [PICKER GUARD] Pedido ${orderNumber} (${order.operador || 'Courier'}) no tiene tracking asignado aún en WMS. Se pospone el envío al Picker hasta que cuente con su número de seguimiento.`);
+    return { skipped: true, reason: 'missing_tracking', orderNumber };
+  }
+
   let commerceStrict = false;
   if (order.comercio) {
     const { data: commConfig } = await supabase
@@ -52740,21 +54654,6 @@ window.sendSingleOrderToPicker = async function(order) {
   const physicalItems = items.filter(item => !item.products?.is_virtual && !(window.isOrderItemEliminated && window.isOrderItemEliminated(order, item)));
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
-
-  const opUpper = (order.operador || '').toUpperCase().trim();
-  const curUpper = (order.courier || '').toUpperCase().trim();
-  const isIgnoredOperator = opUpper.includes('RECIBELO') || opUpper.includes('RECÍBELO') || 
-                            opUpper.includes('WELIVERY') || opUpper.includes('WOODELIVERY') || opUpper.includes('WODELY');
-  const isIgnoredCourier = curUpper.includes('RECIBELO') || curUpper.includes('RECÍBELO') || 
-                           curUpper.includes('WELIVERY') || curUpper.includes('WOODELIVERY') || curUpper.includes('WODELY');
-
-  const isStkAgenda = Boolean(order.agenda && order.agenda.trim().toUpperCase() === 'STK');
-  const cleanStkTracking = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
-  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
-  const cleanTracking = isStkAgenda 
-    ? cleanStkTracking 
-    : ((isIgnoredCourier || isIgnoredOperator) ? '' : resolvedTrack);
-  const cleanOperator = isIgnoredOperator ? '' : (order.operador || '');
 
   for (const item of physicalItems) {
     const prod = item.products || {};
@@ -53632,11 +55531,16 @@ window.recalculateManageDeclarationCosts = function() {
   const labelingDiffUf = labelingRealUf - labelingEstUf;
   const labelingDiffClp = labelingRealClp - labelingEstClp;
 
+  // Item 4: Costos Adicionales / Servicios Extras de Recepción (Admin)
+  const additionalCosts = Array.isArray(window.currentDeclarationAdditionalCosts) ? window.currentDeclarationAdditionalCosts : [];
+  const additionalCostsRealUf = additionalCosts.reduce((sum, c) => sum + (parseFloat(c.amount_uf) || 0), 0);
+  const additionalCostsRealClp = additionalCosts.reduce((sum, c) => sum + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufRate)), 0);
+
   // Totales
   const totalEstUf = unloadEstUf + surchargeEstUf + labelingEstUf;
   const totalEstClp = unloadEstClp + surchargeEstClp + labelingEstClp;
-  const totalRealUf = unloadRealUf + surchargeRealUf + labelingRealUf;
-  const totalRealClp = unloadRealClp + surchargeRealClp + labelingRealClp;
+  const totalRealUf = unloadRealUf + surchargeRealUf + labelingRealUf + additionalCostsRealUf;
+  const totalRealClp = unloadRealClp + surchargeRealClp + labelingRealClp + additionalCostsRealClp;
   const totalDiffUf = totalRealUf - totalEstUf;
   const totalDiffClp = totalRealClp - totalEstClp;
 
@@ -53748,6 +55652,40 @@ window.recalculateManageDeclarationCosts = function() {
       `;
     }
 
+    // Fila 4: Costos Adicionales / Servicios Extras de Recepción
+    if (additionalCosts.length > 0) {
+      additionalCosts.forEach((extra, idx) => {
+        const extraUf = parseFloat(extra.amount_uf) || 0;
+        const extraClp = parseFloat(extra.amount_clp) || (extraUf * ufRate);
+        rowsHtml += `
+          <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle; background: rgba(59, 130, 246, 0.03);">
+            <td style="padding: 8px 12px;">
+              <div style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 4px;">
+                <i class="ri-add-circle-fill" style="color: var(--color-primary); font-size: 0.9rem;"></i>
+                ${extra.name}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+                ${extra.notes ? `Nota: ${extra.notes}` : 'Costo adicional de recepción ingresado por administración'}
+              </div>
+            </td>
+            <td style="padding: 8px 10px; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">
+              Costo Extra
+            </td>
+            <td style="padding: 8px 10px; text-align: right; color: var(--color-text-muted); font-family: monospace;">
+              0.0000 UF
+            </td>
+            <td style="padding: 8px 10px; text-align: right;">
+              <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${extraUf.toFixed(4)} UF</div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(extraClp).toLocaleString('es-CL')} CLP</div>
+            </td>
+            <td style="padding: 8px 12px; text-align: right;">
+              ${renderDiff(extraUf, extraClp)}
+            </td>
+          </tr>
+        `;
+      });
+    }
+
     tbody.innerHTML = rowsHtml;
   }
 
@@ -53812,6 +55750,185 @@ window.applyCalculatedCostToRealCost = function() {
       timer: 2000
     });
   }
+};
+
+// ==========================================
+// FUNCIONES DE GESTIÓN DE COSTOS ADICIONALES Y ETIQUETADO
+// ==========================================
+window.currentDeclarationAdditionalCosts = [];
+
+window.syncExtraCostInput = function(source) {
+  const ufRate = window.modalUfRate || window.currentUfValue || 38200;
+  const clpInput = document.getElementById('manage-extra-cost-clp');
+  const ufInput = document.getElementById('manage-extra-cost-uf');
+  if (!clpInput || !ufInput) return;
+
+  if (source === 'clp') {
+    const clpVal = parseFloat(clpInput.value);
+    if (!isNaN(clpVal) && clpVal >= 0 && ufRate > 0) {
+      ufInput.value = (clpVal / ufRate).toFixed(4);
+    } else if (clpInput.value === '') {
+      ufInput.value = '';
+    }
+  } else if (source === 'uf') {
+    const ufVal = parseFloat(ufInput.value);
+    if (!isNaN(ufVal) && ufVal >= 0 && ufRate > 0) {
+      clpInput.value = Math.round(ufVal * ufRate);
+    } else if (ufInput.value === '') {
+      clpInput.value = '';
+    }
+  }
+};
+
+window.addDeclarationAdditionalCost = function() {
+  const nameInput = document.getElementById('manage-extra-cost-name');
+  const clpInput = document.getElementById('manage-extra-cost-clp');
+  const ufInput = document.getElementById('manage-extra-cost-uf');
+  const notesInput = document.getElementById('manage-extra-cost-notes');
+  if (!nameInput) return;
+
+  const name = (nameInput.value || '').trim();
+  if (!name) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'warning',
+        title: 'Concepto requerido',
+        text: 'Por favor ingresa un concepto o descripción para el costo adicional.'
+      });
+    } else {
+      alert('Por favor ingresa un concepto para el costo adicional.');
+    }
+    nameInput.focus();
+    return;
+  }
+
+  const ufRate = window.modalUfRate || window.currentUfValue || 38200;
+  let clpVal = parseFloat(clpInput?.value);
+  let ufVal = parseFloat(ufInput?.value);
+
+  if ((isNaN(clpVal) || clpVal <= 0) && (isNaN(ufVal) || ufVal <= 0)) {
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'warning',
+        title: 'Monto requerido',
+        text: 'Por favor especifica el monto en $ CLP o UF para el costo adicional.'
+      });
+    } else {
+      alert('Por favor especifica el monto en CLP o UF.');
+    }
+    return;
+  }
+
+  if (isNaN(ufVal) || ufVal <= 0) {
+    ufVal = clpVal / ufRate;
+  }
+  if (isNaN(clpVal) || clpVal <= 0) {
+    clpVal = Math.round(ufVal * ufRate);
+  }
+
+  if (!window.currentDeclarationAdditionalCosts) {
+    window.currentDeclarationAdditionalCosts = [];
+  }
+
+  const newCost = {
+    id: 'cost_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    name: name,
+    amount_uf: parseFloat(ufVal.toFixed(4)),
+    amount_clp: Math.round(clpVal),
+    notes: (notesInput?.value || '').trim(),
+    created_at: new Date().toISOString()
+  };
+
+  window.currentDeclarationAdditionalCosts.push(newCost);
+
+  // Limpiar campos del formulario
+  nameInput.value = '';
+  if (clpInput) clpInput.value = '';
+  if (ufInput) ufInput.value = '';
+  if (notesInput) notesInput.value = '';
+
+  window.renderDeclarationAdditionalCostsList();
+  window.recalculateManageDeclarationCosts();
+
+  if (window.Swal) {
+    window.Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Costo extra agregado: ${name}`,
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+};
+
+window.removeDeclarationAdditionalCost = function(idx) {
+  if (!window.currentDeclarationAdditionalCosts) return;
+  const removed = window.currentDeclarationAdditionalCosts.splice(idx, 1);
+  window.renderDeclarationAdditionalCostsList();
+  window.recalculateManageDeclarationCosts();
+  if (window.Swal && removed && removed[0]) {
+    window.Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'info',
+      title: `Costo eliminado: ${removed[0].name}`,
+      showConfirmButton: false,
+      timer: 1500
+    });
+  }
+};
+
+window.renderDeclarationAdditionalCostsList = function() {
+  const container = document.getElementById('manage-extra-costs-list');
+  if (!container) return;
+
+  const costs = window.currentDeclarationAdditionalCosts || [];
+  if (costs.length === 0) {
+    container.innerHTML = `
+      <div style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic; padding: 4px 2px;">
+        Sin costos adicionales registrados para esta recepción.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = costs.map((cost, idx) => `
+    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); padding: 0.45rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.8rem; gap: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1;">
+        <span class="badge" style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-size: 0.7rem; padding: 2px 6px; font-weight: 700; white-space: nowrap;">
+          Extra #${idx + 1}
+        </span>
+        <strong style="color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${cost.name}">
+          ${cost.name}
+        </strong>
+        ${cost.notes ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${cost.notes}">(${cost.notes})</span>` : ''}
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0;">
+        <span style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${(parseFloat(cost.amount_uf) || 0).toFixed(4)} UF</span>
+        <span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(cost.amount_clp || 0).toLocaleString('es-CL')} CLP)</span>
+        <button type="button" onclick="window.removeDeclarationAdditionalCost(${idx})" class="btn-icon" style="color: var(--color-danger); background: transparent; border: none; cursor: pointer; padding: 2px; font-size: 0.95rem; display: flex; align-items: center;" title="Eliminar costo">
+          <i class="ri-delete-bin-line"></i>
+        </button>
+      </div>
+    </div>
+  `).join('');
+};
+
+window.setManageLabelingToAll = function() {
+  const qtyInput = document.getElementById('manage-dec-qty-received');
+  const labelingInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+  if (!labelingInput) return;
+  const val = parseInt(qtyInput?.value, 10) || parseInt(window.currentDeclarationEditing?.quantity_declared, 10) || 0;
+  labelingInput.value = val;
+  window.recalculateManageDeclarationCosts();
+};
+
+window.setManageLabelingToZero = function() {
+  const labelingInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+  if (!labelingInput) return;
+  labelingInput.value = 0;
+  window.recalculateManageDeclarationCosts();
 };
 
 window.loadCountsFromPicker = async function(id, itemsSummary) {
@@ -56304,6 +58421,8 @@ window.exportDeclarationToPDF = async function(id) {
         <!-- Resumen Económico Desglosado -->
         ${(() => {
           const vol = Number(dec.volume_declared || 0);
+          const volConf = Number(dec.volume_confirmed || 0);
+          const finalVol = (dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' && volConf > 0) ? volConf : vol;
           const unlEst = dec.requires_unloading ? (0.1 * vol) : 0;
           let surEst = 0;
           if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
@@ -56314,43 +58433,60 @@ window.exportDeclarationToPDF = async function(id) {
           }
           const lt = dec.labeling_type || 'completely';
           const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+          const lqConf = (dec.labeling_qty_confirmed !== null && dec.labeling_qty_confirmed !== undefined) ? dec.labeling_qty_confirmed : null;
           const ufR = window.modalUfRate || window.currentUfValue || 38200;
           const labEstClp = lqReq * 100;
           const labEstUf = labEstClp / ufR;
+
+          // Costos adicionales registrados por administración
+          const addCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          const addCostsUf = addCosts.reduce((s, c) => s + (parseFloat(c.amount_uf) || 0), 0);
+          const addCostsClp = addCosts.reduce((s, c) => s + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufR)), 0);
+
+          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null && Number(dec.real_cost) > 0;
+          const totRealUf = hasReal ? Number(dec.real_cost) : ((dec.requires_unloading ? (0.1 * finalVol) : 0) + (surEst > 0 ? (0.75 * finalVol) : 0) + ((lqConf !== null ? lqConf : lqReq) * 100 / ufR) + addCostsUf);
           const totEstUf = (dec.estimated_cost !== undefined && dec.estimated_cost !== null && dec.estimated_cost > 0)
             ? Number(dec.estimated_cost)
             : (unlEst + surEst + labEstUf);
-          const totEstClp = Math.round(totEstUf * ufR);
+          const displayTotUf = hasReal ? totRealUf : totEstUf;
+          const displayTotClp = Math.round(displayTotUf * ufR);
 
           return `
             <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 11px; line-height: 1.5;">
               <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #bbf7d0; padding-bottom: 8px; margin-bottom: 10px;">
                 <div>
-                  <h3 style="margin: 0; font-size: 13px; color: #166534; font-weight: 700; text-transform: uppercase;">Desglose y Configuración de Costos</h3>
+                  <h3 style="margin: 0; font-size: 13px; color: #166534; font-weight: 700; text-transform: uppercase;">Desglose y Liquidación de Costos</h3>
                   <span style="color: #475569; font-size: 10px;">Valor UF Referencial: $${Math.round(ufR).toLocaleString('es-CL')} CLP</span>
                 </div>
                 <div style="text-align: right;">
                   <span style="font-size: 14px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 5px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">
-                    Total Estimado: ${totEstUf.toFixed(4)} UF (~ $${totEstClp.toLocaleString('es-CL')} CLP)
+                    ${hasReal ? 'Total Confirmado:' : 'Total Estimado:'} ${displayTotUf.toFixed(4)} UF (~ $${displayTotClp.toLocaleString('es-CL')} CLP)
                   </span>
                 </div>
               </div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 10.5px; color: #334155;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 10.5px; color: #334155;">
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">1. Descarga (0.1 UF/m³):</strong><br>
-                  ${dec.requires_unloading ? `${unlEst.toFixed(4)} UF (~ $${Math.round(unlEst * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
+                  ${dec.requires_unloading ? `${(0.1 * finalVol).toFixed(4)} UF (~ $${Math.round((0.1 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">2. Recargo Tardío (&lt; 24h):</strong><br>
-                  ${surEst > 0 ? `${surEst.toFixed(4)} UF (~ $${Math.round(surEst * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
+                  ${surEst > 0 ? `${(0.75 * finalVol).toFixed(4)} UF (~ $${Math.round((0.75 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">3. Etiquetado ($100 CLP/ud):</strong><br>
-                  ${lqReq > 0 ? `${labEstUf.toFixed(4)} UF ($${labEstClp.toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
+                  ${(lqConf !== null ? lqConf : lqReq) > 0 ? `${(((lqConf !== null ? lqConf : lqReq) * 100) / ufR).toFixed(4)} UF ($${Math.round((lqConf !== null ? lqConf : lqReq) * 100).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
                 </div>
+                ${addCosts.map((extra, eIdx) => `
+                  <div style="background: rgba(239, 246, 255, 0.85); padding: 8px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                    <strong style="color: #1d4ed8;">${eIdx + 4}. ${extra.name}:</strong><br>
+                    ${(parseFloat(extra.amount_uf) || 0).toFixed(4)} UF ($${Math.round(extra.amount_clp || ((parseFloat(extra.amount_uf) || 0) * ufR)).toLocaleString('es-CL')} CLP)
+                    ${extra.notes ? `<div style="font-size: 9px; color: #64748b; font-style: italic;">(${extra.notes})</div>` : ''}
+                  </div>
+                `).join('')}
               </div>
               <div style="margin-top: 8px; font-size: 9.5px; color: #64748b;">
-                * El costo definitivo se liquida según el volumen físico y unidades de etiquetado efectivamente confirmadas en bodega.
+                * ${hasReal ? 'Valores liquidados con cubicaje definitivo y servicios registrados en bodega.' : 'El costo definitivo se liquida según el volumen físico y unidades de etiquetado efectivamente confirmadas en bodega.'}
               </div>
             </div>
           `;
@@ -68951,21 +71087,9 @@ window.updateWmsMonitorUI = async function() {
   if (!body || !btn) return;
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error("Sesión no válida en WMS");
-
-    const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`
-      }
+    const data = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
+      method: 'GET'
     });
-
-    if (!response.ok) {
-      throw new Error(`Edge Function error ${response.status}`);
-    }
-
-    const data = await response.json();
     const runs = data.workflow_runs || [];
     const prevRuns = window.wmsMonitorState.lastRuns || [];
     window.wmsMonitorState.lastRuns = runs;
@@ -69980,9 +72104,10 @@ async function deleteSingleAdminReturnHelper(r) {
     }
   }
 
-  // 2. Si tenía orden WMS vinculada, eliminar sus ítems y la orden
+  // 2. Si tenía orden WMS vinculada, eliminar sus movimientos, ítems y la orden
   if (r.wms_order_id) {
     try {
+      await supabase.from('movements').delete().eq('order_id', r.wms_order_id);
       await supabase.from('order_items').delete().eq('order_id', r.wms_order_id);
       await supabase.from('orders').delete().eq('id', r.wms_order_id);
     } catch (ordErr) {
@@ -70326,22 +72451,56 @@ document.addEventListener('DOMContentLoaded', () => {
           if (wh) selectedWhName = wh.name;
         }
 
+        const linkedOrderId = window.activeConfirmRlRecord?.wms_order_id || null;
+
         for (const sel of selects) {
           const flow = sel.getAttribute('data-type');
-          const prodId = sel.getAttribute('data-prod-id') || null;
+          let prodId = sel.getAttribute('data-prod-id') || null;
+          const sku = sel.getAttribute('data-sku') || null;
           const warehouseId = sel.value;
           const qty = parseInt(sel.closest('tr').querySelector('td:nth-child(3)').textContent) || 1;
           
+          if (!prodId && sku) {
+            try {
+              const { data: pData } = await supabase
+                .from('products')
+                .select('id')
+                .eq('sku', sku.trim())
+                .limit(1)
+                .maybeSingle();
+              if (pData) prodId = pData.id;
+            } catch (pErr) {
+              console.warn('[confirmReturn] Error resolviendo product_id por SKU:', pErr);
+            }
+          }
+
           if (prodId) {
             // Actualizar warehouse_id del ítem correspondiente en order_items del WMS
-            if (window.activeConfirmRlRecord && window.activeConfirmRlRecord.wms_order_id) {
+            if (linkedOrderId) {
               const isWmsItem = (type === 'CAMBIO' && flow === 'out') || (type === 'DEVOLUCION' && flow === 'in');
               if (isWmsItem) {
                 await supabase
                   .from('order_items')
                   .update({ warehouse_id: warehouseId })
-                  .eq('order_id', window.activeConfirmRlRecord.wms_order_id)
+                  .eq('order_id', linkedOrderId)
                   .eq('product_id', prodId);
+              }
+            }
+
+            // Antiduplicación: verificar si ya existe un movimiento de este tipo para este pedido y producto
+            if (linkedOrderId) {
+              const { data: existingMov } = await supabase
+                .from('movements')
+                .select('id')
+                .eq('order_id', linkedOrderId)
+                .eq('product_id', prodId)
+                .eq('type', flow)
+                .limit(1)
+                .maybeSingle();
+
+              if (existingMov) {
+                console.warn(`[confirmReturn] Movimiento '${flow}' ya existe para pedido ${linkedOrderId} y producto ${prodId}. Omitiendo inventario y nuevo movimiento.`);
+                continue;
               }
             }
 
@@ -70375,6 +72534,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   warehouse_id: warehouseId,
                   type: 'in',
                   quantity: qty,
+                  order_id: linkedOrderId,
                   reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} [Ped: ${window.activeConfirmRlRecord?.referencia_pedido || 'N/A'}]`
                 }]);
                 
@@ -70426,6 +72586,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   warehouse_id: warehouseId,
                   type: 'out',
                   quantity: qty,
+                  order_id: linkedOrderId,
                   reference_doc: `Cambio [Ped: ${window.activeConfirmRlRecord?.referencia_pedido || 'N/A'}]`
                 }]);
             }
@@ -70444,13 +72605,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (updateErr) throw updateErr;
 
         // Sincronizar el pedido del WMS en orders
-        if (window.activeConfirmRlRecord && window.activeConfirmRlRecord.wms_order_id) {
+        if (linkedOrderId) {
           const newStatus = type === 'CAMBIO' ? 'en preparación' : 'entregado';
           const newWmsState = type === 'CAMBIO' ? 'En preparación' : 'Despachado';
           
           const updatePayload = { 
             status: newStatus,
-            estado_wms: newWmsState
+            estado_wms: newWmsState,
+            stock_descontado: true,
+            stock_descontado_at: new Date().toISOString()
           };
           if (selectedWhName) {
             updatePayload.sucursal_pickeo = selectedWhName;
@@ -70459,7 +72622,18 @@ document.addEventListener('DOMContentLoaded', () => {
           await supabase
             .from('orders')
             .update(updatePayload)
-            .eq('id', window.activeConfirmRlRecord.wms_order_id);
+            .eq('id', linkedOrderId);
+
+          const loaded = (window.loadedOrders || []).find(o => o.id === linkedOrderId);
+          if (loaded) {
+            loaded.status = newStatus;
+            loaded.estado_wms = newWmsState;
+            loaded.stock_descontado = true;
+            loaded.stock_descontado_at = updatePayload.stock_descontado_at;
+            if (selectedWhName) {
+              loaded.sucursal_pickeo = selectedWhName;
+            }
+          }
         }
         
         Swal.fire({

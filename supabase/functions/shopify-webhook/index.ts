@@ -301,6 +301,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
   // Registrar cada item del pedido (excluyendo eliminados)
   // Preparamos mapa de cantidades esperadas por product_id para evitar duplicar filas si el mismo SKU viene varias veces
   const expectedQuantitiesCreate = new Map<string, { product: any, sku: string, quantity: number }>();
+  const lineItems = order.line_items || [];
 
   for (const item of lineItems) {
     const effectiveQty = item.current_quantity !== undefined ? item.current_quantity : item.quantity;

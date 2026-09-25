@@ -227,10 +227,45 @@ async function run() {
         return pNo === cleanOrderNo;
       });
 
+      const isStk = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK');
+      const isRetiro = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO');
+      const resolvedTrack = resolveOrderTracking(wmsOrder);
+      const cleanTracking = isStk 
+        ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo) 
+        : (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : resolvedTrack);
+      const isCourier = !isStk && !isRetiro;
+
       if (pickerItemsForOrder.length > 0) {
+        const firstAct = pickerItemsForOrder[0];
+        const currentPickerTrack = String(firstAct.tracking || '').trim();
+
+        // 1. Si el pedido requiere courier pero no tiene tracking ni en Picker ni en WMS, y aún está EN PREPARACIÓN,
+        // retirarlo temporalmente de active_orders para que el operario NO reciba pedidos "SIN TRACKING".
+        if (isCourier && !cleanTracking && !currentPickerTrack && firstAct.sheet_status === 'EN PREPARACIÓN') {
+          console.log(`🧹 [SYNC] Retirando pedido ${orderNo} de Picker porque no tiene tracking asignado aún (${wmsOrder.operador || 'Courier'}). Se reinsertará cuando se genere su etiqueta.`);
+          await pickerClient.from('active_orders').delete().eq('order_number', orderNo);
+          continue;
+        }
+
+        // 2. Si WMS tiene tracking pero en Picker está vacío o desactualizado, sincronizarlo inmediatamente
+        if (cleanTracking && currentPickerTrack !== cleanTracking) {
+          console.log(`🔄 [SYNC] Actualizando tracking en Picker para pedido ${orderNo}: "${currentPickerTrack || 'VACÍO'}" -> "${cleanTracking}"`);
+          const { error: trkErr } = await pickerClient
+            .from('active_orders')
+            .update({ 
+              tracking: cleanTracking,
+              operator: wmsOrder.operador || firstAct.operator || ''
+            })
+            .eq('order_number', orderNo);
+          if (trkErr) {
+            console.error(`Error actualizando tracking en Picker para ${orderNo}:`, trkErr.message);
+          } else {
+            pickerItemsForOrder.forEach(it => { it.tracking = cleanTracking; });
+          }
+        }
+
         // Actualizar el estado y operario en WMS si las columnas existen
         try {
-          const firstAct = pickerItemsForOrder[0];
           const syncPayload = {
             picker_status: firstAct.sheet_status || 'EN PREPARACIÓN',
             picker_operator: firstAct.operator || null,
@@ -449,13 +484,18 @@ async function run() {
           }
         } else {
           // B.3 CASO SELF-HEALING: El pedido está 'En preparación' en WMS pero NO está en active_orders ni en logs de completado.
-          // Se reinyecta automáticamente en active_orders para que los operarios puedan prepararlo.
-          console.log(`🩹 [SELF-HEALING] Pedido ${orderNo} en preparación sin registro activo en Picker. Re-insertando en active_orders...`);
+          // REGLA CRÍTICA: Si el pedido requiere despacho por courier externo (no STK y no RETIRO) y NO tiene tracking asignado aún,
+          // NO se inserta en active_orders para evitar que los operarios del Picker reciban pedidos "SIN TRACKING".
+          if (isCourier && (!cleanTracking || String(cleanTracking).trim() === '' || String(cleanTracking).trim().toLowerCase() === 'no informado')) {
+            console.log(`⏳ [SYNC PICKER] Pedido ${orderNo} (${wmsOrder.operador || 'Courier'}) está 'En preparación' pero no tiene tracking asignado aún en WMS. En espera de etiqueta antes de enviar al Picker.`);
+            continue;
+          }
+
+          console.log(`🩹 [SELF-HEALING] Pedido ${orderNo} en preparación con tracking "${cleanTracking}". Re-insertando en active_orders...`);
 
           const physicalItems = (wmsOrder.order_items || []).filter(oi => !oi.products?.is_virtual);
           const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
           const commerceStrict = strictComerciosSet.has(String(wmsOrder.comercio || '').trim().toUpperCase());
-          const isRetiro = Boolean(wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO');
           const defaultSucursal = isRetiro ? 'Sucursal Ñuñoa' : 'Sucursal Virtual (Hub)';
 
           const payloads = [];
@@ -498,9 +538,7 @@ async function run() {
               manga: mangaVal ? String(mangaVal).trim() : null,
               cuello: cuelloVal ? String(cuelloVal).trim() : null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
-              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK')
-                ? (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo)
-                : (resolveOrderTracking(wmsOrder) || (isRetiro ? String(orderNo).replace(/[^a-zA-Z0-9]/g, '') : '')),
+              tracking: cleanTracking,
               operator: wmsOrder.operador || (isRetiro ? 'SUCURSAL ÑUÑOA' : ''),
               totu: totu,
               sheet_status: 'EN PREPARACIÓN',
