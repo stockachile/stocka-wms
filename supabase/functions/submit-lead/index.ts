@@ -95,12 +95,30 @@ serve(async (req) => {
     const cleanPhoneForWa = phone.replace(/\D/g, '')
     const waLink = cleanPhoneForWa ? `https://wa.me/${cleanPhoneForWa.startsWith('56') ? cleanPhoneForWa : '56' + cleanPhoneForWa}` : null
 
-    // 3. Guardar en quote_leads
-    const leadRecord = {
+    // 3. Guardar en quote_leads con campos numéricos parseados
+    let numOrders: number | null = null
+    const ordersMatch = (monthlyVolume || notes).match(/(\d+)\s*(?:pedidos|\/mes)/i) || (monthlyVolume || notes).match(/Pedidos Mensuales:\s*(\d+)/i)
+    if (ordersMatch) numOrders = parseInt(ordersMatch[1], 10)
+
+    let numVol: number | null = null
+    const volMatch = (storageSpace || notes).match(/([\d.]+)\s*(?:m3|m³)/i) || (storageSpace || notes).match(/Volumen Bodega:\s*([\d.]+)/i)
+    if (volMatch) numVol = parseFloat(volMatch[1])
+
+    let numNet: number | null = null
+    const clpMatch = notes.match(/Costo Estimado Mensual:[^0-9]*([0-9]+(?:\.[0-9]+)*)/i)
+    if (clpMatch) {
+      const cleanClp = clpMatch[1].replace(/\./g, '')
+      if (!isNaN(Number(cleanClp))) numNet = parseInt(cleanClp, 10)
+    }
+
+    const leadRecord: any = {
       email: email,
       contact_name: contactName || 'Contacto Web',
       company_name: companyName || 'Tienda Ecommerce',
       phone: phone || null,
+      monthly_orders: numOrders,
+      estimated_volume: numVol,
+      estimated_monthly_net: numNet,
       notes: `Servicios: ${servicesText}\nVolumen mensual: ${monthlyVolume || 'No especificado'}\nEspacio m3: ${storageSpace || 'No especificado'}\nWeb/IG: ${website || 'No indicado'}\nComentarios: ${notes || 'Sin comentarios adicionales'}`,
       status: 'nuevo',
       created_at: new Date().toISOString()

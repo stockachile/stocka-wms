@@ -6,7 +6,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.5';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.6';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -25834,6 +25834,288 @@ window.getLeadStatusStyle = function(status) {
   }
 };
 
+window.parseLeadSimulationData = function(notesText) {
+  if (!notesText || typeof notesText !== 'string') return null;
+
+  const lines = notesText.split('\n').map(l => l.trim()).filter(Boolean);
+  const map = {};
+  let currentKey = null;
+
+  lines.forEach(line => {
+    if (line.startsWith('[COTIZADOR') || line.startsWith('---')) return;
+    const colonIdx = line.indexOf(':');
+    if (colonIdx > 0 && colonIdx < 40) {
+      const key = line.substring(0, colonIdx).trim().toLowerCase();
+      const val = line.substring(colonIdx + 1).trim();
+      map[key] = val;
+      currentKey = key;
+    } else if (currentKey) {
+      map[currentKey] += ' ' + line;
+    }
+  });
+
+  const isQuoteSimulation = Boolean(
+    map['pedidos mensuales'] || 
+    map['volumen bodega'] || 
+    map['costo estimado mensual'] || 
+    map['volumen mensual'] ||
+    map['espacio m3'] ||
+    notesText.includes('[COTIZADOR ONLINE 360]')
+  );
+
+  if (!isQuoteSimulation && Object.keys(map).length === 0) return null;
+
+  // Extraer pedidos
+  let ordersNum = null;
+  const rawOrders = map['pedidos mensuales'] || map['volumen mensual'] || '';
+  const ordersMatch = rawOrders.match(/(\d+)/);
+  if (ordersMatch) ordersNum = parseInt(ordersMatch[1], 10);
+
+  // Extraer volumen
+  let volNum = null;
+  const rawVol = map['volumen bodega'] || map['espacio m3'] || '';
+  const volMatch = rawVol.match(/([\d.]+)/);
+  if (volMatch) volNum = parseFloat(volMatch[1]);
+
+  // Extraer monto neto y UF
+  let netNum = null;
+  let ufStr = null;
+  const rawCost = map['costo estimado mensual'] || '';
+  const clpMatch = rawCost.match(/(\d+(?:\.\d+)*)/);
+  if (clpMatch) {
+    const cleanClp = clpMatch[1].replace(/\./g, '');
+    if (!isNaN(cleanClp)) netNum = parseInt(cleanClp, 10);
+  }
+  const ufMatch = rawCost.match(/([\d.,]+\s*UF)/i);
+  if (ufMatch) ufStr = ufMatch[1].trim();
+
+  // Canales
+  const canales = (map['canales'] || '').split(',').map(c => c.trim()).filter(Boolean);
+
+  // Web / Instagram
+  const webIg = map['web/ig'] || map['web'] || map['instagram'] || '';
+
+  // Mensaje / Comentario del cliente
+  let clientComments = map['comentarios'] || '';
+  if (clientComments.toLowerCase() === 'sin comentarios adicionales' || clientComments.toLowerCase() === 'no indicado' || clientComments.startsWith('[COTIZADOR')) {
+    clientComments = '';
+  }
+
+  // Servicios
+  const servicios = map['servicios'] || null;
+
+  // Same Day y Regiones
+  const sameDay = map['same day rm'] || null;
+  const regiones = map['envíos a regiones'] || map['envios a regiones'] || null;
+
+  // Vitrina y POS
+  const vitrinaStr = map['vitrina / showroom'] || '';
+  const vitrina = vitrinaStr ? (vitrinaStr.toLowerCase().includes('sí') || vitrinaStr.toLowerCase().includes('si')) : null;
+
+  const posStr = map['punto de venta pos'] || '';
+  const pos = posStr ? (posStr.toLowerCase().includes('sí') || posStr.toLowerCase().includes('si')) : null;
+
+  return {
+    isQuoteSimulation,
+    ordersNum,
+    ordersLabel: rawOrders || (ordersNum ? `${ordersNum} ped/mes` : 'No indicado'),
+    volNum,
+    volLabel: rawVol || (volNum ? `${volNum} m³` : 'No indicado'),
+    netNum,
+    ufStr,
+    costLabel: rawCost || (netNum ? `$${netNum.toLocaleString('es-CL')} + IVA` : null),
+    canales,
+    sameDay,
+    regiones,
+    vitrina,
+    pos,
+    servicios,
+    webIg,
+    clientComments,
+    rawNotes: notesText
+  };
+};
+
+window.buildQuoteCardHtml = function(q, idx, lead) {
+  const qDate = q.created_at ? new Date(q.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  
+  // Extraer simulación si existe
+  const sim = q._simData || window.parseLeadSimulationData(q.notes) || window.parseLeadSimulationData(lead?.notes) || null;
+
+  const orders = q.monthly_orders || q.quote_data?.pickPack?.monthlyOrders || sim?.ordersNum || 0;
+  const vol = q.estimated_volume || q.quote_data?.storage?.volumeM3 || sim?.volNum || 0;
+  const net = q.estimated_monthly_net || q.quote_data?.totals?.netMonthly || sim?.netNum || 0;
+
+  const ordersLabel = orders > 0 ? `${orders} ped/mes` : (sim?.ordersLabel || 'A definir');
+  const volLabel = vol > 0 ? `${vol} m³` : (sim?.volLabel || 'A definir');
+  const netLabel = net > 0 ? `$${Math.round(net).toLocaleString('es-CL')}` : (sim?.costLabel ? sim.costLabel.split('(')[0].trim() : 'A calcular');
+  const ufLabel = sim?.ufStr || (net > 0 ? `~ ${(net / 38500).toFixed(2)} UF` : '');
+
+  // Canales
+  const rawChannels = (sim?.canales && sim.canales.length > 0) ? sim.canales : (q.quote_data?.channels ? (Array.isArray(q.quote_data.channels) ? q.quote_data.channels : [q.quote_data.channels]) : []);
+  let channelsBadges = '';
+  if (rawChannels.length > 0) {
+    channelsBadges = rawChannels.map(ch => {
+      const cLower = ch.toLowerCase();
+      let color = '#5e17eb';
+      let bg = 'rgba(94, 23, 235, 0.1)';
+      let border = 'rgba(94, 23, 235, 0.25)';
+      if (cLower.includes('shopify')) {
+        color = '#059669'; bg = 'rgba(16, 185, 129, 0.12)'; border = 'rgba(16, 185, 129, 0.3)';
+      } else if (cLower.includes('mercado') || cLower.includes('meli')) {
+        color = '#d97706'; bg = 'rgba(245, 158, 11, 0.12)'; border = 'rgba(245, 158, 11, 0.3)';
+      } else if (cLower.includes('falabella')) {
+        color = '#ea580c'; bg = 'rgba(234, 88, 12, 0.12)'; border = 'rgba(234, 88, 12, 0.3)';
+      } else if (cLower.includes('b2b')) {
+        color = '#2563eb'; bg = 'rgba(37, 99, 235, 0.12)'; border = 'rgba(37, 99, 235, 0.3)';
+      }
+      return `<span style="background: ${bg}; color: ${color}; border: 1px solid ${border}; font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-checkbox-circle-fill"></i> ${ch}</span>`;
+    }).join(' ');
+  } else {
+    channelsBadges = '<span style="color: var(--color-text-muted); font-size: 0.75rem;">Canales estándar Ecommerce</span>';
+  }
+
+  // Web / Redes sociales
+  const webIg = sim?.webIg || q.website || lead?.website || '';
+  let webIgHtml = '';
+  if (webIg && webIg.toLowerCase() !== 'no indicado') {
+    const parts = webIg.split(/[\/,|]/).map(p => p.trim()).filter(Boolean);
+    const linkItems = parts.map(part => {
+      if (part.startsWith('@')) {
+        const handle = part.replace(/^@/, '');
+        return `<a href="https://instagram.com/${handle}" target="_blank" style="color: #e1306c; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-instagram-line"></i> ${part}</a>`;
+      } else {
+        const url = part.startsWith('http') ? part : 'https://' + part;
+        return `<a href="${url}" target="_blank" style="color: var(--color-primary); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-global-line"></i> ${part}</a>`;
+      }
+    });
+    webIgHtml = `<div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;"><strong><i class="ri-links-line" style="color: var(--color-primary);"></i> Web / Redes:</strong> ${linkItems.join(' <span style="color: var(--color-text-muted);">&bull;</span> ')}</div>`;
+  }
+
+  // Servicios Adicionales (Vitrina, POS)
+  const vitrina = sim?.vitrina;
+  const pos = sim?.pos;
+  let extrasHtml = '';
+  if (vitrina !== null || pos !== null) {
+    extrasHtml = `
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <span style="color: var(--color-text-muted); font-weight: 600;"><i class="ri-store-3-line" style="color: #f59e0b;"></i> Servicios Extra:</span>
+        ${vitrina !== null ? `<span style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700; background: ${vitrina ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.1)'}; color: ${vitrina ? '#059669' : '#64748b'}; border: 1px solid ${vitrina ? 'rgba(16,185,129,0.25)' : 'rgba(100,116,139,0.2)'};"><i class="${vitrina ? 'ri-check-line' : 'ri-close-line'}"></i> Vitrina Showroom: ${vitrina ? 'Sí' : 'No'}</span>` : ''}
+        ${pos !== null ? `<span style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700; background: ${pos ? 'rgba(16,185,129,0.12)' : 'rgba(100,116,139,0.1)'}; color: ${pos ? '#059669' : '#64748b'}; border: 1px solid ${pos ? 'rgba(16,185,129,0.25)' : 'rgba(100,116,139,0.2)'};"><i class="${pos ? 'ri-check-line' : 'ri-close-line'}"></i> Punto de Venta POS: ${pos ? 'Sí' : 'No'}</span>` : ''}
+      </div>
+    `;
+  }
+
+  // Despachos
+  const sameDay = sim?.sameDay;
+  const regiones = sim?.regiones;
+  let shippingHtml = '';
+  if (sameDay || regiones) {
+    shippingHtml = `
+      <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+        <span style="color: var(--color-text-muted); font-weight: 600;"><i class="ri-truck-line" style="color: #2563eb;"></i> Logística:</span>
+        ${sameDay ? `<span style="font-size: 0.75rem; color: var(--color-text-main);">Same Day RM: <strong>${sameDay}</strong></span>` : ''}
+        ${sameDay && regiones ? `<span style="color: var(--color-text-muted);">&bull;</span>` : ''}
+        ${regiones ? `<span style="font-size: 0.75rem; color: var(--color-text-main);">Regiones: <strong>${regiones}</strong></span>` : ''}
+      </div>
+    `;
+  }
+
+  // Comentarios / Mensaje del cliente
+  const clientComments = sim?.clientComments || '';
+  let commentsHtml = '';
+  if (clientComments && clientComments.trim().length > 0) {
+    commentsHtml = `
+      <div style="background: rgba(99, 102, 241, 0.06); border-left: 3px solid #6366f1; border-radius: 6px; padding: 0.65rem 0.85rem; font-size: 0.8rem; margin-top: 0.5rem;">
+        <div style="font-weight: 700; color: #4f46e5; margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
+          <i class="ri-chat-quote-line"></i> Requerimiento / Mensaje del Prospecto:
+        </div>
+        <div style="color: var(--color-text-main); font-style: italic;">
+          "${clientComments}"
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+      
+      <!-- Encabezado de la Tarjeta de Cotización -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.4rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <strong style="color: #10b981; font-size: 0.95rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-calculator-fill"></i> Cotización #${idx + 1}
+          </strong>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">
+            <i class="ri-checkbox-circle-line"></i> ${sim ? 'Simulación Cotizador 360' : 'Cotizador Online'}
+          </span>
+        </div>
+        <span style="color: var(--color-text-muted); font-size: 0.75rem;">Fecha: ${qDate}</span>
+      </div>
+
+      <!-- Tarjetas KPIs Ejecutivas (4 Bloques) -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem;">
+        
+        <!-- Bloque 1: Pedidos Mensuales -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <div style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Pedidos Mensuales
+          </div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); margin-top: 2px;">
+            ${ordersLabel}
+          </div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">Pick & Pack estimado</div>
+        </div>
+
+        <!-- Bloque 2: Almacenaje / Bodega -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <div style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            <i class="ri-ruler-2-line" style="color: #3b82f6;"></i> Espacio Bodega
+          </div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); margin-top: 2px;">
+            ${volLabel}
+          </div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">Volumen m³ almacenado</div>
+        </div>
+
+        <!-- Bloque 3: Inversión Mensual Estimada -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <div style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            <i class="ri-money-dollar-circle-line" style="color: #10b981;"></i> Costo Estimado
+          </div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #10b981; margin-top: 2px;">
+            ${netLabel}
+          </div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">${ufLabel ? `${ufLabel} + IVA` : '+ IVA / mes'}</div>
+        </div>
+
+        <!-- Bloque 4: Canales de Venta -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.65rem 0.75rem;">
+          <div style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 4px;">
+            <i class="ri-store-2-line" style="color: #7c3aed;"></i> Canales de Venta
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+            ${channelsBadges}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Fila de Detalles Logísticos, Redes y Contacto -->
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.45rem;">
+        ${shippingHtml}
+        ${extrasHtml}
+        ${webIgHtml}
+        ${q.phone ? `<div style="display: flex; align-items: center; gap: 0.4rem;"><strong><i class="ri-phone-line" style="color: var(--color-text-muted);"></i> Teléfono registrado:</strong> <a href="tel:${q.phone}" style="color: var(--color-primary); font-weight: 600; text-decoration: none;">${q.phone}</a></div>` : ''}
+      </div>
+
+      <!-- Comentarios del Cliente si existen -->
+      ${commentsHtml}
+
+    </div>
+  `;
+};
+
 window.fetchUnifiedLeads = async function(forceReload = false) {
   if (!forceReload && window.cachedUnifiedLeads && window.cachedUnifiedLeads.length > 0) {
     return window.cachedUnifiedLeads;
@@ -25948,6 +26230,15 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       const email = getCleanEmail(q.email);
       if (!email) return;
 
+      // Extraer datos de simulación si existen en q.notes
+      const sim = window.parseLeadSimulationData(q.notes);
+      if (sim) {
+        if (!q.monthly_orders && sim.ordersNum) q.monthly_orders = sim.ordersNum;
+        if (!q.estimated_volume && sim.volNum) q.estimated_volume = sim.volNum;
+        if (!q.estimated_monthly_net && sim.netNum) q.estimated_monthly_net = sim.netNum;
+        q._simData = sim;
+      }
+
       if (!leadsMap.has(email)) {
         leadsMap.set(email, {
           email: email,
@@ -25959,6 +26250,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           demo_data: null,
           lead_status: q.status || 'nuevo',
           notes: q.notes || '',
+          sim_data: sim,
           info_history: [],
           e1_history: [],
           quotes: [q],
@@ -25973,6 +26265,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         if (!lead.company && q.company_name) lead.company = q.company_name;
         if (!lead.phone && q.phone) lead.phone = q.phone;
         lead.quotes.push(q);
+        if (sim && !lead.sim_data) lead.sim_data = sim;
         if (q.notes && !lead.notes) lead.notes = q.notes;
         if (new Date(q.created_at) > new Date(lead.last_activity_at || 0)) {
           lead.last_activity_at = q.created_at;
@@ -26626,32 +26919,45 @@ window.showLeadDetailModal = function(encodedEmail) {
 
   const statusStyle = window.getLeadStatusStyle(lead.lead_status);
 
-  // Cotizaciones detalle HTML
+  // Cotizaciones detalle HTML con Tarjetas de Datos Ejecutivas
   let quotesHtml = '';
   if (lead.quotes && lead.quotes.length > 0) {
-    quotesHtml = lead.quotes.map((q, idx) => {
-      const qDate = q.created_at ? new Date(q.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-      const orders = q.monthly_orders || q.quote_data?.pickPack?.monthlyOrders || 0;
-      const vol = q.estimated_volume || q.quote_data?.storage?.volumeM3 || 0;
-      const net = q.estimated_monthly_net || q.quote_data?.totals?.netMonthly || 0;
-
-      return `
-        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.6rem; font-size: 0.82rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-            <strong style="color: #10b981;"><i class="ri-calculator-line"></i> Cotización #${idx + 1}</strong>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${qDate}</span>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; color: var(--color-text-main);">
-            <div><strong>Pedidos / mes:</strong> ${orders}</div>
-            <div><strong>Volumen est.:</strong> ${vol} m³</div>
-            <div><strong>Monto Neto / mes:</strong> $${Math.round(net).toLocaleString('es-CL')} + IVA</div>
-            <div><strong>Teléfono:</strong> ${q.phone || 'No indicado'}</div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    quotesHtml = lead.quotes.map((q, idx) => window.buildQuoteCardHtml(q, idx, lead)).join('');
+  } else if (lead.sim_data || window.parseLeadSimulationData(lead.notes)) {
+    const syntheticQuote = {
+      created_at: lead.created_at,
+      phone: lead.phone,
+      notes: lead.notes,
+      monthly_orders: lead.sim_data?.ordersNum,
+      estimated_volume: lead.sim_data?.volNum,
+      estimated_monthly_net: lead.sim_data?.netNum,
+      _simData: lead.sim_data || window.parseLeadSimulationData(lead.notes)
+    };
+    quotesHtml = window.buildQuoteCardHtml(syntheticQuote, 0, lead);
   } else {
     quotesHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No ha generado cotizaciones aún en el cotizador online.</div>`;
+  }
+
+  // Preparar contenido limpio para la Libreta de Notas
+  const simDataForLead = lead.sim_data || (lead.quotes && lead.quotes[0]?._simData) || window.parseLeadSimulationData(lead.notes);
+  let cleanNotesForTextarea = '';
+  let hasRawQuoteText = false;
+  let rawQuoteText = '';
+
+  if (lead.notes && typeof lead.notes === 'string') {
+    if (lead.notes.includes('[COTIZADOR') || lead.notes.includes('Servicios: Fulfillment 360')) {
+      hasRawQuoteText = true;
+      rawQuoteText = lead.notes;
+      if (lead.custom_notes) {
+        cleanNotesForTextarea = lead.custom_notes;
+      } else if (simDataForLead?.clientComments) {
+        cleanNotesForTextarea = simDataForLead.clientComments;
+      } else {
+        cleanNotesForTextarea = '';
+      }
+    } else {
+      cleanNotesForTextarea = lead.notes;
+    }
   }
 
   // Info History HTML con Trazabilidad Brevo
@@ -26898,10 +27204,29 @@ window.showLeadDetailModal = function(encodedEmail) {
 
           <!-- Libreta de Notas y Seguimiento Comercial -->
           <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
-            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-sticky-note-line" style="color: #6366f1;"></i> Libreta de Notas de Seguimiento Comercial
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
+              <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-sticky-note-line" style="color: #6366f1;"></i> Libreta de Notas de Seguimiento Comercial
+              </div>
+              ${hasRawQuoteText ? `
+                <button type="button" class="btn btn-outline btn-sm" onclick="const b = document.getElementById('lead-raw-quote-details'); b.style.display = b.style.display === 'none' ? 'block' : 'none';" style="font-size: 0.72rem; padding: 2px 7px; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                  <i class="ri-file-text-line"></i> Ver texto original del cotizador
+                </button>
+              ` : ''}
             </div>
-            <textarea id="modal-lead-notes-input" class="form-input" rows="3" placeholder="Escribe aquí acuerdos comerciales, fecha de próxima llamada, comentarios de reuniones..." style="width: 100%; font-size: 0.85rem; padding: 0.6rem; resize: vertical;">${lead.notes || ''}</textarea>
+
+            <p style="margin: 0 0 0.5rem 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              ${hasRawQuoteText ? 'Los datos técnicos y tarifas de la cotización ya están ordenados en las tarjetas superiores. Usa este espacio para notas de llamadas, acuerdos o reuniones:' : 'Anota acuerdos comerciales, fecha de próxima llamada, comentarios de reuniones...'}
+            </p>
+
+            <textarea id="modal-lead-notes-input" class="form-input" rows="3" placeholder="Escribe aquí acuerdos comerciales, compromisos de reunión, notas de llamadas..." style="width: 100%; font-size: 0.85rem; padding: 0.6rem; resize: vertical;">${cleanNotesForTextarea}</textarea>
+
+            ${hasRawQuoteText ? `
+              <div id="lead-raw-quote-details" style="display: none; margin-top: 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.65rem 0.85rem; font-size: 0.75rem; color: var(--color-text-muted); font-family: monospace; white-space: pre-wrap; max-height: 140px; overflow-y: auto;">
+${rawQuoteText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+              </div>
+            ` : ''}
+
             <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
               <button type="button" class="btn btn-outline btn-sm" onclick="window.saveLeadNotes('${encodeURIComponent(lead.email)}', document.getElementById('modal-lead-notes-input').value)" style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.25rem;">
                 <i class="ri-save-line"></i> Guardar Notas

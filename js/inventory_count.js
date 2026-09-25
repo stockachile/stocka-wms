@@ -32,11 +32,13 @@ let isFastMode = localStorage.getItem('stocka_inv_fast_mode') === 'true'; // Mod
 let currentMatchMode = localStorage.getItem('stocka_inv_match_mode') || 'all'; // Criterio de búsqueda: 'all' | 'barcode' | 'barcode_origin' | 'barcode_wms' | 'sku' | 'name'
 let keyboardMode = localStorage.getItem('stocka_inv_keyboard_mode') || 'numeric'; // 'numeric' o 'alpha'
 let isNumpadExpanded = localStorage.getItem('stocka_inv_numpad_expanded') !== 'false';
+let currentReticleMode = localStorage.getItem('stocka_inv_reticle_mode') || 'standard'; // 'standard' | 'precision' | 'wide'
+let currentZoomLevel = 1.0;
 
 localStorage.setItem('stocka_inv_device_id', localDeviceId);
 localStorage.setItem('stocka_inv_operator_name', localOperatorName);
 
-// Helper para sonido de escáner (Beep agudo agradable y click de teclado)
+// Helper para sonido de escáner (Beep agudo agradable, click de teclado y enfoque)
 function playBeepSound(type = 'success') {
   try {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -70,6 +72,14 @@ function playBeepSound(type = 'success') {
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.04);
+    } else if (type === 'focus') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(650, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1100, audioCtx.currentTime + 0.07);
+      gain.gain.setValueAtTime(0.07, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.07);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.07);
     }
   } catch (e) {
     console.warn('AudioContext not allowed or not supported:', e);
@@ -86,9 +96,26 @@ function triggerHaptic(type = 'success') {
         navigator.vibrate([100, 50, 100]);
       } else if (type === 'tap') {
         navigator.vibrate([12]);
+      } else if (type === 'focus') {
+        navigator.vibrate([18, 25, 20]);
       }
     } catch (e) {}
   }
+}
+
+function getQrBoxForReticleMode(mode) {
+  if (mode === 'precision') {
+    return { width: 170, height: 120 };
+  } else if (mode === 'wide') {
+    return { width: 320, height: 95 };
+  }
+  return { width: 280, height: 180 };
+}
+
+function getReticleModeLabel(mode) {
+  if (mode === 'precision') return '🎯 Modo Precisión (Códigos pegados)';
+  if (mode === 'wide') return '📏 Barras 1D (Franja ancha)';
+  return 'Apunta al código (Toca para enfocar)';
 }
 
 // Helper de escape HTML
@@ -374,31 +401,46 @@ function renderScannerView() {
       <!-- COLUMNA IZQUIERDA: CÁMARA Y ESCÁNER -->
       <div class="inv-scanner-card">
         
-        <!-- VISOR DE CÁMARA -->
-        <div class="inv-camera-container" id="inv-camera-frame">
+        <!-- VISOR DE CÁMARA CON ENFOQUE Y APUNTADO DE PRECISIÓN -->
+        <div class="inv-camera-container" id="inv-camera-frame" title="Toca en cualquier parte del visor para enfocar">
           <div id="inv-qr-reader"></div>
 
           <!-- Flash visual de éxito -->
           <div id="inv-cam-flash" class="inv-camera-flash-success"></div>
 
+          <!-- Barra Flotante de Zoom -->
+          <div class="inv-zoom-toolbar" id="inv-zoom-toolbar" title="Zoom digital / óptico">
+            <span style="color: rgba(255,255,255,0.6); font-size: 0.65rem; font-weight: 700; margin-right: 1px;">ZOOM</span>
+            <button type="button" class="inv-zoom-pill ${currentZoomLevel === 1.0 ? 'active' : ''}" data-zoom="1.0">1x</button>
+            <button type="button" class="inv-zoom-pill ${currentZoomLevel === 1.5 ? 'active' : ''}" data-zoom="1.5">1.5x</button>
+            <button type="button" class="inv-zoom-pill ${currentZoomLevel === 2.0 ? 'active' : ''}" data-zoom="2.0">2x</button>
+            <button type="button" class="inv-zoom-pill ${currentZoomLevel === 3.0 ? 'active' : ''}" data-zoom="3.0">3x</button>
+          </div>
+
           <!-- Retícula animada de apuntado -->
           <div class="inv-scanner-reticle-overlay">
-            <div class="inv-reticle-box">
+            <div class="inv-reticle-box ${currentReticleMode === 'precision' ? 'mode-precision' : (currentReticleMode === 'wide' ? 'mode-wide' : '')}" id="inv-reticle-box">
               <div class="inv-reticle-corner top-left"></div>
               <div class="inv-reticle-corner top-right"></div>
               <div class="inv-reticle-corner bottom-left"></div>
               <div class="inv-reticle-corner bottom-right"></div>
               <div class="inv-reticle-laser"></div>
             </div>
-            <span style="color: rgba(255, 255, 255, 0.85); font-size: 0.75rem; font-weight: 600; margin-top: 10px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 4px;">
-              Apunta al Código de Barras o QR
-            </span>
+            <div class="inv-reticle-mode-tag" id="inv-reticle-tag">
+              <i class="ri-scan-2-line"></i> <span id="lbl-reticle-mode-text">${getReticleModeLabel(currentReticleMode)}</span>
+            </div>
           </div>
 
           <!-- Controles de Cámara Flotantes -->
           <div class="inv-camera-toolbar">
             <button type="button" class="inv-cam-action-btn" id="btn-toggle-camera-play" title="Pausar / Iniciar Cámara">
               <i class="ri-video-line" id="icon-camera-play"></i>
+            </button>
+            <button type="button" class="inv-cam-action-btn" id="btn-camera-refocus" title="Enfocar / Re-enfocar Cámara">
+              <i class="ri-focus-3-line"></i>
+            </button>
+            <button type="button" class="inv-cam-action-btn" id="btn-toggle-reticle-mode" title="Cambiar mirilla de apuntado (Estándar / Precisión / Barras 1D)">
+              <i class="ri-crosshair-2-line"></i>
             </button>
             <button type="button" class="inv-cam-action-btn" id="btn-toggle-torch" title="Encender / Apagar Linterna">
               <i class="ri-flashlight-line"></i>
@@ -710,6 +752,50 @@ function initScannerControls() {
 
   // Botón pausa/play
   document.getElementById('btn-toggle-camera-play')?.addEventListener('click', toggleCameraPlayPause);
+
+  // Botón Re-enfoque manual
+  document.getElementById('btn-camera-refocus')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const cameraFrame = document.getElementById('inv-camera-frame');
+    if (cameraFrame) {
+      const rect = cameraFrame.getBoundingClientRect();
+      showFocusRing(rect.width / 2, rect.height / 2);
+    }
+    triggerCameraFocus(0.5, 0.5);
+  });
+
+  // Botón Alternar Modo de Mirilla (Estándar / Precisión / Barras 1D)
+  document.getElementById('btn-toggle-reticle-mode')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    cycleReticleMode();
+  });
+
+  // Botones de Zoom
+  document.querySelectorAll('.inv-zoom-pill').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const zoom = btn.dataset.zoom;
+      applyCameraZoom(zoom);
+    });
+  });
+
+  // Tap-to-focus al tocar en cualquier punto del visor de la cámara
+  const cameraFrame = document.getElementById('inv-camera-frame');
+  if (cameraFrame) {
+    cameraFrame.addEventListener('click', (e) => {
+      if (e.target.closest('.inv-camera-toolbar') || e.target.closest('.inv-zoom-toolbar')) {
+        return;
+      }
+      const rect = cameraFrame.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const xPercent = Math.max(0.05, Math.min(0.95, x / rect.width));
+      const yPercent = Math.max(0.05, Math.min(0.95, y / rect.height));
+
+      showFocusRing(x, y);
+      triggerCameraFocus(xPercent, yPercent);
+    });
+  }
 }
 
 // ==========================================
@@ -745,7 +831,7 @@ async function startCameraScanner() {
 
     const qrConfig = {
       fps: 15,
-      qrbox: { width: 280, height: 180 },
+      qrbox: getQrBoxForReticleMode(currentReticleMode),
       aspectRatio: 1.333334,
       experimentalFeatures: {
         useBarCodeDetectorIfSupported: true
@@ -761,6 +847,8 @@ async function startCameraScanner() {
 
     isScannerRunning = true;
     updateCameraPlayIcon(true);
+    updateReticleUI();
+    applyCameraZoom(currentZoomLevel);
 
   } catch (err) {
     console.warn('Error al iniciar cámara con html5-qrcode:', err);
@@ -814,6 +902,147 @@ function updateCameraPlayIcon(running) {
   const icon = document.getElementById('icon-camera-play');
   if (icon) {
     icon.className = running ? 'ri-pause-line' : 'ri-play-line';
+  }
+}
+
+// Obtener el MediaStreamTrack de video activo
+function getActiveVideoTrack() {
+  try {
+    const video = document.querySelector('#inv-qr-reader video');
+    if (video && video.srcObject) {
+      const tracks = video.srcObject.getVideoTracks();
+      if (tracks && tracks.length > 0) return tracks[0];
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Mostrar mira gráfica animada de enfoque en pantalla
+function showFocusRing(x, y) {
+  const cameraFrame = document.getElementById('inv-camera-frame');
+  if (!cameraFrame) return;
+
+  const oldRing = cameraFrame.querySelector('.inv-focus-ring-indicator');
+  if (oldRing) oldRing.remove();
+
+  const ring = document.createElement('div');
+  ring.className = 'inv-focus-ring-indicator';
+  ring.style.left = `${x}px`;
+  ring.style.top = `${y}px`;
+  cameraFrame.appendChild(ring);
+
+  playBeepSound('focus');
+  triggerHaptic('focus');
+
+  setTimeout(() => {
+    ring.style.opacity = '0';
+    setTimeout(() => ring.remove(), 400);
+  }, 1000);
+}
+
+// Disparar re-enfoque en el hardware de la cámara
+async function triggerCameraFocus(xPercent = 0.5, yPercent = 0.5) {
+  const refocusBtn = document.getElementById('btn-camera-refocus');
+  if (refocusBtn) {
+    refocusBtn.classList.add('active-focus');
+    setTimeout(() => refocusBtn.classList.remove('active-focus'), 800);
+  }
+
+  const track = getActiveVideoTrack();
+  if (!track) return;
+
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  const advancedConstraints = {};
+
+  if (caps.focusMode) {
+    if (caps.focusMode.includes('continuous')) {
+      advancedConstraints.focusMode = 'continuous';
+    } else if (caps.focusMode.includes('single-shot')) {
+      advancedConstraints.focusMode = 'single-shot';
+    }
+  }
+
+  if (caps.pointsOfInterest) {
+    advancedConstraints.pointsOfInterest = [{ x: xPercent, y: yPercent }];
+  }
+
+  try {
+    if (Object.keys(advancedConstraints).length > 0) {
+      await track.applyConstraints({ advanced: [advancedConstraints] });
+    } else {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    }
+  } catch (err) {
+    console.debug('Ajuste de foco no soportado por este dispositivo:', err);
+  }
+}
+
+// Aplicar zoom a la cámara (Hardware o Viewport CSS)
+async function applyCameraZoom(zoomVal) {
+  currentZoomLevel = parseFloat(zoomVal) || 1.0;
+
+  // Actualizar botones UI
+  document.querySelectorAll('.inv-zoom-pill').forEach(btn => {
+    const val = parseFloat(btn.dataset.zoom);
+    btn.classList.toggle('active', Math.abs(val - currentZoomLevel) < 0.05);
+  });
+
+  const track = getActiveVideoTrack();
+  const caps = track && track.getCapabilities ? track.getCapabilities() : {};
+  let appliedHardwareZoom = false;
+
+  if (caps.zoom && track) {
+    try {
+      const min = caps.zoom.min || 1;
+      const max = caps.zoom.max || 10;
+      const targetZoom = Math.max(min, Math.min(max, currentZoomLevel));
+      await track.applyConstraints({
+        advanced: [{ zoom: targetZoom }]
+      });
+      appliedHardwareZoom = true;
+    } catch (e) {
+      console.debug('Zoom por hardware no soportado, aplicando fallback digital CSS:', e);
+    }
+  }
+
+  const videoEl = document.querySelector('#inv-qr-reader video');
+  if (videoEl) {
+    if (appliedHardwareZoom) {
+      videoEl.style.transform = 'none';
+    } else {
+      videoEl.style.transform = currentZoomLevel > 1.0 ? `scale(${currentZoomLevel})` : 'none';
+      videoEl.style.transformOrigin = 'center center';
+      videoEl.style.transition = 'transform 0.2s ease-out';
+    }
+  }
+}
+
+// Alternar modos de mirilla (Estándar -> Precisión -> Barras 1D)
+async function cycleReticleMode() {
+  const modes = ['standard', 'precision', 'wide'];
+  let nextIdx = (modes.indexOf(currentReticleMode) + 1) % modes.length;
+  currentReticleMode = modes[nextIdx];
+  localStorage.setItem('stocka_inv_reticle_mode', currentReticleMode);
+
+  updateReticleUI();
+  playBeepSound('tap');
+  triggerHaptic('tap');
+
+  if (html5QrCodeScanner && isScannerRunning) {
+    await startCameraScanner();
+  }
+}
+
+// Actualizar visualmente la mirilla y la etiqueta de modo
+function updateReticleUI() {
+  const reticleBox = document.getElementById('inv-reticle-box');
+  const reticleTag = document.getElementById('lbl-reticle-mode-text');
+  if (reticleBox) {
+    reticleBox.className = 'inv-reticle-box' + 
+      (currentReticleMode === 'precision' ? ' mode-precision' : (currentReticleMode === 'wide' ? ' mode-wide' : ''));
+  }
+  if (reticleTag) {
+    reticleTag.textContent = getReticleModeLabel(currentReticleMode);
   }
 }
 
