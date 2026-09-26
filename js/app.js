@@ -10056,7 +10056,7 @@ window.applyClientWmsFiltersAndRender = function() {
             globStatus = 'ALERTA';
           }
         } else if (shipment.source_table === 'enviame_shipments') {
-          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatus === 'devuelto') {
+          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
             globStatus = 'DEVOLUCIÓN';
           } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
             globStatus = 'ENTREGADO';

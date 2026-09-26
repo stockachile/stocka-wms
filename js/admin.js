@@ -1280,6 +1280,19 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     const updatePayload = {};
     updatePayload[field] = value || null;
 
+    const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+
+    // Manejo especial en caliente de cambio de categoría
+    if (field === 'categoria_entrega') {
+      if (value === 'RETIRO') {
+        updatePayload.agenda = 'RETIRO';
+        updatePayload.operador = 'SUCURSAL ÑUÑOA';
+      } else if (value === 'DISTRIBUCIÓN' || value === 'LOGÍSTICA INVERSA' || value === 'LOGISTICA INVERSA') {
+        if (order && order.agenda === 'RETIRO') updatePayload.agenda = null;
+        if (order && order.operador === 'SUCURSAL ÑUÑOA') updatePayload.operador = null;
+      }
+    }
+
     const { error } = await supabase
       .from('orders')
       .update(updatePayload)
@@ -1287,20 +1300,8 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
     if (error) throw error;
 
-    const order = window.loadedOrders.find(o => o.id === orderId);
     if (order) {
-      order[field] = value;
-      
-      // Manejo especial en caliente de cambio de categoría
-      if (field === 'categoria_entrega') {
-        if (value === 'RETIRO') {
-          order.agenda = 'RETIRO';
-          order.operador = 'SUCURSAL ÑUÑOA';
-        } else if (value === 'DISTRIBUCIÓN') {
-          if (order.agenda === 'RETIRO') order.agenda = null;
-          if (order.operador === 'SUCURSAL ÑUÑOA') order.operador = null;
-        }
-      }
+      Object.assign(order, updatePayload);
 
       const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number', 'categoria_entrega'];
       if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación') {
@@ -1472,6 +1473,19 @@ window.getOrderPaymentBadgeHtml = function(order) {
     return `<span style="background: var(--badge-danger-bg); color: var(--badge-danger-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-close-circle-line"></i> Anulado</span>`;
   }
   return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
+};
+
+// Helper para badge amigable de categoría de entrega (Distribución, Retiro, Logística Inversa)
+window.getOrderCategoriaBadgeHtml = function(order) {
+  if (!order) return '-';
+  const cat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+  if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') {
+    return `<span style="background: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>`;
+  }
+  if (cat === 'RETIRO') {
+    return `<span style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line"></i> Retiro</span>`;
+  }
+  return `<span style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.2); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-truck-line"></i> Distribución</span>`;
 };
 
 // Helper para verificar si un ítem de un pedido está eliminado/anulado/cancelado (ej. devuelto o reembolsado en Shopify)
@@ -4719,6 +4733,35 @@ async function renderAdminOrders() {
       return { hasStockAlert, stockAlertDetails };
     };
 
+    window.getOrderEffectiveCategoriaEntrega = function(order) {
+      if (!order) return 'DISTRIBUCIÓN';
+      let cat = String(order.categoria_entrega || '').toUpperCase().trim();
+      if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') return 'LOGÍSTICA INVERSA';
+
+      // Auto-detección por origen, prefijo, flags o datos de plataforma
+      if (order.origen === 'Logística Inversa' || 
+          order.external_platform === 'Logística Inversa' || 
+          (order.external_order_number && String(order.external_order_number).startsWith('LI-')) ||
+          order.raw_shopify_data?.is_reverse_logistics) {
+        return 'LOGÍSTICA INVERSA';
+      }
+
+      // Auto-detección por tags de Shopify u origen
+      const rawTags = String(order.raw_shopify_data?.tags || order.tags || '').toLowerCase();
+      if (rawTags.includes('logistica-inversa') || rawTags.includes('logistica inversa') || rawTags.includes('logística inversa') || rawTags.includes('reverse-logistics')) {
+        return 'LOGÍSTICA INVERSA';
+      }
+
+      // Auto-detección por método de envío
+      const shipMethod = String(order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || '').toLowerCase();
+      if (shipMethod.includes('logistica inversa') || shipMethod.includes('logística inversa')) {
+        return 'LOGÍSTICA INVERSA';
+      }
+
+      if (cat === 'RETIRO') return 'RETIRO';
+      return 'DISTRIBUCIÓN';
+    };
+
     window.getOrderTags = function(order) {
       if (!order) return [];
       if (order._wmsTags) return order._wmsTags;
@@ -4726,14 +4769,8 @@ async function renderAdminOrders() {
       const tags = new Set();
 
       // 1. Categoría de Entrega
-      const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
-      if (catDelivery === 'RETIRO') {
-        tags.add('RETIRO');
-      } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
-        tags.add('DISTRIBUCIÓN');
-      } else if (order.categoria_entrega) {
-        tags.add(catDelivery);
-      }
+      const catDelivery = window.getOrderEffectiveCategoriaEntrega(order);
+      tags.add(catDelivery);
 
       // 2. Exportación (Shopify)
       if (order.shopify_exported) {
@@ -4867,7 +4904,8 @@ async function renderAdminOrders() {
 
       const deliveryTags = [
         { key: 'DISTRIBUCIÓN', label: 'DISTRIBUCIÓN', icon: '🚚' },
-        { key: 'RETIRO', label: 'RETIRO', icon: '🏪' }
+        { key: 'RETIRO', label: 'RETIRO', icon: '🏪' },
+        { key: 'LOGÍSTICA INVERSA', label: 'LOGÍSTICA INVERSA', icon: '🔄' }
       ];
 
       const courierTags = [
@@ -5097,6 +5135,7 @@ async function renderAdminOrders() {
               <option value="">Todas las categorías</option>
               <option value="DISTRIBUCIÓN">DISTRIBUCIÓN</option>
               <option value="RETIRO">RETIRO</option>
+              <option value="LOGÍSTICA INVERSA">LOGÍSTICA INVERSA</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
@@ -5691,7 +5730,8 @@ window.applyWmsFiltersAndRender = function() {
     const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
     const matchesStatus = !selectedStatus || order.status === selectedStatus;
-    const matchesCategoria = !selectedCategoriaEntrega || (order.categoria_entrega || 'DISTRIBUCIÓN') === selectedCategoriaEntrega;
+    const effCat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
+    const matchesCategoria = !selectedCategoriaEntrega || effCat === selectedCategoriaEntrega;
     
     let matchesExport = true;
     if (selectedExportStatus === 'pending') {
@@ -5782,7 +5822,7 @@ window.applyWmsFiltersAndRender = function() {
       let val = '';
       if (colKey === 'comercio') val = o.comercio;
       else if (colKey === 'origen') val = o.origen || o.external_platform || 'Manual';
-      else if (colKey === 'categoria_entrega') val = o.categoria_entrega || 'DISTRIBUCIÓN';
+      else if (colKey === 'categoria_entrega') val = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(o) : (o.categoria_entrega || 'DISTRIBUCIÓN');
       else if (colKey === 'agenda') val = o.agenda;
       else if (colKey === 'operador') val = o.operador || '';
       else if (colKey === 'shipping_method') val = o.shipping_method;
@@ -6036,12 +6076,14 @@ window.applyWmsFiltersAndRender = function() {
       shipmentBadgeHtml = `<span class="badge wms-order-tag-badge ${isShipActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${globStatus}', event)" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isShipActive ? `outline: 2px solid ${badgeColor}; box-shadow: 0 0 6px rgba(0,0,0,0.25);` : ''}" title="${courierName}: ${shipment.tracking || ''} (Clic para filtrar)"><i class="${badgeIcon}"></i> ${globStatus}</span>`;
     }
 
-    // 0. Tag de Categoría de Entrega (Distribución vs Retiro)
-    const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+    // 0. Tag de Categoría de Entrega (Distribución vs Retiro vs Logística Inversa)
+    const catDelivery = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
     let categoryBadgeHtml = '';
     const catFilterTag = (catDelivery === 'DISTRIBUCION' ? 'DISTRIBUCIÓN' : catDelivery);
     const isCatActive = selectedTag === catFilterTag;
-    if (catDelivery === 'RETIRO') {
+    if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #f3e8ff; color: #7e22ce; border: 1px solid #d8b4fe; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #7e22ce; box-shadow: 0 0 6px rgba(126,34,206,0.4);' : ''}" title="Categoría de Entrega: Logística Inversa (Clic para filtrar)"><i class="ri-arrow-left-right-line" style="color: #7e22ce;"></i> LOGÍSTICA INVERSA</span>`;
+    } else if (catDelivery === 'RETIRO') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
     } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #0369a1; box-shadow: 0 0 6px rgba(3,105,161,0.4);' : ''}" title="Categoría de Entrega: Distribución (Clic para filtrar)"><i class="ri-truck-line"></i> DISTRIBUCIÓN</span>`;
@@ -6650,11 +6692,12 @@ window.applyWmsFiltersAndRender = function() {
       tempOperadores.push(currentOperador);
     }
 
-    const currentCategoria = order.categoria_entrega || 'DISTRIBUCIÓN';
+    const currentCategoria = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
     const categoriaSelectHtml = `
       <select onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 95px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
         <option value="DISTRIBUCIÓN" ${currentCategoria === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
         <option value="RETIRO" ${currentCategoria === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+        <option value="LOGÍSTICA INVERSA" ${currentCategoria === 'LOGÍSTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
       </select>
     `;
 
@@ -6846,7 +6889,7 @@ window.applyWmsFiltersAndRender = function() {
                   </div>
                   <div>
                     <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Categoría</span>
-                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span>
+                    <div style="margin-top: 0.1rem;">${window.getOrderCategoriaBadgeHtml ? window.getOrderCategoriaBadgeHtml(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')}</div>
                   </div>
                   <div>
                     <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Pago</span>
@@ -6916,8 +6959,9 @@ window.applyWmsFiltersAndRender = function() {
                     <div style="display: flex; align-items: center; gap: 0.35rem; background: var(--color-bg); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
                       <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; margin: 0;">Categoría:</label>
                       <select onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; font-weight: 700; border-radius: var(--radius-sm); border: 1px solid var(--color-border); cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
-                        <option value="DISTRIBUCIÓN" ${(order.categoria_entrega || 'DISTRIBUCIÓN') === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
-                        <option value="RETIRO" ${(order.categoria_entrega || 'DISTRIBUCIÓN') === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+                        <option value="DISTRIBUCIÓN" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
+                        <option value="RETIRO" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+                        <option value="LOGÍSTICA INVERSA" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'LOGÍSTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
                       </select>
                     </div>
                     <button onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -7461,7 +7505,11 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         query = query.or(`origen.ilike.%${selectedOrigen}%,external_platform.ilike.%${selectedOrigen}%`);
       }
       if (selectedCategoria) {
-        query = query.eq('categoria_entrega', selectedCategoria);
+        if (selectedCategoria === 'LOGÍSTICA INVERSA') {
+          query = query.or('categoria_entrega.in.("LOGÍSTICA INVERSA","LOGISTICA INVERSA"),origen.eq.Logística Inversa,external_platform.eq.Logística Inversa,external_order_number.like.LI-%');
+        } else {
+          query = query.eq('categoria_entrega', selectedCategoria);
+        }
       }
       if (activeTab !== 'Todos') {
         const validUuids = currentlyVisibleIds.filter(id => id && isUuidRegex.test(String(id)));
@@ -7948,6 +7996,9 @@ function renderWmsBulkActionsBar() {
           </button>
           <button onclick="window.bulkSetWmsOrderOperador()" class="btn" style="background: #00bcd4; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar operador logístico / courier a los pedidos seleccionados">
             <i class="ri-truck-line"></i> Operador
+          </button>
+          <button onclick="window.bulkSetWmsOrderCategoria()" class="btn" style="background: #7e22ce; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar categoría de entrega (Distribución, Retiro o Logística Inversa)">
+            <i class="ri-arrow-left-right-line"></i> Categoría
           </button>
           <button onclick="window.bulkSetWmsOrderPickingInfo()" class="btn" style="background: #6366f1; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;" title="Asignar sucursal, agenda y fecha de preparación completa">
             <i class="ri-edit-line"></i> Picking
@@ -57531,6 +57582,103 @@ window.bulkSetWmsOrderOperador = async function() {
     }
 
     Swal.fire('¡Éxito!', `Se asignó el operador a los ${ids.length} pedidos.`, 'success');
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+  }
+};
+
+window.bulkSetWmsOrderCategoria = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) return;
+
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Asignación Masiva: Categoría de Entrega',
+    width: '780px',
+    html: `
+      <div style="display: flex; gap: 1.25rem; text-align: left; font-size: 0.9rem; flex-wrap: wrap; align-items: stretch;">
+        <div style="flex: 1 1 280px; min-width: 250px; display: flex; flex-direction: column;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Selecciona la categoría de entrega para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Categoría de Entrega</label>
+          <select id="swal-bulk-set-categoria" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.9rem; height: 42px; border: 1px solid var(--color-border, #cbd5e1); border-radius: var(--radius-sm, 6px); padding: 0.35rem 0.5rem; background: var(--color-card-bg, #ffffff); color: var(--color-text, #1e293b);">
+            <option value="DISTRIBUCIÓN">🚚 DISTRIBUCIÓN</option>
+            <option value="RETIRO">🏬 RETIRO</option>
+            <option value="LOGÍSTICA INVERSA">🔄 LOGÍSTICA INVERSA</option>
+          </select>
+          <div style="margin-top: 0.75rem; padding: 0.65rem; background: rgba(126, 34, 206, 0.05); border: 1px solid rgba(126, 34, 206, 0.2); border-radius: 6px; font-size: 0.8rem; color: var(--color-text-muted);">
+            <i class="ri-information-line" style="color: #7e22ce;"></i> 
+            Si seleccionas <strong>RETIRO</strong>, la agenda y operador se configurarán automáticamente para retiro en sucursal si aún no lo están.
+          </div>
+        </div>
+
+        <div style="flex: 1 1 340px; min-width: 290px; background: var(--color-bg, #f8fafc); border: 1px solid var(--color-border, #e2e8f0); border-radius: var(--radius-md, 8px); padding: 0.75rem; display: flex; flex-direction: column;">
+          ${window.renderBulkOrdersSummaryListHtml(selectedOrders)}
+        </div>
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const categoriaInput = document.getElementById('swal-bulk-set-categoria')?.value;
+      if (!categoriaInput) {
+        Swal.showValidationMessage('Debes seleccionar una categoría válida.');
+        return false;
+      }
+      return {
+        categoria_entrega: categoriaInput
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Actualizando pedidos...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const isRetiro = formValues.categoria_entrega === 'RETIRO';
+    const updatePayload = {
+      categoria_entrega: formValues.categoria_entrega
+    };
+    if (isRetiro) {
+      updatePayload.agenda = 'RETIRO';
+      updatePayload.operador = 'SUCURSAL ÑUÑOA';
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .in('id', ids);
+
+    if (error) throw error;
+
+    for (const id of ids) {
+      const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === id) : null;
+      if (order) {
+        order.categoria_entrega = formValues.categoria_entrega;
+        if (isRetiro) {
+          order.agenda = 'RETIRO';
+          order.operador = 'SUCURSAL ÑUÑOA';
+        } else if (order.agenda === 'RETIRO') {
+          order.agenda = null;
+          if (order.operador === 'SUCURSAL ÑUÑOA') order.operador = null;
+        }
+
+        if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
+          await window.propagateOrderUpdateToPicker(order);
+        }
+      }
+    }
+
+    Swal.fire('¡Éxito!', `Se asignó la categoría ${formValues.categoria_entrega} a los ${ids.length} pedidos.`, 'success');
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error(err);
