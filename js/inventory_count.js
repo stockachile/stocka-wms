@@ -1348,7 +1348,7 @@ async function searchProductsByNameList(term) {
   try {
     let query = supabase.from('products').select('*');
     if (activeCountSession && activeCountSession.comercio && activeCountSession.comercio !== 'Todos') {
-      query = query.eq('comercio', activeCountSession.comercio);
+      query = query.ilike('comercio', activeCountSession.comercio.trim());
     }
     query = query.ilike('name', `%${cleanTerm}%`).limit(30);
     const { data, error } = await query;
@@ -1475,8 +1475,8 @@ async function findProductInDatabase(code) {
 
   const checkMatch = (p) => {
     const bcOrigin = String(p.barcode || '').trim().toUpperCase();
-    const bcAlt = String(p.codigo_barra || '').trim().toUpperCase();
     const bcWms = String(p.barcode_wms || '').trim().toUpperCase();
+    const bcAlt = String(p.codigo_barra || '').trim().toUpperCase();
     const sku = String(p.sku || '').trim().toUpperCase();
     const alias = String(p.alias || '').trim().toUpperCase();
 
@@ -1488,8 +1488,8 @@ async function findProductInDatabase(code) {
 
     if (mode === 'barcode') {
       if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
-      if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
       if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
+      if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
       return { match: false };
     }
 
@@ -1506,10 +1506,10 @@ async function findProductInDatabase(code) {
 
     // Modo 'all' (Cualquiera de los datos)
     if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
-    if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
     if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
     if (sku && sku === cleanUpper) return { match: true, by: 'SKU' };
     if (alias && alias === cleanUpper) return { match: true, by: 'Alias SKU' };
+    if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
     return { match: false };
   };
 
@@ -1527,19 +1527,19 @@ async function findProductInDatabase(code) {
 
     // Si la sesión está restringida a un comercio específico
     if (activeCountSession && activeCountSession.comercio && activeCountSession.comercio !== 'Todos') {
-      query = query.eq('comercio', activeCountSession.comercio);
+      query = query.ilike('comercio', activeCountSession.comercio.trim());
     }
 
     if (mode === 'sku') {
       query = query.or(`sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
     } else if (mode === 'barcode') {
-      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode},barcode_wms.eq.${cleanCode}`);
+      query = query.or(`barcode.ilike.${cleanCode},barcode_wms.ilike.${cleanCode}`);
     } else if (mode === 'barcode_origin') {
-      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode}`);
+      query = query.ilike('barcode', cleanCode);
     } else if (mode === 'barcode_wms') {
-      query = query.eq('barcode_wms', cleanCode);
+      query = query.ilike('barcode_wms', cleanCode);
     } else {
-      query = query.or(`barcode.eq.${cleanCode},codigo_barra.eq.${cleanCode},barcode_wms.eq.${cleanCode},sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+      query = query.or(`barcode.ilike.${cleanCode},barcode_wms.ilike.${cleanCode},sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
     }
 
     const { data, error } = await query.limit(5);
@@ -1556,6 +1556,37 @@ async function findProductInDatabase(code) {
       const fallbackProd = { ...data[0], _matchedBy: mode === 'sku' ? 'SKU' : 'Código' };
       sessionCatalogCache.push(data[0]);
       return fallbackProd;
+    }
+
+    // 2b. Fallback global: Si la sesión estaba restringida a un comercio y no arrojó resultados,
+    // buscar en todo el catálogo de productos (por si pertenece a otro comercio o no tiene comercio asignado)
+    if (activeCountSession && activeCountSession.comercio && activeCountSession.comercio !== 'Todos') {
+      let globalQuery = supabase.from('products').select('*');
+      if (mode === 'sku') {
+        globalQuery = globalQuery.or(`sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+      } else if (mode === 'barcode') {
+        globalQuery = globalQuery.or(`barcode.ilike.${cleanCode},barcode_wms.ilike.${cleanCode}`);
+      } else if (mode === 'barcode_origin') {
+        globalQuery = globalQuery.ilike('barcode', cleanCode);
+      } else if (mode === 'barcode_wms') {
+        globalQuery = globalQuery.ilike('barcode_wms', cleanCode);
+      } else {
+        globalQuery = globalQuery.or(`barcode.ilike.${cleanCode},barcode_wms.ilike.${cleanCode},sku.ilike.${cleanCode},alias.ilike.${cleanCode}`);
+      }
+      const { data: globalData, error: globalErr } = await globalQuery.limit(5);
+      if (!globalErr && globalData && globalData.length > 0) {
+        for (const prod of globalData) {
+          const res = checkMatch(prod);
+          if (res.match) {
+            const finalProd = { ...prod, _matchedBy: `${res.by} (Comercio: ${prod.comercio || 'Sin comercio'})` };
+            sessionCatalogCache.push(prod);
+            return finalProd;
+          }
+        }
+        const fallbackProd = { ...globalData[0], _matchedBy: `Catálogo General (Comercio: ${globalData[0].comercio || 'Sin comercio'})` };
+        sessionCatalogCache.push(globalData[0]);
+        return fallbackProd;
+      }
     }
   } catch (e) {
     console.warn('Error consultando producto en Supabase:', e);
@@ -1623,7 +1654,7 @@ function openConfirmationSheet(rawCode, product) {
   const sysStockEl = document.getElementById('sheet-prod-system-stock');
   sysStockEl.textContent = 'Calculando...';
   fetchTheoreticalStock(product.id).then(stock => {
-    sysStockEl.textContent = `${stock} un.`;
+    sysStockEl.textContent = typeof stock === 'number' ? `${stock} un.` : (stock || '0 un.');
   });
 
   // Mostrar sheet
@@ -1697,18 +1728,26 @@ function openConfirmationSheet(rawCode, product) {
 }
 
 async function fetchTheoreticalStock(productId) {
-  if (!productId || !activeCountSession) return 0;
+  if (!productId || !activeCountSession) return '0 un.';
   try {
-    let query = supabase.from('inventory').select('quantity').eq('product_id', productId);
-    if (activeCountSession.warehouse_id) {
-      query = query.eq('warehouse_id', activeCountSession.warehouse_id);
-    }
+    let query = supabase.from('inventory').select('quantity, warehouse_id').eq('product_id', productId);
     const { data, error } = await query;
-    if (!error && data) {
-      return data.reduce((acc, row) => acc + (row.quantity || 0), 0);
+    if (!error && data && data.length > 0) {
+      const whStock = activeCountSession.warehouse_id
+        ? data.filter(r => r.warehouse_id === activeCountSession.warehouse_id).reduce((acc, row) => acc + (row.quantity || 0), 0)
+        : data.reduce((acc, row) => acc + (row.quantity || 0), 0);
+      
+      const totalStock = data.reduce((acc, row) => acc + (row.quantity || 0), 0);
+      
+      if (activeCountSession.warehouse_id && whStock === 0 && totalStock > 0) {
+        return `0 un. (${totalStock} un. en otras bodegas)`;
+      }
+      return `${whStock} un.`;
     }
-  } catch (e) {}
-  return 0;
+  } catch (e) {
+    console.warn('Error obteniendo stock teórico:', e);
+  }
+  return '0 un.';
 }
 
 // Guardar lectura en Supabase
@@ -1719,7 +1758,7 @@ async function saveCountItemDirectly({ product, quantity, expiryDate, lotNumber,
     session_id: activeCountSession.id,
     product_id: product.id || null,
     sku: product.sku || 'SIN-SKU',
-    barcode: product.barcode || product.codigo_barra || product.sku || '',
+    barcode: product.barcode || product.barcode_wms || product.sku || '',
     product_name: product.name || 'Sin nombre',
     comercio: product.comercio || activeCountSession.comercio || 'no asignado',
     warehouse_name: activeCountSession.warehouse_name || 'Principal',
@@ -1754,7 +1793,7 @@ async function saveCountItemDirectly({ product, quantity, expiryDate, lotNumber,
 // Mostrar tarjeta con el último ítem escaneado
 function showLastScannedCard(product, qty) {
   lastScannedItemInfo = {
-    barcode: product.barcode || product.codigo_barra || product.barcode_wms || product.sku,
+    barcode: product.barcode || product.barcode_wms || product.codigo_barra || product.sku,
     sku: product.sku,
     name: product.name,
     quantity: qty,

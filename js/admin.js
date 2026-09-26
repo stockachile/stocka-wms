@@ -6,7 +6,7 @@ import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
 import { renderPricingConfigAdmin } from './pricing_admin.js';
 import { renderSurveysAdmin } from './surveys.js?v=1.0.2';
-import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.7';
+import { renderInventoryCountAdmin } from './inventory_count.js?v=1.0.8';
 
 window.renderSurveysAdmin = renderSurveysAdmin;
 window.renderInventoryCountAdmin = renderInventoryCountAdmin;
@@ -1452,7 +1452,13 @@ window.getOriginalPlatformStatus = function(order) {
 // Helper para badge amigable de pago en columna 1 del modal
 window.getOrderPaymentBadgeHtml = function(order) {
   if (!order) return '-';
-  const rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+  let rawFin = String(order.raw_shopify_data?.financial_status || order.payment_status || '').toLowerCase().trim();
+  const isMarketplace = order.external_platform === 'Falabella' || order.origen === 'Falabella' || order.external_platform === 'MercadoLibre' || order.external_platform === 'Paris' || order.external_platform === 'Ripley' || order.external_platform === 'Walmart';
+  if (isMarketplace && order.status !== 'cancelado') {
+    if (!['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided'].includes(rawFin)) {
+      rawFin = 'paid';
+    }
+  }
   
   if (['paid', 'pagado', 'completed', 'approved'].includes(rawFin)) {
     return `<span style="background: var(--badge-success-bg); color: var(--badge-success-text); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-checkbox-circle-line"></i> Pagado</span>`;
@@ -4871,7 +4877,13 @@ async function renderAdminOrders() {
       }
 
       // 6. Estado de Pago
-      const payStatus = String(order.payment_status || '').toLowerCase().trim();
+      let payStatus = String(order.payment_status || '').toLowerCase().trim();
+      const isMarketplace = order.external_platform === 'Falabella' || order.origen === 'Falabella' || order.external_platform === 'MercadoLibre' || order.external_platform === 'Paris' || order.external_platform === 'Ripley' || order.external_platform === 'Walmart';
+      if (isMarketplace && order.status !== 'cancelado') {
+        if (!['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided'].includes(payStatus)) {
+          payStatus = 'paid';
+        }
+      }
       if (payStatus === 'paid' || payStatus === 'authorized') {
         tags.add('PAGADO');
       } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
@@ -6149,7 +6161,13 @@ window.applyWmsFiltersAndRender = function() {
 
     // 1. Estado de Pago
     let paymentBadgeHtml = '';
-    const payStatus = String(order.payment_status || '').toLowerCase().trim();
+    let payStatus = String(order.payment_status || '').toLowerCase().trim();
+    const isMarketplace = order.external_platform === 'Falabella' || order.origen === 'Falabella' || order.external_platform === 'MercadoLibre' || order.external_platform === 'Paris' || order.external_platform === 'Ripley' || order.external_platform === 'Walmart';
+    if (isMarketplace && order.status !== 'cancelado') {
+      if (!['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided'].includes(payStatus)) {
+        payStatus = 'paid';
+      }
+    }
     let payTag = '';
     let payBg = '#e5e7eb';
     let payColor = '#4b5563';

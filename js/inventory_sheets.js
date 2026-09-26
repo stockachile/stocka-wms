@@ -55,9 +55,9 @@ window.enrichInventoryProductsBarcodes = async function(req) {
       const idsToQuery = stillMissing.map(p => p.id).filter(Boolean);
       const skusToQuery = stillMissing.map(p => p.sku).filter(Boolean);
 
-      let query = supabase.from('products').select('id, sku, barcode, codigo_barra');
+      let query = supabase.from('products').select('id, sku, barcode, barcode_wms');
       if (req.comercio && req.comercio !== 'Todos' && req.comercio !== 'no asignado') {
-        query = query.eq('comercio', req.comercio);
+        query = query.ilike('comercio', req.comercio.trim());
       }
 
       if (idsToQuery.length > 0) {
@@ -69,7 +69,7 @@ window.enrichInventoryProductsBarcodes = async function(req) {
       const { data: dbProds, error: dbErr } = await query;
       if (!dbErr && Array.isArray(dbProds)) {
         dbProds.forEach(item => {
-          const bc = item.barcode || item.codigo_barra;
+          const bc = item.barcode || item.barcode_wms;
           if (bc && String(bc).trim() && String(bc).trim() !== '-') {
             const clean = String(bc).trim();
             if (item.id) barcodeMap.set(String(item.id), clean);
@@ -81,14 +81,14 @@ window.enrichInventoryProductsBarcodes = async function(req) {
       // Si quedan sin coincidencia por id, reintentar por SKU
       const remainingMissing = products.filter(p => !p.barcode || p.barcode === '-' || String(p.barcode).trim() === '');
       if (remainingMissing.length > 0 && skusToQuery.length > 0) {
-        let skuQuery = supabase.from('products').select('id, sku, barcode, codigo_barra').in('sku', skusToQuery);
+        let skuQuery = supabase.from('products').select('id, sku, barcode, barcode_wms').in('sku', skusToQuery);
         if (req.comercio && req.comercio !== 'Todos' && req.comercio !== 'no asignado') {
-          skuQuery = skuQuery.eq('comercio', req.comercio);
+          skuQuery = skuQuery.ilike('comercio', req.comercio.trim());
         }
         const { data: skuData } = await skuQuery;
         if (Array.isArray(skuData)) {
           skuData.forEach(item => {
-            const bc = item.barcode || item.codigo_barra;
+            const bc = item.barcode || item.barcode_wms;
             if (bc && String(bc).trim() && String(bc).trim() !== '-') {
               const clean = String(bc).trim();
               if (item.sku) barcodeMap.set(String(item.sku).toUpperCase().trim(), clean);

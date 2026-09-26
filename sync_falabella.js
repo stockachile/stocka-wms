@@ -296,6 +296,10 @@ async function syncMerchantOrders(integration) {
       console.log(`\nProcesando pedido Falabella ID: ${orderId} (N° Venta: ${finalOrderNumber}, Estado: ${statusName})`);
 
       const isCancelled = statusName.includes('cancel') || statusName.includes('refund');
+      // En Falabella Seller Center (Marketplace), el pago es procesado y retenido por Falabella
+      // antes de enviar el pedido a preparación. 'pending' o 'ready_to_ship' se refieren a la preparación
+      // de la orden por parte del vendedor, no a una deuda financiera.
+      const falabellaPaymentStatus = isCancelled ? 'refunded' : 'paid';
 
       // Formatear método de envío y límite de entrega (SLA)
       const shippingType = order.ShippingType || 'Dropshipping';
@@ -375,7 +379,7 @@ async function syncMerchantOrders(integration) {
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
 
         const updatePayload = {
-          payment_status: statusName,
+          payment_status: falabellaPaymentStatus,
           shipping_method: shippingMethodVal,
           tracking_number: trackingNum,
           courier: courierName,
@@ -440,7 +444,7 @@ async function syncMerchantOrders(integration) {
           comercio: integration.comercio,
           external_order_number: finalOrderNumber,
           external_platform: 'Falabella',
-          payment_status: statusName,
+          payment_status: falabellaPaymentStatus,
           total_value: totalValue,
           customer_email: 'no-email@falabella.cl',
           customer_phone: order.AddressShipping?.Phone || 'No especificado',
