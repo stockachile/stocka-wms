@@ -2996,3 +2996,53 @@ Hemos reforzado la importación completa desde plataformas de origen (Shopify, M
    - **Preservación total de datos del WMS**: Conserva intactas las dimensiones (`length`, `width`, `height`), volumen (`volumen`), peso (`weight`), código de barras del WMS (si la plataforma externa viene vacía), alias para el picker, flags de picker (`send_barcode_to_picker`, `send_alias_to_picker`), estado (`status`), packs (`is_pack`), productos virtuales (`is_virtual`), lote y fecha de vencimiento.
    - Se implementó la inserción en lotes controlados (*chunks* de 100 registros) para garantizar la integridad y estabilidad en bases de datos con catálogos extensos.
 
+---
+
+## 119. Ingresos de Stock 3.0: Filtrado Estricto de Catálogo Maestro por Comercio
+
+Hemos implementado el filtrado estricto para que en el flujo de **Ingreso de Stock** ([`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) y [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) se muestren **única y exclusivamente los productos del Catálogo Maestro** configurado para el comercio activo:
+
+1. **Detección Automática de Plataforma Principal (Catálogo Maestro)**:
+   - Al abrir la declaración o seleccionar un comercio, el sistema consulta `merchant_integrations` para identificar la plataforma configurada como principal (`is_main = true`, ej: **Tiendanube**, **Shopify**, **WooCommerce**, **Jumpseller**, **MercadoLibre**, etc.).
+   - Se almacena la plataforma principal en `window.decCatalogCurrentMainPlatform`.
+
+2. **Filtrado Estricto en el Pre-cargador (`loadCatalogProductsForDeclaration`)**:
+   - Se excluyen de inmediato:
+     - Publicaciones de **canales secundarios / marketplaces** (ej: publicaciones `MLC...` de MercadoLibre o Falabella cuando la tienda opera con Tiendanube o Shopify como catálogo maestro).
+     - Artículos **virtuales** (`is_virtual === true`).
+     - Artículos **archivados / inactivos** (`status === 'archived'`).
+     - **Packs / combos** (`is_pack === true`), garantizando que solo se declaren los componentes físicos individuales que ingresan a bodega.
+   - Solo se admiten productos pertenecientes a la plataforma principal configurada y productos registrados directamente en el WMS como **Manual / Catálogo WMS**.
+
+3. **Etiqueta Visual de Plataforma y Catálogo Maestro**:
+   - Tanto en el desplegable de sugerencias de búsqueda (`#dec-catalog-search-results`) como en la tabla de productos seleccionados (`#dec-selected-products-tbody`), cada producto muestra ahora una etiqueta estilizada con ícono de verificación que identifica su plataforma y confirma su pertenencia al catálogo maestro:
+     - Ejemplos: `[Tiendanube (Catálogo Master)]`, `[Shopify (Catálogo Master)]`, `[WMS (Catálogo Master)]`.
+   - El aviso superior (`#dec-catalog-exclusive-notice`) indica explícitamente la plataforma activa: *"Ingreso mediante Catálogo Maestro (Tiendanube): Tu comercio opera con catálogo maestro centralizado en Tiendanube. Se muestran exclusivamente los productos físicos de tu catálogo maestro."*
+
+4. **Blindaje de Sincronización en Declaración (`syncChannelProductsForDeclaration`)**:
+   - El botón **"Consultar Nuevos de Tienda"** ahora consulta exclusivamente los productos de la plataforma principal del catálogo maestro (`synced_products.platform = mainPlatform`), evitando que publicaciones de canales secundarios sean insertadas como productos maestros.
+   - Sincroniza únicamente los artículos faltantes en el WMS asignando su plataforma correspondiente y notifica al usuario con un resumen claro.
+
+---
+
+## 120. Corrección de Nombres de Variantes de Tiendanube y Eliminación de "[object Object]"
+
+### Causa Raíz
+En la API de **Tiendanube**, las opciones/variantes de los productos (`variant.values`) se entregan como un **array de objetos multilingües**, por ejemplo: `[ { "es": "TALLE 1" } ]` o `[ { "es": "S" }, { "es": "Negro" } ]`.
+El sincronizador anterior en [`sync_tiendanube.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js) iteraba las claves con `for (const langKey of Object.keys(variant.values))`. Al ser un array, `langKey` era el índice `"0"`, por lo que `val` era el objeto `{ es: "TALLE 1" }`. Al interpolar (`${variantNameParts.join(' / ')}`), JavaScript convertía el objeto en su representación textual por defecto: `"[object Object]"`, quedando los productos guardados con nombres como:
+`CALLERA EDICIÓN ESPECIAL MMEDD MODELO LIGHTNING 0.1 - BY ALEXIA WILLIAMS - [object Object]`.
+
+### Solución Implementada
+1. **Función Extractora Robusta (`extractTiendanubeVariantValues`) en [`sync_tiendanube.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js)**:
+   - Itera e inspecciona cada elemento de `variant.values` (sea array u objeto).
+   - Extrae limpiamente el texto del idioma (`es`, `pt`, `en` o primer valor de clave).
+   - Retorna un array plano de strings: `["TALLE 1"]`, `["S"]`, `["Amarillo"]`.
+
+2. **Sincronización y Reparación en Base de Datos**:
+   - Se ejecutó la sincronización con Tiendanube actualizando más de 300 variantes en `synced_products` con sus nombres y opciones reales.
+   - Se repararon los 225 productos afectados en la tabla `products` de Supabase, sustituyendo `[object Object]` por el nombre real de cada variante (ej: `- TALLE 1`, `- TALLE 2`, `- S`, `- M`, `- Amarillo`, etc.).
+   - Se verificó que el conteo de productos con `[object Object]` en ambas tablas (`products` y `synced_products`) quedara exactamente en **0**.
+
+3. **Sanitización Defensiva en Frontend ([`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) y [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js))**:
+   - Tanto en el pre-cargador de catálogo de cliente (`loadCatalogProductsForDeclaration`) como en el de administrador (`adminCatalogProductsCache`), se aplica una limpieza preventiva automática `.replace(/\s*-\s*\[object\s+Object\]/gi, '').trim()` para asegurar que ninguna variante pueda volver a mostrarse con `[object Object]` en pantalla.
+

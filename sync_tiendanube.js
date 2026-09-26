@@ -7,6 +7,45 @@ function extractTiendanubeName(rawName, fallback = 'Producto Tiendanube') {
   }
   return String(rawName);
 }
+
+function extractTiendanubeVariantValues(variantValues) {
+  if (!variantValues) return [];
+  const parts = [];
+  if (Array.isArray(variantValues)) {
+    for (const item of variantValues) {
+      if (!item) continue;
+      if (typeof item === 'string') {
+        const trimmed = item.trim();
+        if (trimmed) parts.push(trimmed);
+      } else if (typeof item === 'object') {
+        const val = item.es || item.pt || item.en || Object.values(item)[0];
+        if (val && typeof val === 'string') {
+          const trimmed = val.trim();
+          if (trimmed) parts.push(trimmed);
+        }
+      }
+    }
+  } else if (typeof variantValues === 'object') {
+    for (const k of Object.keys(variantValues)) {
+      const item = variantValues[k];
+      if (!item) continue;
+      if (typeof item === 'string') {
+        const trimmed = item.trim();
+        if (trimmed) parts.push(trimmed);
+      } else if (typeof item === 'object') {
+        const val = item.es || item.pt || item.en || Object.values(item)[0];
+        if (val && typeof val === 'string') {
+          const trimmed = val.trim();
+          if (trimmed) parts.push(trimmed);
+        }
+      }
+    }
+  } else if (typeof variantValues === 'string') {
+    const trimmed = variantValues.trim();
+    if (trimmed) parts.push(trimmed);
+  }
+  return parts;
+}
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
@@ -215,17 +254,7 @@ async function syncProducts(integration, storeId, headers) {
           }
         }
 
-        const variantNameParts = [];
-        if (variant.values) {
-          for (const langKey of Object.keys(variant.values)) {
-            const val = variant.values[langKey];
-            if (val) {
-              variantNameParts.push(val);
-              break;
-            }
-          }
-        }
-        
+        const variantNameParts = extractTiendanubeVariantValues(variant.values);
         const productName = extractTiendanubeName(product.name, 'Producto sin nombre');
         const finalName = variantNameParts.length > 0 ? `${productName} - ${variantNameParts.join(' / ')}` : productName;
 

@@ -1562,6 +1562,54 @@ window.isOrderItemEliminated = function(order, item) {
 };
 
 // Helper para obtener las notas del pedido desde cualquiera de sus plataformas (Shopify, WooCommerce, MeLi, etc.) o WMS
+// Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
+window.getValidShopifyNoteAttributesText = function(noteAttributes) {
+  if (!Array.isArray(noteAttributes) || noteAttributes.length === 0) return '';
+
+  const isMarketingOrTechnical = (name, val) => {
+    if (!name) return true;
+    const n = String(name).trim().toLowerCase();
+    const v = String(val == null ? '' : val).trim();
+    if (!v) return true;
+
+    // Prefijos típicos de tracking publicitario, píxeles, cookies, analítica y metadatos de pago
+    const ignoredPrefixes = [
+      'esc_', 'esc__', 'utm_', '_', 'fb', 'gclid', 'ttclid', 'msclkid',
+      'ga_', 'google_', 'meta_', 'tiktok_', 'session_', 'visitor_',
+      'payment_', 'additional_info_', 'bsure', 'cart_', 'checkout_',
+      'url_'
+    ];
+    if (ignoredPrefixes.some(p => n.startsWith(p))) return true;
+
+    // Nombres exactos de claves técnicas o de seguimiento
+    const exactIgnored = new Set([
+      'fbc', 'fbp', 'ttp', 'vid', 'country', 'locale', 'host', 'sh', 'sw',
+      'tracking', 'pixel', 'affiliate', 'referrer', 'landing_page',
+      'cart_token', 'checkout_token', 'device', 'platform', 'user_agent'
+    ]);
+    if (exactIgnored.has(n)) return true;
+
+    if (n.includes('tracking') || n.includes('pixel') || n.includes('campaign') || n.includes('analytics')) {
+      return true;
+    }
+
+    // Descartar si el valor es un JSON estructurado o una URL completa
+    if (v.startsWith('{') || v.startsWith('[') || v.startsWith('http://') || v.startsWith('https://')) {
+      return true;
+    }
+
+    // Descartar hashes o tokens alfanuméricos largos sin espacios (IDs de sesión, cookies)
+    if (v.length > 30 && !v.includes(' ') && /^[a-zA-Z0-9_.-]+$/.test(v)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const valid = noteAttributes.filter(a => !isMarketingOrTechnical(a?.name, a?.value));
+  return valid.map(a => `${a.name}: ${a.value}`).join(' | ').trim();
+};
+
 window.getOrderNoteText = function(order) {
   if (!order) return '';
   if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
@@ -1574,7 +1622,7 @@ window.getOrderNoteText = function(order) {
     if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
     if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
     if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
-      const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
+      const noteAttr = window.getValidShopifyNoteAttributesText(rawShopify.note_attributes);
       if (noteAttr) return noteAttr;
     }
   }
@@ -4534,6 +4582,8 @@ async function renderAdminOrders() {
             const rawStatus = statusText.toLowerCase().trim();
             if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
               gStatus = 'DEVOLUCIÓN';
+            } else if (rawStatus.includes('rechazado por courier')) {
+              gStatus = 'SIN MOVIMIENTO';
             } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
               gStatus = 'ALERTA';
             } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
@@ -4582,11 +4632,13 @@ async function renderAdminOrders() {
                   gStatus = 'DEVOLUCIÓN';
                 } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
                   gStatus = 'ENTREGADO';
-                } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+                } else if (rawStatus.includes('rechazado por courier')) {
+                  gStatus = 'SIN MOVIMIENTO';
+                } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
                   gStatus = 'ALERTA';
                 } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
                   gStatus = 'EN TRÁNSITO';
-                } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+                } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
                   gStatus = 'SIN MOVIMIENTO';
                 }
               }
@@ -4637,6 +4689,8 @@ async function renderAdminOrders() {
       const rawStatus = statusText.toLowerCase().trim();
       if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
         globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatus.includes('rechazado por courier')) {
+        globStatus = 'SIN MOVIMIENTO';
       } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
         globStatus = 'ALERTA';
       } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
@@ -4685,11 +4739,13 @@ async function renderAdminOrders() {
             globStatus = 'DEVOLUCIÓN';
           } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
             globStatus = 'ENTREGADO';
-          } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+          } else if (rawStatus.includes('rechazado por courier')) {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
             globStatus = 'ALERTA';
           } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
             globStatus = 'EN TRÁNSITO';
-          } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+          } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
@@ -6264,6 +6320,8 @@ window.applyWmsFiltersAndRender = function() {
         const rawStatusLower = statusText.toLowerCase().trim();
         if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
           globStatus = 'DEVOLUCIÓN';
+        } else if (rawStatusLower.includes('rechazado por courier')) {
+          globStatus = 'SIN MOVIMIENTO';
         } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
           globStatus = 'ENTREGADO';
         } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
@@ -6314,11 +6372,13 @@ window.applyWmsFiltersAndRender = function() {
               globStatus = 'DEVOLUCIÓN';
             } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
               globStatus = 'ENTREGADO';
-            } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
+            } else if (rawStatusLower.includes('rechazado por courier')) {
+              globStatus = 'SIN MOVIMIENTO';
+            } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || (rawStatusLower.includes('rechazad') && !rawStatusLower.includes('rechazado por courier'))) {
               globStatus = 'ALERTA';
             } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
               globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
+            } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad') || rawStatusLower.includes('rechazado por courier')) {
               globStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -6376,6 +6436,8 @@ window.applyWmsFiltersAndRender = function() {
       const rawStatusLower = statusText.toLowerCase().trim();
       if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
         globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatusLower.includes('rechazado por courier')) {
+        globStatus = 'SIN MOVIMIENTO';
       } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
         globStatus = 'ENTREGADO';
       } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
@@ -6426,11 +6488,13 @@ window.applyWmsFiltersAndRender = function() {
             globStatus = 'DEVOLUCIÓN';
           } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
             globStatus = 'ENTREGADO';
-          } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
+          } else if (rawStatusLower.includes('rechazado por courier')) {
+            globStatus = 'SIN MOVIMIENTO';
+          } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || (rawStatusLower.includes('rechazad') && !rawStatusLower.includes('rechazado por courier'))) {
             globStatus = 'ALERTA';
           } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
             globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
+          } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad') || rawStatusLower.includes('rechazado por courier')) {
             globStatus = 'SIN MOVIMIENTO';
           }
         }
@@ -8490,6 +8554,15 @@ window.applyBulkWmsStatus = async function() {
 
     if (!formValues) return;
 
+    Swal.fire({
+      title: 'Validando inventario y stock...',
+      html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Comprobando stock disponible para ${ids.length} pedido(s)...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
     let stockValidationPassed = false;
     let failedDetails = [];
     const failedOrders = new Set();
@@ -9015,6 +9088,7 @@ window.applyBulkWmsStatus = async function() {
 
       const valResult = await validateOrderStockForDispatch(selectedOrders);
       if (!valResult || !valResult.isValid) {
+        if (typeof Swal.close === 'function') Swal.close();
         applyWmsFiltersAndRender();
         return;
       }
@@ -9026,6 +9100,17 @@ window.applyBulkWmsStatus = async function() {
           failedCount: valResult.failedOrders.length
         };
       }
+
+      Swal.fire({
+        title: 'Despachando pedidos...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado y registrando despacho para ${idsToProcess.length} pedido(s)...</div>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
 
       try {
         const priorIds = valResult.ordersWithPriorMovement ? idsToProcess.filter(id => valResult.ordersWithPriorMovement.includes(id)) : [];
@@ -9120,7 +9205,17 @@ window.applyBulkWmsStatus = async function() {
         return;
       }
     } else {
-      if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
+      const confirmRes = await Swal.fire({
+        title: '¿Confirmar cambio de estado?',
+        html: `¿Estás seguro de que deseas actualizar el estado WMS de <strong>${ids.length} pedidos</strong> a "<strong>${newStatus}</strong>"?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, actualizar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#7117eb',
+        cancelButtonColor: '#64748b'
+      });
+      if (!confirmRes.isConfirmed) {
         return;
       }
     }
@@ -9129,6 +9224,15 @@ window.applyBulkWmsStatus = async function() {
       applyWmsFiltersAndRender();
       return;
     }
+
+    Swal.fire({
+      title: `Actualizando pedidos a "${newStatus}"...`,
+      html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Guardando cambios en ${idsToProcess.length} pedido(s)...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
 
     try {
       const updateData = { estado_wms: newStatus };
@@ -9189,7 +9293,13 @@ window.applyBulkWmsStatus = async function() {
           confirmButtonColor: '#7117eb'
         });
       } else {
-        alert(`Se actualizaron con éxito ${idsToProcess.length} pedidos a "${newStatus}".`);
+        Swal.fire({
+          icon: 'success',
+          title: '¡Estado Actualizado!',
+          text: `Se actualizaron con éxito ${idsToProcess.length} pedido(s) a "${newStatus}".`,
+          timer: 1600,
+          showConfirmButton: false
+        });
         window.wmsSelectedOrderIds.clear();
         const cbAll = document.getElementById('wms-select-all');
         if (cbAll) cbAll.checked = false;
@@ -9438,13 +9548,23 @@ window.showStockShortageSlidesModal = async function({
 }) {
   if (!failuresByOrder || failuresByOrder.length === 0) return { isConfirmed: false };
 
-  // Cargar tablas de stock por producto de forma asíncrona para todos los ítems de cada orden
+  // Cargar tablas de stock por producto de forma asíncrona y paralela para todos los ítems de cada orden
+  const breakdownPromises = [];
   for (const orderFail of failuresByOrder) {
     for (const item of (orderFail.items || [])) {
       if (!item.stockBreakdownHtml && item.productId) {
-        item.stockBreakdownHtml = await window.getFormattedStockByWarehouse(item.productId, item.warehouseId);
+        breakdownPromises.push(
+          window.getFormattedStockByWarehouse(item.productId, item.warehouseId).then(html => {
+            item.stockBreakdownHtml = html;
+          }).catch(e => {
+            console.warn('Error cargando desglose de stock para item:', item.sku, e);
+          })
+        );
       }
     }
+  }
+  if (breakdownPromises.length > 0) {
+    await Promise.all(breakdownPromises);
   }
 
   const totalSlides = failuresByOrder.length;
@@ -9594,7 +9714,12 @@ window.showStockShortageSlidesModal = async function({
     reverseButtons: true,
     didOpen: () => {
       // Reasignación masiva / individual listeners
-      document.getElementById('btn-reassign-shortage-failed')?.addEventListener('click', () => {
+      document.getElementById('btn-reassign-shortage-failed')?.addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Reasignando...`;
+        }
         const selectEl = document.getElementById('swal-shortage-reassign-select');
         const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
         const failedIds = failuresByOrder.map(f => f.order?.id || f.orderId).filter(Boolean);
@@ -9607,7 +9732,12 @@ window.showStockShortageSlidesModal = async function({
         Swal.close();
       });
 
-      document.getElementById('btn-reassign-shortage-all')?.addEventListener('click', () => {
+      document.getElementById('btn-reassign-shortage-all')?.addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Reasignando...`;
+        }
         const selectEl = document.getElementById('swal-shortage-reassign-select');
         const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
         const allIds = (allSelectedOrderIds && allSelectedOrderIds.length > 0)
@@ -9622,7 +9752,12 @@ window.showStockShortageSlidesModal = async function({
         Swal.close();
       });
 
-      document.getElementById('btn-reassign-shortage-current')?.addEventListener('click', () => {
+      document.getElementById('btn-reassign-shortage-current')?.addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Reasignando...`;
+        }
         const selectEl = document.getElementById('swal-shortage-reassign-select');
         const targetSucursal = selectEl ? selectEl.value : 'Sucursal La Reina';
         const curFail = failuresByOrder[currentIdx];
@@ -9955,11 +10090,14 @@ window.syncReverseLogisticsOnOrdersDispatched = async function(orderIds) {
 
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
 async function validateOrderStockForDispatch(ordersList) {
-  if (!ordersList || ordersList.length === 0) return true;
+  if (!ordersList || ordersList.length === 0) return { isValid: true, validOrders: [], failedOrders: [] };
 
-  const itemsToCheck = [];
-  const ordersToPrompt = [];
-  const ordersWithPriorMovement = new Set();
+  const allSelectedIds = ordersList.map(o => o.id);
+
+  while (true) {
+    const itemsToCheck = [];
+    const ordersToPrompt = [];
+    const ordersWithPriorMovement = new Set();
 
   for (const order of ordersList) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
@@ -9997,6 +10135,8 @@ async function validateOrderStockForDispatch(ordersList) {
   }
 
   if (ordersToPrompt.length > 0) {
+    if (typeof Swal.close === 'function') Swal.close();
+
     const orderNames = ordersToPrompt.map(o => o.external_order_number || o.id).join(', ');
     const { value: sucursal } = await Swal.fire({
       title: 'Seleccionar Sucursal de Despacho',
@@ -10007,10 +10147,15 @@ async function validateOrderStockForDispatch(ordersList) {
         'Sucursal La Reina': 'Sucursal La Reina',
         'Sucursal Recoleta': 'Sucursal Recoleta'
       },
+      inputValue: 'Sucursal Ñuñoa',
       inputPlaceholder: 'Selecciona una sucursal física',
       showCancelButton: true,
       confirmButtonText: 'Confirmar y Validar Stock',
+      confirmButtonColor: '#7117eb',
       cancelButtonText: 'Cancelar',
+      cancelButtonColor: '#6b7280',
+      allowOutsideClick: false,
+      allowEscapeKey: true,
       inputValidator: (value) => {
         if (!value) {
           return 'Debes seleccionar una sucursal física';
@@ -10019,8 +10164,20 @@ async function validateOrderStockForDispatch(ordersList) {
     });
 
     if (!sucursal) {
-      return false;
+      if (typeof Swal.close === 'function') Swal.close();
+      return { isValid: false, validOrders: [], failedOrders: [] };
     }
+
+    Swal.fire({
+      title: 'Asignando sucursal y validando stock...',
+      html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Asignando <strong>${sucursal}</strong> a ${ordersToPrompt.length} pedido(s) y consultando disponibilidad...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
 
     const promptWarehouseId = getWarehouseIdFromSucursal(sucursal);
     const promptOrderIds = ordersToPrompt.map(o => o.id);
@@ -10050,6 +10207,17 @@ async function validateOrderStockForDispatch(ordersList) {
       });
     });
 
+    if (Array.isArray(window.loadedOrders)) {
+      window.loadedOrders.forEach(o => {
+        if (promptOrderIds.includes(o.id)) {
+          o.sucursal_pickeo = sucursal;
+          (o.order_items || []).forEach(item => {
+            item.warehouse_id = promptWarehouseId;
+          });
+        }
+      });
+    }
+
     ordersToPrompt.forEach(order => {
       (order.order_items || []).forEach(item => {
         if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
@@ -10065,9 +10233,23 @@ async function validateOrderStockForDispatch(ordersList) {
         }
       });
     });
+  } else {
+    Swal.fire({
+      title: 'Validando inventario y stock...',
+      html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Verificando disponibilidad en bodega...</div>`,
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
   }
 
-  if (itemsToCheck.length === 0) return { isValid: true, validOrders: ordersList, failedOrders: [] };
+  if (itemsToCheck.length === 0) {
+    if (typeof Swal.close === 'function') Swal.close();
+    return { isValid: true, validOrders: ordersList, failedOrders: [] };
+  }
 
   const productIds = Array.from(new Set(itemsToCheck.map(i => i.productId)));
   const { data: invData, error: invErr } = await supabase
@@ -10138,8 +10320,64 @@ async function validateOrderStockForDispatch(ordersList) {
             : `No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico:`),
       failuresByOrder,
       validOrdersCount: validOrders.length,
-      actionButtonText: `<i class="ri-truck-line"></i> Despachar los ${validOrders.length} pedidos restantes`
+      actionButtonText: `<i class="ri-truck-line"></i> Despachar los ${validOrders.length} pedidos restantes`,
+      totalSelectedCount: ordersList.length,
+      allSelectedOrderIds: allSelectedIds,
+      allowReassignment: true
     });
+
+    if (swalRes && swalRes.isReassigned) {
+      Swal.fire({
+        title: 'Reasignando bodega de despacho...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Reasignando <strong>${swalRes.orderIds.length}</strong> pedido(s) a <strong>${swalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+
+      const newWarehouseId = getWarehouseIdFromSucursal(swalRes.targetSucursal);
+
+      // 1. Actualizar sucursal_pickeo en base de datos
+      const { error: ordErr } = await supabase
+        .from('orders')
+        .update({ sucursal_pickeo: swalRes.targetSucursal })
+        .in('id', swalRes.orderIds);
+      if (ordErr) console.error('[validateOrderStockForDispatch] Error actualizando sucursal_pickeo en orders:', ordErr);
+
+      // 2. Actualizar warehouse_id en order_items en base de datos
+      if (newWarehouseId) {
+        const { error: itemsErr } = await supabase
+          .from('order_items')
+          .update({ warehouse_id: newWarehouseId })
+          .in('order_id', swalRes.orderIds);
+        if (itemsErr) console.error('[validateOrderStockForDispatch] Error actualizando warehouse_id en order_items:', itemsErr);
+      }
+
+      // 3. Actualizar memoria local en ordersList y window.loadedOrders
+      const targetIdsSet = new Set(swalRes.orderIds);
+      ordersList.forEach(ord => {
+        if (targetIdsSet.has(ord.id)) {
+          ord.sucursal_pickeo = swalRes.targetSucursal;
+          if (newWarehouseId && Array.isArray(ord.order_items)) {
+            ord.order_items.forEach(it => { it.warehouse_id = newWarehouseId; });
+          }
+        }
+      });
+      if (Array.isArray(window.loadedOrders)) {
+        window.loadedOrders.forEach(ord => {
+          if (targetIdsSet.has(ord.id)) {
+            ord.sucursal_pickeo = swalRes.targetSucursal;
+            if (newWarehouseId && Array.isArray(ord.order_items)) {
+              ord.order_items.forEach(it => { it.warehouse_id = newWarehouseId; });
+            }
+          }
+        });
+      }
+
+      // Bucle revalidará stock con la nueva sucursal asignada
+      continue;
+    }
 
     if (validOrders.length > 0 && swalRes?.isConfirmed) {
       return {
@@ -10155,6 +10393,7 @@ async function validateOrderStockForDispatch(ordersList) {
   }
 
   return { isValid: true, proceedWithValidOnly: false, validOrders: ordersList, failedOrders: [], ordersWithPriorMovement: Array.from(ordersWithPriorMovement) };
+  }
 }
 
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
@@ -10732,9 +10971,21 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         const valRes = await validateOrderStockForDispatch([order]);
         if (!valRes || !valRes.isValid) {
+          if (typeof Swal.close === 'function') Swal.close();
           applyWmsFiltersAndRender();
           return;
         }
+
+        Swal.fire({
+          title: 'Despachando pedido...',
+          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Actualizando estado y registrando despacho para el pedido <strong>${order.external_order_number || order.id}</strong>...</div>`,
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showConfirmButton: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
 
         const updateData = { 
           estado_wms: 'Despachado', 
@@ -10799,9 +11050,28 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
             confirmButtonText: 'Entendido',
             confirmButtonColor: '#059669'
           });
+        } else {
+          Swal.fire({
+            icon: 'success',
+            title: '¡Pedido Despachado!',
+            text: `El pedido ${order.external_order_number || order.id} se ha marcado como Despachado con éxito.`,
+            timer: 1600,
+            showConfirmButton: false
+          });
         }
         return;
       }
+
+      Swal.fire({
+        title: `Actualizando a "${newWmsStatus}"...`,
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Guardando cambios en el pedido <strong>${order.external_order_number || order.id}</strong>...</div>`,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
 
       const updateData = { estado_wms: newWmsStatus };
       if (newWmsStatus === 'Cancelado') {
@@ -10827,9 +11097,17 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       delete order._wmsTags;
       
       applyWmsFiltersAndRender();
+
+      Swal.fire({
+        icon: 'success',
+        title: '¡Estado Actualizado!',
+        text: `El pedido ${order.external_order_number || order.id} se actualizó a "${newWmsStatus}".`,
+        timer: 1500,
+        showConfirmButton: false
+      });
     } catch (err) {
       console.error(err);
-      alert('Error al actualizar estado WMS: ' + err.message);
+      Swal.fire('Error', 'Error al actualizar estado WMS: ' + err.message, 'error');
     }
   }
 };
@@ -24777,7 +25055,9 @@ async function renderConsolidatedShipments() {
         
         let curGlobStatus = s.global_status;
         const stLower = (s.status || '').toLowerCase().trim();
-        if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
+        if (stLower.includes('rechazado por courier')) {
+          curGlobStatus = 'SIN MOVIMIENTO';
+        } else if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
           curGlobStatus = 'ALERTA';
         }
         if (curGlobStatus === 'DESPACHADO') {
@@ -25309,6 +25589,11 @@ async function renderConsolidatedShipments() {
             : s.source_table === 'bluex_envios' ? 'Blue Express' 
             : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
+          let curGlobStatus = s.global_status || '';
+          const stLower = (s.status || '').toLowerCase().trim();
+          if (stLower.includes('rechazado por courier')) {
+            curGlobStatus = 'SIN MOVIMIENTO';
+          }
           return [
             s.pedido_referencia || '',
             s.empresa_comercio_proveedor || '',
@@ -25318,7 +25603,7 @@ async function renderConsolidatedShipments() {
             s.nombre_destinatario || '',
             `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
             s.comuna_destino || '',
-            s.global_status || '',
+            curGlobStatus,
             s.status || '',
             dateStr
           ];
@@ -25442,8 +25727,11 @@ function showShipmentDetailsModal(shipment) {
   let step3Class = '';
   let progressBarWidth = '0%';
 
-  const gs = shipment.global_status;
+  let gs = shipment.global_status;
   const rawStatus = (shipment.status || '').toLowerCase();
+  if (rawStatus.includes('rechazado por courier')) {
+    gs = 'SIN MOVIMIENTO';
+  }
 
   const isDelivered = (gs === 'ENTREGADO') || (
     (gs === 'DESPACHADO' || !gs) && (
@@ -37582,10 +37870,62 @@ window.editDeclarationAdmin = async function(id) {
     window.renderAdminEditDeclarationProducts();
     window.recalculateAdminEditTotals();
 
-    // Precargar catálogo de productos del comercio para búsqueda
+    // Precargar catálogo de productos del comercio para búsqueda (filtrado a Catálogo Maestro)
     try {
-      const catProds = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
-      window.adminCatalogProductsCache = catProds || [];
+      let mainPlatform = '';
+      try {
+        const { data: integrations } = await supabase
+          .from('merchant_integrations')
+          .select('platform, is_active, is_main')
+          .eq('comercio', dec.comercio)
+          .eq('is_active', true);
+
+        const activeIntegrations = (integrations || []).filter(i => i.platform !== 'Optiroute');
+        const mainInt = activeIntegrations.find(i => i.is_main);
+        if (mainInt) {
+          mainPlatform = mainInt.platform;
+        } else if (activeIntegrations.length === 1) {
+          mainPlatform = activeIntegrations[0].platform;
+        }
+      } catch (e) {}
+
+      const catProds = await window.fetchAllSupabaseRows(
+        'products', 
+        'sku, name, volumen, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data', 
+        q => q.eq('comercio', dec.comercio).order('name')
+      );
+
+      const getProductPlatform = (p) => {
+        if (p.shopify_product_id || p.raw_shopify_data || (p.description && p.description.includes('Shopify'))) return 'Shopify';
+        if (p.meli_item_id || p.raw_meli_data || (p.description && p.description.includes('MercadoLibre')) || (p.sku && String(p.sku).toUpperCase().startsWith('MLC'))) return 'MercadoLibre';
+        if (p.raw_falabella_data || (p.description && p.description.includes('Falabella')) || (p.sku && String(p.sku).toUpperCase().startsWith('FAL-'))) return 'Falabella';
+        if (p.raw_paris_data || (p.description && p.description.includes('Paris'))) return 'Paris';
+        if (p.raw_ripley_data || (p.description && p.description.includes('Ripley'))) return 'Ripley';
+        if (p.woocommerce_product_id || p.raw_woocommerce_data || (p.description && p.description.includes('WooCommerce'))) return 'WooCommerce';
+        if (p.jumpseller_product_id || p.raw_jumpseller_data || (p.description && p.description.includes('Jumpseller'))) return 'Jumpseller';
+        if (p.tiendanube_product_id || p.raw_tiendanube_data || (p.description && p.description.includes('Tiendanube')) || (p.sku && String(p.sku).toUpperCase().startsWith('TN-'))) return 'Tiendanube';
+        if (p.raw_walmart_data || (p.description && p.description.includes('Walmart'))) return 'Walmart';
+        return 'Manual';
+      };
+
+      const filteredProds = (catProds || []).filter(p => {
+        const st = (p.status || '').toLowerCase().trim();
+        if (st === 'archived' || st === 'archivado') return false;
+        if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+        if (p.is_pack === true || p.is_pack === 1 || String(p.is_pack).toLowerCase() === 'true') return false;
+        if (mainPlatform) {
+          const plat = getProductPlatform(p);
+          if (plat.toLowerCase() === mainPlatform.toLowerCase() || plat === 'Manual') return true;
+          return false;
+        }
+        return true;
+      }).map(p => ({
+        ...p,
+        name: (p.name || '').replace(/\s*-\s*\[object\s+Object\]/gi, '').trim(),
+        platform_origin: getProductPlatform(p)
+      }));
+
+      window.adminCatalogProductsCache = filteredProds;
     } catch (e) {
       console.warn('Error loading catalog cache for admin edit:', e);
       window.adminCatalogProductsCache = [];
@@ -37617,6 +37957,23 @@ window.editDeclarationAdmin = async function(id) {
           html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias en catálogo</div>';
         } else {
           matches.forEach(p => {
+            const platName = p.platform_origin === 'Manual' ? 'WMS' : (p.platform_origin || 'WMS');
+            let platBg = 'rgba(37, 99, 235, 0.09)';
+            let platColor = '#2563eb';
+            let platBorder = 'rgba(37, 99, 235, 0.25)';
+            if (platName === 'Shopify') {
+              platBg = 'rgba(16, 124, 65, 0.09)'; platColor = '#0e703a'; platBorder = 'rgba(16, 124, 65, 0.25)';
+            } else if (platName === 'MercadoLibre') {
+              platBg = 'rgba(217, 119, 6, 0.09)'; platColor = '#b45309'; platBorder = 'rgba(217, 119, 6, 0.25)';
+            } else if (platName === 'WooCommerce') {
+              platBg = 'rgba(150, 88, 138, 0.09)'; platColor = '#86437b'; platBorder = 'rgba(150, 88, 138, 0.25)';
+            } else if (platName === 'Jumpseller') {
+              platBg = 'rgba(2, 132, 199, 0.09)'; platColor = '#0284c7'; platBorder = 'rgba(2, 132, 199, 0.25)';
+            } else if (platName === 'WMS') {
+              platBg = 'rgba(100, 116, 139, 0.09)'; platColor = '#475569'; platBorder = 'rgba(100, 116, 139, 0.25)';
+            }
+            const masterTagHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.68rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.75rem;"></i>${platName} (Catálogo Master)</span>`;
+
             html += `
               <div class="admin-edit-search-result-item" 
                    data-sku="${p.sku}" 
@@ -37624,11 +37981,14 @@ window.editDeclarationAdmin = async function(id) {
                    data-vol="${p.volumen || 0}" 
                    data-price="${p.price || 0}" 
                    data-barcode="${p.barcode || ''}"
-                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; transition: background-color 0.15s;"
                    onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                    onmouseout="this.style.backgroundColor='transparent'">
-                <strong style="color: var(--color-text-main);">${p.name}</strong>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                  <strong style="color: var(--color-text-main); font-size: 0.875rem;">${p.name}</strong>
+                  ${masterTagHtml}
+                </div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
               </div>
             `;
           });
@@ -55025,6 +55385,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
           const rawStatus = statusText.toLowerCase().trim();
           if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
             gStatus = 'DEVOLUCIÓN';
+          } else if (rawStatus.includes('rechazado por courier')) {
+            gStatus = 'SIN MOVIMIENTO';
           } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
             gStatus = 'ALERTA';
           } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
@@ -55071,13 +55433,15 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
             } else if (s.source_table === 'enviame_shipments') {
               if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
                 gStatus = 'DEVOLUCIÓN';
+              } else if (rawStatus.includes('rechazado por courier')) {
+                gStatus = 'SIN MOVIMIENTO';
               } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
                 gStatus = 'ENTREGADO';
-              } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+              } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
                 gStatus = 'ALERTA';
               } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
                 gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+              } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
                 gStatus = 'SIN MOVIMIENTO';
               }
             }
@@ -55166,6 +55530,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         const rawStatus = statusText.toLowerCase().trim();
         if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
           gStatus = 'DEVOLUCIÓN';
+        } else if (rawStatus.includes('rechazado por courier')) {
+          gStatus = 'SIN MOVIMIENTO';
         } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
           gStatus = 'ALERTA';
         } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
@@ -55212,13 +55578,15 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
           } else if (s.source_table === 'enviame_shipments') {
             if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
               gStatus = 'DEVOLUCIÓN';
+            } else if (rawStatus.includes('rechazado por courier')) {
+              gStatus = 'SIN MOVIMIENTO';
             } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
               gStatus = 'ENTREGADO';
-            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }

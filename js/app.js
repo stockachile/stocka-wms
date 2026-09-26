@@ -188,6 +188,54 @@ window.renderCopyFieldBtn = function(value, label, tooltip) {
   return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s;" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
+// Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
+window.getValidShopifyNoteAttributesText = function(noteAttributes) {
+  if (!Array.isArray(noteAttributes) || noteAttributes.length === 0) return '';
+
+  const isMarketingOrTechnical = (name, val) => {
+    if (!name) return true;
+    const n = String(name).trim().toLowerCase();
+    const v = String(val == null ? '' : val).trim();
+    if (!v) return true;
+
+    // Prefijos típicos de tracking publicitario, píxeles, cookies, analítica y metadatos de pago
+    const ignoredPrefixes = [
+      'esc_', 'esc__', 'utm_', '_', 'fb', 'gclid', 'ttclid', 'msclkid',
+      'ga_', 'google_', 'meta_', 'tiktok_', 'session_', 'visitor_',
+      'payment_', 'additional_info_', 'bsure', 'cart_', 'checkout_',
+      'url_'
+    ];
+    if (ignoredPrefixes.some(p => n.startsWith(p))) return true;
+
+    // Nombres exactos de claves técnicas o de seguimiento
+    const exactIgnored = new Set([
+      'fbc', 'fbp', 'ttp', 'vid', 'country', 'locale', 'host', 'sh', 'sw',
+      'tracking', 'pixel', 'affiliate', 'referrer', 'landing_page',
+      'cart_token', 'checkout_token', 'device', 'platform', 'user_agent'
+    ]);
+    if (exactIgnored.has(n)) return true;
+
+    if (n.includes('tracking') || n.includes('pixel') || n.includes('campaign') || n.includes('analytics')) {
+      return true;
+    }
+
+    // Descartar si el valor es un JSON estructurado o una URL completa
+    if (v.startsWith('{') || v.startsWith('[') || v.startsWith('http://') || v.startsWith('https://')) {
+      return true;
+    }
+
+    // Descartar hashes o tokens alfanuméricos largos sin espacios (IDs de sesión, cookies)
+    if (v.length > 30 && !v.includes(' ') && /^[a-zA-Z0-9_.-]+$/.test(v)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const valid = noteAttributes.filter(a => !isMarketingOrTechnical(a?.name, a?.value));
+  return valid.map(a => `${a.name}: ${a.value}`).join(' | ').trim();
+};
+
 window.getOrderNoteText = function(order) {
   if (!order) return '';
   if (typeof order.notas === 'string' && order.notas.trim()) return order.notas.trim();
@@ -200,7 +248,7 @@ window.getOrderNoteText = function(order) {
     if (typeof rawShopify.note === 'string' && rawShopify.note.trim()) return rawShopify.note.trim();
     if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
     if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
-      const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
+      const noteAttr = window.getValidShopifyNoteAttributesText(rawShopify.note_attributes);
       if (noteAttr) return noteAttr;
     }
   }
@@ -1059,6 +1107,9 @@ async function init() {
     }
 
     // Navigation Logic Setup
+    window.currentActiveView = 'dashboard';
+    window.activeViewRequestId = 0;
+
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -1074,6 +1125,14 @@ async function init() {
           targetItem.classList.add('active');
 
           const view = targetItem.getAttribute('data-view');
+          window.currentActiveView = view;
+          window.activeViewRequestId = (window.activeViewRequestId || 0) + 1;
+
+          // Limpiar inmediatamente cualquier loader o temporizador del dashboard
+          if (window.activeDashboardLoaderInterval) {
+            clearInterval(window.activeDashboardLoaderInterval);
+            window.activeDashboardLoaderInterval = null;
+          }
           
           if (view === 'dashboard') {
             viewTitle.textContent = 'Dashboard';
@@ -1215,6 +1274,7 @@ async function init() {
       if (isDefaultAllowed) {
         console.log('DEBUG: Renderizando vista inicial Dashboard...');
         viewTitle.textContent = 'Dashboard';
+        window.currentActiveView = 'dashboard';
         renderDashboard();
       } else {
         console.log('DEBUG: Vista de dashboard restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
@@ -1422,6 +1482,9 @@ window.toggleOnboardingCheckbox = async function(stepName, value) {
         .ilike('comercio', commerce.trim());
 
       if (error) throw error;
+      if (typeof window.clearDashboardCache === 'function') {
+        window.clearDashboardCache();
+      }
 
       // Actualizar el badge de forma interactiva en la UI
       const badge = document.getElementById(`onboarding-badge-${stepName}`);
@@ -1605,14 +1668,27 @@ window.dismissOnboardingChecklist = async function() {
 };
 
 async function renderDashboard() {
+  window.currentActiveView = 'dashboard';
+  const myRequestId = ++window.activeViewRequestId;
+  const isStillOnDashboard = () => window.currentActiveView === 'dashboard' && window.activeViewRequestId === myRequestId;
+
+  if (window.activeDashboardLoaderInterval) {
+    clearInterval(window.activeDashboardLoaderInterval);
+    window.activeDashboardLoaderInterval = null;
+  }
+
   const appContent = document.getElementById('app-content');
   const loaderInterval = window.startPremiumLoader('app-content', 'Inicializando Dashboard Logístico');
+  window.activeDashboardLoaderInterval = loaderInterval;
 
   if (userRole === 'observer') {
     if (loaderInterval) clearInterval(loaderInterval);
+    window.activeDashboardLoaderInterval = null;
+    if (!isStillOnDashboard()) return;
     appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando estado del onboarding...</p>';
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!isStillOnDashboard()) return;
       const userId = user ? user.id : null;
       if (!userId) throw new Error('No se pudo identificar el usuario actual.');
 
@@ -1623,6 +1699,7 @@ async function renderDashboard() {
         .maybeSingle();
 
       if (error) throw error;
+      if (!isStillOnDashboard()) return;
 
       if (request) {
         if (request.status === 'pending_contract') {
@@ -1634,6 +1711,7 @@ async function renderDashboard() {
         renderNoOnboardingState();
       }
     } catch (err) {
+      if (!isStillOnDashboard()) return;
       console.error('Error al cargar onboarding:', err);
       appContent.innerHTML = `
         <div class="alert alert-danger" style="margin: 2rem;">
@@ -1666,118 +1744,82 @@ async function renderDashboard() {
       shopifyPartnerPin = localStorage.getItem('shopify_partner_pin_' + targetCommerce) || '';
     }
 
-    if (targetCommerce && userRole !== 'observer') {
-      try {
-        const [cacRes, docRes, miRes] = await Promise.all([
-          supabase
-            .from('comercios_adicional_config')
+    const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company') + '_' + (targetCommerce || '');
+    const cached = window.getDashboardCache(cacheKey, 120000); // 2 min TTL
+
+    let dashboardData;
+    let isCached = false;
+    let cacheTimeStr = '';
+
+    if (cached && cached.data) {
+      isCached = true;
+      const ageSeconds = Math.round((Date.now() - cached.timestamp) / 1000);
+      cacheTimeStr = ageSeconds < 60 ? 'hace segundos' : `hace ${Math.round(ageSeconds/60)} min`;
+      dashboardData = cached.data;
+      if (loaderInterval) clearInterval(loaderInterval);
+      window.activeDashboardLoaderInterval = null;
+    } else {
+      const startOfMonth = new Date(window.appCalendarState?.currentDate?.getFullYear() || new Date().getFullYear(), window.appCalendarState?.currentDate?.getMonth() || new Date().getMonth(), 1).toISOString();
+
+      // 1. Configuración de Onboarding del comercio
+      const cacQuery = (targetCommerce && userRole !== 'observer')
+        ? supabase.from('comercios_adicional_config')
             .select('onboarding_checklist, enviame_id, shopify_partner_pin, inventario_seguimiento')
             .ilike('comercio', targetCommerce.trim())
             .maybeSingle()
-            .catch(err => { console.warn("Error fetching adicional config:", err); return { data: null }; }),
-          supabase
-            .from('service_docs')
+            .then(res => res, err => { console.warn("Error fetching adicional config:", err); return { data: null }; })
+        : Promise.resolve({ data: null });
+
+      // 2. Guía SKU
+      const docQuery = (targetCommerce && userRole !== 'observer')
+        ? supabase.from('service_docs')
             .select('file_url')
             .ilike('name', '%sku%')
             .limit(1)
             .maybeSingle()
-            .catch(err => { console.warn("Error fetching service doc:", err); return { data: null }; }),
-          supabase
-            .from('merchant_integrations')
+            .then(res => res, err => { console.warn("Error fetching service doc:", err); return { data: null }; })
+        : Promise.resolve({ data: null });
+
+      // 3. Integración para PIN de seguridad
+      const miQuery = (targetCommerce && userRole !== 'observer')
+        ? supabase.from('merchant_integrations')
             .select('partner_pin, security_pin')
             .ilike('comercio', targetCommerce.trim())
             .eq('platform', 'Shopify')
             .maybeSingle()
-            .catch(err => { console.warn("Error fetching merchant integration:", err); return { data: null }; })
-        ]);
-        
-        const cacData = cacRes?.data || null;
-        const rawEnviame = cacData?.enviame_id;
-        const hasValidEnviame = !!(rawEnviame && String(rawEnviame).trim() !== '' && String(rawEnviame).trim().toLowerCase() !== 'null');
+            .then(res => res, err => { console.warn("Error fetching merchant integration:", err); return { data: null }; })
+        : Promise.resolve({ data: null });
 
-        const isCatalogReady = !!(
-          (cacData?.onboarding_checklist && cacData.onboarding_checklist.catalog_ready === true) ||
-          cacData?.inventario_seguimiento === true
-        );
-
-        const isShippingConfigured = !!(
-          (cacData?.onboarding_checklist && cacData.onboarding_checklist.shipping_configured === true) ||
-          hasValidEnviame
-        );
-
-        if (cacData) {
-          if (cacData.onboarding_checklist) {
-            onboardingChecklist = { ...cacData.onboarding_checklist };
-          }
-          if (cacData.shopify_partner_pin) {
-            shopifyPartnerPin = cacData.shopify_partner_pin;
-          }
-        }
-        if (miRes && miRes.data && (miRes.data.partner_pin || miRes.data.security_pin)) {
-          shopifyPartnerPin = miRes.data.partner_pin || miRes.data.security_pin;
-        }
-        if (docRes && docRes.data && docRes.data.file_url) {
-          skuGuideUrl = docRes.data.file_url;
-        }
-
-        if (!onboardingChecklist) {
-          onboardingChecklist = {
-            enabled: (cacData?.onboarding_checklist?.enabled !== undefined) ? cacData.onboarding_checklist.enabled : false,
-            integrations: false,
-            shopify_pin: !!shopifyPartnerPin,
-            catalog_ready: isCatalogReady,
-            shipping_configured: isShippingConfigured,
-            sku_guide: false,
-            stock_declared: false
-          };
-        } else {
-          if (isCatalogReady) onboardingChecklist.catalog_ready = true;
-          if (isShippingConfigured) onboardingChecklist.shipping_configured = true;
-          if (shopifyPartnerPin) onboardingChecklist.shopify_pin = true;
-        }
-      } catch (err) {
-        console.warn("Error fetching onboarding checklist or SKU guide:", err);
+      // 4. Productos con inventario anidado (consulta indexada directa sin escaneo de tabla completa)
+      let prodsQuery = supabase
+        .from('products')
+        .select('id, sku, name, stock_critico, volumen, is_virtual, inventory(quantity, committed_quantity)');
+      if (companyList.length > 0) {
+        prodsQuery = prodsQuery.in('comercio', companyList);
+      } else {
+        prodsQuery = prodsQuery.eq('comercio', 'no asignado');
       }
-    }
-    const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company');
-    window.clearDashboardCache(cacheKey);
-    const cached = null;
+      prodsQuery = prodsQuery.limit(3000);
 
-    let results, news;
-    let isCached = false;
-    let cacheTimeStr = '';
-
-    if (cached) {
-      isCached = true;
-      const ageSeconds = Math.round((Date.now() - cached.timestamp) / 1000);
-      cacheTimeStr = ageSeconds < 60 ? 'hace segundos' : `hace ${Math.round(ageSeconds/60)} min`;
-      results = cached.data.results;
-      news = cached.data.news;
-      if (loaderInterval) clearInterval(loaderInterval);
-    } else {
-      let invPromise = window.fetchAllSupabaseRows(
-        'inventory',
-        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name, is_virtual)',
-        q => {
-          if (companyList.length > 0) {
-            return q.in('products.comercio', companyList);
-          } else {
-            return q.eq('products.comercio', 'no asignado');
-          }
-        }
-      ).then(data => ({ data })).catch(error => ({ error }));
-
+      // 5. Pedidos acotados (pedidos activos + últimos 60 días)
       let ordQuery = supabase.from('orders').select('id, status');
-      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
-      
       if (companyList.length > 0) {
         ordQuery = ordQuery.in('comercio', companyList);
-        intQuery = intQuery.in('comercio', companyList);
       } else {
         ordQuery = ordQuery.eq('comercio', 'no asignado');
+      }
+      const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+      ordQuery = ordQuery.or(`status.in.("en preparación","para procesar","preparado"),created_at.gte.${sixtyDaysAgo}`);
+
+      // 6. Integraciones activas
+      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
+      if (companyList.length > 0) {
+        intQuery = intQuery.in('comercio', companyList);
+      } else {
         intQuery = intQuery.eq('comercio', 'no asignado');
       }
 
+      // 7. Ingresos de stock declarados
       let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at');
       if (companyList.length > 0) {
         const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
@@ -1787,44 +1829,172 @@ async function renderDashboard() {
       }
       decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
 
-      const promises = [invPromise, ordQuery, intQuery, decQuery];
-      if (companyList.length > 0) {
-        promises.push(supabase.from('billing_periods').select('*').order('name', { ascending: false }));
-        promises.push(supabase.from('billing_mappings').select('comercio_nombre, billing_name'));
+      // 8. Periodos y mapeos de facturación
+      const periodsQuery = companyList.length > 0
+        ? supabase.from('billing_periods').select('*').order('name', { ascending: false })
+        : Promise.resolve({ data: [] });
+
+      const mappingsQuery = companyList.length > 0
+        ? supabase.from('billing_mappings').select('comercio_nombre, billing_name')
+        : Promise.resolve({ data: [] });
+
+      // 9. Noticias del dashboard
+      const newsQuery = supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+
+      // 10. Eventos de calendario del mes
+      const eventsQuery = supabase.from('dashboard_events').select('*').gte('event_date', startOfMonth).order('event_date', { ascending: true });
+
+      // Ejecución en paralelo de todas las consultas
+      const [
+        cacRes,
+        docRes,
+        miRes,
+        prodsRes,
+        ordRes,
+        intRes,
+        decRes,
+        periodsRes,
+        mappingsRes,
+        newsRes,
+        eventsRes
+      ] = await Promise.all([
+        cacQuery,
+        docQuery,
+        miQuery,
+        prodsQuery,
+        ordQuery,
+        intQuery,
+        decQuery,
+        periodsQuery,
+        mappingsQuery,
+        newsQuery,
+        eventsQuery
+      ]);
+
+      if (!isStillOnDashboard()) {
+        if (loaderInterval) clearInterval(loaderInterval);
+        window.activeDashboardLoaderInterval = null;
+        return;
       }
 
-      results = await Promise.all(promises);
-      const newsRes = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
-      news = newsRes.data || [];
+      // Consulta de facturación con nombres resueltos
+      let allBillingRecords = [];
+      if (companyList.length > 0) {
+        const mappings = mappingsRes?.data || [];
+        const uniqueBillingNames = new Set(companyList);
+        companyList.forEach(c => {
+          const matchedMapping = mappings.find(m => (m && m.comercio_nombre ? m.comercio_nombre.toLowerCase() : '') === (c ? c.toLowerCase() : ''));
+          const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+          uniqueBillingNames.add(nameToUse);
+        });
+        const resolvedCompanyList = Array.from(uniqueBillingNames);
 
-      window.setDashboardCache(cacheKey, {
-        results: results,
-        news: news
-      });
+        if (resolvedCompanyList.length > 0) {
+          const { data: billData } = await supabase
+            .from('billing_records')
+            .select('*')
+            .in('comercio', resolvedCompanyList);
+          allBillingRecords = billData || [];
+        }
+      }
+
+      if (!isStillOnDashboard()) {
+        if (loaderInterval) clearInterval(loaderInterval);
+        window.activeDashboardLoaderInterval = null;
+        return;
+      }
+
+      dashboardData = {
+        cacData: cacRes?.data || null,
+        docData: docRes?.data || null,
+        miData: miRes?.data || null,
+        prodsData: prodsRes?.data || [],
+        ordData: ordRes?.data || [],
+        intData: intRes?.data || [],
+        decData: decRes?.data || [],
+        periodsData: periodsRes?.data || [],
+        mappingsData: mappingsRes?.data || [],
+        billingRecords: allBillingRecords,
+        newsData: newsRes?.data || [],
+        eventsData: eventsRes?.data || []
+      };
+
+      window.setDashboardCache(cacheKey, dashboardData);
       if (loaderInterval) clearInterval(loaderInterval);
+      window.activeDashboardLoaderInterval = null;
     }
 
-    const invRes = results[0];
-    const ordRes = results[1];
-    const intRes = results[2];
-    const decRes = results[3];
+    const cacData = dashboardData.cacData;
+    const docData = dashboardData.docData;
+    const miData = dashboardData.miData;
+    const prodsData = dashboardData.prodsData || [];
+    const ordData = dashboardData.ordData || [];
+    const activeIntList = dashboardData.intData || [];
+    const recentDecs = dashboardData.decData || [];
+    const periods = dashboardData.periodsData || [];
+    const mappings = dashboardData.mappingsData || [];
+    const allRecords = dashboardData.billingRecords || [];
+    const news = dashboardData.newsData || [];
+    const events = dashboardData.eventsData || [];
+
+    const rawEnviame = cacData?.enviame_id;
+    const hasValidEnviame = !!(rawEnviame && String(rawEnviame).trim() !== '' && String(rawEnviame).trim().toLowerCase() !== 'null');
+
+    const isCatalogReady = !!(
+      (cacData?.onboarding_checklist && cacData.onboarding_checklist.catalog_ready === true) ||
+      cacData?.inventario_seguimiento === true
+    );
+
+    const isShippingConfigured = !!(
+      (cacData?.onboarding_checklist && cacData.onboarding_checklist.shipping_configured === true) ||
+      hasValidEnviame
+    );
+
+    if (cacData) {
+      if (cacData.onboarding_checklist) {
+        onboardingChecklist = { ...cacData.onboarding_checklist };
+      }
+      if (cacData.shopify_partner_pin) {
+        shopifyPartnerPin = cacData.shopify_partner_pin;
+      }
+    }
+    if (miData && (miData.partner_pin || miData.security_pin)) {
+      shopifyPartnerPin = miData.partner_pin || miData.security_pin;
+    }
+    if (docData && docData.file_url) {
+      skuGuideUrl = docData.file_url;
+    }
+
+    if (!onboardingChecklist) {
+      onboardingChecklist = {
+        enabled: (cacData?.onboarding_checklist?.enabled !== undefined) ? cacData.onboarding_checklist.enabled : false,
+        integrations: false,
+        shopify_pin: !!shopifyPartnerPin,
+        catalog_ready: isCatalogReady,
+        shipping_configured: isShippingConfigured,
+        sku_guide: false,
+        stock_declared: false
+      };
+    } else {
+      if (isCatalogReady) onboardingChecklist.catalog_ready = true;
+      if (isShippingConfigured) onboardingChecklist.shipping_configured = true;
+      if (shopifyPartnerPin) onboardingChecklist.shopify_pin = true;
+    }
 
     // Auto-completar paso 1 (integraciones) si existen integraciones activas en la base de datos
-    const activeInts = intRes?.data || [];
     let checklistNeedsSync = false;
-    if (activeInts.length > 0 && onboardingChecklist && !onboardingChecklist.integrations) {
+    if (activeIntList.length > 0 && onboardingChecklist && !onboardingChecklist.integrations) {
       onboardingChecklist.integrations = true;
       checklistNeedsSync = true;
     }
 
     // Auto-completar paso 5 (ingreso stock) si existen declaraciones de ingreso en la base de datos
-    const recentDecs = decRes?.data || [];
     if (recentDecs.length > 0 && onboardingChecklist && !onboardingChecklist.stock_declared) {
       onboardingChecklist.stock_declared = true;
       checklistNeedsSync = true;
     }
 
-    if (checklistNeedsSync && targetCommerce) {
+    if (checklistNeedsSync && targetCommerce && !isCached) {
       supabase
         .from('comercios_adicional_config')
         .update({ onboarding_checklist: onboardingChecklist })
@@ -1839,67 +2009,61 @@ async function renderDashboard() {
     const lowStockItems = [];
     const productVolumeMap = {};
 
-    if (invRes.data) {
-      // Agrupar y sumar stock por SKU (para no evaluar por bodega individual)
-      const aggregatedProducts = {};
-      
-      invRes.data.forEach(i => {
-        const prod = i.products;
-        if (!prod) return;
-        
-        const key = prod.sku || 'N/A';
-        
-        if (!aggregatedProducts[key]) {
-          aggregatedProducts[key] = {
-            sku: prod.sku || 'N/A',
-            name: prod.name || 'Sin Nombre',
-            stock_critico: prod.stock_critico || 0,
-            volumen: parseFloat(prod.volumen || 0),
-            is_virtual: !!prod.is_virtual,
-            quantity: 0,
-            committed_quantity: 0
-          };
-        }
-        
-        aggregatedProducts[key].quantity += (i.quantity || 0);
-        aggregatedProducts[key].committed_quantity += (i.committed_quantity || 0);
+    // Agrupar y sumar stock por SKU a partir de prodsData
+    const aggregatedProducts = {};
+    prodsData.forEach(p => {
+      const key = p.sku || 'N/A';
+      if (!aggregatedProducts[key]) {
+        aggregatedProducts[key] = {
+          sku: p.sku || 'N/A',
+          name: p.name || 'Sin Nombre',
+          stock_critico: p.stock_critico || 0,
+          volumen: parseFloat(p.volumen || 0),
+          is_virtual: !!p.is_virtual,
+          quantity: 0,
+          committed_quantity: 0
+        };
+      }
+      (p.inventory || []).forEach(inv => {
+        aggregatedProducts[key].quantity += (inv.quantity || 0);
+        aggregatedProducts[key].committed_quantity += (inv.committed_quantity || 0);
       });
+    });
 
-      // Procesar los productos agrupados para calcular las métricas globales
-      Object.values(aggregatedProducts).forEach(p => {
-        totalStock += p.quantity;
-        const available = p.quantity - p.committed_quantity;
-        availableStock += available;
-        totalVolume += p.quantity * p.volumen;
+    // Procesar los productos agrupados para calcular las métricas globales
+    Object.values(aggregatedProducts).forEach(p => {
+      totalStock += p.quantity;
+      const available = p.quantity - p.committed_quantity;
+      availableStock += available;
+      totalVolume += p.quantity * p.volumen;
 
-        if (p.is_virtual !== true) {
-          const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
-          const isInsufficient = p.committed_quantity > 0 && available <= 0;
-          if (isCritical || isInsufficient) {
-            lowStockCount++;
-            lowStockItems.push({
-              sku: p.sku,
-              name: p.name,
-              available: available,
-              critico: p.stock_critico
-            });
-          }
-        }
-
-        const totalVol = p.quantity * p.volumen;
-        if (!productVolumeMap[p.sku]) {
-          productVolumeMap[p.sku] = {
+      if (p.is_virtual !== true) {
+        const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
+        const isInsufficient = p.committed_quantity > 0 && available <= 0;
+        if (isCritical || isInsufficient) {
+          lowStockCount++;
+          lowStockItems.push({
             sku: p.sku,
             name: p.name,
-            quantity: 0,
-            volumenUnitario: p.volumen,
-            volumenTotal: 0
-          };
+            available: available,
+            critico: p.stock_critico
+          });
         }
-        productVolumeMap[p.sku].quantity += p.quantity;
-        productVolumeMap[p.sku].volumenTotal += totalVol;
-      });
-    }
+      }
+
+      const totalVol = p.quantity * p.volumen;
+      if (!productVolumeMap[p.sku]) {
+        productVolumeMap[p.sku] = {
+          sku: p.sku,
+          name: p.name,
+          quantity: 0,
+          volumenUnitario: p.volumen,
+          volumenTotal: 0
+        };
+      }
+      productVolumeMap[p.sku].quantity += p.quantity;
+      productVolumeMap[p.sku].volumenTotal += totalVol;
+    });
 
     const topVolumeProducts = Object.values(productVolumeMap)
       .sort((a, b) => b.volumenTotal - a.volumenTotal)
@@ -1907,12 +2071,10 @@ async function renderDashboard() {
 
     let activeOrders = 0;
     let completedOrders = 0;
-    if (ordRes.data) {
-      ordRes.data.forEach(o => {
-        if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
-        if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
-      });
-    }
+    ordData.forEach(o => {
+      if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
+      if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
+    });
 
     // Obtener Noticias (Noticias 2.0 / Mini Blog)
     let newsHtml = '';
@@ -1984,50 +2146,33 @@ async function renderDashboard() {
 
     if (companyList.length > 0) {
       billingEnabled = true;
-      const periods = (results.length > 4 && results[4]) ? results[4].data : [];
-      const mappings = (results.length > 5 && results[5]) ? results[5].data : [];
 
       if (periods && periods.length > 0) {
         activePeriod = periods.find(p => p.status === 'activo') || periods[0];
       }
 
-      const uniqueBillingNames = new Set();
-      companyList.forEach(c => {
-        const matchedMapping = mappings.find(m => (m && m.comercio_nombre ? m.comercio_nombre.toLowerCase() : '') === (c ? c.toLowerCase() : ''));
-        const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
-        uniqueBillingNames.add(nameToUse);
-      });
-      const resolvedCompanyList = Array.from(uniqueBillingNames);
+      if (allRecords && allRecords.length > 0) {
+        if (activePeriod) {
+          currentPeriodRecords = allRecords.filter(r => r.period_id === activePeriod.id);
+        }
 
-      if (resolvedCompanyList.length > 0) {
-        const { data: allRecords } = await supabase
-          .from('billing_records')
-          .select('*')
-          .in('comercio', resolvedCompanyList);
-
-        if (allRecords && allRecords.length > 0) {
-          if (activePeriod) {
-            currentPeriodRecords = allRecords.filter(r => r.period_id === activePeriod.id);
+        allRecords.forEach(r => {
+          const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+          const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+          
+          if (pendingFulf > 0) {
+            totalPendingAllPeriods += pendingFulf;
+            pendingFulfillmentAny = true;
+          }
+          if (pendingEnv > 0) {
+            totalPendingAllPeriods += pendingEnv;
+            pendingEnviameAny = true;
           }
 
-          allRecords.forEach(r => {
-            const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-            const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
-            
-            if (pendingFulf > 0) {
-              totalPendingAllPeriods += pendingFulf;
-              pendingFulfillmentAny = true;
-            }
-            if (pendingEnv > 0) {
-              totalPendingAllPeriods += pendingEnv;
-              pendingEnviameAny = true;
-            }
-
-            if (r.pago_fulfillment === 'Atrasado' || r.pago_enviame === 'Atrasado') {
-              hasOverduePayments = true;
-            }
-          });
-        }
+          if (r.pago_fulfillment === 'Atrasado' || r.pago_enviame === 'Atrasado') {
+            hasOverduePayments = true;
+          }
+        });
       }
 
       currentPeriodRecords.forEach(r => {
@@ -2306,7 +2451,6 @@ async function renderDashboard() {
     }
 
     let integrationsHtml = '';
-    const activeIntList = intRes.data || [];
     if (activeIntList.length === 0) {
       integrationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-links-off" style="margin-right: 0.5rem; font-size: 1.25rem; vertical-align: middle;"></i>No hay integraciones activas configuradas.</div>';
     } else {
@@ -2825,6 +2969,11 @@ async function renderDashboard() {
     }
 
     if (loaderInterval) clearInterval(loaderInterval);
+    window.activeDashboardLoaderInterval = null;
+    if (!isStillOnDashboard()) {
+      console.log('[Dashboard] Abortando render final: el usuario navegó a otra vista:', window.currentActiveView);
+      return;
+    }
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
@@ -3027,27 +3176,40 @@ async function renderDashboard() {
       window.updateOnboardingProgress();
     }
 
+    // Load dynamic calendar data (usando eventos precargados del lote paralelo)
+    if (isStillOnDashboard() && typeof window.updateCalendarView_app === 'function') {
+      window.updateCalendarView_app(events);
+    }
+
   } catch (error) {
     if (loaderInterval) clearInterval(loaderInterval);
+    window.activeDashboardLoaderInterval = null;
+    if (!isStillOnDashboard()) {
+      console.warn('[Dashboard] Error silenciado porque el usuario cambió de vista:', error);
+      return;
+    }
     console.error('Error rendering dashboard:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
   }
-
-  // Load dynamic calendar data
-  if (typeof window.updateCalendarView_app === 'function') {
-    window.updateCalendarView_app();
-  }
 }
 
-window.updateCalendarView_app = async function() {
-  const startOfMonth = new Date(window.appCalendarState.currentDate.getFullYear(), window.appCalendarState.currentDate.getMonth(), 1).toISOString();
-  
-  const { data: events } = await supabase
-    .from('dashboard_events')
-    .select('*')
-    .gte('event_date', startOfMonth)
-    .order('event_date', { ascending: true });
+window.updateCalendarView_app = async function(preloadedEvents) {
+  if (window.currentActiveView && window.currentActiveView !== 'dashboard') return;
+
+  let events = preloadedEvents;
+  if (!events) {
+    const startOfMonth = new Date(window.appCalendarState.currentDate.getFullYear(), window.appCalendarState.currentDate.getMonth(), 1).toISOString();
     
+    const { data } = await supabase
+      .from('dashboard_events')
+      .select('*')
+      .gte('event_date', startOfMonth)
+      .order('event_date', { ascending: true });
+    events = data;
+  }
+    
+  if (window.currentActiveView && window.currentActiveView !== 'dashboard') return;
+
   window.appCalendarState.events = events || [];
   
   const gridContainer = document.getElementById('calendar-grid-container');
@@ -7414,50 +7576,63 @@ async function renderWarehouses() {
 
 window.fetchInventoryForClientOrders = async function(orders) {
   window.clientOrdersInventoryMap = window.clientOrdersInventoryMap || {};
+  window.clientProductTotalStockMap = window.clientProductTotalStockMap || {};
+  window._clientFetchedProdIds = window._clientFetchedProdIds || new Set();
   if (!orders || orders.length === 0) return;
 
   const allProductIds = [];
   orders.forEach(o => {
     (o.order_items || []).forEach(oi => {
-      if (oi.product_id && !oi.products?.is_virtual) {
-        allProductIds.push(oi.product_id);
+      const pid = oi.product_id || oi.products?.id;
+      if (pid && !oi.products?.is_virtual) {
+        allProductIds.push(pid);
       }
     });
   });
 
-  const uniqueProductIds = [...new Set(allProductIds)].filter(id => {
-    return !Object.keys(window.clientOrdersInventoryMap).some(key => key.startsWith(id + '_'));
-  });
-
+  const uniqueProductIds = [...new Set(allProductIds)].filter(id => !window._clientFetchedProdIds.has(id));
   if (uniqueProductIds.length === 0) return;
 
   try {
-    const chunkSize = 50;
+    const chunkSize = 100;
+    const chunkPromises = [];
+
     for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
       const chunk = uniqueProductIds.slice(i, i + chunkSize);
-      const { data: invData, error: invErr } = await supabase
-        .from('inventory')
-        .select('product_id, warehouse_id, quantity')
-        .in('product_id', chunk);
+      chunk.forEach(id => window._clientFetchedProdIds.add(id));
 
-      if (invErr) {
-        console.error('Error fetching inventory chunk for client order stock check:', invErr);
-      } else {
-        const foundProdIds = new Set();
-        if (invData && invData.length > 0) {
-          invData.forEach(inv => {
-            window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
-            foundProdIds.add(inv.product_id);
-          });
-        }
-        // Marcar los productos que no tienen registro en inventory con 0 para evitar queries redundantes
-        chunk.forEach(pId => {
-          if (!foundProdIds.has(pId)) {
-            window.clientOrdersInventoryMap[`${pId}_untracked`] = 0;
-          }
-        });
-      }
+      chunkPromises.push(
+        supabase
+          .from('inventory')
+          .select('product_id, warehouse_id, quantity')
+          .in('product_id', chunk)
+          .then(({ data: invData, error: invErr }) => {
+            if (invErr) {
+              console.error('Error fetching inventory chunk for client order stock check:', invErr);
+              return;
+            }
+            const foundProdIds = new Set();
+            if (invData && invData.length > 0) {
+              invData.forEach(inv => {
+                const qty = Number(inv.quantity) || 0;
+                window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = qty;
+                window.clientProductTotalStockMap[inv.product_id] = (window.clientProductTotalStockMap[inv.product_id] || 0) + qty;
+                foundProdIds.add(inv.product_id);
+              });
+            }
+            chunk.forEach(pId => {
+              if (window.clientProductTotalStockMap[pId] === undefined) {
+                window.clientProductTotalStockMap[pId] = 0;
+              }
+              if (!foundProdIds.has(pId)) {
+                window.clientOrdersInventoryMap[`${pId}_untracked`] = 0;
+              }
+            });
+          })
+      );
     }
+
+    await Promise.all(chunkPromises);
   } catch (e) {
     console.error('Error fetching inventory for client order stock check:', e);
   }
@@ -7566,83 +7741,91 @@ window.fetchPickerOperators = async function(ordersList) {
 
     const allKeys = Array.from(allQueryKeysSet);
     const chunkSize = 200;
+    const chunkPromises = [];
 
     for (let i = 0; i < allKeys.length; i += chunkSize) {
       const chunk = allKeys.slice(i, i + chunkSize);
 
-      // 1. Consultar active_orders (pedidos en curso)
-      const { data: activeRows, error: activeErr } = await client
-        .from('active_orders')
-        .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
-        .in('order_number', chunk);
+      chunkPromises.push(
+        Promise.all([
+          client
+            .from('active_orders')
+            .select('order_number, operator, sheet_status, observation, sucursal, created_at, totu')
+            .in('order_number', chunk),
+          client
+            .from('history_logs')
+            .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
+            .in('pedido', chunk)
+            .order('created_at', { ascending: false })
+        ]).then(([activeRes, histRes]) => {
+          const { data: activeRows, error: activeErr } = activeRes;
+          if (!activeErr && activeRows) {
+            activeRows.forEach(row => {
+              const num = row.order_number;
+              if (!num) return;
+              const statusObj = {
+                status: row.sheet_status || 'EN PREPARACIÓN',
+                operator: row.operator || null,
+                observation: row.observation || null,
+                sucursal: row.sucursal || null,
+                totu: row.totu || null,
+                isActive: true,
+                isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
+                source: 'active_orders',
+                updatedAt: row.created_at || null
+              };
 
-      if (!activeErr && activeRows) {
-        activeRows.forEach(row => {
-          const num = row.order_number;
-          if (!num) return;
-          const statusObj = {
-            status: row.sheet_status || 'EN PREPARACIÓN',
-            operator: row.operator || null,
-            observation: row.observation || null,
-            sucursal: row.sucursal || null,
-            totu: row.totu || null,
-            isActive: true,
-            isCompleted: ['Completado', 'COMPLETADO', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(row.sheet_status),
-            source: 'active_orders',
-            updatedAt: row.created_at || null
-          };
-
-          window.normalizeOrderKeys(num).forEach(k => {
-            window.pickerStatusMap[k] = statusObj;
-            if (row.operator) window.pickerOperatorsMap[k] = row.operator;
-          });
-        });
-      }
-
-      // 2. Consultar history_logs (pedidos finalizados o eventos de escaneo)
-      const { data: historyRows, error: histErr } = await client
-        .from('history_logs')
-        .select('pedido, picker, estado, comentarios, sucursal, fecha, hora, created_at, items_summary')
-        .in('pedido', chunk)
-        .order('created_at', { ascending: false });
-
-      if (!histErr && historyRows) {
-        const seenInHistory = new Set();
-        historyRows.forEach(row => {
-          const ped = row.pedido;
-          if (!ped) return;
-          const pedNorm = String(ped).trim().toUpperCase();
-
-          if (row.picker && row.picker !== '-') {
-            window.normalizeOrderKeys(ped).forEach(k => {
-              window.pickerOperatorsMap[k] = row.picker;
+              window.normalizeOrderKeys(num).forEach(k => {
+                window.pickerStatusMap[k] = statusObj;
+                if (row.operator) window.pickerOperatorsMap[k] = row.operator;
+              });
             });
           }
 
-          if (!seenInHistory.has(pedNorm)) {
-            seenInHistory.add(pedNorm);
-            const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
-            const statusObj = {
-              status: row.estado || 'Completado',
-              operator: row.picker || null,
-              observation: row.comentarios || null,
-              sucursal: row.sucursal || null,
-              itemsSummary: row.items_summary || null,
-              isActive: false,
-              isCompleted: isComp,
-              source: 'history_logs',
-              updatedAt: row.created_at || `${row.fecha} ${row.hora}`
-            };
+          const { data: historyRows, error: histErr } = histRes;
+          if (!histErr && historyRows) {
+            const seenInHistory = new Set();
+            historyRows.forEach(row => {
+              const ped = row.pedido;
+              if (!ped) return;
+              const pedNorm = String(ped).trim().toUpperCase();
 
-            window.normalizeOrderKeys(ped).forEach(k => {
-              if (!window.pickerStatusMap[k] || isComp) {
-                window.pickerStatusMap[k] = statusObj;
+              if (row.picker && row.picker !== '-') {
+                window.normalizeOrderKeys(ped).forEach(k => {
+                  window.pickerOperatorsMap[k] = row.picker;
+                });
+              }
+
+              if (!seenInHistory.has(pedNorm)) {
+                seenInHistory.add(pedNorm);
+                const isComp = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'].includes(row.estado);
+                const statusObj = {
+                  status: row.estado || 'Completado',
+                  operator: row.picker || null,
+                  observation: row.comentarios || null,
+                  sucursal: row.sucursal || null,
+                  itemsSummary: row.items_summary || null,
+                  isActive: false,
+                  isCompleted: isComp,
+                  source: 'history_logs',
+                  updatedAt: row.created_at || `${row.fecha} ${row.hora}`
+                };
+
+                window.normalizeOrderKeys(ped).forEach(k => {
+                  if (!window.pickerStatusMap[k] || isComp) {
+                    window.pickerStatusMap[k] = statusObj;
+                  }
+                });
               }
             });
           }
-        });
-      }
+        }).catch(err => {
+          console.warn('[WMS Cliente] Error en chunk de Picker:', err);
+        })
+      );
     }
+
+    await Promise.all(chunkPromises);
   } catch (err) {
     console.warn('[WMS Cliente] Error sincronizando datos de Picker:', err);
   }
@@ -7896,8 +8079,10 @@ window.openPickerOrderHistoryModal = async function(orderId) {
 };
 
 // Helper para detectar packs de un pedido
+// Helper para detectar packs de un pedido con memoización
 window.getOrderPacksMap = function(order) {
   if (!order) return new Map();
+  if (order._packsMap) return order._packsMap;
   const packSkus = new Set(window.currentPackSkusList || []);
   const foundPacksMap = new Map();
 
@@ -7949,50 +8134,107 @@ window.getOrderPacksMap = function(order) {
   if (order.raw_ripley_data?.order_lines) checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
   if (order.raw_meli_data?.order_items) checkRawItems(order.raw_meli_data.order_items, 'meli');
 
+  order._packsMap = foundPacksMap;
   return foundPacksMap;
 };
 
-// Helper para obtener el estado del courier/despacho
+// Indexador O(1) de despachos para búsquedas instantáneas
+window._clientShipmentsVersion = 1;
+window._clientShipmentsIndex = null;
+
+window.buildClientShipmentsIndex = function(shipments) {
+  const index = new Map();
+  const addKey = (k, s) => {
+    if (!k) return;
+    const str = String(k).trim();
+    if (!str) return;
+    const upper = str.toUpperCase();
+    const clean = upper.replace(/^#/, '');
+    const alpha = upper.replace(/[^A-Z0-9]/g, '');
+
+    [upper, clean, alpha].forEach(keyVal => {
+      if (!keyVal) return;
+      if (!index.has(keyVal)) index.set(keyVal, []);
+      const arr = index.get(keyVal);
+      if (!arr.includes(s)) arr.push(s);
+    });
+  };
+
+  (shipments || []).forEach(s => {
+    const sCourierUpper = (s.courier || '').toUpperCase().trim();
+    if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
+        sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
+      return;
+    }
+    if (s.pedido_referencia) addKey(s.pedido_referencia, s);
+    if (s.tracking) addKey(s.tracking, s);
+    if (s.source_id) addKey(s.source_id, s);
+    if (s.id) {
+      addKey(s.id, s);
+      if (s.id.startsWith('lightdata_envios:')) {
+        addKey(s.id.replace('lightdata_envios:', ''), s);
+      }
+    }
+  });
+
+  window._clientShipmentsIndex = index;
+  window._clientShipmentsVersion = (window._clientShipmentsVersion || 0) + 1;
+  return index;
+};
+
+// Helper de alto rendimiento para obtener el estado del courier/despacho (con caché y mapa O(1))
 window.getClientOrderShipmentGlobalStatus = function(order) {
   if (!order) return null;
+  if (order._clientShipmentStatus && order._clientShipmentVersion === window._clientShipmentsVersion) {
+    return order._clientShipmentStatus;
+  }
+
   const shipments = window.clientLoadedShipments || [];
   const rawShopify = order.raw_shopify_data;
   const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
                      ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
 
-  let orderShipments = shipments.filter(s => {
-    const sCourierUpper = (s.courier || '').toUpperCase().trim();
-    if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
-        sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
-      return false;
+  const index = window._clientShipmentsIndex || window.buildClientShipmentsIndex(shipments);
+
+  const lookupKeys = new Set();
+  const addOrderKey = (k) => {
+    if (!k) return;
+    const str = String(k).trim().toUpperCase();
+    if (!str) return;
+    lookupKeys.add(str);
+    lookupKeys.add(str.replace(/^#/, ''));
+    const alpha = str.replace(/[^A-Z0-9]/g, '');
+    if (alpha) lookupKeys.add(alpha);
+  };
+
+  addOrderKey(order.id);
+  addOrderKey(order.external_order_number);
+  addOrderKey(order.tracking_number);
+  if (order.raw_lightdata_data) {
+    addOrderKey(order.raw_lightdata_data.id);
+    addOrderKey(order.raw_lightdata_data.did);
+    addOrderKey(order.raw_lightdata_data.tracking);
+  }
+
+  const seenCandidates = new Set();
+  const candidateShipments = [];
+  lookupKeys.forEach(k => {
+    const list = index.get(k);
+    if (list) {
+      list.forEach(s => {
+        if (!seenCandidates.has(s)) {
+          seenCandidates.add(s);
+          candidateShipments.push(s);
+        }
+      });
     }
+  });
 
-    const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
-    const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
-    const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
-    const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
+  const orderCommerce = (order.comercio || '').trim().toUpperCase();
+  const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
 
-    const alphaOrderExt = alpha(order.external_order_number);
-    const alphaOrderId = alpha(order.id);
-    const alphaOrderTrack = alpha(order.tracking_number);
-    const alphaShipRef = alpha(s.pedido_referencia);
-    const alphaShipTrack = alpha(s.tracking);
-    const alphaShipSourceId = alpha(s.source_id);
-    const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
-    const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
-
-    const refMatches = s.pedido_referencia === order.id || 
-                       (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                       (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
-                       (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
-                       (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
-                       (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
-                       (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
-                       (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
-    if (!refMatches) return false;
-
+  let orderShipments = candidateShipments.filter(s => {
     let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
-    const orderCommerce = (order.comercio || '').trim().toUpperCase();
     if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
     if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
     if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
@@ -8025,7 +8267,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
       source_table: 'lightdata_envios',
       source_id: String(ldRaw.id || order.tracking_number || ''),
       tracking: ldRaw.tracking || order.tracking_number || 'N/A',
-      tracking_url: ldRaw.tracking_url || order.tracking_url || null,
+      tracking_url: ldRaw.tracking_url || order.tracking_url || (order.raw_lightdata_data?.raw_data?.[31]) || null,
       courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
       status: statusText,
       global_status: globStatus,
@@ -8034,8 +8276,74 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     }];
   }
 
+  // Fallback para plataformas virtuales (MercadoLibre, Falabella, Paris, Ripley)
+  const isVirtualPlatform = order.origen === 'MercadoLibre' || 
+                            order.external_platform === 'MercadoLibre' || 
+                            order.origen === 'Falabella' || 
+                            order.external_platform === 'Falabella' ||
+                            order.origen === 'Paris' || 
+                            order.external_platform === 'Paris' ||
+                            order.origen === 'Ripley' || 
+                            order.external_platform === 'Ripley';
+
+  if (orderShipments.length === 0 && isVirtualPlatform) {
+    let globStatus = 'SIN MOVIMIENTO';
+    const wmsStatus = (order.status || '').toLowerCase().trim();
+    const channelStatus = (order.payment_status || '').toLowerCase().trim();
+    
+    const isShipped = wmsStatus === 'despachado' || 
+                      wmsStatus === 'entregado' || 
+                      wmsStatus === 'retirado' ||
+                      channelStatus === 'shipped' || 
+                      channelStatus === 'delivered' || 
+                      channelStatus === 'shipped_by_seller' || 
+                      channelStatus === 'received' || 
+                      channelStatus === 'closed';
+                      
+    const isAlert = wmsStatus === 'cancelado' || 
+                    wmsStatus === 'incidencia' || 
+                    channelStatus === 'cancelled' || 
+                    channelStatus === 'refunded' || 
+                    channelStatus === 'refused';
+    
+    const isDelivered = wmsStatus === 'entregado' || 
+                        channelStatus === 'delivered' || 
+                        channelStatus === 'received' || 
+                        channelStatus === 'closed';
+
+    if (isDelivered) {
+      globStatus = 'ENTREGADO';
+    } else if (isShipped) {
+      globStatus = 'EN TRÁNSITO';
+    } else if (isAlert) {
+      globStatus = 'ALERTA';
+    }
+
+    const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
+    const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
+    const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
+    const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
+    const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
+    
+    orderShipments = [{
+      id: `virtual:${order.id}`,
+      source_table: sourceTable,
+      source_id: order.id,
+      tracking: order.tracking_number || 'N/A',
+      tracking_url: order.tracking_url || 'N/A',
+      courier: order.courier || defaultCourier,
+      status: order.status,
+      global_status: globStatus,
+      created_at: order.created_at,
+      updated_at: order.created_at
+    }];
+  }
+
   if (orderShipments.length === 0) {
-    return isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
+    const res = isReturned ? { shipment: null, globStatus: 'DEVOLUCIÓN', isReturned: true, orderShipments: [] } : null;
+    order._clientShipmentStatus = res;
+    order._clientShipmentVersion = window._clientShipmentsVersion;
+    return res;
   }
 
   if (orderShipments.length > 1) {
@@ -8053,6 +8361,8 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
         const rawStatus = statusText.toLowerCase().trim();
         if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
           gStatus = 'DEVOLUCIÓN';
+        } else if (rawStatus.includes('rechazado por courier')) {
+          gStatus = 'SIN MOVIMIENTO';
         } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
           gStatus = 'ALERTA';
         } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
@@ -8099,13 +8409,15 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
           } else if (s.source_table === 'enviame_shipments') {
             if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
               gStatus = 'DEVOLUCIÓN';
+            } else if (rawStatus.includes('rechazado por courier')) {
+              gStatus = 'SIN MOVIMIENTO';
             } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
               gStatus = 'ENTREGADO';
-            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+            } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
               gStatus = 'ALERTA';
             } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
               gStatus = 'EN TRÁNSITO';
-            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+            } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
               gStatus = 'SIN MOVIMIENTO';
             }
           }
@@ -8153,6 +8465,8 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   const rawStatus = statusText.toLowerCase().trim();
   if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
     globStatus = 'DEVOLUCIÓN';
+  } else if (rawStatus.includes('rechazado por courier')) {
+    globStatus = 'SIN MOVIMIENTO';
   } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
     globStatus = 'ALERTA';
   } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
@@ -8199,13 +8513,15 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     } else if (shipment.source_table === 'enviame_shipments') {
       if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
         globStatus = 'DEVOLUCIÓN';
+      } else if (rawStatus.includes('rechazado por courier')) {
+        globStatus = 'SIN MOVIMIENTO';
       } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
         globStatus = 'ENTREGADO';
-      } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
+      } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || (rawStatus.includes('rechazad') && !rawStatus.includes('rechazado por courier'))) {
         globStatus = 'ALERTA';
       } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
         globStatus = 'EN TRÁNSITO';
-      } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
+      } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad') || rawStatus.includes('rechazado por courier')) {
         globStatus = 'SIN MOVIMIENTO';
       }
     }
@@ -8216,7 +8532,7 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   if (!globStatus) globStatus = 'SIN MOVIMIENTO';
   if (isReturned) globStatus = 'DEVOLUCIÓN';
 
-  return {
+  const res = {
     shipment,
     globStatus,
     rawStatus: statusText || shipment.status,
@@ -8225,6 +8541,9 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     isReturned,
     orderShipments
   };
+  order._clientShipmentStatus = res;
+  order._clientShipmentVersion = window._clientShipmentsVersion;
+  return res;
 };
 
 // Helper para obtener el método de envío original de la plataforma
@@ -8270,6 +8589,7 @@ window.getOrderNoteText = function(order) {
     order.comentarios ||
     order.observaciones ||
     rawShopify?.note ||
+    (rawShopify?.note_attributes && window.getValidShopifyNoteAttributesText ? window.getValidShopifyNoteAttributesText(rawShopify.note_attributes) : '') ||
     rawWoo?.customer_note ||
     rawParis?.customer_comments ||
     rawMeli?.comments ||
@@ -8290,7 +8610,8 @@ window.checkClientOrderStockAlert = function(order) {
 
   // 2. Pedidos terminales o despachados no alertan
   const isOrderTerminalOrShipped = ['despachado', 'entregado', 'retirado'].includes(statusLower) || 
-    ['despachado', 'cancelado', 'archivado'].includes(wmsLower);
+    ['despachado', 'cancelado', 'archivado'].includes(wmsLower) ||
+    !!order.stock_descontado;
   if (isOrderTerminalOrShipped) {
     return { hasStockAlert: false, stockAlertDetails: [] };
   }
@@ -8332,38 +8653,42 @@ window.checkClientOrderStockAlert = function(order) {
     if (!prodId) return;
 
     const reqQty = Number(item.quantity) || 1;
-    const whId = item.warehouse_id || '';
 
-    // Stock consolidado en todas las bodegas
+    // Stock consolidado en todas las bodegas de Stocka
     let totalAvailable = 0;
-    Object.keys(invMap).forEach(key => {
-      if (key.startsWith(prodId + '_')) {
-        totalAvailable += (invMap[key] || 0);
+    if (window.clientProductTotalStockMap && window.clientProductTotalStockMap[prodId] !== undefined) {
+      totalAvailable = window.clientProductTotalStockMap[prodId];
+    } else {
+      Object.keys(invMap).forEach(key => {
+        if (key.startsWith(prodId + '_')) {
+          totalAvailable += (invMap[key] || 0);
+        }
+      });
+      if (window.clientProductTotalStockMap) {
+        window.clientProductTotalStockMap[prodId] = totalAvailable;
       }
-    });
+    }
 
-    // Stock de la bodega asignada al item (si tiene bodega asignada)
-    const specificAvailable = (whId && invMap[`${prodId}_${whId}`] !== undefined)
-      ? invMap[`${prodId}_${whId}`]
-      : null;
-
-    const available = specificAvailable !== null ? specificAvailable : totalAvailable;
-
-    // Si no hay suficiente en la bodega asignada o en el total
-    if (available < reqQty || totalAvailable < reqQty) {
+    // En el portal de clientes, un pedido solo alerta "Sin Stock" si el stock consolidado total en WMS es menor a la cantidad requerida
+    if (totalAvailable < reqQty) {
       hasStockAlert = true;
-      const dispShow = available;
-      const faltan = reqQty - dispShow;
-      stockAlertDetails.push(`${item.products?.sku || item.products?.name || 'Sin SKU'} (Faltan ${faltan > 0 ? faltan : 1} un. / disp. ${dispShow})`);
+      const faltan = reqQty - totalAvailable;
+      stockAlertDetails.push(`${item.products?.sku || item.products?.name || 'Sin SKU'} (Faltan ${faltan > 0 ? faltan : 1} un. / disp. ${totalAvailable})`);
     }
   });
 
   return { hasStockAlert, stockAlertDetails };
 };
 
-// Helper para obtener TODAS las etiquetas asociadas a un pedido (sin emojis)
+// Control de versión para invalidación instantánea de caché de etiquetas
+window._clientTagsVersion = 1;
+
+// Helper de alto rendimiento para obtener TODAS las etiquetas asociadas a un pedido (con memoización)
 window.getClientOrderTags = function(order) {
   if (!order) return [];
+  if (order._clientTags && order._clientTagsVersion === window._clientTagsVersion) {
+    return order._clientTags;
+  }
   const tags = new Set();
 
   // 1. Categoría de Entrega (Distribución vs Retiro)
@@ -8475,38 +8800,52 @@ window.getClientOrderTags = function(order) {
     (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => tags.add(t));
   }
 
-  return Array.from(tags);
+  const result = Array.from(tags);
+  order._clientTags = result;
+  order._clientTagsVersion = window._clientTagsVersion;
+  return result;
 };
 
-// Actualizar las opciones del filtro de etiquetas con conteos dinámicos
-window.updateClientOrderTagFilterOptions = function(customOrdersList) {
+// Actualizar las opciones del filtro de etiquetas con conteos dinámicos y sin duplicados
+window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
   const select = document.getElementById('filter-client-order-tag');
   if (!select) return;
 
-  const orders = customOrdersList || window.clientLoadedOrders || [];
-  const currentVal = select.value;
+  let totalCount = 0;
+  let tagCounts = new Map();
+  let currentVal = select.value;
 
-  const tagCounts = new Map();
-  orders.forEach(order => {
-    const tags = window.getClientOrderTags(order);
-    tags.forEach(tag => {
-      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+  if (typeof arg1 === 'number' && arg2 instanceof Map) {
+    totalCount = arg1;
+    tagCounts = arg2;
+    if (arg3 !== undefined) currentVal = arg3;
+  } else {
+    const orders = Array.isArray(arg1) ? arg1 : (window.clientLoadedOrders || []);
+    totalCount = orders.length;
+    orders.forEach(order => {
+      const tags = window.getClientOrderTags(order);
+      tags.forEach(tag => {
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+      });
     });
-  });
+  }
 
+  // 1. Etiquetas del Pedido (atributos del pedido, sin duplicar categorías de entrega)
   const orderPillTags = [
-    { key: 'DISTRIBUCIÓN', label: 'Distribución' },
-    { key: 'RETIRO', label: 'Retiro' },
-    { key: 'Exportado', label: 'Exportado a Shopify' },
     { key: 'Con Packs', label: 'Con Packs' },
-    { key: 'Etiqueta', label: 'Etiqueta Generada' }
+    { key: 'Etiqueta', label: 'Etiqueta Generada' },
+    { key: 'Exportado', label: 'Exportado' },
+    { key: 'CON NOTA', label: 'Con Nota' },
+    { key: 'SIN STOCK', label: 'Sin Stock' }
   ];
 
+  // 2. Categoría de Entrega
   const deliveryTags = [
     { key: 'DISTRIBUCIÓN', label: 'Distribución' },
     { key: 'RETIRO', label: 'Retiro en Tienda' }
   ];
 
+  // 3. Despacho Courier
   const courierTags = [
     { key: 'EN TRÁNSITO', label: 'En Tránsito' },
     { key: 'ENTREGADO', label: 'Entregado' },
@@ -8516,6 +8855,7 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
     { key: 'DESPACHADO', label: 'Despachado' }
   ];
 
+  // 4. Estado Picker
   const pickerTags = [
     { key: 'Picker: Completado', label: 'Picker: Completado' },
     { key: 'Picker: Listo para Retiro', label: 'Picker: Listo para Retiro' },
@@ -8527,6 +8867,7 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
     { key: 'Picker: Sin registro', label: 'Picker: Sin registro activo' }
   ];
 
+  // 5. Estado de Pago
   const paymentTags = [
     { key: 'PAGADO', label: 'Pagado' },
     { key: 'PAGO PENDIENTE', label: 'Pago Pendiente' },
@@ -8534,9 +8875,8 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
     { key: 'REEMBOLSADO', label: 'Reembolsado' }
   ];
 
-  const otherKnownTags = [
-    { key: 'CON NOTA', label: 'Con Nota' },
-    { key: 'SIN STOCK', label: 'Sin Stock' },
+  // 6. Plataforma / Integración
+  const platformTags = [
     { key: 'FULFILLED', label: 'Shopify Fulfilled' },
     { key: 'FULFILL. PARCIAL', label: 'Shopify Fulfillment Parcial' },
     { key: 'RESTOCKED', label: 'Shopify Restocked' },
@@ -8549,7 +8889,7 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
     ...courierTags.map(t => t.key),
     ...pickerTags.map(t => t.key),
     ...paymentTags.map(t => t.key),
-    ...otherKnownTags.map(t => t.key)
+    ...platformTags.map(t => t.key)
   ]);
 
   const customPlatformTags = [];
@@ -8569,20 +8909,22 @@ window.updateClientOrderTagFilterOptions = function(customOrdersList) {
     return `<optgroup label="${label}">${options}</optgroup>`;
   };
 
-  let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+  let html = `<option value="">Todas las etiquetas (${totalCount})</option>`;
   html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
   html += buildOptgroup('Categoría de Entrega', deliveryTags);
   html += buildOptgroup('Despacho Courier', courierTags);
   html += buildOptgroup('Estado Picker', pickerTags);
   html += buildOptgroup('Estado de Pago', paymentTags);
-  html += buildOptgroup('Otros Estados', otherKnownTags);
+  html += buildOptgroup('Plataforma / Integración', platformTags);
   if (customPlatformTags.length > 0) {
     html += buildOptgroup('Tags de Tienda / Plataforma', customPlatformTags);
   }
 
   select.innerHTML = html;
-  if (currentVal) {
+  if (currentVal && (tagCounts.get(currentVal) || 0) > 0) {
     select.value = currentVal;
+  } else {
+    select.value = '';
   }
 };
 
@@ -8623,6 +8965,8 @@ window.filterByOrderTag = window.filterByOrderTag || window.filterByClientOrderT
 
 async function renderOrders() {
   window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
+  window.clientProductTotalStockMap = {};
+  window._clientFetchedProdIds = new Set();
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
@@ -8675,24 +9019,57 @@ async function renderOrders() {
       : [];
     const showCommerceFilter = userCommerces.length > 1;
 
-    // Cargar todos los packs del comercio para trazabilidad de pedidos
+    // 1. Disparar en paralelo: packs, pedidos del mes, configuraciones adicionales y bodegas
     let packSkusList = [];
-    try {
-      let packsQuery = supabase
-        .from('products')
-        .select('sku')
-        .eq('is_pack', true);
-      if (companyList.length > 0) {
-        packsQuery = packsQuery.in('comercio', companyList);
+    let commerceConfigMap = {};
+
+    const packsPromise = (async () => {
+      try {
+        let packsQuery = supabase
+          .from('products')
+          .select('sku')
+          .eq('is_pack', true);
+        if (companyList.length > 0) {
+          packsQuery = packsQuery.in('comercio', companyList);
+        }
+        const { data: packsData } = await packsQuery;
+        if (packsData) {
+          packSkusList = packsData.map(p => p.sku.toLowerCase());
+        }
+      } catch (e) {
+        console.error('Error fetching pack SKUs:', e);
       }
-      const { data: packsData } = await packsQuery;
-      if (packsData) {
-        packSkusList = packsData.map(p => p.sku.toLowerCase());
+      window.currentPackSkusList = packSkusList;
+    })();
+
+    const configPromise = (async () => {
+      try {
+        const { data: configData } = await supabase
+          .from('comercios_adicional_config')
+          .select('comercio, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
+        if (configData) {
+          configData.forEach(cfg => {
+            commerceConfigMap[cfg.comercio] = cfg;
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching commerce configs for client stock tracking check:', e);
       }
-    } catch (e) {
-      console.error('Error fetching pack SKUs:', e);
-    }
-    window.currentPackSkusList = packSkusList;
+      window.clientCommerceConfigsMap = commerceConfigMap;
+    })();
+
+    const warehousesPromise = (async () => {
+      try {
+        if (!window.allWarehousesList || window.allWarehousesList.length === 0) {
+          const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
+          if (whList) {
+            window.allWarehousesList = whList;
+          }
+        }
+      } catch (e) {
+        console.warn('Error fetching warehouses for client:', e);
+      }
+    })();
 
     const selectStr = `
       id,
@@ -8739,7 +9116,7 @@ async function renderOrders() {
       order_items (quantity, product_id, warehouse_id, tag, is_gift, campaign_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `;
 
-    const orders = await window.fetchAllSupabaseRows('orders', selectStr, q => {
+    const ordersPromise = window.fetchAllSupabaseRows('orders', selectStr, q => {
       q = q.gte('created_at', startOfMonth);
       if (companyList.length > 0) {
         if (currentMerchantId) {
@@ -8756,84 +9133,57 @@ async function renderOrders() {
       return q.order('created_at', { ascending: false });
     });
 
+    const [,,, orders] = await Promise.all([packsPromise, configPromise, warehousesPromise, ordersPromise]);
     window.clientLoadedOrders = orders || [];
+    window._clientTagsVersion = (window._clientTagsVersion || 0) + 1;
 
-    if (window.fetchPickerOperators) {
-      await window.fetchPickerOperators(window.clientLoadedOrders);
-    }
-
-    // Cargar configuraciones adicionales de los comercios para el cliente
-    let commerceConfigMap = {};
-    try {
-      const { data: configData } = await supabase
-        .from('comercios_adicional_config')
-        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos, default_warehouse_id');
-      if (configData) {
-        configData.forEach(cfg => {
-          commerceConfigMap[cfg.comercio] = cfg;
-        });
+    // 2. Extraer referencias de pedidos para despachos unificados
+    const allRefsSet = new Set();
+    (orders || []).forEach(o => {
+      if (o.external_order_number) {
+        const ext = String(o.external_order_number).trim();
+        allRefsSet.add(ext);
+        allRefsSet.add(ext.replace(/#/g, '').trim());
+        const cleanAlpha = ext.replace(/[^a-zA-Z0-9]/g, '').trim();
+        if (cleanAlpha) allRefsSet.add(cleanAlpha);
       }
-    } catch (e) {
-      console.error('Error fetching commerce configs for client stock tracking check:', e);
-    }
-    window.clientCommerceConfigsMap = commerceConfigMap;
-
-    try {
-      if (!window.allWarehousesList || window.allWarehousesList.length === 0) {
-        const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
-        if (whList) {
-          window.allWarehousesList = whList;
+      if (o.id) {
+        const idStr = String(o.id).trim();
+        allRefsSet.add(idStr);
+        allRefsSet.add(idStr.replace(/#/g, '').trim());
+      }
+      if (o.tracking_number) {
+        const trk = String(o.tracking_number).trim();
+        allRefsSet.add(trk);
+        allRefsSet.add(trk.replace(/#/g, '').trim());
+        const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
+        if (cleanTrk) allRefsSet.add(cleanTrk);
+      }
+      if (o.raw_lightdata_data) {
+        const ld = o.raw_lightdata_data;
+        if (ld.id) allRefsSet.add(String(ld.id).trim());
+        if (ld.did) allRefsSet.add(String(ld.did).trim());
+        if (ld.tracking) {
+          allRefsSet.add(String(ld.tracking).trim());
+          allRefsSet.add(String(ld.tracking).replace(/#/g, '').trim());
         }
       }
-    } catch (e) {
-      console.warn('Error fetching warehouses for client:', e);
+    });
+    const allRefs = Array.from(allRefsSet).filter(Boolean);
+
+    // 3. Ejecutar en paralelo enriquecimientos: Picker, Inventario y Despachos
+    const [,, shipments] = await Promise.all([
+      window.fetchPickerOperators ? window.fetchPickerOperators(window.clientLoadedOrders) : Promise.resolve(),
+      window.fetchInventoryForClientOrders ? window.fetchInventoryForClientOrders(window.clientLoadedOrders) : Promise.resolve(),
+      allRefs.length > 0 ? fetchEnviosUnificadosByRefs(allRefs) : Promise.resolve([])
+    ]);
+
+    window.clientLoadedShipments = shipments || [];
+    if (window.buildClientShipmentsIndex) {
+      window.buildClientShipmentsIndex(window.clientLoadedShipments);
     }
 
-    if (window.fetchInventoryForClientOrders) {
-      await window.fetchInventoryForClientOrders(window.clientLoadedOrders);
-    }
-
-    // Obtener los despachos correspondientes de la tabla envios_unificados
-    let shipments = [];
-    if (orders && orders.length > 0) {
-      const allRefsSet = new Set();
-      orders.forEach(o => {
-        if (o.external_order_number) {
-          const ext = String(o.external_order_number).trim();
-          allRefsSet.add(ext);
-          allRefsSet.add(ext.replace(/#/g, '').trim());
-          const cleanAlpha = ext.replace(/[^a-zA-Z0-9]/g, '').trim();
-          if (cleanAlpha) allRefsSet.add(cleanAlpha);
-        }
-        if (o.id) {
-          const idStr = String(o.id).trim();
-          allRefsSet.add(idStr);
-          allRefsSet.add(idStr.replace(/#/g, '').trim());
-        }
-        if (o.tracking_number) {
-          const trk = String(o.tracking_number).trim();
-          allRefsSet.add(trk);
-          allRefsSet.add(trk.replace(/#/g, '').trim());
-          const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
-          if (cleanTrk) allRefsSet.add(cleanTrk);
-        }
-        if (o.raw_lightdata_data) {
-          const ld = o.raw_lightdata_data;
-          if (ld.id) allRefsSet.add(String(ld.id).trim());
-          if (ld.did) allRefsSet.add(String(ld.did).trim());
-          if (ld.tracking) {
-            allRefsSet.add(String(ld.tracking).trim());
-            allRefsSet.add(String(ld.tracking).replace(/#/g, '').trim());
-          }
-        }
-      });
-      const allRefs = Array.from(allRefsSet).filter(Boolean);
-
-      shipments = await fetchEnviosUnificadosByRefs(allRefs);
-    }
-    window.clientLoadedShipments = shipments;
-
-    // Cargar historial en segundo plano
+    // 4. Cargar historial en segundo plano
     (async () => {
       try {
         let histQuery = supabase
@@ -8903,13 +9253,7 @@ async function renderOrders() {
         if (histError) throw histError;
 
         if (histOrders && histOrders.length > 0) {
-          window.clientLoadedOrders = [...(window.clientLoadedOrders || []), ...histOrders];
-
-          if (window.fetchInventoryForClientOrders) {
-            await window.fetchInventoryForClientOrders(histOrders);
-          }
-
-          // Cargar despachos del historial
+          // Extraer referencias del historial
           const allHistRefsSet = new Set();
           histOrders.forEach(o => {
             if (o.external_order_number) {
@@ -8941,19 +9285,25 @@ async function renderOrders() {
               }
             }
           });
-          const allRefs = Array.from(allHistRefsSet).filter(Boolean);
+          const allHistRefs = Array.from(allHistRefsSet).filter(Boolean);
 
-          const shipData = await fetchEnviosUnificadosByRefs(allRefs);
+          // Ejecutar en paralelo enriquecimientos del historial
+          const [,, shipData] = await Promise.all([
+            window.fetchInventoryForClientOrders ? window.fetchInventoryForClientOrders(histOrders) : Promise.resolve(),
+            window.fetchPickerOperators ? window.fetchPickerOperators(histOrders) : Promise.resolve(),
+            allHistRefs.length > 0 ? fetchEnviosUnificadosByRefs(allHistRefs) : Promise.resolve([])
+          ]);
+
           if (shipData && shipData.length > 0) {
             window.clientLoadedShipments = [...(window.clientLoadedShipments || []), ...shipData];
+            if (window.buildClientShipmentsIndex) {
+              window.buildClientShipmentsIndex(window.clientLoadedShipments);
+            }
           }
 
-          if (window.fetchPickerOperators) {
-            await window.fetchPickerOperators(histOrders);
-          }
-          if (window.updateClientOrderTagFilterOptions) {
-            window.updateClientOrderTagFilterOptions();
-          }
+          window.clientLoadedOrders = [...(window.clientLoadedOrders || []), ...histOrders];
+          window._clientTagsVersion = (window._clientTagsVersion || 0) + 1;
+          window._clientShipmentsVersion = (window._clientShipmentsVersion || 0) + 1;
 
           applyClientWmsFiltersAndRender();
           console.log(`[WMS Cliente] Cargados ${histOrders.length} pedidos históricos en segundo plano.`);
@@ -9151,7 +9501,15 @@ async function renderOrders() {
       applyClientWmsFiltersAndRender();
     };
 
-    if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
+    let searchDebounceTimer = null;
+    const debouncedFilterUpdate = () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        triggerFilterUpdate();
+      }, 250);
+    };
+
+    if (searchInput) searchInput.addEventListener('input', debouncedFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (commerceSelect) commerceSelect.addEventListener('change', triggerFilterUpdate);
@@ -9159,10 +9517,6 @@ async function renderOrders() {
     if (dateFromInput) dateFromInput.addEventListener('change', triggerFilterUpdate);
     if (dateToInput) dateToInput.addEventListener('change', triggerFilterUpdate);
     if (orderTagSelect) orderTagSelect.addEventListener('change', triggerFilterUpdate);
-
-    if (window.updateClientOrderTagFilterOptions) {
-      window.updateClientOrderTagFilterOptions();
-    }
 
     // Listeners para acciones por lote (Bulk Actions)
     setTimeout(() => {
@@ -9248,6 +9602,9 @@ async function renderOrders() {
 window.applyClientWmsFiltersAndRender = function() {
   const orders = window.clientLoadedOrders || [];
   const shipments = window.clientLoadedShipments || [];
+  if (!window._clientShipmentsIndex) {
+    window.buildClientShipmentsIndex(shipments);
+  }
 
   const searchInput = document.getElementById('search-client-orders');
   const origenSelect = document.getElementById('filter-client-origen');
@@ -9257,76 +9614,131 @@ window.applyClientWmsFiltersAndRender = function() {
   const dateToInput = document.getElementById('filter-client-date-to');
   const orderTagSelect = document.getElementById('filter-client-order-tag');
 
-  const searchText = (searchInput?.value || '').toLowerCase();
+  const searchText = (searchInput?.value || '').trim().toLowerCase();
   const selectedOrigen = origenSelect?.value || '';
+  const selectedOrigenLower = selectedOrigen.toLowerCase();
   const selectedStatus = statusSelect?.value || '';
   const selectedCommerce = commerceSelect?.value || '';
+  const selectedCommerceLower = selectedCommerce.toLowerCase();
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
-  const selectedTag = orderTagSelect?.value || '';
+  let selectedTag = orderTagSelect?.value || '';
 
   const userCommerces = currentCompany
     ? currentCompany.split(',').map(c => c.trim()).filter(Boolean)
     : [];
   const showCommerceFilter = userCommerces.length > 1;
+  const activeTab = window.clientWmsActiveTab || 'Todos';
 
-  const matchesBaseFilters = (order) => {
+  const tabCounts = {
+    'Todos': 0,
+    'En procesamiento': 0,
+    'En preparación': 0,
+    'Pickeado': 0,
+    'Despachado': 0,
+    'Incidencia': 0,
+    'Cancelado': 0,
+    'Archivado': 0
+  };
+
+  const candidateOrders = [];
+  const tagCounts = new Map();
+
+  for (let i = 0; i < orders.length; i++) {
+    const order = orders[i];
+
+    // 1. Filtro rápido de origen
     const platform = order.origen || order.external_platform || 'Manual';
-    const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
-    const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
-    const customer = (order.customer_name || '').toLowerCase();
-    const extNo = (order.external_order_number || '').toLowerCase();
-    const tracking = (order.tracking_number || '').toLowerCase();
-    const orderIdLower = order.id.toLowerCase();
-    const orderTags = window.getClientOrderTags ? window.getClientOrderTags(order) : [];
-    const tagsStr = (orderTags || []).join(' ').toLowerCase();
+    if (selectedOrigen && platform.toLowerCase() !== selectedOrigenLower) continue;
 
-    const matchesSearch = !searchText || 
-      orderIdLower.includes(searchText) || 
-      extNo.includes(searchText) || 
-      skuStr.includes(searchText) || 
-      nameStr.includes(searchText) || 
-      customer.includes(searchText) ||
-      tracking.includes(searchText) ||
-      tagsStr.includes(searchText);
+    // 2. Filtro rápido de estado
+    if (selectedStatus && order.status !== selectedStatus) continue;
 
-    const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
-    const matchesStatus = !selectedStatus || order.status === selectedStatus;
-    
-    const matchesCommerce = !showCommerceFilter || !selectedCommerce || (order.comercio && order.comercio.toLowerCase() === selectedCommerce.toLowerCase());
-
-    let matchesDate = true;
-    if (order.created_at) {
-      const d = new Date(order.created_at);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const orderDateStr = `${year}-${month}-${day}`;
-      
-      if (dateFrom && orderDateStr < dateFrom) matchesDate = false;
-      if (dateTo && orderDateStr > dateTo) matchesDate = false;
-    } else {
-      if (dateFrom || dateTo) matchesDate = false;
+    // 3. Filtro rápido de comercio
+    if (showCommerceFilter && selectedCommerce) {
+      if (!order.comercio || order.comercio.toLowerCase() !== selectedCommerceLower) continue;
     }
 
-    const matchesTag = !selectedTag || orderTags.includes(selectedTag);
+    // 4. Filtro rápido de fecha
+    if (dateFrom || dateTo) {
+      if (order.created_at) {
+        const orderDateStr = order.created_at.slice(0, 10);
+        if (dateFrom && orderDateStr < dateFrom) continue;
+        if (dateTo && orderDateStr > dateTo) continue;
+      } else {
+        continue;
+      }
+    }
 
-    return matchesSearch && matchesOrigen && matchesStatus && matchesCommerce && matchesDate && matchesTag;
-  };
+    // 5. Filtro rápido de búsqueda de texto (con blob cacheado)
+    if (searchText) {
+      if (!order._searchBlob) {
+        const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(' ') || '').toLowerCase();
+        const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(' ') || '').toLowerCase();
+        const customer = (order.customer_name || '').toLowerCase();
+        const extNo = (order.external_order_number || '').toLowerCase();
+        const tracking = (order.tracking_number || '').toLowerCase();
+        const orderIdLower = String(order.id || '').toLowerCase();
+        const tagsStr = (window.getClientOrderTags(order) || []).join(' ').toLowerCase();
+        order._searchBlob = `${orderIdLower} ${extNo} ${skuStr} ${nameStr} ${customer} ${tracking} ${tagsStr}`;
+      }
+      if (!order._searchBlob.includes(searchText)) continue;
+    }
 
-  // 1. Obtener conteo de pestañas
-  const getTabCount = (tabName) => {
-    return orders.filter(o => {
-      const matchBase = matchesBaseFilters(o);
-      const matchTab = tabName === 'Todos' || (o.estado_wms || 'En procesamiento') === tabName;
-      return matchBase && matchTab;
-    }).length;
-  };
+    // Cumple todos los filtros base: computar contadores de pestañas
+    tabCounts['Todos']++;
+    const wmsState = order.estado_wms || 'En procesamiento';
+    if (tabCounts.hasOwnProperty(wmsState)) {
+      tabCounts[wmsState]++;
+    }
 
+    // Coincidencia con la pestaña activa: computar etiquetas presentes en esta vista
+    if (activeTab === 'Todos' || wmsState === activeTab) {
+      candidateOrders.push(order);
+      const oTags = window.getClientOrderTags(order);
+      oTags.forEach(t => {
+        tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+      });
+    }
+  }
+
+  // Si la etiqueta previamente seleccionada ya no existe en la vista activa (tab, fechas o comercio), restablecerla
+  if (selectedTag && (tagCounts.get(selectedTag) || 0) === 0) {
+    selectedTag = '';
+    if (orderTagSelect) orderTagSelect.value = '';
+  }
+
+  // Actualizar el dropdown de etiquetas con las cantidades exactas y opciones que aplican para este comercio y vista
+  if (window.updateClientOrderTagFilterOptions) {
+    window.updateClientOrderTagFilterOptions(candidateOrders.length, tagCounts, selectedTag);
+  }
+
+  // Filtrar candidatos por selectedTag (si hay una etiqueta activa)
+  const filtered = [];
+  let ordersToProcess = 0;
+  let ordersInPrep = 0;
+  let totalSales = 0;
+
+  for (let i = 0; i < candidateOrders.length; i++) {
+    const order = candidateOrders[i];
+    if (selectedTag) {
+      const oTags = window.getClientOrderTags(order);
+      if (!oTags.includes(selectedTag)) continue;
+    }
+    filtered.push(order);
+    const wmsState = order.estado_wms || 'En procesamiento';
+    if (wmsState === 'En procesamiento') ordersToProcess++;
+    if (wmsState === 'En preparación') ordersInPrep++;
+    if (wmsState !== 'Incidencia' && wmsState !== 'Cancelado' && wmsState !== 'Archivado' && order.status !== 'cancelado') {
+      totalSales += (Number(order.total_value) || 0);
+    }
+  }
+
+  // 1. Renderizar pestañas
   const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
-    const isActive = window.clientWmsActiveTab === tab;
-    const count = getTabCount(tab);
+    const isActive = activeTab === tab;
+    const count = tabCounts[tab] || 0;
     let badgeBg = 'var(--color-bg)';
     let badgeColor = 'var(--color-text-muted)';
     if (tab === 'Incidencia') {
@@ -9363,27 +9775,11 @@ window.applyClientWmsFiltersAndRender = function() {
     `;
   }
 
-  // 2. Filtrar lista
-  const filtered = orders.filter(o => {
-    const matchBase = matchesBaseFilters(o);
-    const matchTab = window.clientWmsActiveTab === 'Todos' || (o.estado_wms || 'En procesamiento') === window.clientWmsActiveTab;
-    return matchBase && matchTab;
-  });
-
-  // KPIs
-  const totalOrders = filtered.length;
-  const ordersToProcess = filtered.filter(o => (o.estado_wms || 'En procesamiento') === 'En procesamiento').length;
-  const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
-  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.estado_wms !== 'Cancelado' && o.estado_wms !== 'Archivado' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
-
-  document.getElementById('kpi-client-total').textContent = totalOrders;
+  // 2. KPIs
+  document.getElementById('kpi-client-total').textContent = filtered.length;
   document.getElementById('kpi-client-processing').textContent = ordersToProcess;
   document.getElementById('kpi-client-in-prep').textContent = ordersInPrep;
   document.getElementById('kpi-client-sales').textContent = window.formatCLP(totalSales);
-
-  if (window.updateClientOrderTagFilterOptions) {
-    window.updateClientOrderTagFilterOptions();
-  }
 
   // 3. Paginación
   const totalResults = filtered.length;
@@ -9417,326 +9813,15 @@ window.applyClientWmsFiltersAndRender = function() {
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
     const rawShopify = order.raw_shopify_data;
-    const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
-                       ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
-    let orderShipments = shipments.filter(s => {
-      // Ignorar couriers no operativos (RECIBELO, WELIVERY, etc.)
-      const sCourierUpper = (s.courier || '').toUpperCase().trim();
-      if (sCourierUpper.includes('RECIBELO') || sCourierUpper.includes('RECÍBELO') || 
-          sCourierUpper.includes('WELIVERY') || sCourierUpper.includes('WOODELIVERY') || sCourierUpper.includes('WODELY')) {
-        return false;
-      }
+    const shipInfo = window.getClientOrderShipmentGlobalStatus ? window.getClientOrderShipmentGlobalStatus(order) : null;
+    const orderShipments = shipInfo?.orderShipments || [];
+    let globStatus = shipInfo?.globStatus || 'SIN MOVIMIENTO';
+    const isReturned = shipInfo?.isReturned || false;
 
-      const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
-      const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
-      const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
-      const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
-
-      const alphaOrderExt = alpha(order.external_order_number);
-      const alphaOrderId = alpha(order.id);
-      const alphaOrderTrack = alpha(order.tracking_number);
-      const alphaShipRef = alpha(s.pedido_referencia);
-      const alphaShipTrack = alpha(s.tracking);
-      const alphaShipSourceId = alpha(s.source_id);
-      const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
-      const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
-
-      const refMatches = s.pedido_referencia === order.id || 
-                         (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                         (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
-                         (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
-                         (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
-                         (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
-                         (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
-                         (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
-      if (!refMatches) return false;
-
-      // Validar coincidencia de comercio para evitar colisiones cruzadas
-      let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
-      const orderCommerce = (order.comercio || '').trim().toUpperCase();
-      if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
-      if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-      if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
-      if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
-      if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
-      if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
-
-      return shipCommerce === orderCommerce;
-    });
-
-    // Fallback a raw_lightdata_data si no hay envío unificado vinculado pero el pedido tiene datos de LightData
-    if (orderShipments.length === 0 && order.raw_lightdata_data && order.raw_lightdata_data.status) {
-      const ldRaw = order.raw_lightdata_data;
-      let globStatus = 'SIN MOVIMIENTO';
-      let statusText = ldRaw.status || '';
-      if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
-        statusText = ldRaw.raw_data[23];
-      }
-      const rawStatusLower = statusText.toLowerCase().trim();
-      if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
-        globStatus = 'ENTREGADO';
-      } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-        globStatus = 'EN TRÁNSITO';
-      } else if (rawStatusLower === 'cancelado') {
-        globStatus = 'ALERTA';
-      } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
-        globStatus = 'SIN MOVIMIENTO';
-      }
-      orderShipments = [{
-        id: `lightdata_envios:${ldRaw.id || order.tracking_number}`,
-        source_table: 'lightdata_envios',
-        source_id: String(ldRaw.id || order.tracking_number || ''),
-        tracking: ldRaw.tracking || order.tracking_number || 'N/A',
-        tracking_url: ldRaw.tracking_url || order.tracking_url || (order.raw_lightdata_data?.raw_data?.[31]) || null,
-        courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
-        status: statusText,
-        global_status: globStatus,
-        created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
-        updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
-      }];
-    }
-
-    // Priorizar los envíos según movimiento y coincidencia
-    if (orderShipments.length > 1) {
-      orderShipments.sort((a, b) => {
-        const getMovedScore = (s) => {
-          let gStatus = s.global_status;
-          let statusText = s.status || '';
-          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-            if (s.raw_data && s.raw_data[23]) {
-              statusText = s.raw_data[23];
-            } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-              statusText = order.raw_lightdata_data.raw_data[23];
-            }
-          }
-          if (s.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
-            gStatus = 'SIN MOVIMIENTO';
-          }
-          const rawStatus = statusText.toLowerCase().trim();
-          if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
-            gStatus = 'DEVOLUCIÓN';
-          } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid')) {
-            gStatus = 'ALERTA';
-          } else if (!gStatus || gStatus === 'SIN MOVIMIENTO' || gStatus === 'DESPACHADO') {
-            if (s.source_table === 'lightdata_envios') {
-              if (rawStatus.includes('entregado') || rawStatus.includes('entregada') || rawStatus.includes('delivered')) {
-                gStatus = 'ENTREGADO';
-              } else if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
-                gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus === 'cancelado' || rawStatus === 'no entregado' || rawStatus.includes('no entregad')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'bluex_envios') {
-              if (rawStatus.includes('delivered') || rawStatus.includes('entregad')) {
-                gStatus = 'ENTREGADO';
-              } else if (rawStatus.includes('transit') || rawStatus.includes('delivery') || rawStatus.includes('camino') || rawStatus.includes('reparto') || rawStatus.includes('ruta') || rawStatus.includes('pickup') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro')) {
-                gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('fallid') || rawStatus.includes('retenid')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus.includes('preparation') || rawStatus.includes('cread') || rawStatus.includes('emitid')) {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'starken_envios') {
-              if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
-                gStatus = 'ENTREGADO';
-              } else if (rawStatus.includes('transit') || rawStatus.includes('destino') || rawStatus.includes('reparto') || rawStatus.includes('redestin') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('disponible para retiro')) {
-                gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus.includes('excepcion') || rawStatus.includes('cancel') || rawStatus.includes('fail') || rawStatus.includes('siniestro') || rawStatus.includes('retenid')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus.includes('origen') || rawStatus.includes('cread') || rawStatus.includes('emis')) {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            } else if (s.source_table === 'optiroute_orders') {
-              if (rawStatus.includes('deliver') || rawStatus.includes('entregad')) {
-                gStatus = 'ENTREGADO';
-              } else if (rawStatus === 'skipped' || rawStatus === 'reviewing' || rawStatus === 'scheduled') {
-                gStatus = 'SIN MOVIMIENTO';
-              } else if (rawStatus.includes('route') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus === 'onroute' || rawStatus === 'ongoing' || rawStatus === 'arrived') {
-                gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus.includes('cancel') || rawStatus.includes('elimin') || rawStatus.includes('delet')) {
-                gStatus = 'ALERTA';
-              }
-            } else if (s.source_table === 'enviame_shipments') {
-              if (rawStatus.includes('devolucion') || rawStatus.includes('devolución') || rawStatus === 'devuelto') {
-                gStatus = 'DEVOLUCIÓN';
-              } else if (rawStatus.includes('entregad') || rawStatus.includes('delivered')) {
-                gStatus = 'ENTREGADO';
-              } else if (rawStatus.includes('requiere solucion') || rawStatus.includes('requiere solución') || rawStatus.includes('pendiente - requiere') || rawStatus.includes('retenid') || rawStatus.includes('excepcion') || rawStatus.includes('excepción') || rawStatus.includes('siniestr') || rawStatus.includes('fallid') || rawStatus.includes('cancel') || rawStatus.includes('rechazad')) {
-                gStatus = 'ALERTA';
-              } else if (rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('planta') || rawStatus.includes('ruta') || rawStatus.includes('camino') || rawStatus.includes('admitid') || rawStatus.includes('disponible para retiro') || rawStatus.includes('cambio de direcci') || rawStatus.includes('cambió de direcci')) {
-                gStatus = 'EN TRÁNSITO';
-              } else if (rawStatus.includes('cread') || rawStatus.includes('listo para despacho') || rawStatus.includes('impres') || rawStatus.includes('eliminad')) {
-                gStatus = 'SIN MOVIMIENTO';
-              }
-            }
-          }
-          if (gStatus === 'DESPACHADO') {
-            gStatus = (rawStatus.includes('entregad') || rawStatus.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
-          }
-          return (gStatus === 'ENTREGADO' ? 3 : (gStatus === 'EN TRÁNSITO' || gStatus === 'ALERTA' || gStatus === 'DEVOLUCIÓN') ? 2 : 1);
-        };
-
-        const aMoved = getMovedScore(a);
-        const bMoved = getMovedScore(b);
-        if (aMoved !== bMoved) return bMoved - aMoved;
-
-        const isValidTrack = (t) => {
-          if (!t) return false;
-          const up = String(t).trim().toUpperCase();
-          return up !== '' && up !== 'NO INFORMADO' && up !== 'N/A' && up !== '-' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
-        };
-        if (order.tracking_number && isValidTrack(order.tracking_number)) {
-          const orderTrack = String(order.tracking_number).trim().toUpperCase();
-          const getTrack = (s) => (s.tracking || (s.source_table === 'optiroute_orders' ? s.raw_data?.uuid : '') || '').trim().toUpperCase();
-          const aMatch = getTrack(a) === orderTrack ? 1 : 0;
-          const bMatch = getTrack(b) === orderTrack ? 1 : 0;
-          if (aMatch !== bMatch) return bMatch - aMatch;
-        }
-
-        const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-        const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-        return bDate - aDate;
-      });
-    }
-
-    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris o Ripley, simular uno a partir del estado de la orden
-    const isVirtualPlatform = order.origen === 'MercadoLibre' || 
-                              order.external_platform === 'MercadoLibre' || 
-                              order.origen === 'Falabella' || 
-                              order.external_platform === 'Falabella' ||
-                              order.origen === 'Paris' || 
-                              order.external_platform === 'Paris' ||
-                              order.origen === 'Ripley' || 
-                              order.external_platform === 'Ripley';
-
-    if (orderShipments.length === 0 && isVirtualPlatform) {
-      let globStatus = 'SIN MOVIMIENTO';
-      
-      const wmsStatus = (order.status || '').toLowerCase().trim();
-      const channelStatus = (order.payment_status || '').toLowerCase().trim();
-      
-      const isShipped = wmsStatus === 'despachado' || 
-                        wmsStatus === 'entregado' || 
-                        wmsStatus === 'retirado' ||
-                        channelStatus === 'shipped' || 
-                        channelStatus === 'delivered' || 
-                        channelStatus === 'shipped_by_seller' || 
-                        channelStatus === 'received' || 
-                        channelStatus === 'closed';
-                        
-      const isAlert = wmsStatus === 'cancelado' || 
-                      wmsStatus === 'incidencia' || 
-                      channelStatus === 'cancelled' || 
-                      channelStatus === 'refunded' || 
-                      channelStatus === 'refused';
-      
-      const isDelivered = wmsStatus === 'entregado' || 
-                          channelStatus === 'delivered' || 
-                          channelStatus === 'received' || 
-                          channelStatus === 'closed';
-
-      if (isDelivered) {
-        globStatus = 'ENTREGADO';
-      } else if (isShipped) {
-        globStatus = 'EN TRÁNSITO';
-      } else if (isAlert) {
-        globStatus = 'ALERTA';
-      }
-      
-      const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
-      const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
-      const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
-      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
-      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
-      
-      orderShipments = [{
-        id: `virtual:${order.id}`,
-        source_table: sourceTable,
-        source_id: order.id,
-        tracking: order.tracking_number || 'N/A',
-        tracking_url: order.tracking_url || 'N/A',
-        courier: order.courier || defaultCourier,
-        status: order.status,
-        global_status: globStatus,
-        created_at: order.created_at,
-        updated_at: order.created_at
-      }];
-    }
-
-    // Detectar packs originales desde el canal de integración o desde los items del pedido
+    // Detectar packs originales desde el canal de integración o desde los items del pedido (memoizado)
     let originalPacksHtml = '';
     let packBadgeHtml = '';
-    const masterProducts = window.currentMasterProducts || [];
-    let packSkus = new Set(window.currentPackSkusList || []);
-    if (packSkus.size === 0) {
-      packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
-    }
-    const foundPacksMap = new Map(); // Para evitar duplicados
-
-    // 1. Verificar en order.sku
-    const mainSku = (order.sku || '').trim().toLowerCase();
-    if (mainSku && packSkus.has(mainSku)) {
-      foundPacksMap.set(mainSku, order.cantidad || 1);
-    }
-
-    // 2. Verificar en order_items
-    if (Array.isArray(order.order_items)) {
-      order.order_items.forEach(oi => {
-        const itemSku = (oi.products?.sku || '').trim().toLowerCase();
-        if (itemSku && packSkus.has(itemSku)) {
-          foundPacksMap.set(itemSku, oi.quantity || 1);
-        }
-      });
-    }
-
-    // 3. Fallback: verificar en datos crudos de integración
-    const checkRawItems = (items, platform = '') => {
-      if (!Array.isArray(items)) return;
-      items.forEach(item => {
-        let sku = '';
-        let qty = 1;
-
-        if (platform === 'meli') {
-          sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
-          if (!sku && item.item?.variation_attributes) {
-            const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
-            if (vSkuAttr) sku = vSkuAttr.value_name || '';
-          }
-          qty = item.quantity || 1;
-        } else {
-          sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
-          qty = item.quantity || item.qty || 1;
-        }
-
-        sku = (sku || '').trim().toLowerCase();
-        if (sku && packSkus.has(sku)) {
-          foundPacksMap.set(sku, qty);
-        }
-      });
-    };
-
-    if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
-      checkRawItems(order.raw_shopify_data.line_items, 'shopify');
-    } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
-      checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
-    } else if (order.raw_meli_data) {
-      const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
-      meliOrders.forEach(mo => {
-        if (mo && mo.order_items) {
-          checkRawItems(mo.order_items, 'meli');
-        }
-      });
-    } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
-      checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
-    } else if (order.raw_paris_data && order.raw_paris_data.items) {
-      checkRawItems(order.raw_paris_data.items, 'paris');
-    } else if (order.raw_ripley_data && order.raw_ripley_data.order_lines) {
-      checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
-    } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
-      checkRawItems(order.raw_falabella_data.items, 'falabella');
-    }
+    const foundPacksMap = window.getOrderPacksMap ? window.getOrderPacksMap(order) : new Map();
 
     const foundPacks = [];
     foundPacksMap.forEach((qty, sku) => {
@@ -9831,6 +9916,35 @@ window.applyClientWmsFiltersAndRender = function() {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; text-decoration: none; border-radius: var(--radius-sm); transition: all 0.2s;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
     }
 
+    let trackBadgeBg = '#f1f5f9';
+    let trackBadgeColor = '#475569';
+    let shipIcon = 'ri-truck-line';
+
+    if (isReturned || globStatus === 'DEVOLUCIÓN') {
+      globStatus = 'DEVOLUCIÓN';
+      trackBadgeBg = '#ffe4e6';
+      trackBadgeColor = '#9f1239';
+      shipIcon = 'ri-arrow-go-back-line';
+    } else if (globStatus === 'ENTREGADO') {
+      trackBadgeBg = '#d1fae5';
+      trackBadgeColor = '#065f46';
+      shipIcon = 'ri-checkbox-circle-line';
+    } else if (globStatus === 'EN TRÁNSITO') {
+      trackBadgeBg = '#e0f2fe';
+      trackBadgeColor = '#0369a1';
+      shipIcon = 'ri-truck-line';
+    } else if (globStatus === 'ALERTA') {
+      trackBadgeBg = '#fee2e2';
+      trackBadgeColor = '#991b1b';
+      shipIcon = 'ri-alert-line';
+    }
+
+    const rawStatus = (shipInfo?.rawStatus && !/^-?\d+\.\d+$/.test(shipInfo.rawStatus)) ? shipInfo.rawStatus : '-';
+    const displayRawStatus = isReturned && String(rawStatus).toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
+    const rawStatusSpan = (displayRawStatus && displayRawStatus !== '-') 
+      ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${displayRawStatus}</span>` 
+      : '';
+
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       const effTrack = shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null);
@@ -9886,109 +10000,8 @@ window.applyClientWmsFiltersAndRender = function() {
         const trackingLink = trackingUrl && trackingUrl !== 'N/A'
           ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
           : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</span>`;
-        
-        let globStatus = shipment.global_status;
-        let statusText = shipment.status || '';
-        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-          if (shipment.raw_data && shipment.raw_data[23]) {
-            statusText = shipment.raw_data[23];
-          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-            statusText = order.raw_lightdata_data.raw_data[23];
-          }
-        }
-        if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
-          globStatus = 'SIN MOVIMIENTO';
-        }
-        const rawStatusLower = statusText.toLowerCase().trim();
-        if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
-          globStatus = 'DEVOLUCIÓN';
-        } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
-          globStatus = 'ALERTA';
-        } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
-          if (shipment.source_table === 'lightdata_envios') {
-            if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
-              globStatus = 'ENTREGADO';
-            } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-              globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
-              globStatus = 'ALERTA';
-            } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
-              globStatus = 'SIN MOVIMIENTO';
-            }
-          } else if (shipment.source_table === 'bluex_envios') {
-            if (rawStatusLower.includes('delivered') || rawStatusLower.includes('entregad')) {
-              globStatus = 'ENTREGADO';
-            } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
-              globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
-              globStatus = 'ALERTA';
-            } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
-              globStatus = 'SIN MOVIMIENTO';
-            }
-          } else if (shipment.source_table === 'starken_envios') {
-            if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
-              globStatus = 'ENTREGADO';
-            } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
-              globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
-              globStatus = 'ALERTA';
-            } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
-              globStatus = 'SIN MOVIMIENTO';
-            }
-          } else if (shipment.source_table === 'optiroute_orders') {
-            if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad')) {
-              globStatus = 'ENTREGADO';
-            } else if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
-              globStatus = 'SIN MOVIMIENTO';
-            } else if (rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
-              globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
-              globStatus = 'ALERTA';
-            }
-          } else if (shipment.source_table === 'enviame_shipments') {
-            if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
-              globStatus = 'DEVOLUCIÓN';
-            } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
-              globStatus = 'ENTREGADO';
-            } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
-              globStatus = 'ALERTA';
-            } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
-              globStatus = 'EN TRÁNSITO';
-            } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
-              globStatus = 'SIN MOVIMIENTO';
-            }
-          }
-        }
-        if (globStatus === 'DESPACHADO') {
-          globStatus = (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
-        }
-        if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
-        let badgeBg = '#f1f5f9';
-        let badgeColor = '#475569';
-        
-        if (isReturned || globStatus === 'DEVOLUCIÓN') {
-          globStatus = 'DEVOLUCIÓN';
-          badgeBg = '#ffe4e6';
-          badgeColor = '#9f1239';
-        } else if (globStatus === 'ENTREGADO') {
-          badgeBg = '#d1fae5';
-          badgeColor = '#065f46';
-        } else if (globStatus === 'EN TRÁNSITO') {
-          badgeBg = '#e0f2fe';
-          badgeColor = '#0369a1';
-        } else if (globStatus === 'ALERTA') {
-          badgeBg = '#fee2e2';
-          badgeColor = '#991b1b';
-        }
-        
-        const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
-        const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
-        const rawStatusSpan = (displayRawStatus && displayRawStatus !== '-') 
-          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${displayRawStatus}</span>` 
-          : '';
-
-        const shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
+        const shipStatusBadge = `<span class="badge" style="background-color: ${trackBadgeBg}; color: ${trackBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
         
         trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${trackingLink}<div>${shipStatusBadge}</div></div>`;
       }
@@ -9997,103 +10010,6 @@ window.applyClientWmsFiltersAndRender = function() {
     let shipmentStatusHtml = '';
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      let globStatus = shipment.global_status;
-      let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
-        if (shipment.raw_data && shipment.raw_data[23]) {
-          statusText = shipment.raw_data[23];
-        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
-          statusText = order.raw_lightdata_data.raw_data[23];
-        }
-      }
-      if (shipment.source_table === 'optiroute_orders' && (statusText.toLowerCase().trim() === 'skipped' || statusText.toLowerCase().trim() === 'reviewing' || statusText.toLowerCase().trim() === 'scheduled')) {
-        globStatus = 'SIN MOVIMIENTO';
-      }
-      const rawStatusLower = statusText.toLowerCase().trim();
-      if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
-        globStatus = 'DEVOLUCIÓN';
-      } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid')) {
-        globStatus = 'ALERTA';
-      } else if (!globStatus || globStatus === 'SIN MOVIMIENTO' || globStatus === 'DESPACHADO') {
-        if (shipment.source_table === 'lightdata_envios') {
-          if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
-            globStatus = 'ENTREGADO';
-          } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-            globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower === 'cancelado' || rawStatusLower === 'no entregado' || rawStatusLower.includes('no entregad')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'bluex_envios') {
-          if (rawStatusLower.includes('delivered') || rawStatusLower.includes('entregad')) {
-            globStatus = 'ENTREGADO';
-          } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('delivery') || rawStatusLower.includes('camino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('ruta') || rawStatusLower.includes('pickup') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro')) {
-            globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('fallid') || rawStatusLower.includes('retenid')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatusLower.includes('preparation') || rawStatusLower.includes('cread') || rawStatusLower.includes('emitid')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'starken_envios') {
-          if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
-            globStatus = 'ENTREGADO';
-          } else if (rawStatusLower.includes('transit') || rawStatusLower.includes('destino') || rawStatusLower.includes('reparto') || rawStatusLower.includes('redestin') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('disponible para retiro')) {
-            globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower.includes('excepcion') || rawStatusLower.includes('cancel') || rawStatusLower.includes('fail') || rawStatusLower.includes('siniestro') || rawStatusLower.includes('retenid')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatusLower.includes('origen') || rawStatusLower.includes('cread') || rawStatusLower.includes('emis')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        } else if (shipment.source_table === 'optiroute_orders') {
-          if (rawStatusLower.includes('deliver') || rawStatusLower.includes('entregad')) {
-            globStatus = 'ENTREGADO';
-          } else if (rawStatusLower === 'skipped' || rawStatusLower === 'reviewing' || rawStatusLower === 'scheduled') {
-            globStatus = 'SIN MOVIMIENTO';
-          } else if (rawStatusLower.includes('route') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower === 'onroute' || rawStatusLower === 'ongoing' || rawStatusLower === 'arrived') {
-            globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower.includes('cancel') || rawStatusLower.includes('elimin') || rawStatusLower.includes('delet')) {
-            globStatus = 'ALERTA';
-          }
-        } else if (shipment.source_table === 'enviame_shipments') {
-          if (rawStatusLower.includes('devolucion') || rawStatusLower.includes('devolución') || rawStatusLower === 'devuelto') {
-            globStatus = 'DEVOLUCIÓN';
-          } else if (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) {
-            globStatus = 'ENTREGADO';
-          } else if (rawStatusLower.includes('requiere solucion') || rawStatusLower.includes('requiere solución') || rawStatusLower.includes('pendiente - requiere') || rawStatusLower.includes('retenid') || rawStatusLower.includes('excepcion') || rawStatusLower.includes('excepción') || rawStatusLower.includes('siniestr') || rawStatusLower.includes('fallid') || rawStatusLower.includes('cancel') || rawStatusLower.includes('rechazad')) {
-            globStatus = 'ALERTA';
-          } else if (rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('planta') || rawStatusLower.includes('ruta') || rawStatusLower.includes('camino') || rawStatusLower.includes('admitid') || rawStatusLower.includes('disponible para retiro') || rawStatusLower.includes('cambio de direcci') || rawStatusLower.includes('cambió de direcci')) {
-            globStatus = 'EN TRÁNSITO';
-          } else if (rawStatusLower.includes('cread') || rawStatusLower.includes('listo para despacho') || rawStatusLower.includes('impres') || rawStatusLower.includes('eliminad')) {
-            globStatus = 'SIN MOVIMIENTO';
-          }
-        }
-      }
-      if (globStatus === 'DESPACHADO') {
-        globStatus = (rawStatusLower.includes('entregad') || rawStatusLower.includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
-      }
-      if (!globStatus) globStatus = 'SIN MOVIMIENTO';
-
-      const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
-      const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
-      let badgeBg = '#f1f5f9';
-      let badgeColor = '#475569';
-      
-      if (isReturned || globStatus === 'DEVOLUCIÓN') {
-        globStatus = 'DEVOLUCIÓN';
-        badgeBg = '#ffe4e6';
-        badgeColor = '#9f1239';
-      } else if (globStatus === 'ENTREGADO') {
-        badgeBg = '#d1fae5';
-        badgeColor = '#065f46';
-      } else if (globStatus === 'EN TRÁNSITO') {
-        badgeBg = '#e0f2fe';
-        badgeColor = '#0369a1';
-      } else if (globStatus === 'ALERTA') {
-        badgeBg = '#fee2e2';
-        badgeColor = '#991b1b';
-      }
-
       let platformBadge = '';
       if (shipment.source_table === 'lightdata_envios') {
         platformBadge = `<span class="badge" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">LightData</span>`;
@@ -10110,7 +10026,7 @@ window.applyClientWmsFiltersAndRender = function() {
       shipmentStatusHtml = `
         <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <strong>Estado Despacho:</strong> 
-          <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
+          <span class="badge" style="background-color: ${trackBadgeBg}; color: ${trackBadgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
             ${globStatus}
           </span>
           ${platformBadge}
@@ -10207,14 +10123,13 @@ window.applyClientWmsFiltersAndRender = function() {
           const defaultWhObj = (window.allWarehousesList || []).find(w => w.id === defaultWhId);
           const defaultWhName = defaultWhObj ? defaultWhObj.name : 'Bodega Central';
           
-          // Stock global sumando todas las bodegas
-          let globalStock = 0;
-          if (prodId) {
-            Object.keys(invMap).forEach(k => {
-              if (k.startsWith(prodId + '_')) {
-                globalStock += (Number(invMap[k]) || 0);
-              }
-            });
+          // Stock global sumando todas las bodegas (O(1) lookup)
+          let globalStock = (prodId && window.clientProductTotalStockMap && window.clientProductTotalStockMap[prodId] !== undefined)
+            ? (Number(window.clientProductTotalStockMap[prodId]) || 0)
+            : 0;
+          if (globalStock === 0 && prodId && invMap) {
+            const directDefault = Number(invMap[prodId + '_' + defaultWhId]) || 0;
+            if (directDefault > 0) globalStock = directDefault;
           }
           
           // Stock de la bodega por defecto
@@ -10360,7 +10275,6 @@ window.applyClientWmsFiltersAndRender = function() {
 
     // 3. Tag de Despacho Courier
     let shipmentBadgeHtml = '';
-    const shipInfo = window.getClientOrderShipmentGlobalStatus ? window.getClientOrderShipmentGlobalStatus(order) : null;
     if (shipInfo && shipInfo.globStatus) {
       let shipGlobStatus = shipInfo.globStatus;
       if (shipGlobStatus === 'DESPACHADO') {
@@ -15592,7 +15506,9 @@ async function renderShipments() {
         
         let curGlobStatus = s.global_status;
         const stLower = (s.status || '').toLowerCase().trim();
-        if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
+        if (stLower.includes('rechazado por courier')) {
+          curGlobStatus = 'SIN MOVIMIENTO';
+        } else if (stLower.includes('requiere solucion') || stLower.includes('requiere solución') || stLower.includes('pendiente - requiere')) {
           curGlobStatus = 'ALERTA';
         }
         if (curGlobStatus === 'DESPACHADO') {
@@ -16065,6 +15981,11 @@ async function renderShipments() {
             : s.source_table === 'bluex_envios' ? 'Blue Express' 
             : s.source_table === 'starken_envios' ? 'Starken Pro' : 'Optiroute';
           const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
+          let curGlobStatus = s.global_status || '';
+          const stLower = (s.status || '').toLowerCase().trim();
+          if (stLower.includes('rechazado por courier')) {
+            curGlobStatus = 'SIN MOVIMIENTO';
+          }
           return [
             s.pedido_referencia || '',
             platformName,
@@ -16073,7 +15994,7 @@ async function renderShipments() {
             s.nombre_destinatario || '',
             `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
             s.comuna_destino || '',
-            s.global_status || '',
+            curGlobStatus,
             s.status || '',
             dateStr
           ];
@@ -16173,8 +16094,11 @@ function showShipmentDetailsModal(shipment) {
   let step3Class = '';
   let progressBarWidth = '0%';
 
-  const gs = shipment.global_status;
+  let gs = shipment.global_status;
   const rawStatus = (shipment.status || '').toLowerCase();
+  if (rawStatus.includes('rechazado por courier')) {
+    gs = 'SIN MOVIMIENTO';
+  }
 
   const isDelivered = (gs === 'ENTREGADO') || (
     (gs === 'DESPACHADO' || !gs) && (
@@ -23557,27 +23481,43 @@ window.renderDeclarations = async function() {
               </h4>
               
               <div style="font-size: 0.8rem; line-height: 1.5; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 1rem;">
-                <div style="background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.15);">
-                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Planilla Excel de Ingreso</strong>
-                  Si eliges subir una planilla, asegúrate de descargar primero la plantilla modelo. Rellena los campos obligatorios: SKU del producto, Nombre del producto y la Cantidad declarada.
+                <div style="background: rgba(59, 130, 246, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                  <strong style="color: var(--color-primary); display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+                    <i class="ri-shield-check-fill" style="font-size: 1rem;"></i> Ingreso por Catálogo Maestro
+                  </strong>
+                  Declara tus productos buscándolos directamente por SKU, Nombre o Código de barras. El sistema muestra exclusivamente los productos físicos de tu catálogo maestro para evitar duplicados de canales secundarios.
                 </div>
                 
-                <div style="background: rgba(16, 185, 129, 0.05); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.15);">
-                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Carga desde Catálogo</strong>
-                  Si tienes activo el seguimiento de stock, puedes seleccionar los productos directamente desde tu catálogo. Al agregarlos y colocar sus cantidades, el sistema calculará el total de unidades y sugerirá el volumen estimado automáticamente en base a las dimensiones configuradas.
+                <div style="background: rgba(16, 185, 129, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                  <strong style="color: #059669; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+                    <i class="ri-ruler-2-line" style="font-size: 1rem;"></i> Medidas y Cubicaje Automático
+                  </strong>
+                  Al colocar las cantidades declaradas, el sistema totaliza unidades y calcula el volumen (m³) en tiempo real. Si un producto aún no tiene dimensiones en el catálogo, ingresa sus medidas (L × An × Al en cm) para guardarlas permanentemente.
+                </div>
+
+                <div style="background: rgba(139, 92, 246, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(139, 92, 246, 0.2);">
+                  <strong style="color: #7c3aed; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+                    <i class="ri-refresh-line" style="font-size: 1rem;"></i> Productos Nuevos
+                  </strong>
+                  Si agregaste nuevos artículos en tu tienda, pulsa <strong>"Consultar Nuevos de Tienda"</strong> para importarlos de inmediato a tu Catálogo Maestro. También puedes registrar productos manuales con el botón <strong>"+ Crear Producto"</strong>.
                 </div>
                 
-                <div style="background: rgba(245, 158, 11, 0.05); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.15);">
-                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Reglas de Arribo (ETA)</strong>
-                  <ul style="margin: 0; padding-left: 1rem; margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.25rem;">
-                    <li>El horario de recepción es de 11:00 a 16:00 hrs.</li>
+                <div style="background: rgba(245, 158, 11, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                  <strong style="color: #d97706; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+                    <i class="ri-calendar-check-line" style="font-size: 1rem;"></i> Reglas de Arribo (ETA)
+                  </strong>
+                  <ul style="margin: 0; padding-left: 1.15rem; margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.25rem;">
+                    <li>El horario de recepción es de <strong>11:00 a 16:00 hrs</strong>.</li>
+                    <li>Aviso anticipado sugerido: al menos <strong>48 horas</strong>.</li>
                     <li>No se permiten ingresos los días domingo.</li>
-                    <li>Sábados requieren aviso anticipado de al menos 48 horas.</li>
+                    <li>Sábados requieren aviso y coordinación previa.</li>
                   </ul>
                 </div>
 
-                <div style="background: rgba(239, 68, 68, 0.05); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.15);">
-                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Servicio de Descarga</strong>
+                <div style="background: rgba(239, 68, 68, 0.05); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                  <strong style="color: #dc2626; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; font-size: 0.85rem;">
+                    <i class="ri-truck-line" style="font-size: 1rem;"></i> Servicio de Descarga
+                  </strong>
                   Si tus bultos no vienen paletizados o requieres que el personal de bodega descargue el vehículo, debes marcar la opción de servicio de descarga. Este servicio tiene un costo adicional.
                 </div>
               </div>
@@ -23922,6 +23862,23 @@ window.renderDeclarations = async function() {
           } else {
             matches.forEach(p => {
               const dims = (p.largo && p.ancho && p.alto) ? `${p.largo} × ${p.ancho} × ${p.alto} cm` : 'Sin medidas';
+              const platName = p.platform_origin === 'Manual' ? 'WMS' : (p.platform_origin || 'WMS');
+              let platBg = 'rgba(37, 99, 235, 0.09)';
+              let platColor = '#2563eb';
+              let platBorder = 'rgba(37, 99, 235, 0.25)';
+              if (platName === 'Shopify') {
+                platBg = 'rgba(16, 124, 65, 0.09)'; platColor = '#0e703a'; platBorder = 'rgba(16, 124, 65, 0.25)';
+              } else if (platName === 'MercadoLibre') {
+                platBg = 'rgba(217, 119, 6, 0.09)'; platColor = '#b45309'; platBorder = 'rgba(217, 119, 6, 0.25)';
+              } else if (platName === 'WooCommerce') {
+                platBg = 'rgba(150, 88, 138, 0.09)'; platColor = '#86437b'; platBorder = 'rgba(150, 88, 138, 0.25)';
+              } else if (platName === 'Jumpseller') {
+                platBg = 'rgba(2, 132, 199, 0.09)'; platColor = '#0284c7'; platBorder = 'rgba(2, 132, 199, 0.25)';
+              } else if (platName === 'WMS') {
+                platBg = 'rgba(100, 116, 139, 0.09)'; platColor = '#475569'; platBorder = 'rgba(100, 116, 139, 0.25)';
+              }
+              const masterTagHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.68rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.75rem;"></i>${platName} (Catálogo Master)</span>`;
+
               html += `
                 <div class="search-result-item" 
                      data-sku="${p.sku}" 
@@ -23932,12 +23889,18 @@ window.renderDeclarations = async function() {
                      data-largo="${p.largo || ''}"
                      data-ancho="${p.ancho || ''}"
                      data-alto="${p.alto || ''}"
+                     data-platform="${platName}"
                      style="padding: 0.65rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
                      onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                      onmouseout="this.style.backgroundColor='transparent'">
                   <div style="flex: 1; min-width: 0;">
-                    <strong style="color: var(--color-text-main); display: block; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${p.name}</strong>
-                    <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> ${p.barcode ? `| CB: ${p.barcode}` : ''}</span>
+                    <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                      <strong style="color: var(--color-text-main); font-size: 0.875rem;">${p.name}</strong>
+                      ${masterTagHtml}
+                    </div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 3px;">
+                      SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> ${p.barcode ? `| CB: ${p.barcode}` : ''}
+                    </div>
                   </div>
                   <div style="text-align: right; font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap;">
                     <div>${dims}</div>
@@ -37851,6 +37814,11 @@ async function checkSelectedCommerceTracking() {
         catalogCont.style.display = 'block';
         
         let notice = document.getElementById('dec-catalog-exclusive-notice');
+        const mainPlat = window.decCatalogCurrentMainPlatform || '';
+        const noticeText = mainPlat
+          ? `<strong>Ingreso mediante Catálogo Maestro (${mainPlat}):</strong> Tu comercio opera con catálogo maestro centralizado en <strong>${mainPlat}</strong>. Se muestran exclusivamente los productos físicos de tu catálogo maestro.`
+          : `<strong>Ingreso mediante Catálogo Maestro:</strong> Tu comercio tiene la configuración de catálogo activa. Selecciona los productos físicos de tu catálogo para este ingreso.`;
+
         if (!notice) {
           notice = document.createElement('div');
           notice.id = 'dec-catalog-exclusive-notice';
@@ -37866,9 +37834,14 @@ async function checkSelectedCommerceTracking() {
           notice.style.gap = '0.5rem';
           notice.innerHTML = `
             <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
-            <span><strong>Ingreso mediante Catálogo:</strong> Tu comercio tiene la configuración de catálogo activa. Selecciona los productos y cantidades a continuación.</span>
+            <span>${noticeText}</span>
           `;
           catalogCont.insertBefore(notice, catalogCont.firstChild);
+        } else {
+          notice.innerHTML = `
+            <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+            <span>${noticeText}</span>
+          `;
         }
       }
 
@@ -37897,9 +37870,75 @@ async function checkSelectedCommerceTracking() {
 
 async function loadCatalogProductsForDeclaration(commerce) {
   try {
-    const prods = await window.fetchAllSupabaseRows('products', 'id, sku, name, volumen, largo, ancho, alto, weight, price, barcode', q => q.eq('comercio', commerce).order('name'));
-    
-    window.decCatalogProductsCache = (prods || []).map(p => {
+    // 1. Obtener plataforma principal configurada (Catálogo Maestro)
+    let mainPlatform = '';
+    try {
+      const { data: integrations } = await supabase
+        .from('merchant_integrations')
+        .select('platform, is_active, is_main')
+        .eq('comercio', commerce)
+        .eq('is_active', true);
+
+      const activeIntegrations = (integrations || []).filter(i => i.platform !== 'Optiroute');
+      const mainInt = activeIntegrations.find(i => i.is_main);
+      if (mainInt) {
+        mainPlatform = mainInt.platform;
+      } else if (activeIntegrations.length === 1) {
+        mainPlatform = activeIntegrations[0].platform;
+      }
+    } catch (e) {
+      console.warn('Error fetching main integration for declaration:', e);
+    }
+    window.decCatalogCurrentMainPlatform = mainPlatform;
+
+    // 2. Traer productos con atributos necesarios para identificar origen y tipo
+    const prods = await window.fetchAllSupabaseRows(
+      'products', 
+      'id, sku, name, volumen, largo, ancho, alto, weight, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data', 
+      q => q.eq('comercio', commerce).order('name')
+    );
+
+    // 3. Función auxiliar para detectar plataforma de origen de cada producto
+    const getProductPlatform = (p) => {
+      if (p.shopify_product_id || p.raw_shopify_data || (p.description && p.description.includes('Shopify'))) return 'Shopify';
+      if (p.meli_item_id || p.raw_meli_data || (p.description && p.description.includes('MercadoLibre')) || (p.sku && String(p.sku).toUpperCase().startsWith('MLC'))) return 'MercadoLibre';
+      if (p.raw_falabella_data || (p.description && p.description.includes('Falabella')) || (p.sku && String(p.sku).toUpperCase().startsWith('FAL-'))) return 'Falabella';
+      if (p.raw_paris_data || (p.description && p.description.includes('Paris'))) return 'Paris';
+      if (p.raw_ripley_data || (p.description && p.description.includes('Ripley'))) return 'Ripley';
+      if (p.woocommerce_product_id || p.raw_woocommerce_data || (p.description && p.description.includes('WooCommerce'))) return 'WooCommerce';
+      if (p.jumpseller_product_id || p.raw_jumpseller_data || (p.description && p.description.includes('Jumpseller'))) return 'Jumpseller';
+      if (p.tiendanube_product_id || p.raw_tiendanube_data || (p.description && p.description.includes('Tiendanube')) || (p.sku && String(p.sku).toUpperCase().startsWith('TN-'))) return 'Tiendanube';
+      if (p.raw_walmart_data || (p.description && p.description.includes('Walmart'))) return 'Walmart';
+      return 'Manual';
+    };
+
+    // 4. Filtrar estrictamente: Solo productos físicos activos del Catálogo Maestro
+    const masterProds = (prods || []).filter(p => {
+      // Excluir productos archivados / inactivos
+      const st = (p.status || '').toLowerCase().trim();
+      if (st === 'archived' || st === 'archivado') return false;
+
+      // Excluir productos virtuales (sin almacenaje físico en bodega)
+      if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+
+      // Excluir packs (combos virtuales compuestos por unidades físicas)
+      if (p.is_pack === true || p.is_pack === 1 || String(p.is_pack).toLowerCase() === 'true') return false;
+
+      // Si hay una plataforma principal configurada:
+      if (mainPlatform) {
+        const plat = getProductPlatform(p);
+        // Permitir productos de la plataforma principal o creados manualmente en WMS
+        if (plat.toLowerCase() === mainPlatform.toLowerCase() || plat === 'Manual') {
+          return true;
+        }
+        // Excluir productos de canales secundarios (ej: MercadoLibre, Falabella)
+        return false;
+      }
+
+      return true;
+    });
+
+    window.decCatalogProductsCache = masterProds.map(p => {
       let l = parseFloat(p.largo) || null;
       let w = parseFloat(p.ancho) || null;
       let h = parseFloat(p.alto) || null;
@@ -37907,12 +37946,15 @@ async function loadCatalogProductsForDeclaration(commerce) {
       if (vol <= 0 && l && w && h) {
         vol = (l * w * h) / 1000000;
       }
+      const cleanName = (p.name || '').replace(/\s*-\s*\[object\s+Object\]/gi, '').trim();
       return {
         ...p,
+        name: cleanName,
         largo: l,
         ancho: w,
         alto: h,
-        volumen: vol
+        volumen: vol,
+        platform_origin: getProductPlatform(p)
       };
     });
   } catch (e) {
@@ -38002,6 +38044,30 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
     `;
   }
 
+  let cachedPlat = '';
+  if (window.decCatalogProductsCache) {
+    const cached = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
+    if (cached && cached.platform_origin) {
+      cachedPlat = cached.platform_origin;
+    }
+  }
+  const displayPlat = cachedPlat === 'Manual' ? 'WMS' : (cachedPlat || window.decCatalogCurrentMainPlatform || 'WMS');
+  let platBg = 'rgba(37, 99, 235, 0.09)';
+  let platColor = '#2563eb';
+  let platBorder = 'rgba(37, 99, 235, 0.25)';
+  if (displayPlat === 'Shopify') {
+    platBg = 'rgba(16, 124, 65, 0.09)'; platColor = '#0e703a'; platBorder = 'rgba(16, 124, 65, 0.25)';
+  } else if (displayPlat === 'MercadoLibre') {
+    platBg = 'rgba(217, 119, 6, 0.09)'; platColor = '#b45309'; platBorder = 'rgba(217, 119, 6, 0.25)';
+  } else if (displayPlat === 'WooCommerce') {
+    platBg = 'rgba(150, 88, 138, 0.09)'; platColor = '#86437b'; platBorder = 'rgba(150, 88, 138, 0.25)';
+  } else if (displayPlat === 'Jumpseller') {
+    platBg = 'rgba(2, 132, 199, 0.09)'; platColor = '#0284c7'; platBorder = 'rgba(2, 132, 199, 0.25)';
+  } else if (displayPlat === 'WMS') {
+    platBg = 'rgba(100, 116, 139, 0.09)'; platColor = '#475569'; platBorder = 'rgba(100, 116, 139, 0.25)';
+  }
+  const tagTableHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.65rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.72rem;"></i>${displayPlat} (Catálogo Master)</span>`;
+
   const tr = document.createElement('tr');
   tr.className = 'selected-product-row';
   tr.setAttribute('data-sku', sku);
@@ -38009,9 +38075,10 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   tr.innerHTML = `
     <td style="padding: 10px 14px; max-width: 260px;">
       <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.875rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${name}">${name}</div>
-      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
         <span style="font-family: monospace; font-weight: 600; color: var(--color-primary);">${sku}</span>
-        ${barcode ? `<span style="margin-left: 6px; color: var(--color-text-muted);">| CB: ${barcode}</span>` : ''}
+        ${barcode ? `<span style="color: var(--color-text-muted);">| CB: ${barcode}</span>` : ''}
+        ${tagTableHtml}
       </div>
     </td>
     <td style="padding: 8px 10px; text-align: center;">
@@ -38394,25 +38461,38 @@ window.syncChannelProductsForDeclaration = async function() {
     // 1. Obtener integraciones activas para el comercio
     const { data: integrations, error: intErr } = await supabase
       .from('merchant_integrations')
-      .select('id, platform, shop_url, access_token, is_active')
+      .select('id, platform, shop_url, access_token, is_active, is_main')
       .eq('comercio', commerce)
       .eq('is_active', true);
 
     if (intErr) throw intErr;
 
-    if (!integrations || integrations.length === 0) {
+    const activeIntegrations = (integrations || []).filter(i => i.platform !== 'Optiroute');
+    if (!activeIntegrations || activeIntegrations.length === 0) {
       Swal.fire({
         icon: 'info',
         title: 'Sin Canales de Venta Conectados',
-        text: `El comercio "${commerce}" no tiene canales de venta integrados activos (ej: Shopify, Jumpseller, MercadoLibre). Puedes conectar tu tienda en la pestaña Integraciones o crear tus productos manualmente con el botón "+ Crear Producto".`,
+        text: `El comercio "${commerce}" no tiene canales de venta integrados activos. Puedes conectar tu tienda en la pestaña Integraciones o crear tus productos manualmente con el botón "+ Crear Producto".`,
         confirmButtonText: 'Entendido'
       });
       return;
     }
 
-    // 2. Si tiene Shopify integrado, llamar al endpoint para traer los últimos productos a synced_products
-    const shopifyInt = integrations.find(i => i.platform === 'Shopify');
-    if (shopifyInt) {
+    const mainInt = activeIntegrations.find(i => i.is_main) || (activeIntegrations.length === 1 ? activeIntegrations[0] : null);
+    const mainPlatform = mainInt ? mainInt.platform : '';
+
+    if (!mainPlatform) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Define tu Catálogo Maestro',
+        text: `El comercio "${commerce}" tiene múltiples integraciones conectadas pero ninguna está definida como plataforma principal (Catálogo Maestro). Puedes configurarla en el módulo de Catálogo para sincronizar productos.`,
+        confirmButtonText: 'Entendido'
+      });
+      return;
+    }
+
+    // 2. Si la plataforma principal es Shopify, refrescar productos vía edge function si es posible
+    if (mainPlatform === 'Shopify') {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
@@ -38430,8 +38510,8 @@ window.syncChannelProductsForDeclaration = async function() {
       }
     }
 
-    // 3. Obtener todos los productos externos de synced_products
-    const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce));
+    // 3. Obtener EXCLUSIVAMENTE los productos de la plataforma principal del catálogo maestro
+    const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
     
     // 4. Obtener todos los productos existentes en products de este comercio
     const currentProds = await window.fetchAllSupabaseRows('products', 'id, sku, merchant_id', q => q.eq('comercio', commerce));
@@ -38444,7 +38524,7 @@ window.syncChannelProductsForDeclaration = async function() {
       merchantId = userAuth?.user?.id || null;
     }
 
-    // 5. Filtrar EXCLUSIVAMENTE los productos NUEVOS (que NO existen en products)
+    // 5. Filtrar EXCLUSIVAMENTE los productos NUEVOS de la plataforma principal
     const newItemsToImport = [];
     const seenNewSkus = new Set();
 
@@ -38453,11 +38533,11 @@ window.syncChannelProductsForDeclaration = async function() {
       const skuUpper = skuClean.toUpperCase();
       if (skuClean && !existingSkus.has(skuUpper) && !seenNewSkus.has(skuUpper)) {
         seenNewSkus.add(skuUpper);
-        newItemsToImport.push({
+        const itemRow = {
           merchant_id: merchantId,
           comercio: commerce,
           sku: skuClean,
-          name: sp.name || sp.sku,
+          name: (sp.name || sp.sku).replace(/\s*-\s*\[object\s+Object\]/gi, '').trim(),
           price: parseFloat(sp.price) || 0,
           barcode: sp.barcode || null,
           image_url: sp.image_url || null,
@@ -38465,16 +38545,39 @@ window.syncChannelProductsForDeclaration = async function() {
           largo: 10,
           ancho: 10,
           alto: 10,
-          status: 'active'
-        });
+          status: 'active',
+          description: `Importado automáticamente de ${mainPlatform}`
+        };
+
+        if (mainPlatform === 'Shopify') {
+          itemRow.shopify_product_id = 'imported';
+        } else if (mainPlatform === 'MercadoLibre') {
+          itemRow.meli_item_id = 'imported';
+        } else if (mainPlatform === 'Falabella') {
+          itemRow.raw_falabella_data = {};
+        } else if (mainPlatform === 'Paris') {
+          itemRow.raw_paris_data = {};
+        } else if (mainPlatform === 'Ripley') {
+          itemRow.raw_ripley_data = {};
+        } else if (mainPlatform === 'WooCommerce') {
+          itemRow.raw_woocommerce_data = {};
+        } else if (mainPlatform === 'Jumpseller') {
+          itemRow.raw_jumpseller_data = {};
+        } else if (mainPlatform === 'Walmart') {
+          itemRow.raw_walmart_data = {};
+        } else if (mainPlatform === 'Tiendanube') {
+          itemRow.raw_tiendanube_data = {};
+        }
+
+        newItemsToImport.push(itemRow);
       }
     });
 
     if (newItemsToImport.length === 0) {
       Swal.fire({
         icon: 'info',
-        title: 'Catálogo al Día',
-        html: `<p style="font-size: 0.9rem;">No se detectaron productos nuevos en tus canales de venta integrados (${integrations.map(i => i.platform).join(', ')}).<br><br>Todos los productos de tus tiendas ya se encuentran sincronizados en el WMS sin alterar sus configuraciones existentes.</p>`,
+        title: 'Catálogo Maestro al Día',
+        html: `<p style="font-size: 0.9rem;">No se detectaron productos nuevos en tu tienda principal <strong>${mainPlatform}</strong>.<br><br>Todos los productos de tu catálogo maestro ya se encuentran sincronizados en el WMS.</p>`,
         confirmButtonText: 'Entendido'
       });
       return;
@@ -38493,12 +38596,12 @@ window.syncChannelProductsForDeclaration = async function() {
 
     Swal.fire({
       icon: 'success',
-      title: `¡${newItemsToImport.length} Productos Nuevos Sincronizados!`,
+      title: `¡${newItemsToImport.length} Productos Nuevos de ${mainPlatform}!`,
       html: `
         <div style="text-align: left; font-size: 0.9rem;">
-          <p>Se importaron con éxito <strong>${newItemsToImport.length} productos nuevos</strong> desde tus canales de venta al WMS.</p>
+          <p>Se importaron con éxito <strong>${newItemsToImport.length} productos nuevos</strong> desde tu tienda <strong>${mainPlatform}</strong> (Catálogo Maestro) al WMS.</p>
           <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid var(--color-success); padding: 0.6rem 0.8rem; border-radius: 0 4px 4px 0; font-size: 0.8rem; margin-top: 0.5rem;">
-            <i class="ri-shield-check-line" style="color: var(--color-success);"></i> <strong>Configuraciones protegidas:</strong> Ningún producto existente fue sobrescrito, preservando intactas tus medidas y configuraciones previas.
+            <i class="ri-shield-check-line" style="color: var(--color-success);"></i> <strong>Catálogo Maestro Protegido:</strong> Solo se agregaron productos de ${mainPlatform} sin mezclar publicaciones de canales secundarios.
           </div>
         </div>
       `,
@@ -41544,12 +41647,12 @@ function renderClientInventoryRequestsTabRows(allRequests, commerce) {
         <td style="padding: 0.85rem 1rem; text-align: center;">
           <div style="display: inline-flex; align-items: center; gap: 0.35rem; justify-content: center;">
             ${(isFinalized && !isSigned) ? `
-              <button class="btn btn-sm btn-client-sign-acta" onclick="window.openInventoryDigitalSignatureModal({ req: window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), signerType: 'client', onSigned: () => { window.loadClientInventoryRequestsTab('${commerce}'); if (typeof openClientInventoryRequestsModal === 'function') openClientInventoryRequestsModal('${commerce}'); } })" title="Firmar Acta de Inventario de Conformidad" style="padding: 0.35rem 0.65rem; background: #059669; color: #fff; border: 1px solid #047857; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
+              <button class="btn btn-sm btn-client-sign-acta" onclick="window.openInventoryDigitalSignatureModal({ req: window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), signerType: 'client', onSigned: () => { window.loadClientInventoryRequestsTab('${commerce}'); if (typeof window.openClientInventoryRequestsModal === 'function') window.openClientInventoryRequestsModal('${commerce}'); } })" title="Firmar Acta de Inventario de Conformidad" style="padding: 0.35rem 0.65rem; background: #059669; color: #fff; border: 1px solid #047857; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
                 <i class="ri-quill-pen-line"></i> Firmar Acta
               </button>
             ` : ''}
             ${requiresInfo ? `
-              <button class="btn btn-warning btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.35rem 0.65rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
+              <button class="btn btn-warning btn-sm" onclick="window.openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${r.id}') : '${r.id}')" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.35rem 0.65rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem;">
                 <i class="ri-question-answer-line"></i> Aclarar Info
               </button>
             ` : ''}
@@ -41567,11 +41670,11 @@ function renderClientInventoryRequestsTabRows(allRequests, commerce) {
             <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'excel')" title="Descargar Planilla de Conteo (Excel)" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: rgba(16, 185, 129, 0.06); cursor: pointer; border-radius: 6px;">
               <i class="ri-file-excel-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Desglose y Cuadratura" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: 6px;">
+            <button class="btn btn-outline btn-sm" onclick="window.openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${r.id}') : '${r.id}')" title="Ver Detalles, Desglose y Cuadratura" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: 6px;">
               <i class="ri-eye-line"></i>
             </button>
             ${isPending ? `
-              <button class="btn btn-outline btn-sm" onclick="cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer; border-radius: 6px;">
+              <button class="btn btn-outline btn-sm" onclick="window.cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer; border-radius: 6px;">
                 <i class="ri-close-circle-line"></i>
               </button>
             ` : ''}
@@ -41745,12 +41848,12 @@ async function openClientInventoryRequestsModal(commerce) {
           <td style="padding: 0.65rem 0.75rem; text-align: center;">
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
               ${(isFinalized && !isSigned) ? `
-                <button class="btn btn-sm btn-client-sign-acta" onclick="window.openInventoryDigitalSignatureModal({ req: window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), signerType: 'client', onSigned: () => openClientInventoryRequestsModal('${commerce}') })" title="Firmar Acta de Inventario de Conformidad" style="padding: 0.25rem 0.5rem; background: #059669; color: #fff; border: 1px solid #047857; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <button class="btn btn-sm btn-client-sign-acta" onclick="window.openInventoryDigitalSignatureModal({ req: window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), signerType: 'client', onSigned: () => { if (typeof window.openClientInventoryRequestsModal === 'function') window.openClientInventoryRequestsModal('${commerce}'); } })" title="Firmar Acta de Inventario de Conformidad" style="padding: 0.25rem 0.5rem; background: #059669; color: #fff; border: 1px solid #047857; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                   <i class="ri-quill-pen-line"></i> Firmar
                 </button>
               ` : ''}
               ${requiresInfo ? `
-                <button class="btn btn-warning btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.25rem 0.5rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <button class="btn btn-warning btn-sm" onclick="window.openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${r.id}') : '${r.id}')" title="Responder / Aclarar Información Solicitada por STOCKA" style="padding: 0.25rem 0.5rem; background: #f59e0b; color: #fff; border: 1px solid #d97706; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
                   <i class="ri-question-answer-line"></i> Aclarar
                 </button>
               ` : ''}
@@ -41768,11 +41871,11 @@ async function openClientInventoryRequestsModal(commerce) {
               <button class="btn btn-outline btn-sm" onclick="window.downloadInventoryRequestSheet(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'), 'excel')" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981; cursor: pointer;">
                 <i class="ri-file-excel-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles, Respuestas y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
+              <button class="btn btn-outline btn-sm" onclick="window.openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${r.id}') : '${r.id}')" title="Ver Detalles, Respuestas y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
                 <i class="ri-eye-line"></i>
               </button>
               ${isPending ? `
-                <button class="btn btn-outline btn-sm" onclick="cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.25rem 0.45rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
+                <button class="btn btn-outline btn-sm" onclick="window.cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.25rem 0.45rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
                   <i class="ri-close-circle-line"></i>
                 </button>
               ` : ''}
@@ -41804,21 +41907,43 @@ async function cancelClientInventoryRequest(requestId, commerce) {
     if (error) throw error;
 
     alert('Solicitud cancelada correctamente.');
-    if (document.getElementById('modal-client-inventory-requests')) {
-      openClientInventoryRequestsModal(commerce);
+    if (document.getElementById('modal-client-inventory-requests') && typeof window.openClientInventoryRequestsModal === 'function') {
+      window.openClientInventoryRequestsModal(commerce);
     }
-    if (typeof loadClientInventoryRequestsTab === 'function') {
-      loadClientInventoryRequestsTab(commerce);
+    if (typeof window.loadClientInventoryRequestsTab === 'function') {
+      window.loadClientInventoryRequestsTab(commerce);
     }
-    updateClientInventoryRequestsBadge(commerce);
+    if (typeof window.updateClientInventoryRequestsBadge === 'function') {
+      window.updateClientInventoryRequestsBadge(commerce);
+    }
   } catch (err) {
     console.error('Error canceling request:', err);
     alert('Error al cancelar la solicitud: ' + err.message);
   }
 }
+window.cancelClientInventoryRequest = cancelClientInventoryRequest;
 
 async function openViewInventoryRequestDetailModal(req) {
   if (!req) return;
+
+  // Si se pasa un id o string, resolver al objeto de solicitud
+  if (typeof req === 'string') {
+    let found = (window.cachedClientInventoryRequests || []).find(x => x.id === req || x.folio === req);
+    if (!found && typeof supabase !== 'undefined') {
+      try {
+        const { data } = await supabase.from('inventory_requests').select('*').eq('id', req).maybeSingle();
+        found = data;
+      } catch (e) {
+        console.warn('Error fetching inventory request by id:', e);
+      }
+    }
+    req = found;
+  }
+
+  if (!req) {
+    alert('No se pudo encontrar la información de la solicitud de inventario.');
+    return;
+  }
 
   // Enriquecer códigos de barra faltantes antes de mostrar los detalles
   if (typeof window.enrichInventoryProductsBarcodes === 'function') {
@@ -42137,14 +42262,14 @@ async function openViewInventoryRequestDetailModal(req) {
         signerType: 'client',
         onSigned: (updatedReq) => {
           modal.remove();
-          if (document.getElementById('modal-client-inventory-requests') && typeof openClientInventoryRequestsModal === 'function') {
-            openClientInventoryRequestsModal(req.comercio);
+          if (document.getElementById('modal-client-inventory-requests') && typeof window.openClientInventoryRequestsModal === 'function') {
+            window.openClientInventoryRequestsModal(req.comercio);
           }
-          if (typeof loadClientInventoryRequestsTab === 'function') {
-            loadClientInventoryRequestsTab(req.comercio);
+          if (typeof window.loadClientInventoryRequestsTab === 'function') {
+            window.loadClientInventoryRequestsTab(req.comercio);
           }
-          if (typeof updateClientInventoryRequestsBadge === 'function') {
-            updateClientInventoryRequestsBadge(req.comercio);
+          if (typeof window.updateClientInventoryRequestsBadge === 'function') {
+            window.updateClientInventoryRequestsBadge(req.comercio);
           }
         }
       });
@@ -42325,14 +42450,14 @@ async function openViewInventoryRequestDetailModal(req) {
         alert('¡Tu aclaración ha sido enviada con éxito al equipo de STOCKA!');
         modal.remove();
 
-        if (document.getElementById('modal-client-inventory-requests') && typeof openClientInventoryRequestsModal === 'function') {
-          openClientInventoryRequestsModal(req.comercio);
+        if (document.getElementById('modal-client-inventory-requests') && typeof window.openClientInventoryRequestsModal === 'function') {
+          window.openClientInventoryRequestsModal(req.comercio);
         }
-        if (typeof loadClientInventoryRequestsTab === 'function') {
-          loadClientInventoryRequestsTab(req.comercio);
+        if (typeof window.loadClientInventoryRequestsTab === 'function') {
+          window.loadClientInventoryRequestsTab(req.comercio);
         }
-        if (typeof updateClientInventoryRequestsBadge === 'function') {
-          updateClientInventoryRequestsBadge(req.comercio);
+        if (typeof window.updateClientInventoryRequestsBadge === 'function') {
+          window.updateClientInventoryRequestsBadge(req.comercio);
         }
       } catch (err) {
         console.error('Error enviando aclaración del cliente:', err);
@@ -42343,6 +42468,12 @@ async function openViewInventoryRequestDetailModal(req) {
     });
   }
 }
+
+// Exponer funciones globales para el módulo de inventario cliente
+window.openRequestInventoryModal = openRequestInventoryModal;
+window.openClientInventoryRequestsModal = openClientInventoryRequestsModal;
+window.cancelClientInventoryRequest = cancelClientInventoryRequest;
+window.openViewInventoryRequestDetailModal = openViewInventoryRequestDetailModal;
 
 
 // ==========================================================================

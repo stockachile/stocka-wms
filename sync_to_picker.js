@@ -41,6 +41,54 @@ if (!WMS_KEY) {
 const wmsClient = createClient(WMS_URL, WMS_KEY);
 const pickerClient = createClient(PICKER_URL, PICKER_KEY);
 
+// Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
+function getValidShopifyNoteAttributesText(noteAttributes) {
+  if (!Array.isArray(noteAttributes) || noteAttributes.length === 0) return '';
+
+  const isMarketingOrTechnical = (name, val) => {
+    if (!name) return true;
+    const n = String(name).trim().toLowerCase();
+    const v = String(val == null ? '' : val).trim();
+    if (!v) return true;
+
+    // Prefijos típicos de tracking publicitario, píxeles, cookies, analítica y metadatos de pago
+    const ignoredPrefixes = [
+      'esc_', 'esc__', 'utm_', '_', 'fb', 'gclid', 'ttclid', 'msclkid',
+      'ga_', 'google_', 'meta_', 'tiktok_', 'session_', 'visitor_',
+      'payment_', 'additional_info_', 'bsure', 'cart_', 'checkout_',
+      'url_'
+    ];
+    if (ignoredPrefixes.some(p => n.startsWith(p))) return true;
+
+    // Nombres exactos de claves técnicas o de seguimiento
+    const exactIgnored = new Set([
+      'fbc', 'fbp', 'ttp', 'vid', 'country', 'locale', 'host', 'sh', 'sw',
+      'tracking', 'pixel', 'affiliate', 'referrer', 'landing_page',
+      'cart_token', 'checkout_token', 'device', 'platform', 'user_agent'
+    ]);
+    if (exactIgnored.has(n)) return true;
+
+    if (n.includes('tracking') || n.includes('pixel') || n.includes('campaign') || n.includes('analytics')) {
+      return true;
+    }
+
+    // Descartar si el valor es un JSON estructurado o una URL completa
+    if (v.startsWith('{') || v.startsWith('[') || v.startsWith('http://') || v.startsWith('https://')) {
+      return true;
+    }
+
+    // Descartar hashes o tokens alfanuméricos largos sin espacios (IDs de sesión, cookies)
+    if (v.length > 30 && !v.includes(' ') && /^[a-zA-Z0-9_.-]+$/.test(v)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const valid = noteAttributes.filter(a => !isMarketingOrTechnical(a?.name, a?.value));
+  return valid.map(a => `${a.name}: ${a.value}`).join(' | ').trim();
+}
+
 // Helper para extraer notas del pedido desde los datos crudos o WMS
 function getOrderNoteText(order) {
   if (!order) return '';
@@ -55,7 +103,7 @@ function getOrderNoteText(order) {
     if (typeof rawShopify.notes === 'string' && rawShopify.notes.trim()) return rawShopify.notes.trim();
     if (typeof rawShopify.customer_note === 'string' && rawShopify.customer_note.trim()) return rawShopify.customer_note.trim();
     if (Array.isArray(rawShopify.note_attributes) && rawShopify.note_attributes.length > 0) {
-      const noteAttr = rawShopify.note_attributes.map(a => `${a.name}: ${a.value}`).join(' | ');
+      const noteAttr = getValidShopifyNoteAttributesText(rawShopify.note_attributes);
       if (noteAttr) return noteAttr;
     }
   }
