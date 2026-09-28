@@ -1840,7 +1840,161 @@ function showLastScannedCard(product, qty) {
 // ==========================================
 // VISTA 2: CUADRATURA EN VIVO (RESULTADOS)
 // ==========================================
-function renderLiveReconView() {
+// ==========================================
+// CÁLCULO DE CUADRATURA COLABORATIVA DE LA SESIÓN
+// ==========================================
+async function computeSessionReconciliation() {
+  if (!activeCountSession) return null;
+
+  // 1. Agrupar lecturas físicas por SKU / product_id
+  const skuMap = new Map();
+  sessionItemsCache.forEach(item => {
+    const skuKey = String(item.sku || 'SIN-SKU').toUpperCase().trim();
+    if (!skuMap.has(skuKey)) {
+      skuMap.set(skuKey, {
+        productId: item.product_id || null,
+        sku: item.sku,
+        name: item.product_name,
+        barcode: item.barcode,
+        comercio: item.comercio,
+        totalCounted: 0,
+        systemStock: 0,
+        diff: 0,
+        expiryDates: new Set(),
+        lots: new Set(),
+        operators: new Set(),
+        locations: new Set(),
+        readingsCount: 0,
+        wasScanned: true
+      });
+    }
+    const r = skuMap.get(skuKey);
+    r.totalCounted += (item.quantity || 0);
+    r.readingsCount += 1;
+    if (item.product_id && !r.productId) r.productId = item.product_id;
+    if (item.expiry_date) r.expiryDates.add(item.expiry_date);
+    if (item.lot_number) r.lots.add(item.lot_number);
+    if (item.operator_name) r.operators.add(item.operator_name);
+    if (item.location) r.locations.add(item.location);
+  });
+
+  // 2. Consultar stock teórico de los productos escaneados
+  const scannedProductIds = Array.from(skuMap.values()).map(x => x.productId).filter(Boolean);
+  const warehouseId = activeCountSession.warehouse_id || null;
+
+  let invRows = [];
+  if (scannedProductIds.length > 0) {
+    try {
+      let q = supabase.from('inventory').select('id, product_id, warehouse_id, quantity').in('product_id', scannedProductIds);
+      if (warehouseId) {
+        q = q.eq('warehouse_id', warehouseId);
+      }
+      const { data, error } = await q;
+      if (!error && data) invRows = data;
+    } catch (e) {
+      console.warn('Error obteniendo stock teórico de productos escaneados:', e);
+    }
+  }
+
+  // Asignar stock teórico a los productos escaneados
+  skuMap.forEach(item => {
+    if (item.productId) {
+      const match = invRows.find(r => r.product_id === item.productId);
+      item.systemStock = match ? (match.quantity || 0) : 0;
+    } else {
+      item.systemStock = 0;
+    }
+    item.diff = item.totalCounted - item.systemStock;
+  });
+
+  // 3. Consultar productos del comercio que tenían stock en esta bodega pero NO fueron escaneados
+  const unscannedItems = [];
+  if (activeCountSession.comercio && activeCountSession.comercio !== 'Todos' && warehouseId) {
+    try {
+      const { data: comProds } = await supabase
+        .from('products')
+        .select('id, sku, name, barcode, barcode_wms, comercio')
+        .ilike('comercio', activeCountSession.comercio.trim());
+
+      if (comProds && comProds.length > 0) {
+        const comProdIds = comProds.map(p => p.id);
+        const { data: whInv } = await supabase
+          .from('inventory')
+          .select('id, product_id, warehouse_id, quantity')
+          .eq('warehouse_id', warehouseId)
+          .gt('quantity', 0)
+          .in('product_id', comProdIds);
+
+        if (whInv && whInv.length > 0) {
+          whInv.forEach(inv => {
+            const p = comProds.find(x => x.id === inv.product_id);
+            if (!p) return;
+            const skuKey = String(p.sku || '').toUpperCase().trim();
+            if (!skuMap.has(skuKey)) {
+              const unscannedRecord = {
+                productId: p.id,
+                sku: p.sku,
+                name: p.name,
+                barcode: p.barcode || p.barcode_wms || '',
+                comercio: p.comercio || activeCountSession.comercio,
+                totalCounted: 0,
+                systemStock: inv.quantity || 0,
+                diff: 0 - (inv.quantity || 0),
+                expiryDates: new Set(),
+                lots: new Set(),
+                operators: new Set(),
+                locations: new Set(),
+                readingsCount: 0,
+                wasScanned: false
+              };
+              unscannedItems.push(unscannedRecord);
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Error buscando productos no escaneados con stock:', err);
+    }
+  }
+
+  // Lista combinada de todos los productos de la auditoría
+  const allReconItems = [...Array.from(skuMap.values()), ...unscannedItems].sort((a, b) => {
+    if (a.wasScanned !== b.wasScanned) return a.wasScanned ? -1 : 1;
+    return b.totalCounted - a.totalCounted;
+  });
+
+  const totalCountedUnits = allReconItems.reduce((acc, x) => acc + (x.totalCounted || 0), 0);
+  const totalSystemUnits = allReconItems.reduce((acc, x) => acc + (x.systemStock || 0), 0);
+  const netDiffUnits = totalCountedUnits - totalSystemUnits;
+
+  const matchedItems = allReconItems.filter(x => x.diff === 0);
+  const surplusItems = allReconItems.filter(x => x.diff > 0);
+  const deficitItems = allReconItems.filter(x => x.diff < 0);
+
+  return {
+    scannedItems: Array.from(skuMap.values()),
+    unscannedItems,
+    allItems: allReconItems,
+    totals: {
+      totalCountedUnits,
+      totalSystemUnits,
+      netDiffUnits,
+      totalSkus: allReconItems.length,
+      scannedSkus: skuMap.size,
+      unscannedSkus: unscannedItems.length,
+      matchedCount: matchedItems.length,
+      surplusCount: surplusItems.length,
+      deficitCount: deficitItems.length
+    }
+  };
+}
+
+// ==========================================
+// VISTA 2: CUADRATURA EN VIVO (RESULTADOS)
+// ==========================================
+let currentReconFilter = 'all';
+
+async function renderLiveReconView() {
   const container = document.getElementById('inv-tab-content-area');
   if (!container) return;
 
@@ -1849,51 +2003,58 @@ function renderLiveReconView() {
     return;
   }
 
-  // Agrupar lecturas por SKU
-  const skuMap = new Map();
-  sessionItemsCache.forEach(item => {
-    const skuKey = String(item.sku).toUpperCase().trim();
-    if (!skuMap.has(skuKey)) {
-      skuMap.set(skuKey, {
-        sku: item.sku,
-        name: item.product_name,
-        barcode: item.barcode,
-        comercio: item.comercio,
-        totalCounted: 0,
-        systemStock: 0,
-        expiryDates: new Set(),
-        lots: new Set(),
-        operators: new Set(),
-        readingsCount: 0
-      });
-    }
-    const record = skuMap.get(skuKey);
-    record.totalCounted += (item.quantity || 0);
-    record.readingsCount += 1;
-    if (item.expiry_date) record.expiryDates.add(item.expiry_date);
-    if (item.lot_number) record.lots.add(item.lot_number);
-    if (item.operator_name) record.operators.add(item.operator_name);
-  });
+  // Mostrar loader mientras se consulta el stock teórico
+  container.innerHTML = `
+    <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--color-primary); display: block; margin-bottom: 0.75rem;"></i>
+      <div style="font-weight: 600; font-size: 0.95rem; color: var(--color-text-main);">Calculando cuadratura con inventario en sistema...</div>
+      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem;">Sincronizando existencias de bodega ${escapeHtml(activeCountSession.warehouse_name || 'Central')}</div>
+    </div>
+  `;
 
-  const skuList = Array.from(skuMap.values()).sort((a, b) => b.totalCounted - a.totalCounted);
+  const recon = await computeSessionReconciliation();
+  if (!recon) return;
 
-  const rowsHtml = skuList.map((item, idx) => {
-    const diff = item.totalCounted - item.systemStock;
+  const totals = recon.totals;
+  const isFinished = activeCountSession.status === 'finalizada';
+
+  // Filtrar ítems según el filtro seleccionado
+  let filteredItems = recon.allItems;
+  if (currentReconFilter === 'matched') {
+    filteredItems = recon.allItems.filter(x => x.diff === 0);
+  } else if (currentReconFilter === 'surplus') {
+    filteredItems = recon.allItems.filter(x => x.diff > 0);
+  } else if (currentReconFilter === 'deficit') {
+    filteredItems = recon.allItems.filter(x => x.diff < 0);
+  } else if (currentReconFilter === 'unscanned') {
+    filteredItems = recon.allItems.filter(x => !x.wasScanned);
+  }
+
+  const rowsHtml = filteredItems.map((item, idx) => {
+    const diff = item.diff;
     let diffBadge = '';
-    if (diff === 0) {
-      diffBadge = '<span class="inv-diff-badge matched"><i class="ri-check-line"></i> Cuadrado (0)</span>';
+    let diffColor = '#10b981';
+
+    if (!item.wasScanned) {
+      diffBadge = `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-close-circle-line"></i> No encontrado (${diff})</span>`;
+      diffColor = '#ef4444';
+    } else if (diff === 0) {
+      diffBadge = '<span style="background: rgba(16, 185, 129, 0.12); color: #10b981; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-check-line"></i> Cuadrado (0)</span>';
+      diffColor = '#10b981';
     } else if (diff > 0) {
-      diffBadge = `<span class="inv-diff-badge surplus"><i class="ri-arrow-up-line"></i> +${diff} Sobrante</span>`;
+      diffBadge = `<span style="background: rgba(99, 102, 241, 0.12); color: #6366f1; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-up-line"></i> +${diff} Sobrante</span>`;
+      diffColor = '#6366f1';
     } else {
-      diffBadge = `<span class="inv-diff-badge deficit"><i class="ri-arrow-down-line"></i> ${diff} Faltante</span>`;
+      diffBadge = `<span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-down-line"></i> ${diff} Faltante</span>`;
+      diffColor = '#ef4444';
     }
 
-    const expiryStr = item.expiryDates.size > 0 ? Array.from(item.expiryDates).join(', ') : '<span style="color: var(--color-text-muted); font-style: italic;">Sin vencimiento</span>';
-    const opsStr = Array.from(item.operators).join(', ');
+    const expiryStr = item.expiryDates && item.expiryDates.size > 0 ? Array.from(item.expiryDates).join(', ') : '<span style="color: var(--color-text-muted); font-style: italic;">Sin vencimiento</span>';
+    const opsStr = item.operators && item.operators.size > 0 ? Array.from(item.operators).join(', ') : '-';
 
     return `
-      <tr>
-        <td style="text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
+      <tr style="${!item.wasScanned ? 'background: rgba(239, 68, 68, 0.03);' : ''}">
+        <td style="text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</td>
         <td>
           <div style="font-family: monospace; font-weight: 700; color: var(--color-text-main);">${escapeHtml(item.sku)}</div>
           <div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace;">CB: ${escapeHtml(item.barcode || '-')}</div>
@@ -1902,17 +2063,23 @@ function renderLiveReconView() {
           <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(item.name)}</div>
           <div style="font-size: 0.72rem; color: var(--color-text-muted);">${escapeHtml(item.comercio)}</div>
         </td>
-        <td style="text-align: center; font-weight: 800; font-size: 1rem; color: #10b981;">
-          ${item.totalCounted}
+        <td style="text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-text-muted);">
+          ${item.systemStock} un.
         </td>
-        <td style="text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">
-          ${item.readingsCount} lectura${item.readingsCount > 1 ? 's' : ''}
+        <td style="text-align: center; font-weight: 800; font-size: 1rem; color: #10b981; background: rgba(16, 185, 129, 0.04);">
+          ${item.totalCounted} un.
+        </td>
+        <td style="text-align: center; font-weight: 800; font-size: 0.95rem; color: ${diffColor};">
+          ${diff > 0 ? '+' : ''}${diff}
+        </td>
+        <td style="text-align: center;">
+          ${diffBadge}
         </td>
         <td style="font-size: 0.78rem;">
           ${expiryStr}
         </td>
         <td style="font-size: 0.75rem; color: var(--color-text-muted);">
-          ${escapeHtml(opsStr || '-')}
+          ${escapeHtml(opsStr)}
         </td>
       </tr>
     `;
@@ -1920,29 +2087,89 @@ function renderLiveReconView() {
 
   container.innerHTML = `
     <div class="inv-recon-table-card">
-      <div class="inv-recon-toolbar">
+      <!-- HEADER CON ACCIONES -->
+      <div class="inv-recon-toolbar" style="flex-wrap: wrap; gap: 1rem;">
         <div>
-          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
-            Resumen de Cuadratura Físico-Sistémica
+          <h3 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Cuadratura Físico-Sistémica en Vivo
           </h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
-            Consolidado colaborativo de todos los teléfonos conectados a la sesión.
+            Auditoría en tiempo real: compara unidades contadas físicamente vs stock teórico en bodega.
           </p>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
           <button id="btn-export-inv-excel" class="btn btn-outline btn-sm" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
             <i class="ri-file-excel-2-line"></i> Descargar Excel
           </button>
           <button id="btn-export-inv-pdf" class="btn btn-outline btn-sm" style="border-color: #6366f1; color: #6366f1; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
             <i class="ri-file-pdf-line"></i> Informe PDF
           </button>
-          <button id="btn-close-inv-session" class="btn btn-primary btn-sm" style="background: #059669; border-color: #059669; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
-            <i class="ri-check-double-line"></i> Finalizar y Aplicar Conteo
-          </button>
+          ${isFinished ? `
+            <span style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-check-double-line"></i> Conteo Finalizado
+            </span>
+          ` : `
+            <button id="btn-close-inv-session" class="btn btn-primary btn-sm" style="background: #059669; border-color: #059669; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+              <i class="ri-check-double-line"></i> Finalizar y Aplicar Conteo
+            </button>
+          `}
         </div>
       </div>
 
+      <!-- TARJETAS KPIS DE CUADRATURA -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; padding: 1rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; border-left: 4px solid #10b981;">
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Físico Contado</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #10b981; margin-top: 0.2rem;">${totals.totalCountedUnits} un.</div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">${totals.scannedSkus} SKUs escaneados</div>
+        </div>
+
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; border-left: 4px solid #6366f1;">
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Stock Sistema</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: #6366f1; margin-top: 0.2rem;">${totals.totalSystemUnits} un.</div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">Teórico en esta bodega</div>
+        </div>
+
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; border-left: 4px solid ${totals.netDiffUnits === 0 ? '#10b981' : (totals.netDiffUnits > 0 ? '#6366f1' : '#ef4444')};">
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Diferencia Neta</div>
+          <div style="font-size: 1.4rem; font-weight: 800; color: ${totals.netDiffUnits === 0 ? '#10b981' : (totals.netDiffUnits > 0 ? '#6366f1' : '#ef4444')}; margin-top: 0.2rem;">
+            ${totals.netDiffUnits > 0 ? '+' : ''}${totals.netDiffUnits} un.
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">${totals.matchedCount} de ${totals.totalSkus} cuadradas exactas</div>
+        </div>
+
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; border-left: 4px solid #f59e0b;">
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Desglose Auditoría</div>
+          <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem;">
+            <div><span style="color: #10b981;">✓ ${totals.matchedCount}</span> Cuadrados</div>
+            <div><span style="color: #6366f1;">▲ +${totals.surplusCount}</span> Sobrantes • <span style="color: #ef4444;">▼ -${totals.deficitCount}</span> Faltantes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FILTROS RÁPIDOS -->
+      <div style="display: flex; gap: 0.4rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); overflow-x: auto; flex-wrap: wrap;">
+        <button type="button" class="btn-recon-filter ${currentReconFilter === 'all' ? 'active' : ''}" data-filter="all" style="padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--color-border); background: ${currentReconFilter === 'all' ? 'var(--color-primary)' : 'var(--color-bg)'}; color: ${currentReconFilter === 'all' ? '#fff' : 'var(--color-text-muted)'}; cursor: pointer;">
+          Todos (${recon.allItems.length})
+        </button>
+        <button type="button" class="btn-recon-filter ${currentReconFilter === 'matched' ? 'active' : ''}" data-filter="matched" style="padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--color-border); background: ${currentReconFilter === 'matched' ? '#10b981' : 'var(--color-bg)'}; color: ${currentReconFilter === 'matched' ? '#fff' : 'var(--color-text-muted)'}; cursor: pointer;">
+          Cuadrados (${totals.matchedCount})
+        </button>
+        <button type="button" class="btn-recon-filter ${currentReconFilter === 'surplus' ? 'active' : ''}" data-filter="surplus" style="padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--color-border); background: ${currentReconFilter === 'surplus' ? '#6366f1' : 'var(--color-bg)'}; color: ${currentReconFilter === 'surplus' ? '#fff' : 'var(--color-text-muted)'}; cursor: pointer;">
+          Sobrantes (+${totals.surplusCount})
+        </button>
+        <button type="button" class="btn-recon-filter ${currentReconFilter === 'deficit' ? 'active' : ''}" data-filter="deficit" style="padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--color-border); background: ${currentReconFilter === 'deficit' ? '#ef4444' : 'var(--color-bg)'}; color: ${currentReconFilter === 'deficit' ? '#fff' : 'var(--color-text-muted)'}; cursor: pointer;">
+          Faltantes (-${totals.deficitCount})
+        </button>
+        ${totals.unscannedSkus > 0 ? `
+          <button type="button" class="btn-recon-filter ${currentReconFilter === 'unscanned' ? 'active' : ''}" data-filter="unscanned" style="padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.78rem; font-weight: 600; border: 1px solid #ef4444; background: ${currentReconFilter === 'unscanned' ? '#ef4444' : 'rgba(239, 68, 68, 0.08)'}; color: ${currentReconFilter === 'unscanned' ? '#fff' : '#ef4444'}; cursor: pointer;">
+            No Encontrados en Bodega (${totals.unscannedSkus})
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- TABLA DE CUADRATURA -->
       <div class="inv-recon-table-container">
         <table class="inv-recon-table">
           <thead>
@@ -1950,21 +2177,31 @@ function renderLiveReconView() {
               <th style="width: 30px; text-align: center;">#</th>
               <th>SKU / Cód. Barras</th>
               <th>Producto & Comercio</th>
-              <th style="text-align: center; color: #059669;">Total Físico</th>
-              <th style="text-align: center;">Escaneos</th>
+              <th style="text-align: center; color: var(--color-text-muted);">Stock Sistema</th>
+              <th style="text-align: center; color: #059669;">Físico Contado</th>
+              <th style="text-align: center;">Diferencia</th>
+              <th style="text-align: center;">Resultado</th>
               <th>Vencimiento(s)</th>
               <th>Operadores</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Sin lecturas registradas aún en esta sesión.</td></tr>`}
+            ${rowsHtml || `<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay productos que coincidan con el filtro seleccionado.</td></tr>`}
           </tbody>
         </table>
       </div>
     </div>
   `;
 
-  // Eventos de exportación
+  // Eventos de filtros
+  container.querySelectorAll('.btn-recon-filter').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      currentReconFilter = e.currentTarget.getAttribute('data-filter') || 'all';
+      renderLiveReconView();
+    });
+  });
+
+  // Eventos de exportación y finalización
   document.getElementById('btn-export-inv-excel')?.addEventListener('click', exportInventoryCountToExcel);
   document.getElementById('btn-export-inv-pdf')?.addEventListener('click', exportInventoryCountToPdf);
   document.getElementById('btn-close-inv-session')?.addEventListener('click', handleCloseSessionAndApply);
@@ -2581,46 +2818,341 @@ function openNewSessionModal() {
 
 // Finalizar y aplicar conteo
 async function handleCloseSessionAndApply() {
-  if (!activeCountSession) return;
-
-  const totalScans = sessionItemsCache.length;
-  const totalUnits = sessionItemsCache.reduce((acc, x) => acc + (x.quantity || 0), 0);
-
-  const confirmClose = confirm(
-    `¿Deseas dar por FINALIZADA la sesión ${activeCountSession.folio}?\n\n` +
-    `• Total Lecturas: ${totalScans}\n` +
-    `• Total Unidades Contadas: ${totalUnits}\n\n` +
-    `Al finalizar, la sesión quedará cerrada para nuevos escaneos y se consolidará el informe oficial.`
-  );
-
-  if (!confirmClose) return;
-
-  try {
-    const { error } = await supabase
-      .from('inventory_count_sessions')
-      .update({
-        status: 'finalizada',
-        closed_at: new Date().toISOString()
-      })
-      .eq('id', activeCountSession.id);
-
-    if (error) throw error;
-
-    activeCountSession.status = 'finalizada';
-    alert('¡Sesión finalizada con éxito! Puedes descargar el informe en PDF o planilla Excel.');
-    renderLiveReconView();
-
-  } catch (err) {
-    alert('Error al finalizar sesión: ' + err.message);
+  if (!activeCountSession) {
+    alert('No hay una sesión activa seleccionada.');
+    return;
   }
+
+  // Si ya está finalizada, advertir
+  const isAlreadyClosed = activeCountSession.status === 'finalizada';
+
+  // Mostrar indicador de carga mientras se calcula la cuadratura
+  const btn = document.getElementById('btn-close-inv-session');
+  const originalBtnHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Analizando Cuadratura...';
+  }
+
+  let recon;
+  try {
+    recon = await computeSessionReconciliation();
+  } catch (err) {
+    console.error('Error calculando cuadratura:', err);
+    alert('Error al analizar cuadratura de inventario: ' + err.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalBtnHtml;
+    }
+    return;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalBtnHtml;
+    }
+  }
+
+  if (!recon || recon.allItems.length === 0) {
+    alert('No se encontraron registros ni productos para procesar en esta sesión.');
+    return;
+  }
+
+  const totals = recon.totals;
+  const warehouseName = activeCountSession.warehouse_name || 'Bodega General';
+  const warehouseId = activeCountSession.warehouse_id;
+
+  // Crear modal de confirmación y selección de modo de aplicación
+  const existingModal = document.getElementById('modal-inv-close-apply');
+  if (existingModal) existingModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-inv-close-apply';
+  modal.style.position = 'fixed';
+  modal.style.top = '0';
+  modal.style.left = '0';
+  modal.style.width = '100vw';
+  modal.style.height = '100vh';
+  modal.style.backgroundColor = 'rgba(15, 23, 42, 0.65)';
+  modal.style.backdropFilter = 'blur(4px)';
+  modal.style.zIndex = '99999';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.style.padding = '1rem';
+
+  modal.innerHTML = `
+    <div style="background: var(--color-surface, #ffffff); border-radius: 12px; width: 100%; max-width: 680px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
+      
+      <!-- HEADER -->
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg, #f8fafc); border-radius: 12px 12px 0 0;">
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.5px;">
+            Auditoría & Ajuste de Existencias
+          </div>
+          <h3 style="margin: 0.15rem 0 0; font-size: 1.2rem; font-weight: 800; color: var(--color-text-main);">
+            Finalizar y Aplicar Conteo (${escapeHtml(activeCountSession.folio)})
+          </h3>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+            Comercio: <strong>${escapeHtml(activeCountSession.comercio)}</strong> • Bodega: <strong>${escapeHtml(warehouseName)}</strong>
+          </div>
+        </div>
+        <button type="button" onclick="document.getElementById('modal-inv-close-apply').remove()" style="background: none; border: none; font-size: 1.4rem; color: var(--color-text-muted); cursor: pointer; padding: 0.25rem;">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+
+      <!-- BODY -->
+      <div style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem;">
+        
+        <!-- RESUMEN KPIs -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; background: var(--color-bg, #f8fafc); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+          <div style="text-align: center;">
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Físico Contado</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #10b981;">${totals.totalCountedUnits} un.</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">${totals.scannedSkus} SKUs escaneados</div>
+          </div>
+          <div style="text-align: center; border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border);">
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Stock Sistema</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #6366f1;">${totals.totalSystemUnits} un.</div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">${totals.totalSkus} SKUs totales</div>
+          </div>
+          <div style="text-align: center;">
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Diferencia Neta</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: ${totals.netDiffUnits === 0 ? '#10b981' : (totals.netDiffUnits > 0 ? '#6366f1' : '#ef4444')};">
+              ${totals.netDiffUnits > 0 ? '+' : ''}${totals.netDiffUnits} un.
+            </div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted);">
+              ${totals.matchedCount} cuadradas exactas
+            </div>
+          </div>
+        </div>
+
+        <!-- ALERTA SOBRE NO CONTADOS / ZERO-OUT -->
+        ${totals.unscannedSkus > 0 ? `
+          <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.8rem; color: #b91c1c;">
+            <div style="font-weight: 700; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+              <i class="ri-alert-line" style="font-size: 1rem;"></i> 
+              Atención: Existen ${totals.unscannedSkus} SKUs con stock teórico en sistema que NO fueron escaneados en bodega.
+            </div>
+            <p style="margin: 0; line-height: 1.35; font-size: 0.75rem; color: #7f1d1d;">
+              Si realizaste una <strong>toma física al 100% de la bodega</strong>, estos productos realmente tienen 0 unidades físicas y deben ser ajustados a cero. Si realizaste un conteo parcial o rotativo, selecciona la opción para mantenerlos sin cambios.
+            </p>
+          </div>
+        ` : `
+          <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.65rem 0.9rem; font-size: 0.8rem; color: #065f46;">
+            <strong>✓ Cobertura Completa:</strong> Todos los productos con existencias teóricas del comercio fueron verificados en bodega.
+          </div>
+        `}
+
+        <!-- SELECCIÓN DE ACCIÓN -->
+        <div>
+          <label style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.6rem;">
+            ¿Qué acción deseas ejecutar en el WMS?
+          </label>
+          
+          <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+            
+            <!-- OPCION 1: CONTEO GENERAL (100%) -->
+            <label style="display: flex; gap: 0.75rem; padding: 0.85rem; border: 1.5px solid var(--color-border); border-radius: 8px; cursor: pointer; transition: all 0.15s; background: var(--color-surface);" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+              <input type="radio" name="apply_inventory_mode" value="all_warehouse" checked style="margin-top: 0.25rem;">
+              <div>
+                <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main);">
+                  Conteo General de Bodega (100% de existencias - Recomendado)
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.35;">
+                  Aplica el stock físico a todos los productos escaneados (${totals.scannedSkus} SKUs). 
+                  ${totals.unscannedSkus > 0 ? `<strong>Y ajusta a CERO (0 un.) los ${totals.unscannedSkus} SKUs no encontrados</strong> que tenían stock teórico en sistema.` : ''}
+                  Registra los movimientos oficiales de entrada ('in') y salida ('out') en el Kardex.
+                </div>
+              </div>
+            </label>
+
+            <!-- OPCION 2: SOLO SKUS CONTADOS -->
+            <label style="display: flex; gap: 0.75rem; padding: 0.85rem; border: 1.5px solid var(--color-border); border-radius: 8px; cursor: pointer; transition: all 0.15s; background: var(--color-surface);" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+              <input type="radio" name="apply_inventory_mode" value="counted_only" style="margin-top: 0.25rem;">
+              <div>
+                <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main);">
+                  Ajustar Solo SKUs Contados (Conteo Cíclico / Rotativo)
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.35;">
+                  Ajusta únicamente los ${totals.scannedSkus} productos que fueron escaneados. 
+                  ${totals.unscannedSkus > 0 ? `<strong>Mantiene intacto el stock actual</strong> de los ${totals.unscannedSkus} productos no escaneados (no los lleva a cero).` : ''}
+                </div>
+              </div>
+            </label>
+
+            <!-- OPCION 3: SOLO CERRAR SESIÓN (AUDITORÍA) -->
+            <label style="display: flex; gap: 0.75rem; padding: 0.85rem; border: 1.5px solid var(--color-border); border-radius: 8px; cursor: pointer; transition: all 0.15s; background: var(--color-surface);" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+              <input type="radio" name="apply_inventory_mode" value="close_only" style="margin-top: 0.25rem;">
+              <div>
+                <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main);">
+                  Solo Finalizar y Congelar Sesión (Modo Auditoría / Sin modificar stock)
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.35;">
+                  Cierra la sesión para nuevos escaneos móviles y consolida el informe oficial sin realizar cambios en la tabla de stock ni en el inventario activo.
+                </div>
+              </div>
+            </label>
+
+          </div>
+        </div>
+
+        ${!warehouseId ? `
+          <div style="background: rgba(245, 158, 11, 0.1); border-left: 3.5px solid #f59e0b; padding: 0.6rem 0.8rem; border-radius: 4px; font-size: 0.75rem; color: #b45309;">
+            <strong>Nota:</strong> Esta sesión fue creada sin una bodega específica asignada. Para aplicar ajustes automáticos en la tabla de inventario, se recomienda que la sesión tenga una bodega definida.
+          </div>
+        ` : ''}
+
+      </div>
+
+      <!-- FOOTER -->
+      <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg, #f8fafc); border-radius: 0 0 12px 12px;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-inv-close-apply').remove()" style="padding: 0.5rem 1rem;">
+          Cancelar
+        </button>
+        <button type="button" id="btn-confirm-apply-inventory" class="btn btn-primary" style="background: #10b981; border-color: #10b981; font-weight: 700; padding: 0.5rem 1.25rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-check-double-line"></i> Confirmar y Aplicar
+        </button>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Listener para confirmar y aplicar
+  document.getElementById('btn-confirm-apply-inventory')?.addEventListener('click', async () => {
+    const selectedMode = modal.querySelector('input[name="apply_inventory_mode"]:checked')?.value || 'all_warehouse';
+    const confirmBtn = document.getElementById('btn-confirm-apply-inventory');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Procesando Ajustes...';
+
+    try {
+      let appliedAdjustmentsCount = 0;
+      let totalUnitsAdjusted = 0;
+
+      if (selectedMode !== 'close_only') {
+        if (!warehouseId) {
+          throw new Error('No es posible aplicar ajustes de inventario porque la sesión no tiene una bodega asignada.');
+        }
+
+        // Determinar qué ítems se deben ajustar
+        let itemsToAdjust = [];
+        if (selectedMode === 'all_warehouse') {
+          // Ajustar todos los que tienen diferencia (incluyendo no escaneados que se van a cero)
+          itemsToAdjust = recon.allItems.filter(x => x.diff !== 0 && x.productId);
+        } else if (selectedMode === 'counted_only') {
+          // Solo los escaneados con diferencia
+          itemsToAdjust = recon.allItems.filter(x => x.wasScanned && x.diff !== 0 && x.productId);
+        }
+
+        for (const item of itemsToAdjust) {
+          const targetQty = item.totalCounted;
+          const diff = item.diff; // totalCounted - systemStock
+          const moveType = diff > 0 ? 'in' : 'out';
+          const absDiff = Math.abs(diff);
+
+          // 1. Actualizar o insertar en inventory
+          const { data: existingInv, error: selErr } = await supabase
+            .from('inventory')
+            .select('id, quantity')
+            .eq('product_id', item.productId)
+            .eq('warehouse_id', warehouseId)
+            .maybeSingle();
+
+          if (selErr) {
+            console.error('Error consultando stock para ' + item.sku, selErr);
+          }
+
+          if (existingInv) {
+            const { error: updErr } = await supabase
+              .from('inventory')
+              .update({
+                quantity: targetQty,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existingInv.id);
+
+            if (updErr) throw updErr;
+          } else {
+            const { error: insErr } = await supabase
+              .from('inventory')
+              .insert([{
+                product_id: item.productId,
+                warehouse_id: warehouseId,
+                quantity: targetQty,
+                committed_quantity: 0
+              }]);
+
+            if (insErr) throw insErr;
+          }
+
+          // 2. Registrar movimiento de auditoría en movements
+          const refDoc = !item.wasScanned
+            ? `Ajuste Conteo Físico (Faltante 0 un. en bodega): ${activeCountSession.folio}`
+            : `Ajuste Conteo Físico (${diff > 0 ? 'Sobrante +' : 'Faltante -'}${absDiff} un.): ${activeCountSession.folio}`;
+
+          const { error: movErr } = await supabase
+            .from('movements')
+            .insert([{
+              product_id: item.productId,
+              warehouse_id: warehouseId,
+              type: moveType,
+              quantity: absDiff,
+              reference_doc: refDoc
+            }]);
+
+          if (movErr) {
+            console.warn('Error registrando movimiento para ' + item.sku, movErr);
+          }
+
+          appliedAdjustmentsCount++;
+          totalUnitsAdjusted += absDiff;
+        }
+      }
+
+      // Actualizar estado de la sesión a finalizada
+      const { error: sessErr } = await supabase
+        .from('inventory_count_sessions')
+        .update({
+          status: 'finalizada',
+          closed_at: new Date().toISOString(),
+          notes: (activeCountSession.notes ? activeCountSession.notes + '\n' : '') +
+            `[Finalizado el ${new Date().toLocaleString('es-CL')}]: Modo ${selectedMode}. Ajustados ${appliedAdjustmentsCount} SKUs (${totalUnitsAdjusted} un.).`
+        })
+        .eq('id', activeCountSession.id);
+
+      if (sessErr) throw sessErr;
+
+      activeCountSession.status = 'finalizada';
+      modal.remove();
+
+      let successMsg = `¡Sesión ${activeCountSession.folio} finalizada exitosamente!`;
+      if (selectedMode !== 'close_only') {
+        successMsg += `\n\n✓ Se aplicaron ajustes en ${appliedAdjustmentsCount} SKUs (${totalUnitsAdjusted} unidades totales) en la bodega ${warehouseName}.`;
+      } else {
+        successMsg += '\n\n✓ La sesión fue congelada sin modificar las tablas de inventario.';
+      }
+      alert(successMsg);
+
+      // Re-renderizar vista de cuadratura
+      renderLiveReconView();
+
+    } catch (err) {
+      console.error('Error aplicando ajustes:', err);
+      alert('Error al aplicar ajustes de conteo: ' + err.message);
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = '<i class="ri-check-double-line"></i> Confirmar y Aplicar';
+    }
+  });
 }
 
 // ==========================================
-// EXPORTACIÓN A EXCEL Y PDF
+// EXPORTACIÓN A EXCEL Y PDF (AUDITORÍA COMPLETA)
 // ==========================================
-function exportInventoryCountToExcel() {
-  if (!activeCountSession || sessionItemsCache.length === 0) {
-    alert('No hay lecturas registradas para exportar.');
+async function exportInventoryCountToExcel() {
+  if (!activeCountSession) {
+    alert('No hay una sesión activa seleccionada.');
     return;
   }
 
@@ -2629,57 +3161,65 @@ function exportInventoryCountToExcel() {
     return;
   }
 
-  // 1. Hoja 1: Resumen de Cuadratura por SKU
-  const skuMap = new Map();
-  sessionItemsCache.forEach(item => {
-    const skuKey = String(item.sku).toUpperCase().trim();
-    if (!skuMap.has(skuKey)) {
-      skuMap.set(skuKey, {
-        sku: item.sku,
-        name: item.product_name,
-        barcode: item.barcode,
-        comercio: item.comercio,
-        totalCounted: 0,
-        expiryDates: new Set(),
-        lots: new Set(),
-        readingsCount: 0
-      });
-    }
-    const record = skuMap.get(skuKey);
-    record.totalCounted += (item.quantity || 0);
-    record.readingsCount += 1;
-    if (item.expiry_date) record.expiryDates.add(item.expiry_date);
-    if (item.lot_number) record.lots.add(item.lot_number);
-  });
+  let recon;
+  try {
+    recon = await computeSessionReconciliation();
+  } catch (e) {
+    console.error('Error calculando cuadratura para Excel:', e);
+    alert('Error al procesar datos para exportar: ' + e.message);
+    return;
+  }
 
+  if (!recon || recon.allItems.length === 0) {
+    alert('No hay productos ni lecturas registradas para exportar.');
+    return;
+  }
+
+  const totals = recon.totals;
+  const safeCommerce = activeCountSession.comercio || 'Comercio';
+
+  // 1. Hoja 1: Resumen de Cuadratura Oficial
   const reconRows = [
-    ['STOCKA WMS - INFORME OFICIAL DE CONTEO DE INVENTARIO'],
-    ['Folio:', activeCountSession.folio, '', 'Título:', activeCountSession.title],
-    ['Comercio:', activeCountSession.comercio, '', 'Bodega:', activeCountSession.warehouse_name || 'Todas'],
-    ['Fecha Exportación:', new Date().toLocaleString('es-CL'), '', 'Estado:', activeCountSession.status],
+    ['STOCKA WMS - ACTA OFICIAL DE AUDITORÍA Y CUADRATURA DE INVENTARIO'],
+    ['Folio Sesión:', activeCountSession.folio, '', 'Título:', activeCountSession.title || 'Conteo Físico'],
+    ['Comercio:', safeCommerce, '', 'Bodega:', activeCountSession.warehouse_name || 'Todas'],
+    ['Fecha Emisión:', new Date().toLocaleString('es-CL'), '', 'Estado Sesión:', (activeCountSession.status || 'activa').toUpperCase()],
+    ['Total Físico Contado:', `${totals.totalCountedUnits} unidades`, '', 'Stock en Sistema:', `${totals.totalSystemUnits} unidades`],
+    ['Diferencia Neta:', `${totals.netDiffUnits > 0 ? '+' : ''}${totals.netDiffUnits} unidades`, '', 'Cuadradas Exactas:', `${totals.matchedCount} de ${totals.totalSkus} SKUs`],
     [],
-    ['N°', 'SKU', 'Código de Barras', 'Descripción', 'Comercio', 'Físico Contado', 'N° Lecturas', 'Vencimiento(s)', 'Lote(s)']
+    ['N°', 'SKU', 'Código de Barras', 'Descripción del Producto', 'Comercio', 'Stock Sistema', 'Físico Contado', 'Diferencia (±)', 'Resultado Cuadratura', 'Estado en Bodega', 'N° Lecturas', 'Vencimiento(s)', 'Lote(s)', 'Operadores', 'Ubicaciones']
   ];
 
-  let idx = 1;
-  skuMap.forEach(item => {
+  recon.allItems.forEach((item, idx) => {
+    let resultLabel = 'CUADRADO';
+    if (item.diff > 0) resultLabel = `SOBRANTE (+${item.diff})`;
+    else if (item.diff < 0) resultLabel = !item.wasScanned ? `NO ENCONTRADO (0 un.)` : `FALTANTE (${item.diff})`;
+
+    const stateLabel = item.wasScanned ? 'Escaneado en Bodega' : 'No Encontrado (0 físico)';
+
     reconRows.push([
-      idx++,
-      item.sku,
+      idx + 1,
+      item.sku || '',
       item.barcode || '',
-      item.name,
-      item.comercio,
-      item.totalCounted,
-      item.readingsCount,
-      Array.from(item.expiryDates).join(', '),
-      Array.from(item.lots).join(', ')
+      item.name || '',
+      item.comercio || safeCommerce,
+      item.systemStock || 0,
+      item.totalCounted || 0,
+      item.diff,
+      resultLabel,
+      stateLabel,
+      item.readingsCount || 0,
+      Array.from(item.expiryDates || []).join(', ') || '-',
+      Array.from(item.lots || []).join(', ') || '-',
+      Array.from(item.operators || []).join(', ') || '-',
+      Array.from(item.locations || []).join(', ') || '-'
     ]);
   });
 
   // 2. Hoja 2: Kardex Detallado de Cada Escaneo
   const detailRows = [
     ['STOCKA WMS - REGISTRO AUDITABLE DE LECTURAS (KARDEX)'],
-    ['Folio:', activeCountSession.folio],
+    ['Folio Sesión:', activeCountSession.folio, '', 'Comercio:', safeCommerce],
     [],
     ['N°', 'Fecha y Hora', 'Operador', 'Dispositivo', 'SKU', 'Código Barras', 'Producto', 'Cantidad', 'Fecha Vencimiento', 'Lote', 'Ubicación', 'Notas']
   ];
@@ -2705,158 +3245,263 @@ function exportInventoryCountToExcel() {
   const ws1 = XLSX.utils.aoa_to_sheet(reconRows);
   const ws2 = XLSX.utils.aoa_to_sheet(detailRows);
 
-  XLSX.utils.book_append_sheet(wb, ws1, 'Resumen Cuadratura');
-  XLSX.utils.book_append_sheet(wb, ws2, 'Detalle de Lecturas');
+  XLSX.utils.book_append_sheet(wb, ws1, 'Cuadratura General');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Detalle de Escaneos');
 
-  const filename = `Conteo_${activeCountSession.folio}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const cleanCommerce = safeCommerce.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `Cuadratura_${activeCountSession.folio}_${cleanCommerce}_${new Date().toISOString().split('T')[0]}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
 
-function exportInventoryCountToPdf() {
-  if (!activeCountSession || sessionItemsCache.length === 0) {
-    alert('No hay lecturas registradas para generar el informe.');
+async function exportInventoryCountToPdf() {
+  if (!activeCountSession) {
+    alert('No hay una sesión activa seleccionada.');
     return;
   }
 
-  // Agrupar por SKU
-  const skuMap = new Map();
-  sessionItemsCache.forEach(item => {
-    const skuKey = String(item.sku).toUpperCase().trim();
-    if (!skuMap.has(skuKey)) {
-      skuMap.set(skuKey, {
-        sku: item.sku,
-        name: item.product_name,
-        barcode: item.barcode,
-        comercio: item.comercio,
-        totalCounted: 0,
-        expiryDates: new Set()
-      });
+  let recon;
+  try {
+    recon = await computeSessionReconciliation();
+  } catch (err) {
+    console.error('Error calculando cuadratura para PDF:', err);
+    alert('Error al generar informe: ' + err.message);
+    return;
+  }
+
+  if (!recon || recon.allItems.length === 0) {
+    alert('No hay productos ni lecturas registradas para generar el informe.');
+    return;
+  }
+
+  const totals = recon.totals;
+  const safeCommerce = activeCountSession.comercio || 'Comercio';
+  const warehouseName = activeCountSession.warehouse_name || 'Todas las bodegas';
+
+  let tableRowsHtml = '';
+  recon.allItems.forEach((item, idx) => {
+    const isEven = idx % 2 === 0;
+    const bg = isEven ? '#ffffff' : '#f8fafc';
+    const expiryStr = item.expiryDates && item.expiryDates.size > 0 ? Array.from(item.expiryDates).join(', ') : '-';
+    const operatorsStr = item.operators && item.operators.size > 0 ? Array.from(item.operators).join(', ') : 'Operador';
+
+    let diffBadge = '';
+    if (item.diff === 0) {
+      diffBadge = `<span style="background: #dcfce7; color: #15803d; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 6.8pt; display: inline-block;">✓ CUADRADO</span>`;
+    } else if (item.diff > 0) {
+      diffBadge = `<span style="background: #ede9fe; color: #6d28d9; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 6.8pt; display: inline-block;">▲ +${item.diff} SOBRANTE</span>`;
+    } else if (!item.wasScanned) {
+      diffBadge = `<span style="background: #fef2f2; color: #991b1b; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-size: 6.8pt; display: inline-block; border: 1px dashed #ef4444;">✕ NO ENCONTRADO</span>`;
+    } else {
+      diffBadge = `<span style="background: #fee2e2; color: #b91c1c; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 6.8pt; display: inline-block;">▼ ${item.diff} FALTANTE</span>`;
     }
-    const r = skuMap.get(skuKey);
-    r.totalCounted += (item.quantity || 0);
-    if (item.expiry_date) r.expiryDates.add(item.expiry_date);
-  });
 
-  const totalUnits = sessionItemsCache.reduce((a, b) => a + (b.quantity || 0), 0);
-  const totalSkus = skuMap.size;
-
-  let tableRows = '';
-  let rowIdx = 1;
-  skuMap.forEach(item => {
-    const expiryStr = item.expiryDates.size > 0 ? Array.from(item.expiryDates).join(', ') : '-';
-    tableRows += `
-      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 8pt;">
-        <td style="padding: 5px; text-align: center;">${rowIdx++}</td>
-        <td style="padding: 5px; font-family: monospace; font-weight: 700;">${escapeHtml(item.sku)}</td>
-        <td style="padding: 5px; font-family: monospace; color: #64748b;">${escapeHtml(item.barcode || '-')}</td>
-        <td style="padding: 5px; font-weight: 500;">${escapeHtml(item.name)}</td>
-        <td style="padding: 5px; text-align: center; font-weight: 800; color: #047857; font-size: 9pt;">${item.totalCounted}</td>
-        <td style="padding: 5px; font-size: 7.5pt; color: #475569;">${expiryStr}</td>
+    tableRowsHtml += `
+      <tr style="background-color: ${bg}; border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; font-size: 7.2pt;">
+        <td style="padding: 4px 3px; text-align: center; color: #64748b; font-weight: 600; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
+        <td style="padding: 4px 6px; font-family: monospace; font-weight: 700; color: #0f172a; border-right: 1px solid #e2e8f0; white-space: nowrap;">${escapeHtml(item.sku || '-')}</td>
+        <td style="padding: 4px 6px; font-family: monospace; color: #475569; border-right: 1px solid #e2e8f0;">${escapeHtml(item.barcode || '-')}</td>
+        <td style="padding: 4px 6px; color: #0f172a; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.2;">
+          ${escapeHtml(item.name || 'Sin descripción')}
+          ${!item.wasScanned ? `<div style="font-size: 6.5pt; color: #ef4444; font-weight: 700;">[Stock en sistema pero 0 unidades físicas contadas]</div>` : ''}
+        </td>
+        <td style="padding: 4px 6px; text-align: center; font-weight: 700; color: #6366f1; border-right: 1px solid #e2e8f0;">${item.systemStock} un.</td>
+        <td style="padding: 4px 6px; text-align: center; font-weight: 800; color: ${item.wasScanned ? '#047857' : '#ef4444'}; border-right: 1px solid #e2e8f0;">
+          ${item.totalCounted} un.
+        </td>
+        <td style="padding: 4px 6px; text-align: center; font-weight: 800; color: ${item.diff === 0 ? '#10b981' : (item.diff > 0 ? '#6366f1' : '#ef4444')}; border-right: 1px solid #e2e8f0;">
+          ${item.diff > 0 ? '+' : ''}${item.diff} un.
+        </td>
+        <td style="padding: 4px 6px; text-align: center; border-right: 1px solid #e2e8f0;">${diffBadge}</td>
+        <td style="padding: 4px 6px; color: #475569; border-right: 1px solid #e2e8f0; font-size: 6.8pt;">${escapeHtml(expiryStr)}</td>
+        <td style="padding: 4px 6px; color: #64748b; font-size: 6.8pt;">${escapeHtml(operatorsStr)}</td>
       </tr>
     `;
   });
 
+  // Contenedor temporal (A4 Landscape = 297mm x 210mm) posicionado adecuadamente para html2canvas
   const container = document.createElement('div');
+  container.id = 'inv-audit-pdf-container';
   container.style.position = 'fixed';
-  container.style.top = '-99999px';
-  container.style.left = '-99999px';
-  container.style.width = '210mm';
-  container.style.padding = '12mm 15mm';
-  container.style.fontFamily = "'Inter', Arial, sans-serif";
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '1120px';
+  container.style.backgroundColor = '#ffffff';
   container.style.color = '#0f172a';
-  container.style.backgroundColor = '#fff';
+  container.style.fontFamily = "'Inter', Arial, sans-serif";
+  container.style.padding = '12px 18px';
+  container.style.boxSizing = 'border-box';
 
   container.innerHTML = `
-    <div>
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px;">
+    <div id="pdf-audit-printable-area" style="width: 100%;">
+      
+      <!-- ENCABEZADO OFICIAL -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 8px; margin-bottom: 10px;">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 38px; width: auto;" onerror="this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+          <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 38px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
           <div>
-            <h1 style="margin: 0; font-size: 13pt; font-weight: 800; text-transform: uppercase;">Acta de Conteo Físico de Inventario</h1>
-            <p style="margin: 2px 0 0 0; font-size: 7.5pt; color: #64748b;">Control de Existencias con Dispositivo Móvil • STOCKA WMS</p>
+            <div style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 6.8pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+              Auditoría & Control Físico de Existencias
+            </div>
+            <h1 style="margin: 0; font-size: 13pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
+              Acta Oficial de Cuadratura de Inventario
+            </h1>
+            <p style="margin: 1px 0 0 0; font-size: 7.2pt; color: #64748b; font-weight: 500;">
+              STOCKA WMS & Fulfillment • Conciliación Físico vs Teórico en Sistema
+            </p>
           </div>
         </div>
         <div style="text-align: right;">
-          <div style="background: #0f172a; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: 800; font-size: 9pt; font-family: monospace;">
-            ${activeCountSession.folio}
+          <div style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 9.5pt; font-family: monospace; letter-spacing: 0.5px;">
+            ${escapeHtml(activeCountSession.folio)}
           </div>
           <div style="font-size: 7pt; color: #64748b; margin-top: 3px;">
-            ${new Date().toLocaleString('es-CL')}
+            Emisión: <strong>${new Date().toLocaleString('es-CL')}</strong>
           </div>
         </div>
       </div>
 
-      <!-- Metadatos -->
-      <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; font-size: 8pt;">
+      <!-- METADATOS DE LA SESIÓN -->
+      <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 7.5pt;">
         <table style="width: 100%; border-collapse: collapse;">
           <tr>
-            <td style="width: 18%; font-weight: 700; color: #475569;">Título Conteo:</td>
-            <td style="width: 32%; font-weight: 700;">${escapeHtml(activeCountSession.title)}</td>
-            <td style="width: 18%; font-weight: 700; color: #475569;">Bodega Asignada:</td>
-            <td style="width: 32%; font-weight: 600;">${escapeHtml(activeCountSession.warehouse_name || 'Todas')}</td>
+            <td style="padding: 2px 4px; width: 14%; font-weight: 700; color: #475569;">Cliente / Comercio:</td>
+            <td style="padding: 2px 4px; width: 36%; font-weight: 700; color: #0f172a; font-size: 8pt;">${escapeHtml(safeCommerce)}</td>
+            <td style="padding: 2px 4px; width: 14%; font-weight: 700; color: #475569;">Bodega Asignada:</td>
+            <td style="padding: 2px 4px; width: 36%; font-weight: 600; color: #0f172a;">${escapeHtml(warehouseName)}</td>
           </tr>
           <tr>
-            <td style="font-weight: 700; color: #475569;">Comercio:</td>
-            <td>${escapeHtml(activeCountSession.comercio)}</td>
-            <td style="font-weight: 700; color: #475569;">Total SKUs:</td>
-            <td style="font-weight: 800; color: #4338ca;">${totalSkus} SKUs (${totalUnits} unidades totales)</td>
+            <td style="padding: 2px 4px; font-weight: 700; color: #475569;">Título Conteo:</td>
+            <td style="padding: 2px 4px; color: #1e293b;">${escapeHtml(activeCountSession.title || 'Conteo Físico')}</td>
+            <td style="padding: 2px 4px; font-weight: 700; color: #475569;">Creado Por / Fecha:</td>
+            <td style="padding: 2px 4px; color: #1e293b;">${escapeHtml(activeCountSession.created_by || 'Admin')} • ${activeCountSession.created_at ? new Date(activeCountSession.created_at).toLocaleString('es-CL') : '-'}</td>
           </tr>
         </table>
       </div>
 
-      <!-- Tabla de Productos -->
-      <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-bottom: 15px; font-size: 8pt;">
+      <!-- TARJETAS DE KPIS EJECUTIVOS -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 3.5px solid #10b981; border-radius: 4px; padding: 6px 10px;">
+          <div style="font-size: 6.8pt; font-weight: 700; color: #64748b; text-transform: uppercase;">Físico Contado</div>
+          <div style="font-size: 11pt; font-weight: 800; color: #047857; margin-top: 1px;">${totals.totalCountedUnits} un.</div>
+          <div style="font-size: 6.8pt; color: #64748b;">${totals.scannedSkus} SKUs escaneados</div>
+        </div>
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 3.5px solid #6366f1; border-radius: 4px; padding: 6px 10px;">
+          <div style="font-size: 6.8pt; font-weight: 700; color: #64748b; text-transform: uppercase;">Stock en Sistema</div>
+          <div style="font-size: 11pt; font-weight: 800; color: #4338ca; margin-top: 1px;">${totals.totalSystemUnits} un.</div>
+          <div style="font-size: 6.8pt; color: #64748b;">Teórico en esta bodega</div>
+        </div>
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 3.5px solid ${totals.netDiffUnits === 0 ? '#10b981' : (totals.netDiffUnits > 0 ? '#6366f1' : '#ef4444')}; border-radius: 4px; padding: 6px 10px;">
+          <div style="font-size: 6.8pt; font-weight: 700; color: #64748b; text-transform: uppercase;">Diferencia Neta</div>
+          <div style="font-size: 11pt; font-weight: 800; color: ${totals.netDiffUnits === 0 ? '#047857' : (totals.netDiffUnits > 0 ? '#4338ca' : '#b91c1c')}; margin-top: 1px;">
+            ${totals.netDiffUnits > 0 ? '+' : ''}${totals.netDiffUnits} un.
+          </div>
+          <div style="font-size: 6.8pt; color: #64748b;">${totals.matchedCount} SKUs cuadrados exactos</div>
+        </div>
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-left: 3.5px solid #f59e0b; border-radius: 4px; padding: 6px 10px;">
+          <div style="font-size: 6.8pt; font-weight: 700; color: #64748b; text-transform: uppercase;">Desglose Auditoría</div>
+          <div style="font-size: 7.2pt; font-weight: 700; color: #0f172a; margin-top: 2px;">
+            <span style="color: #047857;">✓ ${totals.matchedCount}</span> Cuad. | <span style="color: #4338ca;">▲ +${totals.surplusCount}</span> Sobr. | <span style="color: #b91c1c;">▼ -${totals.deficitCount}</span> Falt.
+          </div>
+          <div style="font-size: 6.6pt; color: #ef4444; font-weight: 600;">
+            ${totals.unscannedSkus > 0 ? `(${totals.unscannedSkus} SKUs no encontrados en bodega)` : '100% productos verificados'}
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLA DETALLADA DE PRODUCTOS -->
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; margin-bottom: 12px; font-size: 7.2pt;">
         <thead>
-          <tr style="background: #0f172a; color: #fff; font-size: 7pt; text-transform: uppercase;">
-            <th style="padding: 5px; width: 25px; text-align: center;">#</th>
-            <th style="padding: 5px; width: 90px; text-align: left;">SKU</th>
-            <th style="padding: 5px; width: 90px; text-align: left;">Cód. Barras</th>
-            <th style="padding: 5px; text-align: left;">Producto</th>
-            <th style="padding: 5px; width: 60px; text-align: center; background: #047857;">Total Físico</th>
-            <th style="padding: 5px; width: 110px; text-align: left;">Vencimiento</th>
+          <tr style="background-color: #0f172a; color: #ffffff; font-size: 6.8pt; text-transform: uppercase;">
+            <th style="padding: 4px 3px; width: 25px; text-align: center; border-right: 1px solid #334155;">#</th>
+            <th style="padding: 4px 6px; width: 100px; text-align: left; border-right: 1px solid #334155;">SKU</th>
+            <th style="padding: 4px 6px; width: 95px; text-align: left; border-right: 1px solid #334155;">Cód. Barras</th>
+            <th style="padding: 4px 6px; text-align: left; border-right: 1px solid #334155;">Producto</th>
+            <th style="padding: 4px 6px; width: 75px; text-align: center; border-right: 1px solid #334155;">Stock Sistema</th>
+            <th style="padding: 4px 6px; width: 75px; text-align: center; background-color: #047857; border-right: 1px solid #334155;">Físico Contado</th>
+            <th style="padding: 4px 6px; width: 75px; text-align: center; border-right: 1px solid #334155;">Diferencia</th>
+            <th style="padding: 4px 6px; width: 100px; text-align: center; border-right: 1px solid #334155;">Resultado</th>
+            <th style="padding: 4px 6px; width: 85px; text-align: left; border-right: 1px solid #334155;">Vencimiento</th>
+            <th style="padding: 4px 6px; width: 85px; text-align: left;">Operadores</th>
           </tr>
         </thead>
         <tbody>
-          ${tableRows}
+          ${tableRowsHtml}
         </tbody>
       </table>
 
-      <!-- Firmas -->
-      <div style="border-top: 1px solid #cbd5e1; padding-top: 15px; margin-top: 20px;">
-        <table style="width: 100%; font-size: 7.5pt;">
+      <!-- FIRMAS DE RESPONSABILIDAD -->
+      <div style="page-break-inside: avoid; border-top: 1px solid #cbd5e1; padding-top: 8px; margin-top: 10px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 7.2pt;">
           <tr>
-            <td style="width: 48%; border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px; vertical-align: top;">
-              <div style="font-weight: 700; text-transform: uppercase; margin-bottom: 25px;">Responsable del Conteo (Bodeguero)</div>
-              <div>Nombre: _____________________________________</div>
-              <div style="margin-top: 15px;">Firma: ______________________________________</div>
+            <td style="width: 32%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 20px; text-transform: uppercase; font-size: 6.8pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
+                Responsable del Conteo (Bodeguero)
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px; color: #475569; font-size: 6.8pt;">
+                <div>Nombre: ___________________________________</div>
+                <div>RUT: ________________ Fecha: ___/___/______</div>
+                <div style="margin-top: 8px;">Firma: ____________________________________</div>
+              </div>
             </td>
-            <td style="width: 4%;"></td>
-            <td style="width: 48%; border: 1px solid #cbd5e1; border-radius: 4px; padding: 10px; vertical-align: top;">
-              <div style="font-weight: 700; text-transform: uppercase; margin-bottom: 25px;">Supervisor de Operaciones STOCKA</div>
-              <div>Nombre: _____________________________________</div>
-              <div style="margin-top: 15px;">Firma V°B°: _________________________________</div>
+            <td style="width: 2%;"></td>
+            <td style="width: 32%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 20px; text-transform: uppercase; font-size: 6.8pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
+                Supervisor de Operaciones STOCKA WMS
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px; color: #475569; font-size: 6.8pt;">
+                <div>Nombre: ___________________________________</div>
+                <div>Hora Inicio: ____:____ &nbsp; Hora Fin: ____:____</div>
+                <div style="margin-top: 8px;">Firma V°B°: _______________________________</div>
+              </div>
+            </td>
+            <td style="width: 2%;"></td>
+            <td style="width: 32%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 20px; text-transform: uppercase; font-size: 6.8pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
+                Conformidad del Cliente / Comercio
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px; color: #475569; font-size: 6.8pt;">
+                <div>Nombre: ___________________________________</div>
+                <div>Cargo: ________________ Fecha: ___/___/______</div>
+                <div style="margin-top: 8px;">Firma / Timbre: ___________________________</div>
+              </div>
             </td>
           </tr>
         </table>
+        
+        <div style="text-align: center; margin-top: 8px; font-size: 6.5pt; color: #94a3b8;">
+          STOCKA WMS • Documento Oficial de Auditoría y Certificación de Inventario Físico • Generado digitalmente para control de stock
+        </div>
       </div>
+
     </div>
   `;
 
   document.body.appendChild(container);
 
-  if (typeof html2pdf !== 'undefined') {
+  try {
+    const printableArea = container.querySelector('#pdf-audit-printable-area');
+    const cleanCommerce = safeCommerce.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanFolio = String(activeCountSession.folio).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Acta_Cuadratura_${cleanFolio}_${cleanCommerce}.pdf`;
+
     const opt = {
-      margin: [10, 10, 10, 10],
-      filename: `Informe_Conteo_${activeCountSession.folio}.pdf`,
+      margin: [6, 8, 6, 8],
+      filename: filename,
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      html2canvas: { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
-    html2pdf().from(container).set(opt).save().finally(() => {
-      container.remove();
-    });
-  } else {
-    window.print();
+
+    if (typeof html2pdf !== 'undefined') {
+      await html2pdf().from(printableArea).set(opt).save();
+    } else {
+      window.print();
+    }
+  } catch (err) {
+    console.error('Error generando PDF de auditoría:', err);
+    alert('Error al generar el archivo PDF: ' + err.message);
+  } finally {
     container.remove();
   }
 }

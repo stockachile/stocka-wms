@@ -620,6 +620,16 @@ import supabase from './supabase.js';
 
     // Render tabbed layout
     workspace.innerHTML = `
+      <style>
+        .label-qty-spin-hide::-webkit-outer-spin-button,
+        .label-qty-spin-hide::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .label-qty-spin-hide {
+          -moz-appearance: textfield;
+        }
+      </style>
       <!-- Top Navigation Tabs for Labels Module -->
       <div style="display: flex; gap: 0.75rem; border-bottom: 2px solid var(--color-border); margin-bottom: 1.25rem; padding-bottom: 0.5rem; flex-wrap: wrap;">
         <button type="button" id="btn-label-tab-catalog" class="btn ${currentLabelTab === 'catalog' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
@@ -719,7 +729,7 @@ import supabase from './supabase.js';
                     <th style="padding: 0.6rem 0.8rem;">Producto</th>
                     <th style="padding: 0.6rem 0.8rem;">SKU</th>
                     <th style="padding: 0.6rem 0.8rem; text-align: center;">Código en barras</th>
-                    <th style="padding: 0.6rem 0.8rem; text-align: center; width: 100px;">Copias</th>
+                    <th style="padding: 0.6rem 0.8rem; text-align: center; width: 120px;">Copias</th>
                     <th style="padding: 0.6rem 0.8rem; text-align: center; width: 50px;"></th>
                   </tr>
                 </thead>
@@ -3022,6 +3032,16 @@ import supabase from './supabase.js';
         return;
       }
 
+      // Ensure valid integer quantities >= 1
+      printQueue.forEach((item, idx) => {
+        let q = parseInt(item.qty, 10);
+        if (isNaN(q) || q < 1) q = 1;
+        item.qty = q;
+        const inputEl = document.getElementById(`queue-qty-input-${idx}`);
+        if (inputEl) inputEl.value = q;
+      });
+      if (typeof updateQueueTotals === 'function') updateQueueTotals();
+
       const size = sizeSelect.value;
       const template = templateSelect.value;
       const withHumanReadable = readableCb.checked;
@@ -3044,6 +3064,16 @@ import supabase from './supabase.js';
         Swal.fire('Cola vacía', 'Agrega productos a la cola antes de generar el código ZPL.', 'warning');
         return;
       }
+
+      // Ensure valid integer quantities >= 1
+      printQueue.forEach((item, idx) => {
+        let q = parseInt(item.qty, 10);
+        if (isNaN(q) || q < 1) q = 1;
+        item.qty = q;
+        const inputEl = document.getElementById(`queue-qty-input-${idx}`);
+        if (inputEl) inputEl.value = q;
+      });
+      if (typeof updateQueueTotals === 'function') updateQueueTotals();
 
       const size = sizeSelect.value;
       const template = templateSelect.value;
@@ -3612,14 +3642,7 @@ import supabase from './supabase.js';
     const withVariants = hasCommerceVariants && (document.getElementById('global-label-variants')?.checked ?? false);
 
     // Sum physical copies
-    const totalCopies = printQueue.reduce((acc, item) => acc + item.qty, 0);
-    if (totalCountSpan) {
-      totalCountSpan.textContent = totalCopies;
-    }
-    const totalCountZplSpan = document.getElementById('bulk-total-count-zpl');
-    if (totalCountZplSpan) {
-      totalCountZplSpan.textContent = totalCopies;
-    }
+    updateQueueTotals();
 
     if (printQueue.length === 0) {
       tbody.innerHTML = `
@@ -3659,10 +3682,24 @@ import supabase from './supabase.js';
             ${escapeHtml(codeVal)}${badgeHtml}
           </td>
           <td style="padding:0.75rem 0.8rem;text-align:center;">
-            <div style="display:inline-flex;align-items:center;gap:0.35rem;border:1px solid var(--color-border);border-radius:4px;padding:0.15rem 0.35rem;background:var(--color-bg);">
-              <button onclick="window.decrementQueueItem(${index})" style="background:none;border:none;cursor:pointer;font-size:0.9rem;padding:0;color:var(--color-text-muted);display:flex;align-items:center;height:20px;width:20px;justify-content:center;"><i class="ri-subtract-line"></i></button>
-              <span style="font-weight:600;min-width:24px;text-align:center;font-size:0.85rem;">${item.qty}</span>
-              <button onclick="window.incrementQueueItem(${index})" style="background:none;border:none;cursor:pointer;font-size:0.9rem;padding:0;color:var(--color-text-muted);display:flex;align-items:center;height:20px;width:20px;justify-content:center;"><i class="ri-add-line"></i></button>
+            <div style="display:inline-flex;align-items:center;border:1px solid var(--color-border);border-radius:6px;background:var(--color-bg);overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);transition:border-color 0.2s;" onfocusin="this.style.borderColor='var(--color-primary)'" onfocusout="this.style.borderColor='var(--color-border)'">
+              <button type="button" onclick="window.decrementQueueItem(${index})" style="background:none;border:none;cursor:pointer;font-size:0.95rem;padding:0;color:var(--color-text-muted);display:flex;align-items:center;height:28px;width:26px;justify-content:center;transition:background 0.15s, color 0.15s;" onmouseover="this.style.background='rgba(0,0,0,0.06)';this.style.color='var(--color-text-main)';" onmouseout="this.style.background='none';this.style.color='var(--color-text-muted)';" title="Restar 1"><i class="ri-subtract-line"></i></button>
+              <input 
+                type="number" 
+                id="queue-qty-input-${index}" 
+                class="label-qty-spin-hide"
+                value="${item.qty}" 
+                min="1" 
+                max="99999" 
+                step="1"
+                onfocus="this.select()"
+                oninput="window.handleQueueQtyInput(${index}, this)" 
+                onchange="window.handleQueueQtyChange(${index}, this)" 
+                onkeydown="if(event.key==='Enter'){this.blur();}" 
+                style="width:52px;height:28px;text-align:center;font-weight:700;font-size:0.875rem;border:none;border-left:1px solid var(--color-border);border-right:1px solid var(--color-border);background:var(--color-surface);color:var(--color-text-main);outline:none;padding:0 2px;"
+                title="Escribe la cantidad de copias"
+              >
+              <button type="button" onclick="window.incrementQueueItem(${index})" style="background:none;border:none;cursor:pointer;font-size:0.95rem;padding:0;color:var(--color-text-muted);display:flex;align-items:center;height:28px;width:26px;justify-content:center;transition:background 0.15s, color 0.15s;" onmouseover="this.style.background='rgba(0,0,0,0.06)';this.style.color='var(--color-text-main)';" onmouseout="this.style.background='none';this.style.color='var(--color-text-muted)';" title="Sumar 1"><i class="ri-add-line"></i></button>
             </div>
           </td>
           <td style="padding:0.75rem 0.8rem;text-align:center;">
@@ -3676,18 +3713,77 @@ import supabase from './supabase.js';
     renderLivePreview(printQueue[0], { size, template, withHumanReadable, dataSource, withVariants });
   }
 
+  // Helper to sync total copies count in buttons without rebuilding the table DOM
+  function updateQueueTotals() {
+    const totalCountSpan = document.getElementById('bulk-total-count');
+    const totalCountZplSpan = document.getElementById('bulk-total-count-zpl');
+    const totalCopies = printQueue.reduce((acc, item) => acc + (parseInt(item.qty, 10) || 0), 0);
+    if (totalCountSpan) {
+      totalCountSpan.textContent = totalCopies;
+    }
+    if (totalCountZplSpan) {
+      totalCountZplSpan.textContent = totalCopies;
+    }
+  }
+
   // Exposed helper functions for row actions
+  window.handleQueueQtyInput = function (index, inputEl) {
+    if (!printQueue[index]) return;
+    const rawVal = inputEl.value.trim();
+    if (rawVal === '') {
+      printQueue[index].qty = 0;
+      updateQueueTotals();
+      return;
+    }
+    let qty = parseInt(rawVal, 10);
+    if (isNaN(qty) || qty < 1) {
+      qty = 1;
+    } else if (qty > 99999) {
+      qty = 99999;
+      inputEl.value = 99999;
+    }
+    printQueue[index].qty = qty;
+    updateQueueTotals();
+  };
+
+  window.handleQueueQtyChange = function (index, inputEl) {
+    if (!printQueue[index]) return;
+    let qty = parseInt(inputEl.value, 10);
+    if (isNaN(qty) || qty < 1) {
+      qty = 1;
+    } else if (qty > 99999) {
+      qty = 99999;
+    }
+    inputEl.value = qty;
+    printQueue[index].qty = qty;
+    updateQueueTotals();
+  };
+
   window.incrementQueueItem = function (index) {
     if (printQueue[index]) {
-      printQueue[index].qty += 1;
-      updateQueueUI();
+      const cur = parseInt(printQueue[index].qty, 10) || 0;
+      const next = Math.min(99999, cur + 1);
+      printQueue[index].qty = next;
+      const inputEl = document.getElementById(`queue-qty-input-${index}`);
+      if (inputEl) {
+        inputEl.value = next;
+      }
+      updateQueueTotals();
     }
   };
 
   window.decrementQueueItem = function (index) {
-    if (printQueue[index] && printQueue[index].qty > 1) {
-      printQueue[index].qty -= 1;
-      updateQueueUI();
+    if (printQueue[index]) {
+      const cur = parseInt(printQueue[index].qty, 10) || 1;
+      if (cur > 1) {
+        const next = cur - 1;
+        printQueue[index].qty = next;
+        const inputEl = document.getElementById(`queue-qty-input-${index}`);
+        if (inputEl) {
+          inputEl.value = next;
+        }
+        updateQueueTotals();
+      }
     }
   };
 
