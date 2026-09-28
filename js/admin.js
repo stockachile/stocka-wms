@@ -1727,6 +1727,26 @@ window.resolveOrderTracking = function(order) {
     else if (raw?.shipping) shipId = raw.shipping?.id;
     if (shipId) return String(shipId).trim();
   }
+  // Paris (Cencosud) tracking fallback
+  if (order.external_platform === 'Paris' || order.raw_paris_data) {
+    const raw = order.raw_paris_data;
+    if (raw?.subOrders && Array.isArray(raw.subOrders)) {
+      for (const so of raw.subOrders) {
+        if (so.trackingNumber && String(so.trackingNumber).trim()) {
+          return String(so.trackingNumber).trim();
+        }
+        if (so.tracking && Array.isArray(so.tracking)) {
+          for (const t of so.tracking) {
+            const match = (t.comment || '').match(/(?:OT|tracking|gu[ií]a):\s*([A-Za-z0-9_-]+)/i);
+            if (match && match[1]) return match[1].trim();
+          }
+        }
+      }
+    }
+    if (raw?.trackingNumber && String(raw.trackingNumber).trim()) {
+      return String(raw.trackingNumber).trim();
+    }
+  }
   return '';
 };
 
@@ -4206,6 +4226,274 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
   return _currentFetchWmsOrdersPromise;
 };
 
+// ==========================================================
+// HELPERS PARA SEGUIMIENTO DE ÚLTIMO REFRESH GLOBAL (7 DÍAS)
+// ==========================================================
+window.formatWmsDateTime = function(dateObj = new Date()) {
+  const d = (dateObj instanceof Date && !isNaN(dateObj.getTime())) ? dateObj : new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+};
+
+window.updateWmsLastGlobalRefreshTag = function(date = new Date()) {
+  const d = (date instanceof Date && !isNaN(date.getTime())) ? date : new Date(date);
+  const validDate = !isNaN(d.getTime()) ? d : new Date();
+  try {
+    localStorage.setItem('wms_last_global_refresh_7days', validDate.toISOString());
+    window.wmsLastGlobalRefreshTimestamp = validDate.toISOString();
+  } catch(e) {}
+  
+  const tagSpan = document.getElementById('wms-last-global-refresh-time');
+  if (tagSpan) {
+    tagSpan.textContent = window.formatWmsDateTime(validDate);
+  }
+};
+
+window.getWmsLastGlobalRefreshText = function() {
+  let stored = null;
+  try {
+    stored = localStorage.getItem('wms_last_global_refresh_7days');
+  } catch(e) {}
+  if (stored) {
+    const d = new Date(stored);
+    if (!isNaN(d.getTime())) {
+      return window.formatWmsDateTime(d);
+    }
+  }
+  return window.formatWmsDateTime(new Date());
+};
+
+window.triggerWmsGlobal7DaysRefresh = async function(btn) {
+  const icon = document.getElementById('wms-last-global-refresh-icon') || (btn ? btn.querySelector('i') : null);
+  if (icon) icon.classList.add('spin');
+  if (btn) btn.style.pointerEvents = 'none';
+  try {
+    window.lastFetchedDateFrom = null; // invalidar para forzar refetch directo
+    window.lastFetchedDateTo = null;
+    await window.setWmsDatePreset('7days', true);
+    window.updateWmsLastGlobalRefreshTag(new Date());
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Refresh global (últimos 7 días) completado`,
+        showConfirmButton: false,
+        timer: 2500
+      });
+    }
+  } catch (err) {
+    console.error('Error in triggerWmsGlobal7DaysRefresh:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'error',
+        title: `Error al refrescar: ${err.message}`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  } finally {
+    if (icon) icon.classList.remove('spin');
+    if (btn) btn.style.pointerEvents = '';
+  }
+};
+
+window.formatWmsDateRangeSummary = function(fromStr, toStr) {
+  if (!fromStr && !toStr) return 'Rango de fechas';
+  if (!fromStr) return `Hasta ${toStr}`;
+  if (!toStr) return `Desde ${fromStr}`;
+
+  try {
+    const p1 = fromStr.split('-');
+    const p2 = toStr.split('-');
+    if (p1.length === 3 && p2.length === 3) {
+      const [y1, m1, d1] = p1;
+      const [y2, m2, d2] = p2;
+      if (fromStr === toStr) {
+        return `${d1}/${m1}/${y1}`;
+      }
+      if (y1 === y2) {
+        return `${d1}/${m1} - ${d2}/${m2}/${y1}`;
+      }
+      return `${d1}/${m1}/${y1.slice(-2)} - ${d2}/${m2}/${y2.slice(-2)}`;
+    }
+  } catch (e) {
+    console.error('Error formatting date summary:', e);
+  }
+  return `${fromStr} al ${toStr}`;
+};
+
+window.toggleWmsDateRangePicker = function(e) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  const popover = document.getElementById('wms-date-range-popover');
+  const chevron = document.getElementById('wms-date-range-chevron');
+  const container = document.querySelector('.wms-date-range-picker-container');
+  if (!popover) return;
+  const isClosed = popover.style.display === 'none' || !popover.style.display;
+  if (isClosed) {
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      const popoverWidth = 310;
+      // Si alinear a la izquierda se sale por el borde derecho de la ventana, alinear a la derecha
+      if (rect.left + popoverWidth > window.innerWidth - 20) {
+        popover.style.left = 'auto';
+        popover.style.right = '0';
+      } else {
+        // En caso contrario alinear a la izquierda para evitar que se desborde detrás del sidebar izquierdo
+        popover.style.left = '0';
+        popover.style.right = 'auto';
+      }
+    }
+    popover.style.display = 'flex';
+    if (chevron) chevron.style.transform = 'rotate(180deg)';
+  } else {
+    popover.style.display = 'none';
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+  }
+};
+
+window.closeWmsDateRangePicker = function() {
+  const popover = document.getElementById('wms-date-range-popover');
+  const chevron = document.getElementById('wms-date-range-chevron');
+  if (popover) popover.style.display = 'none';
+  if (chevron) chevron.style.transform = 'rotate(0deg)';
+};
+
+window.selectDateRangePresetFromPopover = async function(presetKey) {
+  window.closeWmsDateRangePicker();
+  if (window.setWmsDatePreset) {
+    await window.setWmsDatePreset(presetKey);
+  }
+};
+
+window.applyWmsCustomDateRange = function() {
+  window.closeWmsDateRangePicker();
+  const dateFromInput = document.getElementById('filter-date-from');
+  const dateToInput = document.getElementById('filter-date-to');
+  const summaryText = document.getElementById('wms-date-range-summary-text');
+  if (summaryText && dateFromInput && dateToInput) {
+    summaryText.textContent = window.formatWmsDateRangeSummary(dateFromInput.value, dateToInput.value);
+  }
+  const toggleBtn = document.getElementById('btn-wms-date-range-toggle');
+  if (toggleBtn && dateFromInput && dateToInput) {
+    toggleBtn.title = `Rango activo: ${dateFromInput.value || 'Inicio'} al ${dateToInput.value || 'Fin'}. Clic para cambiar en catálogo`;
+  }
+  if (dateFromInput) {
+    dateFromInput.dispatchEvent(new Event('change'));
+  }
+};
+
+window.toggleWmsFiltersBar = function() {
+  const content = document.getElementById('wms-filters-collapsible-content');
+  const icon = document.getElementById('icon-toggle-wms-filters-bar');
+  const text = document.getElementById('text-toggle-wms-filters-bar');
+  const card = document.querySelector('.filters-card');
+  const headerWrapper = document.getElementById('wms-filters-card-header');
+  if (!content) return;
+
+  const isHidden = content.style.display === 'none';
+  if (isHidden) {
+    content.style.display = 'block';
+    if (icon) icon.className = 'ri-arrow-up-s-line';
+    if (text) text.textContent = 'Ocultar filtros';
+    if (card) card.style.padding = '1rem 1.25rem';
+    if (headerWrapper) headerWrapper.style.marginBottom = '0.75rem';
+    localStorage.setItem('wms_filters_collapsed', 'false');
+  } else {
+    content.style.display = 'none';
+    if (icon) icon.className = 'ri-arrow-down-s-line';
+    if (text) text.textContent = 'Mostrar filtros';
+    if (card) card.style.padding = '0.55rem 1.25rem';
+    if (headerWrapper) headerWrapper.style.marginBottom = '0';
+    localStorage.setItem('wms_filters_collapsed', 'true');
+  }
+};
+
+window.clearWmsSearchOrders = function() {
+  const searchInput = document.getElementById('search-orders');
+  const clearBtn = document.getElementById('btn-clear-search');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.dispatchEvent(new Event('input'));
+    searchInput.dispatchEvent(new Event('keyup'));
+    searchInput.focus();
+  }
+  if (clearBtn) clearBtn.style.display = 'none';
+};
+
+window.resetWmsAllFilters = async function() {
+  const searchInput = document.getElementById('search-orders');
+  if (searchInput) {
+    searchInput.value = '';
+    const clearBtn = document.getElementById('btn-clear-search');
+    if (clearBtn) clearBtn.style.display = 'none';
+  }
+
+  const merchantSelect = document.getElementById('filter-merchant');
+  if (merchantSelect) merchantSelect.value = '';
+
+  const warehouseSelect = document.getElementById('filter-warehouse');
+  if (warehouseSelect) warehouseSelect.value = '';
+
+  const origenSelect = document.getElementById('filter-origen');
+  if (origenSelect) origenSelect.value = '';
+
+  const statusSelect = document.getElementById('filter-status');
+  if (statusSelect) statusSelect.value = '';
+
+  const categoriaSelect = document.getElementById('filter-categoria-entrega');
+  if (categoriaSelect) categoriaSelect.value = '';
+
+  const exportStatusSelect = document.getElementById('filter-export-status');
+  if (exportStatusSelect) exportStatusSelect.value = '';
+
+  const orderTagSelect = document.getElementById('filter-order-tag');
+  if (orderTagSelect) orderTagSelect.value = '';
+
+  window.wmsMultiselectText = '';
+  window.wmsColumnFilters = {};
+
+  // Resetear fecha a últimos 7 días
+  if (window.setWmsDatePreset) {
+    await window.setWmsDatePreset('7days');
+  }
+
+  window.wmsCurrentPage = 1;
+  if (window.applyWmsFiltersAndRender) {
+    window.applyWmsFiltersAndRender();
+  }
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Todos los filtros han sido restablecidos',
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+};
+
+if (!window._wmsDateRangeClickListenerAttached) {
+  window._wmsDateRangeClickListenerAttached = true;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.wms-date-range-picker-container')) {
+      window.closeWmsDateRangePicker();
+    }
+  });
+}
+
 async function renderAdminOrders() {
   window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   const appContent = document.getElementById('app-content');
@@ -4248,6 +4536,7 @@ async function renderAdminOrders() {
   const initialDateFrom = sevenDaysAgoStr;
   const initialDateTo = todayStr;
   window.wmsActiveDatePreset = window.wmsActiveDatePreset || '7days';
+  const isFiltersCollapsed = localStorage.getItem('wms_filters_collapsed') === 'true';
 
   try {
     // Cargar todos los packs de todos los comercios para trazabilidad en Admin
@@ -4269,6 +4558,9 @@ async function renderAdminOrders() {
     window.lastFetchedDateTo = initialDateTo;
 
     await window.fetchWmsOrdersData(initialDateFrom, initialDateTo);
+    if (window.updateWmsLastGlobalRefreshTag) {
+      window.updateWmsLastGlobalRefreshTag(new Date());
+    }
 
     // Cargar configuraciones adicionales de los comercios
     let commerceConfigMap = {};
@@ -5107,169 +5399,345 @@ async function renderAdminOrders() {
     }
 
     appContent.innerHTML = `
-      <!-- Tarjetas de KPI -->
-      <div class="orders-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+      <!-- Barra Superior: Buscador y Tarjetas de KPI Compactas -->
+      <style>
+        .orders-top-header {
+          display: grid;
+          grid-template-columns: minmax(280px, 1.4fr) repeat(4, minmax(130px, 1fr));
+          gap: 0.75rem;
+          align-items: center;
+          margin-bottom: 1rem;
+        }
+        .orders-top-header .search-kpi-card {
+          background: var(--color-surface);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-lg);
+          padding: 0 0.85rem;
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          height: 52px;
+          box-shadow: var(--shadow-sm);
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .orders-top-header .search-kpi-card:focus-within {
+          border-color: var(--color-primary);
+          box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+        }
+        .orders-top-header .kpi-card-compact {
+          background: var(--color-surface);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-lg);
+          padding: 0.4rem 0.75rem;
+          display: flex;
+          align-items: center;
+          gap: 0.65rem;
+          height: 52px;
+          box-shadow: var(--shadow-sm);
+        }
+        @media (max-width: 1200px) {
+          .orders-top-header {
+            grid-template-columns: repeat(2, 1fr);
+          }
+          .orders-top-header .search-kpi-card {
+            grid-column: 1 / -1;
+          }
+        }
+        @media (max-width: 640px) {
+          .orders-top-header {
+            grid-template-columns: 1fr;
+          }
+        }
+      </style>
+      <div class="orders-top-header">
+        <!-- Buscador de Pedidos -->
+        <div class="search-kpi-card">
+          <i class="ri-search-line" style="font-size: 1.15rem; color: var(--color-primary); flex-shrink: 0;"></i>
+          <input type="text" id="search-orders" placeholder="Buscar por ID, SKU, Cliente, Tracking..." style="width: 100%; border: none; background: transparent; outline: none; font-size: 0.85rem; color: var(--color-text-main); font-weight: 500;" autocomplete="off">
+          <button type="button" id="btn-clear-search" onclick="window.clearWmsSearchOrders()" style="border: none; background: transparent; color: var(--color-text-muted); cursor: pointer; padding: 2px 4px; display: none; font-size: 1.1rem; line-height: 1; align-items: center; justify-content: center;" title="Limpiar búsqueda">
+            <i class="ri-close-circle-fill"></i>
+          </button>
+        </div>
+
+        <!-- KPI 1: Total Pedidos -->
+        <div class="kpi-card-compact">
+          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 34px; height: 34px; min-width: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-shopping-bag-line"></i>
           </div>
-          <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
-            <strong id="kpi-total-orders" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          <div style="min-width: 0; overflow: hidden;">
+            <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Total Pedidos</span>
+            <strong id="kpi-total-orders" style="font-size: 1.15rem; color: var(--color-text-main); font-weight: 700; line-height: 1.1;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+
+        <!-- KPI 2: Para Procesar -->
+        <div class="kpi-card-compact">
+          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 34px; height: 34px; min-width: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-time-line"></i>
           </div>
-          <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
-            <strong id="kpi-to-process" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          <div style="min-width: 0; overflow: hidden;">
+            <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Para Procesar</span>
+            <strong id="kpi-to-process" style="font-size: 1.15rem; color: var(--color-text-main); font-weight: 700; line-height: 1.1;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+
+        <!-- KPI 3: En Preparación -->
+        <div class="kpi-card-compact">
+          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 34px; height: 34px; min-width: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-hammer-line"></i>
           </div>
-          <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
-            <strong id="kpi-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          <div style="min-width: 0; overflow: hidden;">
+            <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">En Preparación</span>
+            <strong id="kpi-in-prep" style="font-size: 1.15rem; color: var(--color-text-main); font-weight: 700; line-height: 1.1;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+
+        <!-- KPI 4: Ventas Totales -->
+        <div class="kpi-card-compact">
+          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 34px; height: 34px; min-width: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-money-dollar-circle-line"></i>
           </div>
-          <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Ventas Totales</span>
-            <strong id="kpi-total-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">$0</strong>
+          <div style="min-width: 0; overflow: hidden;">
+            <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ventas Totales</span>
+            <strong id="kpi-total-sales" style="font-size: 1.15rem; color: var(--color-text-main); font-weight: 700; line-height: 1.1;">$0</strong>
           </div>
         </div>
       </div>
 
       <!-- Panel de Filtros -->
-      <div class="filters-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
-            <input type="text" id="search-orders" class="form-input" placeholder="Buscar por ID, SKU, Cliente, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-file-list-3-line"></i> Multiselección</label>
-            <button type="button" id="btn-wms-multiselect" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 0.35rem; width: 100%; cursor: pointer; text-align: center; border: 1px solid var(--color-border); background-color: var(--color-surface); color: var(--color-text); transition: all 0.2s; border-radius: 4px;" onclick="window.openWmsMultiselectModal()">
-              <i class="ri-file-list-3-line" id="wms-multiselect-icon"></i> <span id="wms-multiselect-label">Multiselección</span>
-            </button>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio / Cliente</label>
-            <select id="filter-merchant" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todos los comercios</option>
-              ${merchantOptions}
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Bodega</label>
-            <select id="filter-warehouse" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todas las bodegas</option>
-              ${warehouseOptions}
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-plug-line"></i> Origen / Integración</label>
-            <select id="filter-origen" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todos los orígenes</option>
-              <option value="Shopify">Shopify</option>
-              <option value="WooCommerce">WooCommerce</option>
-              <option value="Jumpseller">Jumpseller</option>
-              <option value="Tiendanube">Tiendanube</option>
-              <option value="MercadoLibre">Mercado Libre</option>
-              <option value="Falabella">Falabella</option>
-              <option value="Paris">Paris</option>
-              <option value="Ripley">Ripley</option>
-              <option value="Walmart">Walmart</option>
-              <option value="Manual">Manual</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado Origen</label>
-            <select id="filter-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todos los estados</option>
-              ${statusOptions}
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Categoría de Entrega</label>
-            <select id="filter-categoria-entrega" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todas las categorías</option>
-              <option value="DISTRIBUCIÓN">DISTRIBUCIÓN</option>
-              <option value="RETIRO">RETIRO</option>
-              <option value="LOGÍSTICA INVERSA">LOGÍSTICA INVERSA</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-download-2-line"></i> Exportación Shopify</label>
-            <select id="filter-export-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todos</option>
-              <option value="pending">Pendientes de exportar</option>
-              <option value="exported">Exportados</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-price-tag-3-line"></i> Filtrar por Tag / Etiqueta</label>
-            <select id="filter-order-tag" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todas las etiquetas</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Desde</label>
-            <input type="date" id="filter-date-from" class="form-input" value="${initialDateFrom}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Hasta</label>
-            <input type="date" id="filter-date-to" class="form-input" value="${initialDateTo}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-          </div>
+      <style>
+        .wms-filters-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+          gap: 0.65rem;
+          align-items: end;
+        }
+        @media (min-width: 1360px) {
+          .wms-filters-grid {
+            grid-template-columns: minmax(110px, 1.05fr) minmax(115px, 1.3fr) minmax(75px, 0.75fr) minmax(90px, 0.9fr) minmax(100px, 1fr) minmax(70px, 0.7fr) minmax(100px, 1fr) minmax(135px, 1.4fr);
+          }
+        }
+        @media (max-width: 1359px) and (min-width: 900px) {
+          .wms-filters-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 899px) and (min-width: 500px) {
+          .wms-filters-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 499px) {
+          .wms-filters-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      </style>
+      <div class="filters-card" style="background: var(--color-surface); padding: ${isFiltersCollapsed ? '0.55rem 1.25rem' : '1rem 1.25rem'}; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: var(--shadow-sm); transition: padding 0.2s ease;">
+        <!-- Cabecera de Filtros con Flecha Sutil para Ocultar/Mostrar -->
+        <div id="wms-filters-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: ${isFiltersCollapsed ? '0' : '0.75rem'};">
+          <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-filter-3-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> Filtros de Pedidos
+          </span>
+          <button type="button" id="btn-toggle-wms-filters-bar" onclick="window.toggleWmsFiltersBar()" style="background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.74rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='var(--color-primary)'; this.style.borderColor='var(--color-primary)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.borderColor='var(--color-border)';" title="${isFiltersCollapsed ? 'Mostrar panel de filtros' : 'Ocultar panel de filtros'}">
+            <span id="text-toggle-wms-filters-bar">${isFiltersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}</span>
+            <i class="${isFiltersCollapsed ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'}" id="icon-toggle-wms-filters-bar" style="font-size: 0.95rem; transition: transform 0.2s;"></i>
+          </button>
         </div>
 
-        <!-- Pastillas de Filtros Rápidos de Fecha (Presets) -->
-        <style>
-          .wms-date-preset-btn {
-            padding: 0.2rem 0.55rem;
-            font-size: 0.75rem;
-            font-weight: 500;
-            border-radius: 9999px;
-            border: 1px solid var(--color-border);
-            background: var(--color-surface);
-            color: var(--color-text-muted);
-            cursor: pointer;
-            transition: all 0.15s ease-in-out;
-          }
-          .wms-date-preset-btn:hover {
-            border-color: var(--color-primary);
-            color: var(--color-primary);
-            background: rgba(79, 70, 229, 0.05);
-          }
-          .wms-date-preset-btn.active {
-            background: var(--color-primary) !important;
-            color: #ffffff !important;
-            border-color: var(--color-primary) !important;
-            font-weight: 600;
-            box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
-          }
-        </style>
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-            <span style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
-              <i class="ri-calendar-event-line"></i> Rangos predeterminados:
-            </span>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'today' ? 'active' : ''}" data-preset="today" onclick="window.setWmsDatePreset('today')">Hoy</button>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'yesterday' ? 'active' : ''}" data-preset="yesterday" onclick="window.setWmsDatePreset('yesterday')">Ayer</button>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${(!window.wmsActiveDatePreset || window.wmsActiveDatePreset === '7days') ? 'active' : ''}" data-preset="7days" onclick="window.setWmsDatePreset('7days')">Últimos 7 días</button>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '14days' ? 'active' : ''}" data-preset="14days" onclick="window.setWmsDatePreset('14days')">Últimos 14 días</button>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '30days' ? 'active' : ''}" data-preset="30days" onclick="window.setWmsDatePreset('30days')">Últimos 30 días</button>
-            <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'month' ? 'active' : ''}" data-preset="month" onclick="window.setWmsDatePreset('month')">Este mes</button>
+        <div id="wms-filters-collapsible-content" style="display: ${isFiltersCollapsed ? 'none' : 'block'};">
+          <div class="wms-filters-grid">
+            <!-- 1. Multiselección con Botón de Limpieza Integrado y Encuadrado -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-file-list-3-line"></i> Multiselección</label>
+              <div id="wms-multiselect-box" style="display: flex; align-items: center; border: 1px solid var(--color-border); border-radius: 6px; background-color: var(--color-surface); height: 38px; overflow: hidden; transition: border-color 0.2s;">
+                <button type="button" id="btn-wms-multiselect" style="flex: 1; min-width: 0; height: 100%; border: none; background: transparent; padding: 0 0.45rem; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; gap: 0.3rem; cursor: pointer; color: var(--color-text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" onclick="window.openWmsMultiselectModal()" title="Filtrar por lista múltiple de pedidos">
+                  <i class="ri-file-list-3-line" id="wms-multiselect-icon" style="flex-shrink: 0;"></i>
+                  <span id="wms-multiselect-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Multiselección</span>
+                </button>
+                <button type="button" id="btn-wms-clear-filters" onclick="window.resetWmsAllFilters()" title="Limpiar todos los filtros y restablecer vista" style="width: 32px; min-width: 32px; height: 100%; border: none; border-left: 1px solid var(--color-border); background: rgba(239, 68, 68, 0.04); color: #ef4444; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s, color 0.15s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.12)'; this.style.color='#dc2626';" onmouseout="this.style.background='rgba(239, 68, 68, 0.04)'; this.style.color='#ef4444';">
+                  <i class="ri-filter-off-line" style="font-size: 0.95rem;"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. Comercio / Cliente -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-store-2-line"></i> Comercio / Cliente</label>
+              <select id="filter-merchant" class="form-input" style="padding: 0.45rem 0.6rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todos los comercios</option>
+                ${merchantOptions}
+              </select>
+            </div>
+
+            <!-- 3. Bodega -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-map-pin-line"></i> Bodega</label>
+              <select id="filter-warehouse" class="form-input" style="padding: 0.45rem 0.5rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todas</option>
+                ${warehouseOptions}
+              </select>
+            </div>
+
+            <!-- 4. Origen / Integración -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-plug-line"></i> Origen / Integración</label>
+              <select id="filter-origen" class="form-input" style="padding: 0.45rem 0.6rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todos los orígenes</option>
+                <option value="Shopify">Shopify</option>
+                <option value="WooCommerce">WooCommerce</option>
+                <option value="Jumpseller">Jumpseller</option>
+                <option value="Tiendanube">Tiendanube</option>
+                <option value="MercadoLibre">Mercado Libre</option>
+                <option value="Falabella">Falabella</option>
+                <option value="Paris">Paris</option>
+                <option value="Ripley">Ripley</option>
+                <option value="Walmart">Walmart</option>
+                <option value="Manual">Manual</option>
+              </select>
+            </div>
+
+            <!-- 5. Estado Origen (Ocultado temporalmente según solicitud) -->
+            <div class="form-group" style="margin-bottom: 0; display: none;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado Origen</label>
+              <select id="filter-status" class="form-input" style="padding: 0.45rem 0.6rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todos los estados</option>
+                ${statusOptions}
+              </select>
+            </div>
+
+            <!-- 6. Categoría de Entrega -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-truck-line"></i> Categoría Entrega</label>
+              <select id="filter-categoria-entrega" class="form-input" style="padding: 0.45rem 0.6rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todas las categorías</option>
+                <option value="DISTRIBUCIÓN">DISTRIBUCIÓN</option>
+                <option value="RETIRO">RETIRO</option>
+                <option value="LOGÍSTICA INVERSA">LOGÍSTICA INVERSA</option>
+              </select>
+            </div>
+
+            <!-- 7. Exportación -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-download-2-line"></i> Exportación</label>
+              <select id="filter-export-status" class="form-input" style="padding: 0.45rem 0.5rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todos</option>
+                <option value="pending">Pendiente</option>
+                <option value="exported">Exportado</option>
+              </select>
+            </div>
+
+            <!-- 8. Filtrar por Tag / Etiqueta -->
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-price-tag-3-line"></i> Filtrar por Tag</label>
+              <select id="filter-order-tag" class="form-input" style="padding: 0.45rem 0.6rem; font-size: 0.82rem; height: 38px;">
+                <option value="">Todas las etiquetas</option>
+              </select>
+            </div>
+
+            <!-- 9. Rango de Fechas Consolidado con Popover inteligente -->
+            <div class="form-group wms-date-range-picker-container" style="margin-bottom: 0; position: relative;">
+              <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><i class="ri-calendar-2-line"></i> Rango de Fechas</label>
+              <button type="button" id="btn-wms-date-range-toggle" class="form-input" onclick="window.toggleWmsDateRangePicker(event)" style="padding: 0.45rem 0.55rem; font-size: 0.78rem; height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; width: 100%; cursor: pointer; text-align: left; border: 1px solid var(--color-border); background-color: var(--color-surface); color: var(--color-text); transition: all 0.2s; border-radius: 6px;" title="Rango: ${initialDateFrom} al ${initialDateTo}. Clic para cambiar en catálogo">
+                <span style="display: inline-flex; align-items: center; gap: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">
+                  <i class="ri-calendar-event-line" style="color: var(--color-primary); font-size: 0.95rem; flex-shrink: 0;"></i>
+                  <span id="wms-date-range-summary-text" style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${window.formatWmsDateRangeSummary(initialDateFrom, initialDateTo)}</span>
+                </span>
+                <i class="ri-arrow-down-s-line" id="wms-date-range-chevron" style="color: var(--color-text-muted); transition: transform 0.2s; flex-shrink: 0;"></i>
+              </button>
+
+              <!-- Popover flotante del catálogo de fechas (Z-index alto y posicionamiento dinámico) -->
+              <div id="wms-date-range-popover" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 1200; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.2), 0 6px 12px -2px rgba(0, 0, 0, 0.1); width: 310px; max-width: 90vw; padding: 1rem; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
+                  <span style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-calendar-line" style="color: var(--color-primary);"></i> Catálogo de Fechas
+                  </span>
+                  <button type="button" onclick="window.closeWmsDateRangePicker()" style="border: none; background: transparent; color: var(--color-text-muted); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px;">
+                    <i class="ri-close-line"></i>
+                  </button>
+                </div>
+
+                <!-- Inputs de Rango Desde / Hasta -->
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div>
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem; display: block;">Desde:</label>
+                    <input type="date" id="filter-date-from" class="form-input" value="${initialDateFrom}" style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem; border-radius: 4px; box-sizing: border-box;">
+                  </div>
+                  <div>
+                    <label style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.2rem; display: block;">Hasta:</label>
+                    <input type="date" id="filter-date-to" class="form-input" value="${initialDateTo}" style="width: 100%; height: 34px; font-size: 0.82rem; padding: 0.25rem 0.5rem; border-radius: 4px; box-sizing: border-box;">
+                  </div>
+                </div>
+
+                <!-- Atajos Rápidos -->
+                <div>
+                  <label style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.35rem; display: block; text-transform: uppercase; letter-spacing: 0.3px;">Rangos preestablecidos:</label>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem;">
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('today')">Hoy</button>
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('yesterday')">Ayer</button>
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('7days')">Últimos 7 días</button>
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('14days')">Últimos 14 días</button>
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('30days')">Últimos 30 días</button>
+                    <button type="button" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; color: var(--color-text-main); cursor: pointer;" onclick="window.selectDateRangePresetFromPopover('month')">Este mes</button>
+                  </div>
+                </div>
+
+                <!-- Botones de Acción -->
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--color-border); margin-top: 0.25rem; padding-top: 0.5rem;">
+                  <button type="button" class="btn btn-sm" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background: transparent; border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer;" onclick="window.closeWmsDateRangePicker()">Cerrar</button>
+                  <button type="button" class="btn btn-sm btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; background: var(--color-primary); color: white; border: none; border-radius: 4px; font-weight: 600; cursor: pointer;" onclick="window.applyWmsCustomDateRange()">Aplicar Rango</button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div id="wms-date-preset-indicator" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">
-            <i class="ri-information-line"></i> Carga inicial: últimos 7 días (${initialDateFrom} al ${initialDateTo})
+
+          <!-- Pastillas de Filtros Rápidos de Fecha (Presets) -->
+          <style>
+            .wms-date-preset-btn {
+              padding: 0.2rem 0.55rem;
+              font-size: 0.75rem;
+              font-weight: 500;
+              border-radius: 9999px;
+              border: 1px solid var(--color-border);
+              background: var(--color-surface);
+              color: var(--color-text-muted);
+              cursor: pointer;
+              transition: all 0.15s ease-in-out;
+            }
+            .wms-date-preset-btn:hover {
+              border-color: var(--color-primary);
+              color: var(--color-primary);
+              background: rgba(79, 70, 229, 0.05);
+            }
+            .wms-date-preset-btn.active {
+              background: var(--color-primary) !important;
+              color: #ffffff !important;
+              border-color: var(--color-primary) !important;
+              font-weight: 600;
+              box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+            }
+          </style>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-calendar-event-line"></i> Rangos predeterminados:
+              </span>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'today' ? 'active' : ''}" data-preset="today" onclick="window.setWmsDatePreset('today')">Hoy</button>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'yesterday' ? 'active' : ''}" data-preset="yesterday" onclick="window.setWmsDatePreset('yesterday')">Ayer</button>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${(!window.wmsActiveDatePreset || window.wmsActiveDatePreset === '7days') ? 'active' : ''}" data-preset="7days" onclick="window.setWmsDatePreset('7days')">Últimos 7 días</button>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '14days' ? 'active' : ''}" data-preset="14days" onclick="window.setWmsDatePreset('14days')">Últimos 14 días</button>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === '30days' ? 'active' : ''}" data-preset="30days" onclick="window.setWmsDatePreset('30days')">Últimos 30 días</button>
+              <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'month' ? 'active' : ''}" data-preset="month" onclick="window.setWmsDatePreset('month')">Este mes</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <div id="wms-date-preset-indicator" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">
+                <i class="ri-information-line"></i> Carga inicial: últimos 7 días (${initialDateFrom} al ${initialDateTo})
+              </div>
+              <span id="wms-last-global-refresh-badge" class="badge" onclick="window.triggerWmsGlobal7DaysRefresh(this)" style="background: rgba(79, 70, 229, 0.08); color: #4338ca; border: 1px solid rgba(79, 70, 229, 0.25); font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; transition: all 0.2s;" title="Último refresh global (últimos 7 días). Clic para volver a sincronizar este período.">
+                <i class="ri-refresh-line" id="wms-last-global-refresh-icon" style="font-size: 0.85rem;"></i>
+                <span>Último refresh global: <b id="wms-last-global-refresh-time">${window.getWmsLastGlobalRefreshText ? window.getWmsLastGlobalRefreshText() : '--'}</b></span>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -5449,7 +5917,7 @@ async function renderAdminOrders() {
       applyWmsFiltersAndRender();
     };
 
-    window.setWmsDatePreset = async function(presetKey) {
+    window.setWmsDatePreset = async function(presetKey, forceRefresh = false) {
       window.wmsActiveDatePreset = presetKey;
       const now = new Date();
       const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -5486,6 +5954,16 @@ async function renderAdminOrders() {
       if (fromInput) fromInput.value = fromStr;
       if (toInput) toInput.value = toStr;
 
+      // Actualizar texto del selector unificado de fechas
+      const summaryText = document.getElementById('wms-date-range-summary-text');
+      if (summaryText) {
+        summaryText.textContent = window.formatWmsDateRangeSummary ? window.formatWmsDateRangeSummary(fromStr, toStr) : `${fromStr} al ${toStr}`;
+      }
+      const toggleDateBtn = document.getElementById('btn-wms-date-range-toggle');
+      if (toggleDateBtn) {
+        toggleDateBtn.title = `Rango activo: ${fromStr} al ${toStr}. Clic para cambiar en catálogo`;
+      }
+
       // Actualizar pastillas activas
       document.querySelectorAll('.wms-date-preset-btn').forEach(btn => {
         if (btn.getAttribute('data-preset') === presetKey) {
@@ -5502,7 +5980,7 @@ async function renderAdminOrders() {
       }
 
       // Si ya está contenido en lo que se ha descargado en memoria, renderizar inmediatamente (0 ms)
-      const hasRangeInMemory = window.loadedOrders && window.loadedOrders.length > 0 &&
+      const hasRangeInMemory = !forceRefresh && window.loadedOrders && window.loadedOrders.length > 0 &&
         window.lastFetchedDateFrom && window.lastFetchedDateTo &&
         fromStr >= window.lastFetchedDateFrom && toStr <= window.lastFetchedDateTo;
 
@@ -5539,6 +6017,9 @@ async function renderAdminOrders() {
         }
 
         await window.fetchWmsOrdersData(window.lastFetchedDateFrom, window.lastFetchedDateTo);
+        if (presetKey === '7days' && window.updateWmsLastGlobalRefreshTag) {
+          window.updateWmsLastGlobalRefreshTag(new Date());
+        }
         if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
         if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
         window.wmsCurrentPage = 1;
@@ -5612,6 +6093,14 @@ async function renderAdminOrders() {
         // Desactivar pastillas preset al editar fecha manualmente
         document.querySelectorAll('.wms-date-preset-btn').forEach(btn => btn.classList.remove('active'));
         window.wmsActiveDatePreset = null;
+        const summaryText = document.getElementById('wms-date-range-summary-text');
+        if (summaryText) {
+          summaryText.textContent = window.formatWmsDateRangeSummary ? window.formatWmsDateRangeSummary(dateFrom, dateTo) : `${dateFrom || 'Inicio'} al ${dateTo || 'Fin'}`;
+        }
+        const toggleDateBtn = document.getElementById('btn-wms-date-range-toggle');
+        if (toggleDateBtn) {
+          toggleDateBtn.title = `Rango activo: ${dateFrom || 'Inicio'} al ${dateTo || 'Fin'}. Clic para cambiar en catálogo`;
+        }
         const indicator = document.getElementById('wms-date-preset-indicator');
         if (indicator) {
           indicator.innerHTML = `<i class="ri-calendar-line"></i> Rango manual: ${dateFrom || 'Inicio'} al ${dateTo || 'Fin'}`;
@@ -5679,7 +6168,19 @@ async function renderAdminOrders() {
       }, 300);
     };
 
-    if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
+    const clearSearchBtn = document.getElementById('btn-clear-search');
+    if (searchInput) {
+      searchInput.addEventListener('keyup', triggerFilterUpdate);
+      searchInput.addEventListener('input', () => {
+        if (clearSearchBtn) {
+          clearSearchBtn.style.display = searchInput.value.trim() ? 'inline-flex' : 'none';
+        }
+        triggerFilterUpdate();
+      });
+      if (clearSearchBtn) {
+        clearSearchBtn.style.display = searchInput.value.trim() ? 'inline-flex' : 'none';
+      }
+    }
     if (merchantSelect) merchantSelect.addEventListener('change', triggerFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
@@ -5738,20 +6239,27 @@ window.applyWmsFiltersAndRender = function() {
     .filter(Boolean);
   const multiselectRefsSet = new Set(multiselectRefs.map(r => r.toUpperCase()));
 
-  // Actualizar el botón de multiselección
+  // Actualizar el botón y contenedor de multiselección
   const btnMultiselect = document.getElementById('btn-wms-multiselect');
   const labelMultiselect = document.getElementById('wms-multiselect-label');
+  const boxMultiselect = document.getElementById('wms-multiselect-box');
   if (btnMultiselect && labelMultiselect) {
     if (multiselectRefsSet.size > 0) {
       labelMultiselect.innerText = `Multiselección (${multiselectRefsSet.size})`;
-      btnMultiselect.style.borderColor = 'var(--color-primary)';
-      btnMultiselect.style.backgroundColor = 'rgba(79, 70, 229, 0.1)';
+      if (boxMultiselect) {
+        boxMultiselect.style.borderColor = 'var(--color-primary)';
+        boxMultiselect.style.backgroundColor = 'rgba(79, 70, 229, 0.06)';
+      }
       btnMultiselect.style.color = 'var(--color-primary)';
+      btnMultiselect.style.fontWeight = '600';
     } else {
       labelMultiselect.innerText = 'Multiselección';
-      btnMultiselect.style.borderColor = 'var(--color-border)';
-      btnMultiselect.style.backgroundColor = 'var(--color-surface)';
+      if (boxMultiselect) {
+        boxMultiselect.style.borderColor = 'var(--color-border)';
+        boxMultiselect.style.backgroundColor = 'var(--color-surface)';
+      }
       btnMultiselect.style.color = 'var(--color-text)';
+      btnMultiselect.style.fontWeight = 'normal';
     }
   }
 
@@ -6581,7 +7089,7 @@ window.applyWmsFiltersAndRender = function() {
         const pName = oi.products?.name || order.item || 'Sin Nombre';
         const pQty = oi.quantity || 0;
         const pWhId = oi.warehouse_id || 'null';
-        const pWhName = oi.warehouses?.name || 'Bodega Central';
+        const pWhName = (typeof getWarehouseNameFromId === 'function' && oi.warehouse_id) ? getWarehouseNameFromId(oi.warehouse_id) : (oi.warehouses?.name || 'Bodega Central');
         const groupKey = pSku + '::' + pWhId;
         
         if (!grouped[groupKey]) {
@@ -6858,6 +7366,19 @@ window.applyWmsFiltersAndRender = function() {
 
     const pickerBadgeHtml = window.renderPickerStatusBadge ? window.renderPickerStatusBadge(order) : '';
 
+    let stockWarehouseBadgeHtml = '';
+    const itemWhId = (order.order_items || []).find(it => it.warehouse_id)?.warehouse_id;
+    let isStockOverridden = false;
+    let itemWhName = '';
+    if (itemWhId && order.sucursal_pickeo) {
+      const defaultWhForSucursal = typeof getWarehouseIdFromSucursal === 'function' ? getWarehouseIdFromSucursal(order.sucursal_pickeo) : null;
+      if (defaultWhForSucursal && itemWhId !== defaultWhForSucursal) {
+        isStockOverridden = true;
+        itemWhName = typeof getWarehouseNameFromId === 'function' ? getWarehouseNameFromId(itemWhId) : itemWhId;
+        stockWarehouseBadgeHtml = `<span class="badge" style="background-color: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; letter-spacing: 0.2px;" title="Stock descontado de: ${itemWhName} (Distinta a sucursal de preparación: ${order.sucursal_pickeo})"><i class="ri-archive-line" style="font-size: 0.75rem;"></i> Stock: ${itemWhName}</span>`;
+      }
+    }
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -6875,6 +7396,11 @@ window.applyWmsFiltersAndRender = function() {
             <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Sucursal de Destino / Pickeo">
               <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.8rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
             </span>
+            ${isStockOverridden ? `
+              <span style="font-size: 0.68rem; color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Stock descontado de: ${itemWhName}">
+                <i class="ri-archive-line" style="font-size: 0.75rem;"></i> Stock: ${itemWhName}
+              </span>
+            ` : ''}
           </div>
         </td>
         <td style="text-align: center;">${originHtml}</td>
@@ -6920,7 +7446,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -7003,6 +7529,9 @@ window.applyWmsFiltersAndRender = function() {
                   <div style="font-size: 0.85rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 0.75rem;">
                     <span><strong>Sucursal:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
                     <span><strong>Agenda:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
+                    ${isStockOverridden ? `
+                      <span style="grid-column: 1 / -1;"><strong>Bodega Stock:</strong> <span style="font-weight: 700; color: #059669;"><i class="ri-archive-line"></i> ${itemWhName} (Deducción personalizada)</span></span>
+                    ` : ''}
                     <span style="grid-column: 1 / -1;"><strong>Operario Picker:</strong> <span style="font-weight: 600; color: ${window.pickerOperatorsMap[order.external_order_number || order.id] ? 'var(--color-success)' : 'var(--color-text-muted)'};">${window.pickerOperatorsMap[order.external_order_number || order.id] || 'No asignado / En proceso'}</span></span>
                     ${(() => {
                       const pStatus = window.getPickerStatusForOrder ? window.getPickerStatusForOrder(order) : null;
@@ -7484,6 +8013,9 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         `;
       }
       await window.fetchWmsOrdersData(dateFrom, dateTo);
+      if (window.updateWmsLastGlobalRefreshTag) {
+        window.updateWmsLastGlobalRefreshTag(new Date());
+      }
       if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
       if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
       applyWmsFiltersAndRender();
@@ -8118,6 +8650,17 @@ function getWarehouseIdFromSucursal(sucursalName) {
 }
 window.getWarehouseIdFromSucursal = getWarehouseIdFromSucursal;
 
+function getWarehouseNameFromId(whId) {
+  if (!whId) return 'Bodega Desconocida';
+  if (whId === '973da888-8a63-4790-a08f-919e1af41a93') return 'Matriz Ñuñoa';
+  if (whId === '414605cb-f926-43d2-8bd2-d9509f7b458a') return 'CDD La Reina';
+  if (whId === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a') return 'CDD Recoleta';
+  if (whId === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') return 'Bodega Central';
+  const found = (window.allWarehousesList || []).find(w => w.id === whId);
+  return found ? found.name : 'Bodega Asignada';
+}
+window.getWarehouseNameFromId = getWarehouseNameFromId;
+
 window.isOrderMissingTracking = function(order, overrides = {}) {
   if (!order) return false;
   const agenda = (overrides.agenda !== undefined ? overrides.agenda : order.agenda) || '';
@@ -8176,6 +8719,11 @@ window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
       : '<span style="color: var(--color-text-muted, #94a3b8); font-size: 0.68rem;"><i class="ri-truck-line"></i> Sin operador</span>';
     const currentSucursal = order.sucursal_pickeo 
       ? `<span style="background: rgba(147,51,234,0.12); color: #7e22ce; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Sucursal actual"><i class="ri-store-2-line"></i> ${window.escapeHtml(order.sucursal_pickeo)}</span>`
+      : '';
+    const itemWhId = (order.order_items || []).find(it => it.warehouse_id)?.warehouse_id;
+    const itemWhName = itemWhId ? getWarehouseNameFromId(itemWhId) : '';
+    const currentBodegaStock = (itemWhName && itemWhName !== order.sucursal_pickeo && itemWhId !== getWarehouseIdFromSucursal(order.sucursal_pickeo))
+      ? `<span style="background: rgba(5,150,105,0.12); color: #059669; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Bodega de descuento de stock"><i class="ri-archive-line"></i> Stock: ${window.escapeHtml(itemWhName)}</span>`
       : '';
     const currentFecha = order.fecha_procesamiento
       ? `<span style="background: rgba(16,185,129,0.12); color: #047857; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 0.68rem;" title="Fecha de procesamiento"><i class="ri-time-line"></i> ${window.escapeHtml(order.fecha_procesamiento)}</span>`
@@ -8251,6 +8799,7 @@ window.renderBulkOrdersSummaryListHtml = function(selectedOrders) {
             ${currentAgenda}
             ${currentOp}
             ${currentSucursal}
+            ${currentBodegaStock}
             ${currentFecha}
           </div>
           <div style="display: flex; align-items: center; gap: 0.4rem;">
@@ -8433,13 +8982,29 @@ window.applyBulkWmsStatus = async function() {
               </label>
             </div>
 
-            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+              <i class="ri-store-3-line" style="color: var(--color-primary, #6366f1);"></i> Sucursal de Preparación (Picker)
+            </label>
             <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
               <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
               <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
               <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
               <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' || !defaultSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
             </select>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+              <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+            </label>
+            <select id="swal-bulk-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <option value="same_as_prep" selected>⚡ Misma que sucursal de preparación (Automático)</option>
+              <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">CDD La Reina (Fernando Castillo Velasco 8146)</option>
+              <option value="973da888-8a63-4790-a08f-919e1af41a93">Matriz Ñuñoa (Campo de Deportes 405)</option>
+              <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">CDD Recoleta (Avenida Venezuela 0952)</option>
+              <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">Bodega Central (Hub Virtual)</option>
+            </select>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.75rem; line-height: 1.25;">
+              Los pedidos se enviarán al Picker para armarse en la <strong>sucursal de preparación</strong>, pero se rebajará el stock de la <strong>bodega seleccionada</strong>.
+            </div>
             
             <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
             <input id="swal-bulk-agenda" list="swal-bulk-agenda-list" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
@@ -8517,12 +9082,13 @@ window.applyBulkWmsStatus = async function() {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-bulk-sucursal').value;
+        const bodegaStock = document.getElementById('swal-bulk-bodega-stock')?.value || 'same_as_prep';
         const keepPicking = document.getElementById('swal-bulk-prep-keep-picking')?.checked;
         const forceTempLabel = !!document.getElementById('swal-bulk-force-temp-label')?.checked;
         const autoPrintTempLabels = forceTempLabel && !!document.getElementById('swal-bulk-auto-print-temp')?.checked;
 
         if (keepPicking) {
-          return { keepPicking: true, sucursal, forceTempLabel, autoPrintTempLabels };
+          return { keepPicking: true, sucursal, forceTempLabel, autoPrintTempLabels, bodegaStock };
         }
 
         const agendaInput = document.getElementById('swal-bulk-agenda').value;
@@ -8566,7 +9132,7 @@ window.applyBulkWmsStatus = async function() {
           }
         }
 
-        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc: fechaProcInput, forceTempLabel, autoPrintTempLabels };
+        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc: fechaProcInput, forceTempLabel, autoPrintTempLabels, bodegaStock };
       }
     });
 
@@ -8599,7 +9165,9 @@ window.applyBulkWmsStatus = async function() {
         if (!isStockTrackingActive) return;
 
         const effectiveSucursal = order.sucursal_pickeo || formValues.sucursal;
-        const orderWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
+        const orderWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+          ? formValues.bodegaStock
+          : getWarehouseIdFromSucursal(effectiveSucursal);
 
         (order.order_items || []).forEach(item => {
           if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
@@ -8678,7 +9246,9 @@ window.applyBulkWmsStatus = async function() {
             orderNum: f.orderNum,
             comercio: f.comercio,
             customer: o?.customer_name,
-            warehouseName: o?.sucursal_pickeo || formValues.sucursal || 'Sucursal Asignada',
+            warehouseName: (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+              ? getWarehouseNameFromId(formValues.bodegaStock)
+              : (o?.sucursal_pickeo || formValues.sucursal || 'Sucursal Asignada'),
             items: []
           });
         }
@@ -8821,7 +9391,9 @@ window.applyBulkWmsStatus = async function() {
             if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
           }
 
-          const effWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+          const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+            ? formValues.bodegaStock
+            : getWarehouseIdFromSucursal(order.sucursal_pickeo);
           (order.order_items || []).forEach(item => {
             item.warehouse_id = effWarehouseId;
           });
@@ -8877,7 +9449,9 @@ window.applyBulkWmsStatus = async function() {
           updatePayload.fecha_procesamiento = formValues.fechaProc;
         }
 
-        const effWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+        const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+          ? formValues.bodegaStock
+          : getWarehouseIdFromSucursal(formValues.sucursal);
         const { error: itemsErr } = await supabase
           .from('order_items')
           .update({ warehouse_id: effWarehouseId })
@@ -10129,15 +10703,16 @@ async function validateOrderStockForDispatch(ordersList) {
       continue;
     }
 
-    const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
+    const hasCentralItems = (order.order_items || []).some(item => !item.warehouse_id || item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
     const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
+    const hasExplicitPhysicalWarehouse = (order.order_items || []).length > 0 && (order.order_items || []).every(item => item.warehouse_id && item.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
 
-    if (hasCentralItems || isVirtual) {
+    if ((hasCentralItems || isVirtual) && !hasExplicitPhysicalWarehouse) {
       ordersToPrompt.push(order);
     } else {
-      const warehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
       (order.order_items || []).forEach(item => {
         if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
+          const warehouseId = item.warehouse_id || getWarehouseIdFromSucursal(order.sucursal_pickeo);
           itemsToCheck.push({
             order,
             item,
@@ -10427,6 +11002,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     const currentOperador = order.operador || '';
     const currentFechaProc = order.fecha_procesamiento || todayDDMM;
     const isOrderMissingTrack = window.isOrderMissingTracking ? window.isOrderMissingTracking(order) : false;
+    const existingOrderStockWhId = (order.order_items || []).find(it => it.warehouse_id)?.warehouse_id || '';
 
     const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
     const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
@@ -10463,13 +11039,29 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
               </label>
             </div>
 
-            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+              <i class="ri-store-3-line" style="color: var(--color-primary, #6366f1);"></i> Sucursal de Preparación (Picker)
+            </label>
             <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
               <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
               <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
               <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
               <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
             </select>
+
+            <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+              <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+            </label>
+            <select id="swal-prep-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+              <option value="same_as_prep" ${(!existingOrderStockWhId || existingOrderStockWhId === getWarehouseIdFromSucursal(currentSucursal)) ? 'selected' : ''}>⚡ Misma que sucursal de preparación (Automático)</option>
+              <option value="414605cb-f926-43d2-8bd2-d9509f7b458a" ${existingOrderStockWhId === '414605cb-f926-43d2-8bd2-d9509f7b458a' ? 'selected' : ''}>CDD La Reina (Fernando Castillo Velasco 8146)</option>
+              <option value="973da888-8a63-4790-a08f-919e1af41a93" ${existingOrderStockWhId === '973da888-8a63-4790-a08f-919e1af41a93' ? 'selected' : ''}>Matriz Ñuñoa (Campo de Deportes 405)</option>
+              <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a" ${existingOrderStockWhId === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a' ? 'selected' : ''}>CDD Recoleta (Avenida Venezuela 0952)</option>
+              <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09" ${existingOrderStockWhId === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' ? 'selected' : ''}>Bodega Central (Hub Virtual)</option>
+            </select>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.75rem; line-height: 1.25;">
+              El pedido se enviará al Picker para armarse en la <strong>sucursal de preparación</strong>, pero se rebajará el stock de la <strong>bodega seleccionada</strong>.
+            </div>
             
             <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
             <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
@@ -10547,12 +11139,13 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
         const sucursal = document.getElementById('swal-sucursal').value;
+        const bodegaStock = document.getElementById('swal-prep-bodega-stock')?.value || 'same_as_prep';
         const keepPicking = document.getElementById('swal-single-prep-keep-picking')?.checked;
         const forceTempLabel = !!document.getElementById('swal-single-force-temp-label')?.checked;
         const autoPrintTempLabels = forceTempLabel && !!document.getElementById('swal-single-auto-print-temp')?.checked;
 
         if (keepPicking) {
-          return { keepPicking: true, sucursal, forceTempLabel, autoPrintTempLabels };
+          return { keepPicking: true, sucursal, forceTempLabel, autoPrintTempLabels, bodegaStock };
         }
 
         const agendaInput = document.getElementById('swal-agenda').value;
@@ -10588,7 +11181,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           return false;
         }
 
-        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc, forceTempLabel, autoPrintTempLabels };
+        return { keepPicking: false, sucursal, agenda: matchAgenda, operador: matchOperador, fechaProc, forceTempLabel, autoPrintTempLabels, bodegaStock };
       }
     });
 
@@ -10598,7 +11191,12 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     }
 
     const effectiveSucursal = (formValues.keepPicking && order.sucursal_pickeo) ? order.sucursal_pickeo : formValues.sucursal;
-    const targetWarehouseId = getWarehouseIdFromSucursal(effectiveSucursal);
+    const targetWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+      ? formValues.bodegaStock
+      : getWarehouseIdFromSucursal(effectiveSucursal);
+    const targetWarehouseName = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+      ? (typeof getWarehouseNameFromId === 'function' ? getWarehouseNameFromId(formValues.bodegaStock) : formValues.bodegaStock)
+      : (effectiveSucursal || 'Sucursal Asignada');
 
     // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
@@ -10639,14 +11237,14 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         if (insufficientItem) {
           const shortageSwalRes = await window.showStockShortageSlidesModal({
-            title: 'Falta de Stock en Sucursal',
-            subtitle: `No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${formValues.sucursal}</strong>:`,
+            title: 'Falta de Stock en Sucursal / Bodega',
+            subtitle: `No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${targetWarehouseName}</strong>:`,
             failuresByOrder: [{
               order: order,
               orderNum: order.external_order_number || order.id,
               comercio: order.comercio,
               customer: order.customer_name,
-              warehouseName: formValues.sucursal,
+              warehouseName: targetWarehouseName,
               items: [{
                 sku: insufficientItem.sku,
                 name: insufficientItem.name,
@@ -10690,7 +11288,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 user_id: userId,
                 comercio: order.comercio,
                 title: `Falta de stock crítico - Pedido ${order.external_order_number || order.id}`,
-                description: `El pedido ${order.external_order_number || order.id} no se pudo mandar a preparación por falta de stock del SKU ${insufficientItem.sku} en ${formValues.sucursal} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
+                description: `El pedido ${order.external_order_number || order.id} no se pudo mandar a preparación por falta de stock del SKU ${insufficientItem.sku} en ${targetWarehouseName} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
                 type: 'stock',
                 severity: 'critico',
                 status: 'pendiente',
@@ -10721,7 +11319,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         if (!order.agenda) order.agenda = 'STK';
         if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
 
-        const effWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+        const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+          ? formValues.bodegaStock
+          : getWarehouseIdFromSucursal(order.sucursal_pickeo);
         (order.order_items || []).forEach(item => {
           item.warehouse_id = effWarehouseId;
         });
@@ -31723,6 +32323,7 @@ async function fetchNewsRecipients() {
             const existing = recipientsMap.get(emailKey);
             if (c.comercio && existing.comercio === '-') existing.comercio = c.comercio;
             if (c.nombre && (!existing.name || existing.name === 'Usuario WMS')) existing.name = c.nombre;
+            if (c.rol) existing.role = c.rol;
           } else {
             recipientsMap.set(emailKey, {
               email: emailKey,
@@ -31737,6 +32338,38 @@ async function fetchNewsRecipients() {
     }
   } catch (e) {
     console.warn('Error fetching billing_contacts for news email:', e);
+  }
+
+  try {
+    const { data: configs, error: cfgErr } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, rep_legal_nombre, rep_legal_email')
+      .not('rep_legal_email', 'is', null);
+
+    if (!cfgErr && configs) {
+      configs.forEach(cfg => {
+        if (cfg.rep_legal_email && cfg.rep_legal_email.includes('@')) {
+          const emailKey = cfg.rep_legal_email.toLowerCase().trim();
+          if (recipientsMap.has(emailKey)) {
+            const existing = recipientsMap.get(emailKey);
+            if (cfg.comercio && existing.comercio === '-') existing.comercio = cfg.comercio;
+            if (cfg.rep_legal_nombre && (!existing.name || existing.name === 'Usuario WMS')) {
+              existing.name = `${cfg.rep_legal_nombre} (Rep. Legal)`;
+            }
+          } else {
+            recipientsMap.set(emailKey, {
+              email: emailKey,
+              name: cfg.rep_legal_nombre ? `${cfg.rep_legal_nombre} (Rep. Legal)` : `Rep. Legal (${cfg.comercio})`,
+              role: 'rep_legal',
+              type: 'contact',
+              comercio: cfg.comercio || '-'
+            });
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error fetching rep_legal emails for news email:', e);
   }
 
   return Array.from(recipientsMap.values());
@@ -31791,7 +32424,7 @@ window.openSendNewsEmailModal = async function(newsItem) {
               <option value="users_all">👤 Todos los Usuarios Registrados en WMS</option>
               <option value="users_clients">🛍️ Solo Usuarios Clientes</option>
               <option value="users_admins">🛡️ Solo Usuarios Administradores</option>
-              <option value="contacts_all">🏢 Solo Contactos de Comercios (Facturación / Ops)</option>
+              <option value="contacts_all">🏢 Solo Contactos de Comercios (Operaciones / Finanzas / Contactos)</option>
               <option value="by_commerce">🏪 Por Comercio(s) Específico(s)...</option>
             </select>
           </div>
@@ -31902,16 +32535,22 @@ window.openSendNewsEmailModal = async function(newsItem) {
   // Fetch recipients
   const allRecipients = await fetchNewsRecipients();
 
-  // Populate unique comercios list
+  // Populate unique comercios list (including merchants cached in admin)
   const commerceSet = new Set();
   allRecipients.forEach(r => {
     if (r.comercio && r.comercio !== '-' && r.comercio !== 'all') {
       r.comercio.split(',').forEach(c => commerceSet.add(c.trim()));
     }
   });
-  const commerceList = Array.from(commerceSet).filter(Boolean).sort();
+  if (Array.isArray(window.cachedAdminMerchants)) {
+    window.cachedAdminMerchants.forEach(m => {
+      if (m.nombre) commerceSet.add(m.nombre.trim());
+    });
+  }
+  const commerceList = Array.from(commerceSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
   const commerceSelect = document.getElementById('email-commerce-select');
   if (commerceSelect) {
+    commerceSelect.innerHTML = '<option value="">Selecciona un comercio...</option>';
     commerceList.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c;
@@ -31939,7 +32578,10 @@ window.openSendNewsEmailModal = async function(newsItem) {
       if (preset === 'contacts_all' && r.type !== 'contact') return false;
       if (preset === 'by_commerce') {
         if (!selectedCommerce) return false;
-        const matchesCommerce = r.comercio && (r.comercio.includes(selectedCommerce) || r.comercio === 'all');
+        const target = selectedCommerce.toUpperCase().trim();
+        const rCom = (r.comercio || '').toUpperCase().trim();
+        const tokens = rCom.split(',').map(s => s.trim());
+        const matchesCommerce = tokens.includes(target) || tokens.includes('ALL') || rCom === target || rCom.includes(target);
         if (!matchesCommerce) return false;
       }
 
@@ -31960,7 +32602,16 @@ window.openSendNewsEmailModal = async function(newsItem) {
       container.innerHTML = filtered.map(r => {
         const isChecked = currentSelectionState.get(r.email) !== false;
         const badgeClass = r.type === 'user' ? 'recipient-badge-user' : 'recipient-badge-contact';
-        const badgeLabel = r.type === 'user' ? (r.role === 'admin' ? '🛡️ Admin' : '👤 Usuario') : '🏢 Contacto';
+        let badgeLabel = '🏢 Contacto';
+        if (r.type === 'user') {
+          badgeLabel = r.role === 'admin' ? '🛡️ Admin' : '👤 Usuario';
+        } else if (r.role === 'rep_legal') {
+          badgeLabel = '⚖️ Rep. Legal';
+        } else if (r.role) {
+          badgeLabel = `🏢 ${r.role.charAt(0).toUpperCase() + r.role.slice(1)}`;
+        }
+
+        const roleDetail = r.role && r.role !== 'contacto' ? ` • ${r.role}` : '';
 
         return `
           <label class="recipient-row" style="cursor: pointer; margin: 0;">
@@ -31968,7 +32619,7 @@ window.openSendNewsEmailModal = async function(newsItem) {
             <span class="recipient-badge ${badgeClass}">${badgeLabel}</span>
             <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
               <span style="font-weight: 600; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.name}</span>
-              <span style="font-size: 0.72rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.email}</span>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.email}${roleDetail}</span>
             </div>
             ${r.comercio && r.comercio !== '-' ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.1rem 0.35rem; border-radius: 4px; border: 1px solid var(--color-border); white-space: nowrap;">${r.comercio}</span>` : ''}
           </label>
@@ -51112,7 +51763,7 @@ async function renderMerchantsAdmin() {
                   <th>Guía Onboarding</th>
                   <th>Pedido trae Sigla</th>
                   <th>Lectura Estricta</th>
-                  <th>Contactos Facturación</th>
+                  <th>Contactos</th>
                   <th>Usuarios Asociados</th>
                   <th>Integraciones</th>
                   <th>Acciones</th>
@@ -52551,7 +53202,7 @@ window.showMerchantIntegrationsModal = function(comercioName) {
   document.body.appendChild(modal);
 };
 
-// Modal de Contactos de Facturación
+// Modal de Contactos del Comercio
 window.showMerchantBillingContactsModal = function(comercioName) {
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
   if (!commerce) return;
@@ -52566,16 +53217,21 @@ window.showMerchantBillingContactsModal = function(comercioName) {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 700px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
       <div class="modal-header">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-contacts-book-line" style="color: var(--color-primary);"></i> Contactos de Facturación: ${comercioName}
-        </h3>
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-contacts-book-line" style="color: var(--color-primary);"></i> Contactos del Comercio: ${comercioName}
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+            Gestiona los correos de contacto de este comercio para notificaciones masivas, comunicados del WMS y facturación.
+          </p>
+        </div>
         <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
       </div>
       
       <!-- Form to add new contact -->
       <div style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
         <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; font-weight: 600; color: var(--color-text-main);">Agregar Nuevo Contacto</h4>
-        <form id="form-merchant-contact-add" onsubmit="window.addMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', event)" style="margin: 0; display: grid; grid-template-columns: 1fr 1.2fr 0.8fr auto; gap: 0.75rem; align-items: flex-end;">
+        <form id="form-merchant-contact-add" onsubmit="window.addMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', event)" style="margin: 0; display: grid; grid-template-columns: 1fr 1.2fr 1fr auto; gap: 0.75rem; align-items: flex-end;">
           <div>
             <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Nombre *</label>
             <input type="text" id="m-contact-add-nombre" class="form-input" placeholder="Nombre completo" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);" required>
@@ -52585,11 +53241,17 @@ window.showMerchantBillingContactsModal = function(comercioName) {
             <input type="email" id="m-contact-add-email" class="form-input" placeholder="correo@comercio.cl" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);" required>
           </div>
           <div>
-            <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Rol</label>
-            <input type="text" id="m-contact-add-rol" class="form-input" placeholder="finanzas" value="finanzas" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+            <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Rol / Área</label>
+            <select id="m-contact-add-rol" class="form-input" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <option value="Operaciones" selected>Operaciones</option>
+              <option value="Notificaciones">Notificaciones / General</option>
+              <option value="Finanzas">Finanzas / Cobranza</option>
+              <option value="Gerencia">Gerencia / Administración</option>
+              <option value="Comercial">Comercial</option>
+            </select>
           </div>
           <div>
-            <button type="submit" class="btn btn-primary" style="height: 34px; padding: 0 1rem; font-size: 0.8rem; font-weight: 600; background: var(--color-primary); color: #000000; border: none; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
+            <button type="submit" class="btn btn-primary" style="height: 34px; padding: 0 1rem; font-size: 0.8rem; font-weight: 600; background: var(--color-primary); color: #ffffff; border: none; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
               <i class="ri-add-line"></i> Agregar
             </button>
           </div>
@@ -52621,8 +53283,8 @@ window.renderMerchantBillingContactsList = function(comercioName) {
     container.innerHTML = `
       <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
         <i class="ri-contacts-book-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; color: var(--color-border);"></i>
-        <strong>No hay contactos de facturación</strong>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">No se han registrado correos de cobranza para este comercio.</p>
+        <strong>No hay contactos registrados</strong>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">No se han registrado correos de contacto para este comercio. Agrega uno arriba para habilitarlo en notificaciones masivas.</p>
       </div>
     `;
     return;
@@ -52642,7 +53304,7 @@ window.renderMerchantBillingContactsList = function(comercioName) {
       <tr>
         <td style="padding: 0.75rem 1rem;"><strong>${c.nombre}</strong>${originLabel}</td>
         <td style="padding: 0.75rem 1rem;"><a href="mailto:${c.email}" style="color: var(--color-accent); text-decoration: none;">${c.email}</a></td>
-        <td style="padding: 0.75rem 1rem;"><span style="text-transform: capitalize;">${c.rol || 'finanzas'}</span></td>
+        <td style="padding: 0.75rem 1rem;"><span style="text-transform: capitalize;">${c.rol || 'Operaciones'}</span></td>
         <td style="padding: 0.75rem 1rem; text-align: center;">${statusBadge}</td>
         <td style="padding: 0.75rem 1rem; text-align: center;">
           <button class="btn btn-outline btn-sm" onclick="window.deleteMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.2rem 0.4rem;" title="Eliminar contacto">
@@ -52671,6 +53333,44 @@ window.renderMerchantBillingContactsList = function(comercioName) {
   `;
 };
 
+window.saveNewMerchantBillingContact = async function(comercioName, { nombre, email, rol = 'Operaciones' }) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) throw new Error("Comercio no encontrado");
+
+  const { data, error } = await supabase
+    .from('billing_contacts')
+    .insert({ comercio: comercioName, nombre, email, rol, activo: true })
+    .select();
+
+  if (error) throw error;
+  const newContact = data[0];
+
+  // Find all merchants in the same conglomerate (including itself)
+  const targetMerchants = window.cachedAdminMerchants.filter(c => {
+    return c.nombre === commerce.nombre || (commerce.rut && c.rut && c.rut === commerce.rut);
+  });
+
+  targetMerchants.forEach(m => {
+    if (!m.billingContacts) m.billingContacts = [];
+    if (!m.billingContacts.some(bc => bc.id === newContact.id)) {
+      m.billingContacts.push(newContact);
+    }
+  });
+
+  // Re-render any active contacts UI
+  if (typeof window.renderMerchantBillingContactsList === 'function') {
+    window.renderMerchantBillingContactsList(comercioName);
+  }
+  if (typeof window.renderMerchantEditContactsList === 'function') {
+    window.renderMerchantEditContactsList(comercioName);
+  }
+  targetMerchants.forEach(m => {
+    window.updateMerchantTableRow(m.nombre);
+  });
+
+  return newContact;
+};
+
 window.addMerchantBillingContact = async function(comercioName, e) {
   if (e) e.preventDefault();
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
@@ -52680,9 +53380,9 @@ window.addMerchantBillingContact = async function(comercioName, e) {
   const emailInput = document.getElementById('m-contact-add-email');
   const rolInput = document.getElementById('m-contact-add-rol');
   
-  const nombre = nombreInput.value.trim();
-  const email = emailInput.value.trim();
-  const rol = rolInput.value.trim() || 'finanzas';
+  const nombre = (nombreInput?.value || '').trim();
+  const email = (emailInput?.value || '').trim().toLowerCase();
+  const rol = (rolInput?.value || '').trim() || 'Operaciones';
   
   if (!nombre || !email) return;
 
@@ -52690,41 +53390,12 @@ window.addMerchantBillingContact = async function(comercioName, e) {
   if (submitBtn) submitBtn.disabled = true;
 
   try {
-    const { data, error } = await supabase
-      .from('billing_contacts')
-      .insert({ comercio: comercioName, nombre, email, rol, activo: true })
-      .select();
-
-    if (error) throw error;
-
-    const newContact = data[0];
-
-    // Find all merchants in the same conglomerate (including itself)
-    const targetMerchants = window.cachedAdminMerchants.filter(c => {
-      return c.nombre === commerce.nombre || (commerce.rut && c.rut && c.rut === commerce.rut);
-    });
-
-    targetMerchants.forEach(m => {
-      if (!m.billingContacts) m.billingContacts = [];
-      // Push if not already there (deduplicated by ID)
-      if (!m.billingContacts.some(bc => bc.id === newContact.id)) {
-        m.billingContacts.push(newContact);
-      }
-    });
+    await window.saveNewMerchantBillingContact(comercioName, { nombre, email, rol });
 
     // Clear inputs
-    nombreInput.value = '';
-    emailInput.value = '';
-    rolInput.value = 'finanzas';
-
-    // Rerender list
-    window.renderMerchantBillingContactsList(comercioName);
-    
-    // Refresh main table row for all stores in the conglomerate
-    targetMerchants.forEach(m => {
-      window.updateMerchantTableRow(m.nombre);
-    });
-
+    if (nombreInput) nombreInput.value = '';
+    if (emailInput) emailInput.value = '';
+    if (rolInput) rolInput.value = 'Operaciones';
   } catch (err) {
     console.error("Error adding merchant contact:", err);
     alert('No se pudo agregar el contacto: ' + err.message);
@@ -52734,7 +53405,7 @@ window.addMerchantBillingContact = async function(comercioName, e) {
 };
 
 window.deleteMerchantBillingContact = async function(comercioName, contactId) {
-  if (!confirm("¿Está seguro de que desea eliminar este contacto de facturación?")) return;
+  if (!confirm("¿Está seguro de que desea eliminar este contacto?")) return;
 
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
   if (!commerce) return;
@@ -52756,8 +53427,11 @@ window.deleteMerchantBillingContact = async function(comercioName, contactId) {
       m.billingContacts = (m.billingContacts || []).filter(bc => bc.id !== contactId);
     });
 
-    // Rerender list
+    // Rerender lists
     window.renderMerchantBillingContactsList(comercioName);
+    if (typeof window.renderMerchantEditContactsList === 'function') {
+      window.renderMerchantEditContactsList(comercioName);
+    }
 
     // Refresh main table row for all stores in the conglomerate
     targetMerchants.forEach(m => {
@@ -52793,13 +53467,75 @@ window.toggleMerchantBillingContact = async function(comercioName, contactId, cu
       if (contact) contact.activo = newStatus;
     });
 
-    // Rerender list
+    // Rerender lists
     window.renderMerchantBillingContactsList(comercioName);
+    if (typeof window.renderMerchantEditContactsList === 'function') {
+      window.renderMerchantEditContactsList(comercioName);
+    }
 
   } catch (err) {
     console.error("Error toggling merchant contact:", err);
     alert('No se pudo actualizar el estado: ' + err.message);
   }
+};
+
+window.renderMerchantEditContactsList = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  const container = document.getElementById('merchant-edit-contacts-list-body');
+  if (!commerce || !container) return;
+
+  const contacts = commerce.billingContacts || [];
+
+  if (contacts.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">
+        <i class="ri-contacts-book-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.35rem; color: var(--color-border);"></i>
+        No hay contactos registrados para este comercio. Agrega uno en el formulario superior.
+      </div>
+    `;
+    return;
+  }
+
+  const rows = contacts.map(c => {
+    const statusBadge = c.activo
+      ? `<span class="badge-status active" style="cursor: pointer; font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="window.toggleMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}', ${c.activo})"><i class="ri-checkbox-circle-line"></i> Activo</span>`
+      : `<span class="badge-status suspended" style="cursor: pointer; font-size: 0.7rem; padding: 0.15rem 0.4rem;" onclick="window.toggleMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}', ${c.activo})"><i class="ri-close-circle-line"></i> Inactivo</span>`;
+
+    const originLabel = c.comercio.toUpperCase() !== comercioName.toUpperCase()
+      ? `<br><span style="font-size: 0.68rem; color: var(--color-text-muted); font-style: italic;"><i class="ri-git-branch-line"></i> Compartido de: ${c.comercio}</span>`
+      : '';
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.78rem;">
+        <td style="padding: 0.45rem 0.65rem;"><strong>${c.nombre}</strong>${originLabel}</td>
+        <td style="padding: 0.45rem 0.65rem;"><a href="mailto:${c.email}" style="color: var(--color-accent); text-decoration: none;">${c.email}</a></td>
+        <td style="padding: 0.45rem 0.65rem;"><span style="text-transform: capitalize; background: var(--color-bg); padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.72rem; border: 1px solid var(--color-border);">${c.rol || 'Operaciones'}</span></td>
+        <td style="padding: 0.45rem 0.65rem; text-align: center;">${statusBadge}</td>
+        <td style="padding: 0.45rem 0.65rem; text-align: center;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem; font-size: 0.75rem;" title="Eliminar contacto">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table style="width: 100%; border-collapse: collapse; margin: 0;">
+      <thead>
+        <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); font-size: 0.72rem; text-align: left; color: var(--color-text-muted);">
+          <th style="padding: 0.45rem 0.65rem;">Nombre</th>
+          <th style="padding: 0.45rem 0.65rem;">Email</th>
+          <th style="padding: 0.45rem 0.65rem;">Rol / Área</th>
+          <th style="padding: 0.45rem 0.65rem; text-align: center; width: 85px;">Estado</th>
+          <th style="padding: 0.45rem 0.65rem; text-align: center; width: 45px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
 };
 
 window.updateMerchantTableRow = function(comercioName) {
@@ -52916,6 +53652,50 @@ window.showMerchantCreateModal = function() {
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Correo de la cuenta de colaborador utilizada en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
           </div>
 
+          <!-- Contactos Iniciales del Comercio -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-contacts-book-2-line" style="color: var(--color-primary);"></i> Contactos del Comercio (Correos para Notificaciones Masivas)
+                </h4>
+                <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0;">
+                  Añade los correos de contacto que recibirán avisos masivos, alertas operacionales y comunicados.
+                </p>
+              </div>
+              <span id="merchant-create-contacts-badge" style="font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(37,99,235,0.1); color: var(--color-primary);">
+                0 contactos
+              </span>
+            </div>
+
+            <!-- Lista de Contactos Pendientes -->
+            <div id="merchant-create-contacts-list" style="display: flex; flex-direction: column; gap: 0.4rem; max-height: 180px; overflow-y: auto;">
+              <!-- Renderizado dinámicamente -->
+            </div>
+
+            <!-- Formulario para agregar contacto antes de crear -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.65rem 0.75rem;">
+              <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-user-add-line" style="color: var(--color-primary);"></i> Agregar Contacto
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1.2fr 0.9fr auto; gap: 0.45rem; align-items: center;">
+                <input type="text" id="merchant-create-add-contact-name" class="form-input" placeholder="Nombre completo" style="height: 32px; font-size: 0.78rem; padding: 0.25rem 0.5rem; width: 100%; box-sizing: border-box;">
+                <input type="email" id="merchant-create-add-contact-email" class="form-input" placeholder="correo@comercio.cl" style="height: 32px; font-size: 0.78rem; padding: 0.25rem 0.5rem; width: 100%; box-sizing: border-box;">
+                <select id="merchant-create-add-contact-role" class="form-input" style="height: 32px; font-size: 0.78rem; padding: 0.25rem 0.4rem; width: 100%; box-sizing: border-box;">
+                  <option value="Operaciones" selected>Operaciones</option>
+                  <option value="Notificaciones">Notificaciones</option>
+                  <option value="Finanzas">Finanzas</option>
+                  <option value="Gerencia">Gerencia</option>
+                  <option value="Comercial">Comercial</option>
+                </select>
+                <button type="button" id="btn-merchant-create-add-contact" class="btn btn-primary" style="height: 32px; padding: 0 0.75rem; font-size: 0.78rem; font-weight: 600; background: var(--color-primary); color: #ffffff; border: none; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap;">
+                  <i class="ri-add-line"></i> Agregar
+                </button>
+              </div>
+              <div id="merchant-create-contact-msg" style="display: none; font-size: 0.72rem; margin-top: 0.35rem;"></div>
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">ID Enviame</label>
             <input type="text" id="merchant-create-enviame-id" class="form-input" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
@@ -53025,6 +53805,87 @@ window.showMerchantCreateModal = function() {
   `;
 
   document.body.appendChild(modal);
+
+  // Gestión de contactos en creación de comercio
+  const pendingCreateContacts = [];
+  const createContactsContainer = document.getElementById('merchant-create-contacts-list');
+  const createContactsBadge = document.getElementById('merchant-create-contacts-badge');
+  const btnAddCreateContact = document.getElementById('btn-merchant-create-add-contact');
+  const inputCreateName = document.getElementById('merchant-create-add-contact-name');
+  const inputCreateEmail = document.getElementById('merchant-create-add-contact-email');
+  const selectCreateRole = document.getElementById('merchant-create-add-contact-role');
+  const msgCreateContact = document.getElementById('merchant-create-contact-msg');
+
+  const renderCreateContactsUI = () => {
+    if (!createContactsContainer) return;
+    if (createContactsBadge) {
+      createContactsBadge.textContent = `${pendingCreateContacts.length} ${pendingCreateContacts.length === 1 ? 'contacto' : 'contactos'}`;
+    }
+    if (pendingCreateContacts.length === 0) {
+      createContactsContainer.innerHTML = `
+        <div style="padding: 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem; border: 1px dashed var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface);">
+          No hay contactos agregados. Puedes añadir correos de contacto abajo.
+        </div>
+      `;
+      return;
+    }
+    createContactsContainer.innerHTML = pendingCreateContacts.map((c, idx) => `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); gap: 0.5rem;">
+        <div style="min-width: 0; flex: 1;">
+          <div style="font-weight: 600; font-size: 0.78rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${c.nombre} <span style="font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 600; background: rgba(37,99,235,0.1); color: var(--color-primary);">${c.rol}</span>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${c.email}
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline remove-create-contact" data-idx="${idx}" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger);" title="Quitar contacto">
+          <i class="ri-delete-bin-line"></i>
+        </button>
+      </div>
+    `).join('');
+
+    createContactsContainer.querySelectorAll('.remove-create-contact').forEach(b => {
+      b.addEventListener('click', () => {
+        const i = parseInt(b.getAttribute('data-idx'), 10);
+        pendingCreateContacts.splice(i, 1);
+        renderCreateContactsUI();
+      });
+    });
+  };
+
+  renderCreateContactsUI();
+
+  if (btnAddCreateContact) {
+    btnAddCreateContact.addEventListener('click', () => {
+      const nm = (inputCreateName?.value || '').trim();
+      const em = (inputCreateEmail?.value || '').trim().toLowerCase();
+      const rl = (selectCreateRole?.value || '').trim() || 'Operaciones';
+
+      if (!nm || !em || !em.includes('@') || !em.includes('.')) {
+        if (msgCreateContact) {
+          msgCreateContact.style.display = 'block';
+          msgCreateContact.style.color = 'var(--color-danger)';
+          msgCreateContact.textContent = 'Ingresa un nombre y un correo electrónico válido.';
+        }
+        return;
+      }
+      if (pendingCreateContacts.some(x => x.email === em)) {
+        if (msgCreateContact) {
+          msgCreateContact.style.display = 'block';
+          msgCreateContact.style.color = 'var(--color-danger)';
+          msgCreateContact.textContent = 'Este correo ya fue añadido.';
+        }
+        return;
+      }
+      pendingCreateContacts.push({ nombre: nm, email: em, rol: rl });
+      if (inputCreateName) inputCreateName.value = '';
+      if (inputCreateEmail) inputCreateEmail.value = '';
+      if (msgCreateContact) msgCreateContact.style.display = 'none';
+      renderCreateContactsUI();
+      inputCreateName?.focus();
+    });
+  }
 
   // Formatear RUT al escribir (Helper)
   const setupRutFormatter = (id) => {
@@ -53178,6 +54039,23 @@ window.showMerchantCreateModal = function() {
         if (configErr) throw configErr;
       }
 
+      // 5. Insertar contactos iniciales del comercio si existen
+      if (typeof pendingCreateContacts !== 'undefined' && pendingCreateContacts && pendingCreateContacts.length > 0) {
+        const toInsert = pendingCreateContacts.map(c => ({
+          comercio: nombre,
+          nombre: c.nombre,
+          email: c.email,
+          rol: c.rol || 'Operaciones',
+          activo: true
+        }));
+        const { error: contactsErr } = await supabase
+          .from('billing_contacts')
+          .insert(toInsert);
+        if (contactsErr) {
+          console.warn('Aviso: no se pudieron guardar algunos contactos iniciales:', contactsErr);
+        }
+      }
+
       // Cerrar modal y recargar tabla
       modal.remove();
       if (typeof renderMerchantsAdmin === 'function') {
@@ -53310,6 +54188,53 @@ window.showMerchantEditModal = async function(comercioName) {
                 <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo</label>
                 <input type="email" id="merchant-edit-rep-legal-email" class="form-input" value="${commerce.rep_legal_email || ''}" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
               </div>
+            </div>
+          </div>
+
+          <!-- Contactos del Comercio (Operaciones / Finanzas / Notificaciones) -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.65rem; margin: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-contacts-book-line" style="color: var(--color-primary);"></i> Contactos del Comercio
+                </h4>
+                <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0;">
+                  Correos que reciben avisos operacionales, comunicados masivos y notificaciones del WMS.
+                </p>
+              </div>
+            </div>
+
+            <!-- Formulario Rápido para Agregar Contacto -->
+            <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr auto; gap: 0.5rem; align-items: flex-end; background: var(--color-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+              <div>
+                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Nombre</label>
+                <input type="text" id="merchant-edit-contact-nombre" class="form-input" placeholder="Nombre completo" style="height: 30px; font-size: 0.75rem; padding: 0.2rem 0.5rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Correo Electrónico</label>
+                <input type="email" id="merchant-edit-contact-email" class="form-input" placeholder="correo@comercio.cl" style="height: 30px; font-size: 0.75rem; padding: 0.2rem 0.5rem; width: 100%; box-sizing: border-box;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Área / Rol</label>
+                <select id="merchant-edit-contact-rol" class="form-input" style="height: 30px; font-size: 0.75rem; padding: 0 0.5rem; width: 100%; box-sizing: border-box;">
+                  <option value="Operaciones" selected>Operaciones</option>
+                  <option value="Notificaciones">Notificaciones / General</option>
+                  <option value="Finanzas">Finanzas / Cobranza</option>
+                  <option value="Gerencia">Gerencia / Administración</option>
+                  <option value="Comercial">Comercial</option>
+                </select>
+              </div>
+              <div>
+                <button type="button" id="btn-merchant-edit-add-contact" class="btn btn-primary btn-sm" style="height: 30px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; background: var(--color-primary); color: #ffffff; border: none; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+                  <i class="ri-add-line"></i> Agregar
+                </button>
+              </div>
+            </div>
+            <div id="merchant-edit-contact-msg" style="display: none; font-size: 0.75rem; margin-top: -0.25rem;"></div>
+
+            <!-- Lista de Contactos Actuales -->
+            <div id="merchant-edit-contacts-list-body" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface);">
+              <!-- Renderizado dinámicamente -->
             </div>
           </div>
 
@@ -53553,6 +54478,69 @@ window.showMerchantEditModal = async function(comercioName) {
   `;
 
   document.body.appendChild(modal);
+
+  // Inicializar lista y eventos de Contactos del Comercio en Modal de Edición
+  window.renderMerchantEditContactsList(comercioName);
+
+  const btnAddEditContact = document.getElementById('btn-merchant-edit-add-contact');
+  const inputEditName = document.getElementById('merchant-edit-contact-nombre');
+  const inputEditEmail = document.getElementById('merchant-edit-contact-email');
+  const selectEditRol = document.getElementById('merchant-edit-contact-rol');
+  const msgEditContact = document.getElementById('merchant-edit-contact-msg');
+
+  if (btnAddEditContact) {
+    btnAddEditContact.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const nm = (inputEditName?.value || '').trim();
+      const em = (inputEditEmail?.value || '').trim().toLowerCase();
+      const rl = (selectEditRol?.value || '').trim() || 'Operaciones';
+
+      if (!nm || !em || !em.includes('@') || !em.includes('.')) {
+        if (msgEditContact) {
+          msgEditContact.style.display = 'block';
+          msgEditContact.style.color = 'var(--color-danger)';
+          msgEditContact.textContent = 'Ingresa un nombre y correo electrónico válido.';
+        }
+        return;
+      }
+
+      btnAddEditContact.disabled = true;
+      btnAddEditContact.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i>';
+
+      try {
+        await window.saveNewMerchantBillingContact(comercioName, { nombre: nm, email: em, rol: rl });
+        if (inputEditName) inputEditName.value = '';
+        if (inputEditEmail) inputEditEmail.value = '';
+        if (msgEditContact) {
+          msgEditContact.style.display = 'block';
+          msgEditContact.style.color = 'var(--color-success)';
+          msgEditContact.textContent = '✓ Contacto agregado con éxito.';
+          setTimeout(() => { if (msgEditContact) msgEditContact.style.display = 'none'; }, 3000);
+        }
+      } catch (err) {
+        if (msgEditContact) {
+          msgEditContact.style.display = 'block';
+          msgEditContact.style.color = 'var(--color-danger)';
+          msgEditContact.textContent = 'Error: ' + (err.message || err);
+        }
+      } finally {
+        btnAddEditContact.disabled = false;
+        btnAddEditContact.innerHTML = '<i class="ri-add-line"></i> Agregar';
+      }
+    });
+
+    [inputEditName, inputEditEmail].forEach(inp => {
+      if (inp) {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.stopPropagation();
+            btnAddEditContact?.click();
+          }
+        });
+      }
+    });
+  }
 
   // Formatear RUT al escribir (Helper)
   const setupRutFormatter = (id) => {
@@ -55173,6 +56161,9 @@ window.editWmsOrderPickingInfo = async function(orderId) {
   const currentSucursal = order.sucursal_pickeo || '';
   const currentAgenda = order.agenda || 'STK';
   const currentOperador = order.operador || '';
+  const currentStockWhId = (order.order_items || []).find(it => it.warehouse_id)?.warehouse_id || '';
+  const defaultWhForCurrentSucursal = typeof getWarehouseIdFromSucursal === 'function' ? getWarehouseIdFromSucursal(currentSucursal) : null;
+  const isCustomStock = currentStockWhId && defaultWhForCurrentSucursal && currentStockWhId !== defaultWhForCurrentSucursal;
 
   const agendaDatalistHtml = (window.agendaOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
   const operadorDatalistHtml = (window.operadorOptions || []).map(opt => `<option value="${opt}"></option>`).join('');
@@ -55181,13 +56172,30 @@ window.editWmsOrderPickingInfo = async function(orderId) {
     title: 'Editar Datos de Picking (WMS -> Picker)',
     html: `
       <div style="text-align: left; font-size: 0.9rem;">
-        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Pickeo</label>
-        <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">
+          <i class="ri-store-3-line" style="color: var(--color-primary, #6366f1);"></i> Sucursal de Preparación (Picker)
+        </label>
+        <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box;">
           <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
           <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
           <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
           <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
         </select>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">
+          <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+        </label>
+        <select id="swal-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box;">
+          <option value="same_as_prep" ${!isCustomStock ? 'selected' : ''}>⚡ Misma que sucursal de preparación (Automático)</option>
+          <option value="414605cb-f926-43d2-8bd2-d9509f7b458a" ${currentStockWhId === '414605cb-f926-43d2-8bd2-d9509f7b458a' ? 'selected' : ''}>CDD La Reina (Fernando Castillo Velasco 8146)</option>
+          <option value="973da888-8a63-4790-a08f-919e1af41a93" ${currentStockWhId === '973da888-8a63-4790-a08f-919e1af41a93' ? 'selected' : ''}>Matriz Ñuñoa (Campo de Deportes 405)</option>
+          <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a" ${currentStockWhId === '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a' ? 'selected' : ''}>CDD Recoleta (Avenida Venezuela 0952)</option>
+          <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09" ${currentStockWhId === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' ? 'selected' : ''}>Bodega Central (Hub Virtual)</option>
+        </select>
+        <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.75rem; line-height: 1.25;">
+          Permite descontar stock de una bodega diferente a la sucursal física asignada para el pickeo.
+        </div>
+
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
         <input id="swal-agenda" list="swal-agenda-list" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.4rem 0; box-sizing: border-box;">
         <datalist id="swal-agenda-list">
@@ -55215,6 +56223,7 @@ window.editWmsOrderPickingInfo = async function(orderId) {
     cancelButtonText: 'Cancelar',
     preConfirm: () => {
       const sucursal = document.getElementById('swal-sucursal').value;
+      const bodegaStock = document.getElementById('swal-bodega-stock')?.value || 'same_as_prep';
       const agendaInput = document.getElementById('swal-agenda').value;
       const operadorInput = document.getElementById('swal-operador').value;
 
@@ -55238,6 +56247,7 @@ window.editWmsOrderPickingInfo = async function(orderId) {
 
       return {
         sucursal,
+        bodegaStock,
         agenda: matchAgenda,
         operador: matchOperador
       };
@@ -55268,7 +56278,10 @@ window.editWmsOrderPickingInfo = async function(orderId) {
 
     if (wmsErr) throw wmsErr;
 
-    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const targetWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+      ? formValues.bodegaStock
+      : getWarehouseIdFromSucursal(formValues.sucursal);
+
     const { error: itemsErr } = await supabase
       .from('order_items')
       .update({ warehouse_id: targetWarehouseId })
@@ -57652,13 +58665,29 @@ window.bulkSetWmsOrderPickingInfo = async function() {
         <div style="flex: 1 1 290px; min-width: 270px; display: flex; flex-direction: column;">
           <p style="margin-bottom: 0.75rem; color: var(--color-text-muted); font-size: 0.85rem;">Define la sucursal, agenda, operador y fecha de preparación para los <strong>${ids.length}</strong> pedidos seleccionados.</p>
           
-          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Sucursal de Destino</label>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+            <i class="ri-store-3-line" style="color: var(--color-primary, #6366f1);"></i> Sucursal de Preparación (Picker)
+          </label>
           <select id="swal-bulk-set-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
             <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
             <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
             <option value="Sucursal La Reina">Sucursal La Reina</option>
             <option value="Sucursal Recoleta">Sucursal Recoleta</option>
           </select>
+          
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">
+            <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+          </label>
+          <select id="swal-bulk-set-bodega-stock" class="swal2-select" style="width: 100%; margin: 0 0 0.25rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
+            <option value="same_as_prep" selected>⚡ Misma que sucursal de preparación (Automático)</option>
+            <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">CDD La Reina (Fernando Castillo Velasco 8146)</option>
+            <option value="973da888-8a63-4790-a08f-919e1af41a93">Matriz Ñuñoa (Campo de Deportes 405)</option>
+            <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">CDD Recoleta (Avenida Venezuela 0952)</option>
+            <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">Bodega Central (Hub Virtual)</option>
+          </select>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.75rem; line-height: 1.25;">
+            Permite descontar stock de una bodega diferente a la sucursal física asignada para el pickeo.
+          </div>
           
           <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem;">Agenda de Preparación</label>
           <input id="swal-bulk-set-agenda" list="swal-bulk-set-agenda-list" class="swal2-input" type="text" placeholder="Escribe o selecciona Agenda..." autocomplete="off" onfocus="this.select()" oninput="window.validateOptionLiveInput(this, 'agenda')" onblur="window.validateOptionLiveInput(this, 'agenda')" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px;">
@@ -57723,6 +58752,7 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       }
       return {
         sucursal: document.getElementById('swal-bulk-set-sucursal').value,
+        bodegaStock: document.getElementById('swal-bulk-set-bodega-stock')?.value || 'same_as_prep',
         agenda: matchAgenda,
         operador: matchOperador,
         fechaProc: fechaProc || null
@@ -57759,7 +58789,9 @@ window.bulkSetWmsOrderPickingInfo = async function() {
 
     if (error) throw error;
 
-    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const targetWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+      ? formValues.bodegaStock
+      : getWarehouseIdFromSucursal(formValues.sucursal);
     const { error: itemsErr } = await supabase
       .from('order_items')
       .update({ warehouse_id: targetWarehouseId })

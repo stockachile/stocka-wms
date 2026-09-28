@@ -265,13 +265,17 @@ async function syncMerchantOrders(integration) {
       const isActive = !isDelivered && !isCancelled;
 
       // 1. Verificar si el pedido ya existe en el WMS
-      const { data: existingOrder } = await supabase
+      const { data: existingOrder, error: checkErr } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, raw_ripley_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, wms_items_edited, wms_shipping_edited')
+        .select('id, status, estado_wms, comercio, raw_ripley_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderId])
         .eq('external_platform', 'Ripley')
         .maybeSingle();
+
+      if (checkErr) {
+        console.error(`⚠️ Error al buscar pedido existente ${finalOrderId}:`, checkErr.message);
+      }
 
       const customer = order.customer || {};
       const shippingAddress = customer.shipping_address || customer.billing_address || {};

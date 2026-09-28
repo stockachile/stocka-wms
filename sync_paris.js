@@ -275,13 +275,17 @@ async function syncMerchantOrders(integration) {
       const isActive = !isDelivered && !isCancelled;
 
       // 1. Verificar si el pedido ya existe en el WMS
-      const { data: existingOrder } = await supabase
+      const { data: existingOrder, error: checkErr } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, raw_paris_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, wms_items_edited, wms_shipping_edited')
+        .select('id, status, estado_wms, tracking_number, courier, tracking_url, label_url, comercio, raw_paris_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
         .eq('comercio', integration.comercio)
         .in('external_order_number', [orderNumber, finalOrderId])
         .eq('external_platform', 'Paris')
         .maybeSingle();
+
+      if (checkErr) {
+        console.error(`⚠️ Error al buscar pedido existente ${finalOrderId}:`, checkErr.message);
+      }
 
       // Obtener todos los ítems de todos los sub-pedidos y la primera dirección de despacho
       const allItems = [];
@@ -349,6 +353,77 @@ async function syncMerchantOrders(integration) {
         }
       }
 
+      // Extraer datos de tracking, courier y etiquetas de despacho desde subOrders
+      const trackingNumbers = [];
+      const couriers = [];
+      let labelUrl = null;
+
+      if (order.subOrders && Array.isArray(order.subOrders)) {
+        for (const so of order.subOrders) {
+          let tNum = so.trackingNumber ? String(so.trackingNumber).trim() : null;
+
+          // Si no viene directo en trackingNumber, buscar en historial de tracking (ej. 'con OT: 2415490206')
+          if (!tNum && so.tracking && Array.isArray(so.tracking)) {
+            for (const t of so.tracking) {
+              const comment = t.comment || '';
+              const match = comment.match(/(?:OT|tracking|gu[ií]a):\s*([A-Za-z0-9_-]+)/i);
+              if (match && match[1]) {
+                tNum = match[1].trim();
+                break;
+              }
+            }
+          }
+
+          if (tNum && !trackingNumbers.includes(tNum)) {
+            trackingNumbers.push(tNum);
+          }
+
+          const carrier = so.carrier ? String(so.carrier).trim() : null;
+          if (carrier && !couriers.includes(carrier)) {
+            couriers.push(carrier);
+          }
+
+          if (!labelUrl) {
+            if (so.label && Array.isArray(so.label)) {
+              const pdfLabel = so.label.find(l => l.format === 'pdf' || (l.url && l.url.toLowerCase().endsWith('.pdf')));
+              if (pdfLabel?.url) {
+                labelUrl = pdfLabel.url;
+              } else if (so.label[0]?.url) {
+                labelUrl = so.label[0].url;
+              }
+            }
+            if (!labelUrl && so.labelId) {
+              labelUrl = `https://eiffel-back-files.ecomm.cencosud.com/labels/label_${so.labelId}.pdf`;
+            }
+          }
+        }
+      }
+
+      // Fallbacks a nivel raíz
+      if (trackingNumbers.length === 0 && order.trackingNumber) {
+        trackingNumbers.push(String(order.trackingNumber).trim());
+      }
+      if (couriers.length === 0 && order.carrier) {
+        couriers.push(String(order.carrier).trim());
+      }
+
+      const trackingNum = trackingNumbers.length > 0 ? trackingNumbers.join(', ') : null;
+      const courierName = couriers.length > 0 ? couriers.join(', ') : (mainSubOrder?.carrier || null);
+
+      // Generar URL de seguimiento según courier
+      let trackingUrl = null;
+      if (trackingNum) {
+        const primaryTrack = trackingNumbers[0];
+        const cUpper = (courierName || '').toUpperCase();
+        if (cUpper.includes('BLUEXPRESS') || cUpper.includes('BLUE EXPRESS') || cUpper.includes('BLUE')) {
+          trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${primaryTrack}`;
+        } else if (cUpper.includes('STARKEN')) {
+          trackingUrl = `https://www.starken.cl/seguimiento?codigo=${primaryTrack}`;
+        } else if (cUpper.includes('CHILEXPRESS')) {
+          trackingUrl = `https://www.chilexpress.cl`;
+        }
+      }
+
       // Mapear datos comunes del pedido
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
@@ -365,6 +440,10 @@ async function syncMerchantOrders(integration) {
         shipping_complement: [shippingAddress?.address2, shippingAddress?.address3].filter(Boolean).join(', ') || '',
         raw_paris_data: order,
         shipping_method: shippingMethodVal,
+        tracking_number: trackingNum,
+        courier: courierName,
+        tracking_url: trackingUrl,
+        label_url: labelUrl,
         // Nuevas columnas planas solicitadas
         origen: 'Paris',
         item: flatItemName,
@@ -398,6 +477,20 @@ async function syncMerchantOrders(integration) {
           delete orderDataToUpdate.shipping_complement;
         }
 
+        // Preservar valores existentes si la API de origen no los trajo en esta consulta
+        if (!orderDataToUpdate.tracking_number && existingOrder.tracking_number) {
+          delete orderDataToUpdate.tracking_number;
+        }
+        if (!orderDataToUpdate.courier && existingOrder.courier) {
+          delete orderDataToUpdate.courier;
+        }
+        if (!orderDataToUpdate.tracking_url && existingOrder.tracking_url) {
+          delete orderDataToUpdate.tracking_url;
+        }
+        if (!orderDataToUpdate.label_url && existingOrder.label_url) {
+          delete orderDataToUpdate.label_url;
+        }
+
         orderDataToUpdate.raw_paris_data = {
           ...order,
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
@@ -418,7 +511,7 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update(orderDataToUpdate)
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${finalOrderId}`);
+          console.log(`📝 Actualizado pedido local ${finalOrderId} (Tracking: ${trackingNum || 'N/A'}, Courier: ${courierName || 'N/A'}, Label: ${labelUrl ? 'SÍ' : 'NO'})`);
         }
         localOrderId = existingOrder.id;
 

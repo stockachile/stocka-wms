@@ -200,6 +200,26 @@ function resolveOrderTracking(order) {
     else if (raw?.shipping) shipId = raw.shipping?.id;
     if (shipId) return String(shipId).trim();
   }
+  // Paris (Cencosud) tracking fallback
+  if (order.external_platform === 'Paris' || order.raw_paris_data) {
+    const raw = order.raw_paris_data;
+    if (raw?.subOrders && Array.isArray(raw.subOrders)) {
+      for (const so of raw.subOrders) {
+        if (so.trackingNumber && String(so.trackingNumber).trim()) {
+          return String(so.trackingNumber).trim();
+        }
+        if (so.tracking && Array.isArray(so.tracking)) {
+          for (const t of so.tracking) {
+            const match = (t.comment || '').match(/(?:OT|tracking|gu[ií]a):\s*([A-Za-z0-9_-]+)/i);
+            if (match && match[1]) return match[1].trim();
+          }
+        }
+      }
+    }
+    if (raw?.trackingNumber && String(raw.trackingNumber).trim()) {
+      return String(raw.trackingNumber).trim();
+    }
+  }
   return '';
 }
 

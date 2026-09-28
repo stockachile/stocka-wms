@@ -6,6 +6,41 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+
+function extractTiendanubeCustomerName(order: any): string {
+  const addr = order.shipping_address;
+  let name = "";
+  if (addr) {
+    if (addr.name && addr.name.trim()) {
+      name = addr.name.trim();
+    } else if (addr.recipient_name && addr.recipient_name.trim()) {
+      name = addr.recipient_name.trim();
+    } else {
+      const combined = `${addr.first_name || ""} ${addr.last_name || ""}`.trim();
+      if (combined) name = combined;
+    }
+  }
+
+  if (!name) {
+    if (order.contact_name && order.contact_name.trim()) {
+      name = order.contact_name.trim();
+    } else if (order.customer?.name && order.customer.name.trim()) {
+      name = order.customer.name.trim();
+    } else {
+      const custCombined = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+      if (custCombined) name = custCombined;
+    }
+  }
+
+  if (!name && order.billing_address) {
+    if (typeof order.billing_address === "object" && order.billing_address.name && order.billing_address.name.trim()) {
+      name = order.billing_address.name.trim();
+    }
+  }
+
+  return name || "Cliente Tiendanube";
+}
+
 serve(async (req) => {
   // Solo aceptamos POST
   if (req.method !== "POST") {
@@ -193,9 +228,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(", ");
   }
 
-  const customerName = addr 
-    ? `${addr.first_name || ""} ${addr.last_name || ""}`.trim() 
-    : (order.contact_name || order.customer?.name || "Cliente Tiendanube");
+  const customerName = extractTiendanubeCustomerName(order);
 
   const orderData = {
     merchant_id: merchantId,
@@ -364,9 +397,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
     complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(", ");
   }
 
-  const customerName = addr 
-    ? `${addr.first_name || ""} ${addr.last_name || ""}`.trim() 
-    : (order.contact_name || order.customer?.name || "Cliente Tiendanube");
+  const customerName = extractTiendanubeCustomerName(order);
 
   // Preparamos datos a actualizar protegiendo modificaciones manuales del WMS
   const updatedData: Record<string, any> = {

@@ -1,4 +1,39 @@
 
+
+function extractTiendanubeCustomerName(order) {
+  const addr = order.shipping_address;
+  let name = '';
+  if (addr) {
+    if (addr.name && addr.name.trim()) {
+      name = addr.name.trim();
+    } else if (addr.recipient_name && addr.recipient_name.trim()) {
+      name = addr.recipient_name.trim();
+    } else {
+      const combined = `${addr.first_name || ''} ${addr.last_name || ''}`.trim();
+      if (combined) name = combined;
+    }
+  }
+
+  if (!name) {
+    if (order.contact_name && order.contact_name.trim()) {
+      name = order.contact_name.trim();
+    } else if (order.customer?.name && order.customer.name.trim()) {
+      name = order.customer.name.trim();
+    } else {
+      const custCombined = `${order.customer?.first_name || ''} ${order.customer?.last_name || ''}`.trim();
+      if (custCombined) name = custCombined;
+    }
+  }
+
+  if (!name && order.billing_address) {
+    if (typeof order.billing_address === 'object' && order.billing_address.name && order.billing_address.name.trim()) {
+      name = order.billing_address.name.trim();
+    }
+  }
+
+  return name || 'Cliente Tiendanube';
+}
+
 function extractTiendanubeName(rawName, fallback = 'Producto Tiendanube') {
   if (!rawName) return fallback;
   if (typeof rawName === 'string') return rawName.trim();
@@ -447,9 +482,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(', ');
       }
 
-      const customerName = addr 
-        ? `${addr.first_name || ''} ${addr.last_name || ''}`.trim() 
-        : (order.contact_name || order.customer?.name || 'Cliente Tiendanube');
+      const customerName = extractTiendanubeCustomerName(order);
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
