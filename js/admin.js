@@ -3912,83 +3912,159 @@ window.toggleRawOrderJson = async function(orderId) {
 };
 
 
-window.reassignOrderCommerce = async function(orderId, newCommerce) {
-  if (confirm(`¿Estás seguro de que deseas reasignar este pedido al comercio '${newCommerce}'?`)) {
-    try {
-      // 1. Actualizar comercio en la cabecera de la orden
-      const { data, error } = await supabase
-        .from('orders')
-        .update({ comercio: newCommerce })
-        .eq('id', orderId)
-        .select();
-      
-      if (error) throw error;
-      
-      if (!data || data.length === 0) {
-        throw new Error('No se modificó ningún registro. Es probable que no tengas permisos de base de datos (RLS) para asignar pedidos a este comercio, o que el pedido ya no exista.');
-      }
+window.reassignOrderCommerce = async function(orderId, newCommerce, selectEl) {
+  const localOrd = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+  const previousCommerce = localOrd ? localOrd.comercio : '';
 
-      // 2. Re-vincular los order_items al producto correspondiente del nuevo comercio si existe por SKU
-      const { data: currentItems, error: itemsErr } = await supabase
-        .from('order_items')
-        .select('id, product_id, warehouse_id, quantity, products(id, sku, name, comercio)')
-        .eq('order_id', orderId);
+  if (!newCommerce || newCommerce === previousCommerce) {
+    return;
+  }
 
-      let relinkedCount = 0;
-      if (!itemsErr && currentItems && currentItems.length > 0) {
-        for (const item of currentItems) {
-          const sku = item.products?.sku;
-          if (sku) {
-            const { data: targetProds } = await supabase
-              .from('products')
-              .select('id, sku, name, comercio')
-              .eq('comercio', newCommerce)
-              .eq('sku', sku)
-              .limit(1);
+  // Confirmación elegante con SweetAlert2
+  const confirmResult = await Swal.fire({
+    title: '¿Reasignar comercio?',
+    html: `¿Estás seguro de que deseas reasignar el pedido <strong>#${localOrd?.external_order_number || localOrd?.id || orderId}</strong> al comercio <strong>'${newCommerce}'</strong>?<br><small style="color:var(--color-text-muted); margin-top:0.4rem; display:block;">Se intentarán revincular los productos al catálogo de ${newCommerce}.</small>`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, reasignar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: 'var(--color-primary, #7117eb)',
+    cancelButtonColor: '#6b7280',
+    reverseButtons: true
+  });
 
-            if (targetProds && targetProds.length > 0) {
-              await supabase
-                .from('order_items')
-                .update({ product_id: targetProds[0].id })
-                .eq('id', item.id);
-              relinkedCount++;
-            }
-          }
-        }
-      }
-      
-      // 3. Actualizar memoria local para reflejar cambios de inmediato
-      if (window.loadedOrders) {
-        const localOrd = window.loadedOrders.find(o => o.id === orderId);
-        if (localOrd) {
-          localOrd.comercio = newCommerce;
-          // Recargar items frescos de este pedido
-          const { data: freshItems } = await supabase
-            .from('order_items')
-            .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products(id, sku, name, price, is_virtual, comercio), warehouses(name)')
-            .eq('order_id', orderId);
-          if (freshItems) {
-            localOrd.order_items = freshItems;
-          }
-        }
-      }
-
-      if (window.clearWmsTagsCache) {
-        window.clearWmsTagsCache();
-      }
-      window.loadedOrdersInventoryMap = {};
-      if (window.fetchInventoryForOrders && window.loadedOrders) {
-        await window.fetchInventoryForOrders(window.loadedOrders);
-      }
-
-      alert(`Pedido reasignado exitosamente al comercio '${newCommerce}'.${relinkedCount > 0 ? ` Se vincularon ${relinkedCount} producto(s) al catálogo de ${newCommerce}.` : ''}`);
-      if (typeof renderAdminOrders === 'function') {
-        renderAdminOrders();
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Error al reasignar el comercio: ' + err.message);
+  if (!confirmResult.isConfirmed) {
+    if (selectEl && previousCommerce) {
+      selectEl.value = previousCommerce;
     }
+    return;
+  }
+
+  // Notificación de carga mientras se procesa la reasignación
+  Swal.fire({
+    title: 'Reasignando comercio...',
+    text: 'Actualizando pedido y vinculando catálogo...',
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    // 1. Actualizar comercio en la cabecera de la orden en la BD
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ comercio: newCommerce })
+      .eq('id', orderId)
+      .select();
+    
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      throw new Error('No se modificó ningún registro. Es probable que no tengas permisos de base de datos (RLS) para asignar pedidos a este comercio, o que el pedido ya no exista.');
+    }
+
+    // 2. Re-vincular los order_items al producto correspondiente del nuevo comercio si existe por SKU
+    const { data: currentItems, error: itemsErr } = await supabase
+      .from('order_items')
+      .select('id, product_id, warehouse_id, quantity, products(id, sku, name, comercio)')
+      .eq('order_id', orderId);
+
+    let relinkedCount = 0;
+    if (!itemsErr && currentItems && currentItems.length > 0) {
+      for (const item of currentItems) {
+        const sku = item.products?.sku;
+        if (sku) {
+          const { data: targetProds } = await supabase
+            .from('products')
+            .select('id, sku, name, comercio')
+            .eq('comercio', newCommerce)
+            .eq('sku', sku)
+            .limit(1);
+
+          if (targetProds && targetProds.length > 0) {
+            await supabase
+              .from('order_items')
+              .update({ product_id: targetProds[0].id })
+              .eq('id', item.id);
+            relinkedCount++;
+          }
+        }
+      }
+    }
+    
+    // 3. Actualizar memoria local para reflejar cambios de inmediato sin recargar toda la página
+    if (window.loadedOrders) {
+      const ord = window.loadedOrders.find(o => o.id === orderId);
+      if (ord) {
+        ord.comercio = newCommerce;
+        delete ord._wmsTags;
+        delete ord._wmsDeliveryTypeInfo;
+        
+        // Recargar items frescos de este pedido
+        const { data: freshItems } = await supabase
+          .from('order_items')
+          .select('quantity, product_id, warehouse_id, tag, is_gift, campaign_id, products(id, sku, name, price, is_virtual, comercio), warehouses(name)')
+          .eq('order_id', orderId);
+        if (freshItems) {
+          ord.order_items = freshItems;
+        }
+      }
+    }
+
+    // Mantener la fila del pedido expandida
+    if (window.wmsExpandedOrderIds) {
+      window.wmsExpandedOrderIds.add(orderId);
+    }
+
+    if (window.clearWmsTagsCache) {
+      window.clearWmsTagsCache();
+    }
+    window.loadedOrdersInventoryMap = {};
+    if (window.fetchInventoryForOrders && window.loadedOrders) {
+      await window.fetchInventoryForOrders(window.loadedOrders);
+    }
+
+    // Actualizar opciones de filtros de comercio y etiquetas
+    if (window.updateMerchantFilterOptions) {
+      window.updateMerchantFilterOptions();
+    }
+    if (window.updateOrderTagFilterOptions) {
+      window.updateOrderTagFilterOptions();
+    }
+
+    // Re-renderizar la vista de pedidos en caliente (manteniendo página, tabs y filtros activos)
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+
+    // Cerrar loader y mostrar toast elegante
+    Swal.close();
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true
+    });
+    toast.fire({
+      icon: 'success',
+      title: 'Comercio reasignado exitosamente',
+      html: `<div style="font-size: 0.825rem; margin-top: 0.2rem; color: var(--color-text-muted);">Asignado a <strong>${newCommerce}</strong>.${relinkedCount > 0 ? ` Se vincularon ${relinkedCount} producto(s).` : ''}</div>`
+    });
+
+  } catch (err) {
+    console.error('Error al reasignar el comercio:', err);
+    if (selectEl && previousCommerce) {
+      selectEl.value = previousCommerce;
+    }
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al reasignar',
+      text: err.message || 'No se pudo actualizar el comercio del pedido.',
+      confirmButtonColor: 'var(--color-primary, #7117eb)'
+    });
   }
 };
 
@@ -4464,6 +4540,7 @@ window.resetWmsAllFilters = async function() {
   window.wmsMultiselectText = '';
   window.wmsColumnFilters = {};
   window.wmsActiveSlaFilter = null;
+  window.wmsActiveDeliveryTypeFilter = null;
 
   // Resetear fecha a últimos 7 días
   if (window.setWmsDatePreset) {
@@ -5296,6 +5373,218 @@ async function renderAdminOrders() {
       return order._wmsSlaInfo;
     };
 
+    window.getOrderDeliveryTypeInfo = function(order) {
+      if (!order) return null;
+      if (order._wmsDeliveryTypeInfo !== undefined) return order._wmsDeliveryTypeInfo;
+
+      const rawMethod = String(order.shipping_method || '').trim();
+      const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
+      const baseMethod = (slaInfo && slaInfo.baseMethod) ? slaInfo.baseMethod : rawMethod;
+      const methodUpper = baseMethod.toUpperCase();
+      const agendaUpper = String(order.agenda || '').toUpperCase().trim();
+      const operadorUpper = String(order.operador || '').toUpperCase().trim();
+      const courierUpper = String(order.courier || '').toUpperCase().trim();
+      
+      const platform = String(order.external_platform || order.origen || '').toLowerCase().trim();
+      const isMeli = platform.includes('meli') || platform.includes('mercadolibre') || operadorUpper.includes('MERCADOLIBRE') || courierUpper.includes('MERCADOLIBRE') || !!order.raw_meli_data;
+      const isFalabella = platform.includes('falabella') || operadorUpper.includes('FALABELLA') || courierUpper.includes('FALABELLA') || !!order.raw_falabella_data;
+
+      const rawMeliObj = Array.isArray(order.raw_meli_data) ? order.raw_meli_data[0] : order.raw_meli_data;
+      const rawMeliLogistic = String(
+        rawMeliObj?.shipping?.logistic_type || 
+        rawMeliObj?.orders?.[0]?.shipping?.logistic_type || 
+        order.shipping_type || 
+        ''
+      ).toLowerCase();
+
+      let key = '';
+      let label = baseMethod || 'Envío';
+      let filterName = '';
+      let icon = 'ri-truck-line';
+      let bg = '#f1f5f9';
+      let text = '#334155';
+      let border = '#cbd5e1';
+      let isMarketplace = false;
+
+      // 1. MERCADOLIBRE FLEX
+      if (methodUpper.includes('FLEX') || agendaUpper.includes('FLEX') || courierUpper.includes('FLEX') || rawMeliLogistic === 'self_service' || rawMeliLogistic === 'flex') {
+        key = 'FLEX';
+        label = 'FLEX ⚡';
+        filterName = 'MercadoLibre - FLEX';
+        icon = 'ri-flashlight-fill';
+        bg = '#fef9c3';
+        text = '#854d0e';
+        border = '#fde047';
+        isMarketplace = true;
+      }
+      // 2. MERCADOLIBRE RETIRO / ACORDAR
+      else if (isMeli && (methodUpper.includes('RETIRO') || agendaUpper.includes('RETIRO') || methodUpper.includes('ACORDAR'))) {
+        key = 'MELI_RETIRO';
+        label = 'MELI · RETIRO';
+        filterName = 'MercadoLibre - Retiro / Acordar';
+        icon = 'ri-store-2-line';
+        bg = '#fef3c7';
+        text = '#b45309';
+        border = '#fde68a';
+        isMarketplace = true;
+      }
+      // 3. MERCADOLIBRE FULL
+      else if (isMeli && (rawMeliLogistic === 'fulfillment' || methodUpper.includes('FULL'))) {
+        key = 'MELI_FULL';
+        label = 'MELI · FULL';
+        filterName = 'MercadoLibre - Full';
+        icon = 'ri-flashlight-line';
+        bg = '#ecfdf5';
+        text = '#047857';
+        border = '#a7f3d0';
+        isMarketplace = true;
+      }
+      // 4. MERCADOLIBRE CENTRO DE ENVÍOS (Colecta / Drop-off / Cross docking / Places / Mercado Envíos)
+      else if (isMeli && (
+        methodUpper.includes('CENTRO DE ENVIO') || 
+        methodUpper.includes('CENTRO DE ENVÍO') || 
+        methodUpper.includes('CENTRO ENVIO') || 
+        methodUpper.includes('CENTRO ENVÍO') || 
+        agendaUpper.includes('CENTRO DE ENVIOS') || 
+        rawMeliLogistic === 'cross_docking' || 
+        rawMeliLogistic === 'drop_off' ||
+        rawMeliLogistic === 'xd' ||
+        methodUpper.includes('PLACES') ||
+        methodUpper.includes('COLECTA') ||
+        methodUpper.includes('MERCADO ENV') ||
+        operadorUpper.includes('MERCADOLIBRE') ||
+        courierUpper.includes('MERCADOLIBRE')
+      )) {
+        key = 'MELI_CENTRO_ENVIOS';
+        label = 'MELI · CENTRO DE ENVÍOS';
+        filterName = 'MercadoLibre - Centro de Envíos';
+        icon = 'ri-community-line';
+        bg = '#e0f2fe';
+        text = '#0369a1';
+        border = '#7dd3fc';
+        isMarketplace = true;
+      }
+      // 5. FALABELLA DROPSHIPPING
+      else if (isFalabella && (
+        methodUpper.includes('DROPSHIP') || 
+        methodUpper.includes('DROP-SHIP') || 
+        methodUpper.includes('DROP SHIP') ||
+        courierUpper.includes('DROPSHIP') ||
+        agendaUpper.includes('DROPSHIP')
+      )) {
+        key = 'FALABELLA_DROPSHIPPING';
+        label = 'FAL · DROPSHIPPING';
+        filterName = 'Falabella - Dropshipping';
+        icon = 'ri-send-plane-line';
+        bg = '#f3e8ff';
+        text = '#6b21a8';
+        border = '#d8b4fe';
+        isMarketplace = true;
+      }
+      // 6. FALABELLA CENTRO DE ENVÍOS / CROSSDOCKING / OWN WAREHOUSE
+      else if (isFalabella && (
+        methodUpper.includes('CENTRO DE ENVIO') || 
+        methodUpper.includes('CENTRO DE ENVÍO') || 
+        methodUpper.includes('CENTRO ENVIO') || 
+        methodUpper.includes('CENTRO ENVÍO') || 
+        methodUpper.includes('OWN WAREHOUSE') ||
+        methodUpper.includes('CROSSDOCK') ||
+        methodUpper.includes('CROSS DOCK') ||
+        methodUpper.includes('CROSS-DOCK') ||
+        methodUpper.includes('FBF') ||
+        agendaUpper.includes('CENTRO DE ENVIOS')
+      )) {
+        key = 'FALABELLA_CENTRO_ENVIOS';
+        label = 'FAL · CENTRO DE ENVÍOS';
+        filterName = 'Falabella - Centro de Envíos';
+        icon = 'ri-building-2-line';
+        bg = '#e0e7ff';
+        text = '#3730a3';
+        border = '#c7d2fe';
+        isMarketplace = true;
+      }
+      // 7. FALABELLA RETIRO EN TIENDA
+      else if (isFalabella && (methodUpper.includes('RETIRO') || agendaUpper.includes('RETIRO'))) {
+        key = 'FALABELLA_RETIRO';
+        label = 'FAL · RETIRO';
+        filterName = 'Falabella - Retiro en Tienda';
+        icon = 'ri-store-2-line';
+        bg = '#fef3c7';
+        text = '#b45309';
+        border = '#fde68a';
+        isMarketplace = true;
+      }
+      // 8. FALABELLA DIRECTO / DESPACHO FALABELLA
+      else if (isFalabella || methodUpper.includes('FALABELLA DIRECTO') || (methodUpper.includes('DIRECTO') && !isMeli)) {
+        key = 'FALABELLA_DIRECTO';
+        label = 'FAL · DIRECTO';
+        filterName = 'Falabella - Directo';
+        icon = 'ri-store-3-line';
+        bg = '#ecfdf5';
+        text = '#065f46';
+        border = '#6ee7b7';
+        isMarketplace = true;
+      }
+      // 9. Generic Retiro en Tienda / Sucursal
+      else if (methodUpper.includes('RETIRO') || agendaUpper.includes('RETIRO') || String(order.categoria_entrega || '').toUpperCase() === 'RETIRO') {
+        key = 'RETIRO';
+        label = 'RETIRO';
+        filterName = 'Retiro en Tienda';
+        icon = 'ri-store-2-line';
+        bg = '#f0fdf4';
+        text = '#166534';
+        border = '#86efac';
+      }
+      // 10. Generic Centro de Envíos
+      else if (methodUpper.includes('CENTRO DE ENVIO') || methodUpper.includes('CENTRO DE ENVÍO') || agendaUpper.includes('CENTRO DE ENVIOS')) {
+        key = 'CENTRO_ENVIOS';
+        label = 'CENTRO DE ENVÍOS';
+        filterName = 'Centro de Envíos';
+        icon = 'ri-community-line';
+        bg = '#e0f2fe';
+        text = '#0369a1';
+        border = '#7dd3fc';
+        isMarketplace = true;
+      }
+      // 11. Generic Dropshipping
+      else if (methodUpper.includes('DROPSHIP') || methodUpper.includes('DROP-SHIP')) {
+        key = 'DROPSHIPPING';
+        label = 'DROPSHIPPING';
+        filterName = 'Dropshipping';
+        icon = 'ri-send-plane-line';
+        bg = '#f3e8ff';
+        text = '#6b21a8';
+        border = '#d8b4fe';
+        isMarketplace = true;
+      }
+      // 12. Otro Courier / Método de envío
+      else {
+        const cleanLabel = baseMethod.replace(/⚡/g, '').trim() || 'Envío';
+        key = cleanLabel.toUpperCase();
+        label = cleanLabel;
+        filterName = cleanLabel;
+        icon = 'ri-truck-line';
+        bg = '#f1f5f9';
+        text = '#334155';
+        border = '#cbd5e1';
+      }
+
+      order._wmsDeliveryTypeInfo = {
+        key,
+        label,
+        filterName,
+        icon,
+        bg,
+        text,
+        color: text,
+        border,
+        isMarketplace,
+        platform: isMeli ? 'MercadoLibre' : (isFalabella ? 'Falabella' : 'Otro')
+      };
+
+      return order._wmsDeliveryTypeInfo;
+    };
+
     window.getOrderTags = function(order) {
       if (!order) return [];
       if (order._wmsTags) return order._wmsTags;
@@ -5421,6 +5710,12 @@ async function renderAdminOrders() {
         tags.add(`SLA: ${slaInfo.slaKey}`);
       }
 
+      // 14. Tipo de Entrega (Marketplaces: FLEX, Centro de Envíos, Dropshipping, etc.)
+      const dtInfo = window.getOrderDeliveryTypeInfo ? window.getOrderDeliveryTypeInfo(order) : null;
+      if (dtInfo && dtInfo.isMarketplace) {
+        tags.add(`ENTREGA: ${dtInfo.filterName}`);
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -5496,15 +5791,19 @@ async function renderAdminOrders() {
       ]);
 
       const slaTags = [];
+      const deliveryTypeTags = [];
       const customPlatformTags = [];
       tagCounts.forEach((count, tagKey) => {
         if (tagKey.startsWith('SLA:')) {
           slaTags.push({ key: tagKey, label: tagKey, icon: '⏰' });
+        } else if (tagKey.startsWith('ENTREGA:')) {
+          deliveryTypeTags.push({ key: tagKey, label: tagKey.replace(/^ENTREGA:\s*/, ''), icon: '🚚' });
         } else if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
           customPlatformTags.push({ key: tagKey, label: tagKey, icon: '🏷️' });
         }
       });
       slaTags.sort((a, b) => a.key.localeCompare(b.key));
+      deliveryTypeTags.sort((a, b) => a.label.localeCompare(b.label));
 
       const buildOptgroup = (label, list) => {
         const present = list.filter(item => (tagCounts.get(item.key) || 0) > 0);
@@ -5517,6 +5816,9 @@ async function renderAdminOrders() {
       };
 
       let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+      if (deliveryTypeTags.length > 0) {
+        html += buildOptgroup('Tipo de Entrega (Marketplaces)', deliveryTypeTags);
+      }
       if (slaTags.length > 0) {
         html += buildOptgroup('Compromiso SLA (Marketplaces)', slaTags);
       }
@@ -5563,6 +5865,19 @@ async function renderAdminOrders() {
         select.value = tagName;
       }
 
+      // Sincronizar estados de SLA y Tipo de Entrega si la tag los contiene
+      if (select.value && select.value.startsWith('SLA:')) {
+        window.wmsActiveSlaFilter = select.value.replace(/^SLA:\s*/, '').trim();
+      } else {
+        window.wmsActiveSlaFilter = null;
+      }
+
+      if (select.value && select.value.startsWith('ENTREGA:')) {
+        window.wmsActiveDeliveryTypeFilter = select.value.replace(/^ENTREGA:\s*/, '').trim();
+      } else {
+        window.wmsActiveDeliveryTypeFilter = null;
+      }
+
       window.wmsCurrentPage = 1;
       applyWmsFiltersAndRender();
     };
@@ -5601,6 +5916,49 @@ async function renderAdminOrders() {
           select.value = slaTagValue;
         } else {
           if (select.value && select.value.startsWith('SLA:')) {
+            select.value = '';
+          }
+        }
+      }
+
+      window.wmsCurrentPage = 1;
+      applyWmsFiltersAndRender();
+    };
+
+    window.filterByDeliveryType = function(deliveryKey, event) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+
+      // Si no se envía clave o es igual a la ya activa, se desactiva (toggle)
+      if (!deliveryKey || window.wmsActiveDeliveryTypeFilter === deliveryKey) {
+        window.wmsActiveDeliveryTypeFilter = null;
+      } else {
+        window.wmsActiveDeliveryTypeFilter = deliveryKey;
+      }
+
+      // Sincronizar el select de tags
+      const select = document.getElementById('filter-order-tag');
+      if (select) {
+        if (window.wmsActiveDeliveryTypeFilter) {
+          const deliveryTagValue = `ENTREGA: ${window.wmsActiveDeliveryTypeFilter}`;
+          let exists = false;
+          for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === deliveryTagValue) {
+              exists = true;
+              break;
+            }
+          }
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = deliveryTagValue;
+            opt.textContent = `🚚 ${deliveryTagValue}`;
+            select.appendChild(opt);
+          }
+          select.value = deliveryTagValue;
+        } else {
+          if (select.value && select.value.startsWith('ENTREGA:')) {
             select.value = '';
           }
         }
@@ -5697,6 +6055,21 @@ async function renderAdminOrders() {
         .wms-sla-active {
           outline: 2px solid #d97706 !important;
           box-shadow: 0 0 6px rgba(217, 119, 6, 0.45) !important;
+          font-weight: 700 !important;
+        }
+        .wms-delivery-type-tag {
+          cursor: pointer;
+          user-select: none;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        }
+        .wms-delivery-type-tag:hover {
+          transform: translateY(-1px);
+          filter: brightness(0.95);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+        }
+        .wms-delivery-type-active {
+          outline: 2px solid #0284c7 !important;
+          box-shadow: 0 0 6px rgba(2, 132, 199, 0.45) !important;
           font-weight: 700 !important;
         }
       </style>
@@ -6131,16 +6504,13 @@ async function renderAdminOrders() {
                   </div>
                 </th>
                 <th style="width: 38px; min-width: 36px; text-align: center; padding: 0.55rem 0.25rem;" title="Total Unidades">Uds.</th>
-                <th style="width: 95px; min-width: 85px; padding: 0.55rem 0.35rem;">
-                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
-                    <span>Estado</span>
-                    <i id="wms-filter-icon-status" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'status', 'Estado Origen')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
-                  </div>
-                </th>
-                <th style="width: 125px; min-width: 115px; padding: 0.55rem 0.35rem;">
-                  <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
-                    <span>Estado WMS</span>
-                    <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
+                <th style="width: 155px; min-width: 140px; padding: 0.55rem 0.35rem;">
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Estado / WMS</span>
+                    <div style="display: inline-flex; align-items: center; gap: 0.15rem;">
+                      <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;" title="Filtrar por Estado WMS"></i>
+                      <i id="wms-filter-icon-status" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'status', 'Estado Origen')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;" title="Filtrar por Estado Origen"></i>
+                    </div>
                   </div>
                 </th>
                 <th style="width: 85px; min-width: 78px; text-align: center; padding: 0.55rem 0.35rem;">
@@ -6255,7 +6625,7 @@ async function renderAdminOrders() {
       if (tbody) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="14" style="text-align: center; padding: 3rem;">
+            <td colspan="13" style="text-align: center; padding: 3rem;">
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
                 <style>
                   @keyframes wms-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -6287,7 +6657,7 @@ async function renderAdminOrders() {
       } catch (err) {
         console.error('Error fetching date preset:', err);
         if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="14" style="text-align: center; padding: 2rem; color: var(--color-red);">Error: ${err.message}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">Error: ${err.message}</td></tr>`;
         }
       }
     };
@@ -6379,7 +6749,7 @@ async function renderAdminOrders() {
         if (tbody) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="14" style="text-align: center; padding: 3rem;">
+              <td colspan="13" style="text-align: center; padding: 3rem;">
                 <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
                   <style>
                     @keyframes wms-spin {
@@ -6416,7 +6786,7 @@ async function renderAdminOrders() {
           if (tbody) {
             tbody.innerHTML = `
               <tr>
-                <td colspan="14" style="text-align: center; padding: 2rem; color: var(--color-red);">
+                <td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">
                   Error al buscar pedidos: ${err.message}
                 </td>
               </tr>
@@ -6453,6 +6823,13 @@ async function renderAdminOrders() {
         } else if (window.wmsActiveSlaFilter) {
           window.wmsActiveSlaFilter = null;
         }
+
+        if (orderTagSelect.value && orderTagSelect.value.startsWith('ENTREGA:')) {
+          window.wmsActiveDeliveryTypeFilter = orderTagSelect.value.replace(/^ENTREGA:\s*/, '').trim();
+        } else if (window.wmsActiveDeliveryTypeFilter) {
+          window.wmsActiveDeliveryTypeFilter = null;
+        }
+
         triggerFilterUpdate();
       });
     }
@@ -6608,7 +6985,17 @@ window.applyWmsFiltersAndRender = function() {
       matchesSla = !!(slaInfo && slaInfo.hasSla && slaInfo.slaKey === window.wmsActiveSlaFilter);
     }
 
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag && matchesSla;
+    let matchesDeliveryType = true;
+    if (window.wmsActiveDeliveryTypeFilter) {
+      const dtInfo = window.getOrderDeliveryTypeInfo ? window.getOrderDeliveryTypeInfo(order) : null;
+      matchesDeliveryType = !!(dtInfo && (
+        dtInfo.filterName === window.wmsActiveDeliveryTypeFilter || 
+        dtInfo.key === window.wmsActiveDeliveryTypeFilter ||
+        dtInfo.label === window.wmsActiveDeliveryTypeFilter
+      ));
+    }
+
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag && matchesSla && matchesDeliveryType;
   };
 
   // 1. Obtener conteo de pestañas
@@ -6765,7 +7152,7 @@ window.applyWmsFiltersAndRender = function() {
   if (paginatedOrders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="14" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="13" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           No se encontraron pedidos con los criterios de búsqueda actuales.
         </td>
       </tr>
@@ -7687,21 +8074,47 @@ window.applyWmsFiltersAndRender = function() {
       const safeSlaKey = slaInfo.slaKey.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
       slaCellBadgesHtml = `
-        <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.1rem; margin-bottom: 0.1rem;">
-          <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Entrega: ${slaInfo.date} (Clic para filtrar)">
-            <i class="ri-calendar-event-line" style="font-size: 0.7rem; color: #d97706;"></i> ${slaInfo.date}
+        <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Entrega: ${slaInfo.date} (Clic para filtrar)">
+          <i class="ri-calendar-event-line" style="font-size: 0.7rem; color: #d97706;"></i> ${slaInfo.date}
+        </span>
+        ${slaInfo.time ? `
+          <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Hora: ${slaInfo.time} (Clic para filtrar)">
+            <i class="ri-time-line" style="font-size: 0.7rem; color: #ef4444;"></i> ${slaInfo.time}
           </span>
-          ${slaInfo.time ? `
-            <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Hora: ${slaInfo.time} (Clic para filtrar)">
-              <i class="ri-time-line" style="font-size: 0.7rem; color: #ef4444;"></i> ${slaInfo.time}
-            </span>
-          ` : ''}
-        </div>
+        ` : ''}
       `;
 
       slaBadgeHtml = `
         <span class="badge wms-sla-tag ${activeClass}" onclick="window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; letter-spacing: 0.2px;" title="Compromiso SLA: ${slaInfo.slaKey} (Clic para filtrar)">
           <i class="ri-alarm-warning-line" style="color: #d97706; font-size: 0.75rem;"></i> SLA: ${slaInfo.date}${slaInfo.time ? ' ' + slaInfo.time : ''}
+        </span>
+      `;
+    }
+
+    const dtInfo = window.getOrderDeliveryTypeInfo ? window.getOrderDeliveryTypeInfo(order) : null;
+    let deliveryTypeCellBadgeHtml = '';
+    let deliveryTypeBadgeHtml = '';
+
+    if (dtInfo && dtInfo.isMarketplace) {
+      const isDtActive = !!(window.wmsActiveDeliveryTypeFilter && (
+        window.wmsActiveDeliveryTypeFilter === dtInfo.filterName ||
+        window.wmsActiveDeliveryTypeFilter === dtInfo.key ||
+        window.wmsActiveDeliveryTypeFilter === dtInfo.label
+      ));
+      const dtActiveClass = isDtActive ? 'wms-delivery-type-active' : '';
+      const safeDtFilterName = (dtInfo.filterName || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const safeDtLabel = (dtInfo.label || dtInfo.filterName || '').replace(/"/g, '&quot;');
+      const dtColor = dtInfo.color || dtInfo.text || '#334155';
+
+      deliveryTypeCellBadgeHtml = `
+        <span class="badge wms-delivery-type-tag ${dtActiveClass}" onclick="event.stopPropagation(); window.filterByDeliveryType('${safeDtFilterName}', event)" style="background-color: ${dtInfo.bg}; color: ${dtColor}; border: 1px solid ${dtInfo.border}; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="Tipo de Entrega: ${safeDtFilterName} (Clic para filtrar)">
+          <i class="${dtInfo.icon}" style="font-size: 0.75rem;"></i> ${safeDtLabel}
+        </span>
+      `;
+
+      deliveryTypeBadgeHtml = `
+        <span class="badge wms-delivery-type-tag ${dtActiveClass}" onclick="window.filterByDeliveryType('${safeDtFilterName}', event)" style="background-color: ${dtInfo.bg}; color: ${dtColor}; border: 1px solid ${dtInfo.border}; font-size: 0.65rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; letter-spacing: 0.2px;" title="Tipo de Entrega: ${safeDtFilterName} (Clic para filtrar)">
+          <i class="${dtInfo.icon}" style="font-size: 0.75rem;"></i> ${safeDtLabel}
         </span>
       `;
     }
@@ -7743,7 +8156,12 @@ window.applyWmsFiltersAndRender = function() {
         <td style="min-width: 140px; max-width: 180px;">
           <div style="display:flex; flex-direction:column; gap:0.1rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
             <span style="font-weight:600; color:var(--color-text-main); max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
-            ${slaCellBadgesHtml}
+            ${(deliveryTypeCellBadgeHtml || slaCellBadgesHtml) ? `
+              <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.1rem; margin-bottom: 0.1rem;">
+                ${deliveryTypeCellBadgeHtml}
+                ${slaCellBadgesHtml}
+              </div>
+            ` : ''}
             <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
               ${order.shipping_city || 'Por definir'}
               ${!window.isChileComuna(order.shipping_city) ? `
@@ -7755,31 +8173,37 @@ window.applyWmsFiltersAndRender = function() {
           </div>
         </td>
         <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong></td>
-        <td>
-          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.15rem 0.5rem; border-radius:99px; font-size:0.7rem; font-weight:700; white-space:nowrap; display:inline-block;">${isReturned ? 'devolución' : order.status}</span>
-        </td>
-        <td>
-          <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.2rem 0.35rem; font-size: 0.78rem; width: 100%; min-width: 110px; max-width: 125px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-            <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
-            <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
-            <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
-            <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
-            <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
-            <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
-            <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
-          </select>
+        <td style="padding: 0.35rem 0.35rem; vertical-align: middle;">
+          <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 135px; max-width: 160px;">
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">WMS:</span>
+              <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.15rem 0.3rem; font-size: 0.74rem; width: 100%; min-width: 95px; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; height: 24px; line-height: 1;">
+                <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
+                <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
+                <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
+                <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
+                <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+                <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+                <option value="Archivado" ${order.estado_wms === 'Archivado' ? 'selected' : ''}>Archivado</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
+              <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; width: 44px; flex-shrink: 0; line-height: 1;">Origen:</span>
+              <span style="background-color: ${badgeBg}; color: ${badgeTextColor}; padding: 0.1rem 0.45rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; display: inline-block; line-height: 1.25;">${isReturned ? 'devolución' : order.status}</span>
+            </div>
+          </div>
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
       </tr>
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
-        <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
+        <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: ${isInitiallyExpanded ? 'table-row' : 'none'}; background-color: var(--color-bg);">
-        <td colspan="14" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="13" style="padding: 1.25rem 1rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.25rem;">
             
             <!-- Fila superior: 3 Columnas de Información -->
@@ -7822,15 +8246,18 @@ window.applyWmsFiltersAndRender = function() {
                   <div>
                     <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Método Envío</span>
                     <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${displayShipMethod}</span>
-                    ${slaInfo && slaInfo.hasSla ? `
+                    ${(slaInfo && slaInfo.hasSla) || (dtInfo && dtInfo.isMarketplace) ? `
                       <div style="margin-top: 0.25rem; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
-                        <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Compromiso SLA de Entrega (Clic para filtrar)">
-                          <i class="ri-calendar-event-line" style="color: #d97706;"></i> ${slaInfo.date}
-                        </span>
-                        ${slaInfo.time ? `
-                          <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Hora límite SLA de Entrega (Clic para filtrar)">
-                            <i class="ri-time-line" style="color: #ef4444;"></i> ${slaInfo.time}
+                        ${dtInfo && dtInfo.isMarketplace ? deliveryTypeBadgeHtml : ''}
+                        ${slaInfo && slaInfo.hasSla ? `
+                          <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Compromiso SLA de Entrega (Clic para filtrar)">
+                            <i class="ri-calendar-event-line" style="color: #d97706;"></i> ${slaInfo.date}
                           </span>
+                          ${slaInfo.time ? `
+                            <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Hora límite SLA de Entrega (Clic para filtrar)">
+                              <i class="ri-time-line" style="color: #ef4444;"></i> ${slaInfo.time}
+                            </span>
+                          ` : ''}
                         ` : ''}
                       </div>
                     ` : ''}
@@ -7953,7 +8380,7 @@ window.applyWmsFiltersAndRender = function() {
                 <!-- Reasignar Comercio -->
                 <div class="form-group" style="margin-top: 1.25rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
                   <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: block; color: var(--color-text-muted);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
-                  <select onchange="window.reassignOrderCommerce('${order.id}', this.value)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                  <select onchange="window.reassignOrderCommerce('${order.id}', this.value, this)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
                     ${(window.wmsAllComercios || []).map(c => `<option value="${c}" ${c === order.comercio ? 'selected' : ''}>${c}</option>`).join('')}
                   </select>
                 </div>
@@ -8343,7 +8770,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       if (tbody) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="14" style="text-align: center; padding: 3rem;">
+            <td colspan="13" style="text-align: center; padding: 3rem;">
               <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
                 <style>@keyframes wms-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
                 <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
@@ -37007,10 +37434,14 @@ window.manageDeclaration = async function(id) {
       };
     }
 
-    // Inicializar costos adicionales registrados
-    window.currentDeclarationAdditionalCosts = Array.isArray(dec.additional_costs) 
-      ? JSON.parse(JSON.stringify(dec.additional_costs)) 
-      : [];
+    // Inicializar costos adicionales registrados y configuración de cargos
+    const rawAdditionalCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+    const savedConfig = rawAdditionalCosts.find(c => c && c.__type === 'charges_config');
+    window.currentDeclarationAdditionalCosts = JSON.parse(JSON.stringify(rawAdditionalCosts.filter(c => c && !c.__type)));
+    window.currentDeclarationChargesOverrides = (savedConfig && savedConfig.overrides) 
+      ? JSON.parse(JSON.stringify(savedConfig.overrides)) 
+      : {};
+
     if (typeof window.renderDeclarationAdditionalCostsList === 'function') {
       window.renderDeclarationAdditionalCostsList();
     }
@@ -37027,10 +37458,10 @@ window.manageDeclaration = async function(id) {
 
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
     
-    // Sugerir costo estimado si el costo real no está confirmado
-    const realCostVal = (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0) 
+    // Sugerir costo confirmado si existe, o estimado
+    const realCostVal = (dec.real_cost !== null && dec.real_cost !== undefined) 
       ? dec.real_cost 
-      : dec.estimated_cost;
+      : (dec.estimated_cost || 0);
     document.getElementById('manage-dec-real-cost').value = realCostVal || 0;
 
     // Calcular y mostrar CLP del Costo Real en el modal
@@ -37039,17 +37470,6 @@ window.manageDeclaration = async function(id) {
     if (realClpEl) {
       realClpEl.textContent = `≈ $${Math.round(realClp).toLocaleString('es-CL')} CLP`;
     }
-
-    // Listener para actualizar el CLP del Costo Real reactivamente al escribir
-    document.getElementById('manage-dec-real-cost').oninput = function(e) {
-      const ufVal = window.modalUfRate || 37500;
-      const realCostUf = parseFloat(e.target.value) || 0;
-      const clp = realCostUf * ufVal;
-      const el = document.getElementById('manage-dec-real-cost-clp');
-      if (el) {
-        el.textContent = `≈ $${Math.round(clp).toLocaleString('es-CL')} CLP`;
-      }
-    };
 
     // Cargar estado de facturación
     const billingStatusEl = document.getElementById('manage-dec-billing-status');
@@ -37603,6 +38023,29 @@ document.addEventListener('submit', async (e) => {
         timestamp: new Date().toISOString(),
         comment: `${actionTag} ${stageComment}`
       };
+
+      const cleanAdditionalCosts = Array.isArray(window.currentDeclarationAdditionalCosts)
+        ? window.currentDeclarationAdditionalCosts.filter(c => c && !c.__type)
+        : [];
+
+      const chargesBreakdown = {
+        unloading_uf: parseFloat(document.getElementById('charge-real-unloading')?.value) || 0,
+        surcharge_uf: parseFloat(document.getElementById('charge-real-surcharge')?.value) || 0,
+        labeling_uf: parseFloat(document.getElementById('charge-real-labeling')?.value) || 0,
+        extras_uf: cleanAdditionalCosts.reduce((s, c) => s + (parseFloat(c.amount_uf) || 0), 0),
+        total_uf: realCost
+      };
+
+      const chargesConfig = {
+        __type: 'charges_config',
+        overrides: window.currentDeclarationChargesOverrides || {},
+        breakdown: chargesBreakdown,
+        updated_at: new Date().toISOString()
+      };
+
+      newHistoryEntry.real_cost = realCost;
+      newHistoryEntry.charges_detail = chargesBreakdown;
+
       const updatedHistory = [...existingHistory, newHistoryEntry];
  
       // 2. Ejecutar actualización
@@ -37619,7 +38062,7 @@ document.addEventListener('submit', async (e) => {
         billing_status: billingStatus,
         billing_notes: billingNotes,
         real_cost: realCost,
-        additional_costs: window.currentDeclarationAdditionalCosts || [],
+        additional_costs: [...cleanAdditionalCosts, chargesConfig],
         updated_at: new Date().toISOString()
       };
 
@@ -58443,11 +58886,20 @@ window.recalculateManageDeclarationCosts = function() {
     return num.toFixed(4);
   };
 
+  // Ensure overrides object exists
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+
   // Item 1: Descarga en Bodega
   const unloadRate = 0.1000;
   const unloadEstUf = requiresUnloading ? (unloadRate * volDeclared) : 0;
   const unloadEstClp = unloadEstUf * ufRate;
-  const unloadRealUf = requiresUnloading ? (unloadRate * volConfirmed) : 0;
+  const autoUnloadRealUf = requiresUnloading ? (unloadRate * volConfirmed) : 0;
+  const isUnloadOverridden = window.currentDeclarationChargesOverrides['unloading'] !== undefined;
+  const unloadRealUf = isUnloadOverridden 
+    ? (parseFloat(window.currentDeclarationChargesOverrides['unloading'].real_uf) || 0)
+    : autoUnloadRealUf;
   const unloadRealClp = unloadRealUf * ufRate;
   const unloadDiffUf = unloadRealUf - unloadEstUf;
   const unloadDiffClp = unloadRealClp - unloadEstClp;
@@ -58456,7 +58908,11 @@ window.recalculateManageDeclarationCosts = function() {
   const surchargeRate = 0.7500;
   const surchargeEstUf = hasLateNotice ? (surchargeRate * volDeclared) : 0;
   const surchargeEstClp = surchargeEstUf * ufRate;
-  const surchargeRealUf = hasLateNotice ? (surchargeRate * volConfirmed) : 0;
+  const autoSurchargeRealUf = hasLateNotice ? (surchargeRate * volConfirmed) : 0;
+  const isSurchargeOverridden = window.currentDeclarationChargesOverrides['surcharge'] !== undefined;
+  const surchargeRealUf = isSurchargeOverridden 
+    ? (parseFloat(window.currentDeclarationChargesOverrides['surcharge'].real_uf) || 0)
+    : autoSurchargeRealUf;
   const surchargeRealClp = surchargeRealUf * ufRate;
   const surchargeDiffUf = surchargeRealUf - surchargeEstUf;
   const surchargeDiffClp = surchargeRealClp - surchargeEstClp;
@@ -58465,15 +58921,28 @@ window.recalculateManageDeclarationCosts = function() {
   const labelingRateClp = 100;
   const labelingEstUf = (labelingRequested * labelingRateClp) / ufRate;
   const labelingEstClp = labelingRequested * labelingRateClp;
-  const labelingRealUf = (labelingConfirmed * labelingRateClp) / ufRate;
-  const labelingRealClp = labelingConfirmed * labelingRateClp;
+  const autoLabelingRealUf = (labelingConfirmed * labelingRateClp) / ufRate;
+  const isLabelingOverridden = window.currentDeclarationChargesOverrides['labeling'] !== undefined;
+  const labelingRealUf = isLabelingOverridden 
+    ? (parseFloat(window.currentDeclarationChargesOverrides['labeling'].real_uf) || 0)
+    : autoLabelingRealUf;
+  const labelingRealClp = labelingRealUf * ufRate;
   const labelingDiffUf = labelingRealUf - labelingEstUf;
   const labelingDiffClp = labelingRealClp - labelingEstClp;
 
   // Item 4: Costos Adicionales / Servicios Extras de Recepción (Admin)
-  const additionalCosts = Array.isArray(window.currentDeclarationAdditionalCosts) ? window.currentDeclarationAdditionalCosts : [];
-  const additionalCostsRealUf = additionalCosts.reduce((sum, c) => sum + (parseFloat(c.amount_uf) || 0), 0);
-  const additionalCostsRealClp = additionalCosts.reduce((sum, c) => sum + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufRate)), 0);
+  const rawAdditionalCosts = Array.isArray(window.currentDeclarationAdditionalCosts) ? window.currentDeclarationAdditionalCosts : [];
+  const additionalCosts = rawAdditionalCosts.filter(c => c && !c.__type);
+  let additionalCostsRealUf = 0;
+  let additionalCostsRealClp = 0;
+  additionalCosts.forEach((extra, idx) => {
+    const extraKey = 'extra_' + idx;
+    const isExtraOverridden = window.currentDeclarationChargesOverrides[extraKey] !== undefined;
+    const extraUf = isExtraOverridden ? (parseFloat(window.currentDeclarationChargesOverrides[extraKey].real_uf) || 0) : (parseFloat(extra.amount_uf) || 0);
+    const extraClp = extraUf * ufRate;
+    additionalCostsRealUf += extraUf;
+    additionalCostsRealClp += extraClp;
+  });
 
   // Totales
   const totalEstUf = unloadEstUf + surchargeEstUf + labelingEstUf;
@@ -58483,12 +58952,22 @@ window.recalculateManageDeclarationCosts = function() {
   const totalDiffUf = totalRealUf - totalEstUf;
   const totalDiffClp = totalRealClp - totalEstClp;
 
-  // Guardar cálculo para botón de aplicar
+  // Guardar cálculo para botón y sincronización
   window.lastCalculatedRealCostUf = totalRealUf;
 
   const quickCalcEl = document.getElementById('manage-dec-quick-calc-val');
   if (quickCalcEl) {
     quickCalcEl.textContent = totalRealUf.toFixed(4);
+  }
+
+  // Sincronizar automáticamente el Costo Real Confirmado definitivo
+  const realCostInput = document.getElementById('manage-dec-real-cost');
+  if (realCostInput) {
+    realCostInput.value = totalRealUf.toFixed(4);
+  }
+  const realCostClpEl = document.getElementById('manage-dec-real-cost-clp');
+  if (realCostClpEl) {
+    realCostClpEl.textContent = `≈ $${Math.round(totalRealClp).toLocaleString('es-CL')} CLP`;
   }
 
   // Render Filas
@@ -58525,23 +59004,53 @@ window.recalculateManageDeclarationCosts = function() {
           <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volDeclared)} m³)</div>
         </td>
         <td style="padding: 8px 10px; text-align: right;">
-          <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${unloadRealUf.toFixed(4)} UF</div>
-          <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(unloadRealClp).toLocaleString('es-CL')} CLP</div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+            <input type="number" 
+                   step="0.0001" 
+                   min="0" 
+                   class="form-input form-input-sm dec-charge-input" 
+                   id="charge-real-unloading" 
+                   data-key="unloading" 
+                   data-est-uf="${unloadEstUf}" 
+                   data-auto-uf="${autoUnloadRealUf}" 
+                   value="${unloadRealUf.toFixed(4)}" 
+                   oninput="window.onChargeRealInput('unloading', this.value)" 
+                   style="width: 100px; text-align: right; font-weight: 700; font-family: monospace; font-size: 0.88rem; padding: 3px 6px; color: var(--color-primary); border: 1.5px solid ${isUnloadOverridden ? '#f59e0b' : 'var(--color-border)'}; border-radius: 6px; background: ${isUnloadOverridden ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-surface)'};">
+            <span style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted);">UF</span>
+          </div>
+          <div id="charge-clp-unloading" style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">$${Math.round(unloadRealClp).toLocaleString('es-CL')} CLP</div>
           <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volConfirmed)} m³)</div>
+          <div style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 3px; flex-wrap: wrap;">
+            ${isUnloadOverridden ? `
+              <button type="button" onclick="window.resetChargeToAuto('unloading')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: #f59e0b; color: #d97706; border-radius: 4px; height: auto;" title="Restaurar al valor automático (${autoUnloadRealUf.toFixed(4)} UF)">
+                <i class="ri-refresh-line"></i> Auto (${autoUnloadRealUf.toFixed(4)})
+              </button>
+            ` : ''}
+            ${unloadRealUf > 0 ? `
+              <button type="button" onclick="window.setChargeToZero('unloading')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: var(--color-border); color: var(--color-text-muted); border-radius: 4px; height: auto;" title="Exonerar descarga (0 UF)">
+                0 UF
+              </button>
+            ` : ''}
+            ${!requiresUnloading && unloadRealUf === 0 ? `
+              <button type="button" onclick="window.applyStandardUnloadingRate()" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: var(--color-primary); color: var(--color-primary); border-radius: 4px; height: auto;" title="Aplicar tarifa estándar de descarga (0.1 UF/m³)">
+                + 0.1 UF/m³
+              </button>
+            ` : ''}
+          </div>
         </td>
-        <td style="padding: 8px 12px; text-align: right;">
+        <td id="charge-diff-unloading" style="padding: 8px 12px; text-align: right;">
           ${renderDiff(unloadDiffUf, unloadDiffClp)}
         </td>
       </tr>
     `;
 
     // Fila 2: Recargo Tardío
-    if (hasLateNotice || surchargeEstUf > 0) {
+    if (hasLateNotice || surchargeEstUf > 0 || isSurchargeOverridden) {
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle; background: rgba(245, 158, 11, 0.03);">
           <td style="padding: 8px 12px;">
             <div style="font-weight: 600; color: #d97706;"><i class="ri-time-line" style="margin-right: 4px;"></i> Recargo Aviso Tardío (&lt; 24h)</div>
-            <div style="font-size: 0.72rem; color: var(--color-text-muted);">Declaración ingresada con aviso inmediato (&lt; 24h)</div>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted);">${hasLateNotice ? 'Declaración ingresada con aviso inmediato (&lt; 24h)' : 'Recargo aplicado por administración'}</div>
           </td>
           <td style="padding: 8px 10px; text-align: center; color: #d97706; font-family: monospace;">
             0.7500 UF / m³
@@ -58552,11 +59061,36 @@ window.recalculateManageDeclarationCosts = function() {
             <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volDeclared)} m³)</div>
           </td>
           <td style="padding: 8px 10px; text-align: right;">
-            <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${surchargeRealUf.toFixed(4)} UF</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(surchargeRealClp).toLocaleString('es-CL')} CLP</div>
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+              <input type="number" 
+                     step="0.0001" 
+                     min="0" 
+                     class="form-input form-input-sm dec-charge-input" 
+                     id="charge-real-surcharge" 
+                     data-key="surcharge" 
+                     data-est-uf="${surchargeEstUf}" 
+                     data-auto-uf="${autoSurchargeRealUf}" 
+                     value="${surchargeRealUf.toFixed(4)}" 
+                     oninput="window.onChargeRealInput('surcharge', this.value)" 
+                     style="width: 100px; text-align: right; font-weight: 700; font-family: monospace; font-size: 0.88rem; padding: 3px 6px; color: ${surchargeRealUf > 0 ? '#d97706' : 'var(--color-text-muted)'}; border: 1.5px solid ${isSurchargeOverridden ? '#f59e0b' : 'var(--color-border)'}; border-radius: 6px; background: ${isSurchargeOverridden ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-surface)'};">
+              <span style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted);">UF</span>
+            </div>
+            <div id="charge-clp-surcharge" style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">$${Math.round(surchargeRealClp).toLocaleString('es-CL')} CLP</div>
             <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${formatVol(volConfirmed)} m³)</div>
+            <div style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 3px; flex-wrap: wrap;">
+              ${isSurchargeOverridden ? `
+                <button type="button" onclick="window.resetChargeToAuto('surcharge')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: #f59e0b; color: #d97706; border-radius: 4px; height: auto;" title="Restaurar al cálculo automático (${autoSurchargeRealUf.toFixed(4)} UF)">
+                  <i class="ri-refresh-line"></i> Auto (${autoSurchargeRealUf.toFixed(4)})
+                </button>
+              ` : ''}
+              ${surchargeRealUf > 0 ? `
+                <button type="button" onclick="window.setChargeToZero('surcharge')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: var(--color-border); color: var(--color-text-muted); border-radius: 4px; height: auto;" title="Exonerar recargo tardío (0 UF)">
+                  0 UF (Exonerar)
+                </button>
+              ` : ''}
+            </div>
           </td>
-          <td style="padding: 8px 12px; text-align: right;">
+          <td id="charge-diff-surcharge" style="padding: 8px 12px; text-align: right;">
             ${renderDiff(surchargeDiffUf, surchargeDiffClp)}
           </td>
         </tr>
@@ -58564,7 +59098,7 @@ window.recalculateManageDeclarationCosts = function() {
     }
 
     // Fila 3: Etiquetado
-    if (labelingRequested > 0 || labelingConfirmed > 0 || isStockaLabeling) {
+    if (labelingRequested > 0 || labelingConfirmed > 0 || isStockaLabeling || isLabelingOverridden) {
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
           <td style="padding: 8px 12px;">
@@ -58580,11 +59114,36 @@ window.recalculateManageDeclarationCosts = function() {
             <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${labelingRequested} uds)</div>
           </td>
           <td style="padding: 8px 10px; text-align: right;">
-            <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${labelingRealUf.toFixed(4)} UF</div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(labelingRealClp).toLocaleString('es-CL')} CLP</div>
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+              <input type="number" 
+                     step="0.0001" 
+                     min="0" 
+                     class="form-input form-input-sm dec-charge-input" 
+                     id="charge-real-labeling" 
+                     data-key="labeling" 
+                     data-est-uf="${labelingEstUf}" 
+                     data-auto-uf="${autoLabelingRealUf}" 
+                     value="${labelingRealUf.toFixed(4)}" 
+                     oninput="window.onChargeRealInput('labeling', this.value)" 
+                     style="width: 100px; text-align: right; font-weight: 700; font-family: monospace; font-size: 0.88rem; padding: 3px 6px; color: var(--color-primary); border: 1.5px solid ${isLabelingOverridden ? '#f59e0b' : 'var(--color-border)'}; border-radius: 6px; background: ${isLabelingOverridden ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-surface)'};">
+              <span style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted);">UF</span>
+            </div>
+            <div id="charge-clp-labeling" style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">$${Math.round(labelingRealClp).toLocaleString('es-CL')} CLP</div>
             <div style="font-size: 0.68rem; color: var(--color-text-muted); opacity: 0.8;">(${labelingConfirmed} uds)</div>
+            <div style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 3px; flex-wrap: wrap;">
+              ${isLabelingOverridden ? `
+                <button type="button" onclick="window.resetChargeToAuto('labeling')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: #f59e0b; color: #d97706; border-radius: 4px; height: auto;" title="Restaurar al cálculo automático (${autoLabelingRealUf.toFixed(4)} UF)">
+                  <i class="ri-refresh-line"></i> Auto (${autoLabelingRealUf.toFixed(4)})
+                </button>
+              ` : ''}
+              ${labelingRealUf > 0 ? `
+                <button type="button" onclick="window.setChargeToZero('labeling')" class="btn btn-outline" style="padding: 1px 5px; font-size: 0.65rem; border-color: var(--color-border); color: var(--color-text-muted); border-radius: 4px; height: auto;" title="Exonerar etiquetado (0 UF)">
+                  0 UF
+                </button>
+              ` : ''}
+            </div>
           </td>
-          <td style="padding: 8px 12px; text-align: right;">
+          <td id="charge-diff-labeling" style="padding: 8px 12px; text-align: right;">
             ${renderDiff(labelingDiffUf, labelingDiffClp)}
           </td>
         </tr>
@@ -58594,8 +59153,10 @@ window.recalculateManageDeclarationCosts = function() {
     // Fila 4: Costos Adicionales / Servicios Extras de Recepción
     if (additionalCosts.length > 0) {
       additionalCosts.forEach((extra, idx) => {
-        const extraUf = parseFloat(extra.amount_uf) || 0;
-        const extraClp = parseFloat(extra.amount_clp) || (extraUf * ufRate);
+        const extraKey = 'extra_' + idx;
+        const isExtraOverridden = window.currentDeclarationChargesOverrides[extraKey] !== undefined;
+        const extraUf = isExtraOverridden ? (parseFloat(window.currentDeclarationChargesOverrides[extraKey].real_uf) || 0) : (parseFloat(extra.amount_uf) || 0);
+        const extraClp = extraUf * ufRate;
         rowsHtml += `
           <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle; background: rgba(59, 130, 246, 0.03);">
             <td style="padding: 8px 12px;">
@@ -58614,15 +59175,62 @@ window.recalculateManageDeclarationCosts = function() {
               0.0000 UF
             </td>
             <td style="padding: 8px 10px; text-align: right;">
-              <div style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${extraUf.toFixed(4)} UF</div>
-              <div style="font-size: 0.7rem; color: var(--color-text-muted);">$${Math.round(extraClp).toLocaleString('es-CL')} CLP</div>
+              <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                <input type="number" 
+                       step="0.0001" 
+                       min="0" 
+                       class="form-input form-input-sm dec-charge-input" 
+                       id="charge-real-${extraKey}" 
+                       data-key="${extraKey}" 
+                       data-est-uf="0" 
+                       data-auto-uf="${(parseFloat(extra.amount_uf) || 0).toFixed(4)}" 
+                       value="${extraUf.toFixed(4)}" 
+                       oninput="window.onChargeRealInput('${extraKey}', this.value)" 
+                       style="width: 100px; text-align: right; font-weight: 700; font-family: monospace; font-size: 0.88rem; padding: 3px 6px; color: var(--color-primary); border: 1.5px solid var(--color-border); border-radius: 6px; background: var(--color-surface);">
+                <span style="font-weight: 700; font-size: 0.78rem; color: var(--color-text-muted);">UF</span>
+              </div>
+              <div id="charge-clp-${extraKey}" style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">$${Math.round(extraClp).toLocaleString('es-CL')} CLP</div>
+              <div style="display: flex; justify-content: flex-end; gap: 4px; margin-top: 3px;">
+                <button type="button" onclick="window.removeDeclarationAdditionalCost(${idx})" class="btn btn-outline" style="padding: 1px 6px; font-size: 0.68rem; border-color: rgba(239, 68, 68, 0.4); color: var(--color-danger); border-radius: 4px; height: auto;" title="Eliminar costo adicional">
+                  <i class="ri-delete-bin-line"></i> Eliminar
+                </button>
+              </div>
             </td>
-            <td style="padding: 8px 12px; text-align: right;">
+            <td id="charge-diff-${extraKey}" style="padding: 8px 12px; text-align: right;">
               ${renderDiff(extraUf, extraClp)}
             </td>
           </tr>
         `;
       });
+    }
+
+    // Botones para habilitar cargos si aún no aplican
+    let promptButtonsHtml = '';
+    if (!hasLateNotice && surchargeEstUf === 0 && !isSurchargeOverridden) {
+      promptButtonsHtml += `
+        <button type="button" class="btn btn-outline" onclick="window.enableSurchargeRow()" style="padding: 3px 8px; font-size: 0.72rem; color: #d97706; border-color: #f59e0b; background: rgba(245, 158, 11, 0.04); border-radius: 6px; height: auto; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-time-line"></i> + Aplicar Recargo Aviso Tardío (&lt; 24h)
+        </button>
+      `;
+    }
+    if (labelingRequested === 0 && labelingConfirmed === 0 && !isStockaLabeling && !isLabelingOverridden) {
+      promptButtonsHtml += `
+        <button type="button" class="btn btn-outline" onclick="window.enableLabelingRow()" style="padding: 3px 8px; font-size: 0.72rem; color: var(--color-primary); border-color: var(--color-primary); background: rgba(37, 99, 235, 0.04); border-radius: 6px; height: auto; display: inline-flex; align-items: center; gap: 4px;">
+          <i class="ri-price-tag-3-line"></i> + Aplicar Servicio de Etiquetado ($100 CLP/ud)
+        </button>
+      `;
+    }
+
+    if (promptButtonsHtml) {
+      rowsHtml += `
+        <tr style="border-bottom: 1px dashed var(--color-border); background: rgba(0,0,0,0.01);">
+          <td colspan="5" style="padding: 6px 12px; text-align: left;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              ${promptButtonsHtml}
+            </div>
+          </td>
+        </tr>
+      `;
     }
 
     tbody.innerHTML = rowsHtml;
@@ -58661,6 +59269,228 @@ window.recalculateManageDeclarationCosts = function() {
   }
 };
 
+window.onChargeRealInput = function(key, rawVal) {
+  const val = parseFloat(rawVal);
+  const numVal = isNaN(val) || val < 0 ? 0 : val;
+  const ufRate = window.modalUfRate || window.currentUfValue || 38200;
+
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+
+  window.currentDeclarationChargesOverrides[key] = {
+    overridden: true,
+    real_uf: numVal
+  };
+
+  if (key.startsWith('extra_')) {
+    const idx = parseInt(key.replace('extra_', ''), 10);
+    if (window.currentDeclarationAdditionalCosts && window.currentDeclarationAdditionalCosts[idx]) {
+      window.currentDeclarationAdditionalCosts[idx].amount_uf = parseFloat(numVal.toFixed(4));
+      window.currentDeclarationAdditionalCosts[idx].amount_clp = Math.round(numVal * ufRate);
+    }
+  }
+
+  // Actualizar CLP de la fila
+  const clpEl = document.getElementById(`charge-clp-${key}`);
+  if (clpEl) {
+    clpEl.textContent = `$${Math.round(numVal * ufRate).toLocaleString('es-CL')} CLP`;
+  }
+
+  // Actualizar Diferencia de la fila
+  const inputEl = document.getElementById(`charge-real-${key}`);
+  const estUf = parseFloat(inputEl?.getAttribute('data-est-uf') || '0') || 0;
+  const autoUf = parseFloat(inputEl?.getAttribute('data-auto-uf') || '0') || 0;
+  const diffUf = numVal - estUf;
+  const diffClp = diffUf * ufRate;
+  const diffEl = document.getElementById(`charge-diff-${key}`);
+  if (diffEl) {
+    if (Math.abs(diffUf) < 0.00001) {
+      diffEl.innerHTML = `<span style="color: var(--color-text-muted); font-family: monospace;">0.0000 UF</span>`;
+    } else {
+      const isPos = diffUf > 0;
+      const color = isPos ? 'var(--color-success)' : 'var(--color-danger)';
+      const sign = isPos ? '+' : '';
+      diffEl.innerHTML = `
+        <div style="font-weight: 700; color: ${color}; font-family: monospace;">${sign}${diffUf.toFixed(4)} UF</div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted);">${sign}$${Math.round(diffClp).toLocaleString('es-CL')} CLP</div>
+      `;
+    }
+  }
+
+  // Resaltar borde si difiere del cálculo automático
+  if (inputEl) {
+    const isDifferent = Math.abs(numVal - autoUf) > 0.0001;
+    inputEl.style.borderColor = isDifferent ? '#f59e0b' : 'var(--color-border)';
+    inputEl.style.backgroundColor = isDifferent ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-surface)';
+  }
+
+  // Recalcular Total General sumando todas las filas de la tabla
+  let sumRealUf = 0;
+  let sumEstUf = 0;
+  const allInputs = document.querySelectorAll('.dec-charge-input');
+  allInputs.forEach(inp => {
+    const rVal = parseFloat(inp.value) || 0;
+    const eVal = parseFloat(inp.getAttribute('data-est-uf') || '0') || 0;
+    sumRealUf += rVal;
+    sumEstUf += eVal;
+  });
+
+  const sumRealClp = sumRealUf * ufRate;
+  const sumDiffUf = sumRealUf - sumEstUf;
+  const sumDiffClp = sumDiffUf * ufRate;
+
+  window.lastCalculatedRealCostUf = sumRealUf;
+
+  // Actualizar pie de tabla
+  const totRealEl = document.getElementById('manage-dec-cost-total-real');
+  if (totRealEl) {
+    totRealEl.innerHTML = `
+      <div style="font-weight: 800; color: var(--color-primary); font-size: 1.05rem; font-family: monospace;">${sumRealUf.toFixed(4)} UF</div>
+      <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">$${Math.round(sumRealClp).toLocaleString('es-CL')} CLP</div>
+    `;
+  }
+
+  const totDiffEl = document.getElementById('manage-dec-cost-total-diff');
+  if (totDiffEl) {
+    if (Math.abs(sumDiffUf) < 0.00001) {
+      totDiffEl.innerHTML = `<span style="color: var(--color-text-muted); font-family: monospace;">0.0000 UF</span>`;
+    } else {
+      const isPos = sumDiffUf > 0;
+      const color = isPos ? 'var(--color-success)' : 'var(--color-danger)';
+      const sign = isPos ? '+' : '';
+      totDiffEl.innerHTML = `
+        <div style="font-weight: 800; color: ${color}; font-family: monospace;">${sign}${sumDiffUf.toFixed(4)} UF</div>
+        <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600;">${sign}$${Math.round(sumDiffClp).toLocaleString('es-CL')} CLP</div>
+      `;
+    }
+  }
+
+  // Sincronizar automáticamente el Costo Real Confirmado definitivo
+  const realCostInput = document.getElementById('manage-dec-real-cost');
+  if (realCostInput) {
+    realCostInput.value = sumRealUf.toFixed(4);
+  }
+  const realCostClpEl = document.getElementById('manage-dec-real-cost-clp');
+  if (realCostClpEl) {
+    realCostClpEl.textContent = `≈ $${Math.round(sumRealClp).toLocaleString('es-CL')} CLP`;
+  }
+  const quickCalcEl = document.getElementById('manage-dec-quick-calc-val');
+  if (quickCalcEl) {
+    quickCalcEl.textContent = sumRealUf.toFixed(4);
+  }
+};
+
+window.resetChargeToAuto = function(key) {
+  if (window.currentDeclarationChargesOverrides && window.currentDeclarationChargesOverrides[key]) {
+    delete window.currentDeclarationChargesOverrides[key];
+  }
+  window.recalculateManageDeclarationCosts();
+};
+
+window.setChargeToZero = function(key) {
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+  window.currentDeclarationChargesOverrides[key] = {
+    overridden: true,
+    real_uf: 0
+  };
+  if (key.startsWith('extra_')) {
+    const idx = parseInt(key.replace('extra_', ''), 10);
+    if (window.currentDeclarationAdditionalCosts && window.currentDeclarationAdditionalCosts[idx]) {
+      window.currentDeclarationAdditionalCosts[idx].amount_uf = 0;
+      window.currentDeclarationAdditionalCosts[idx].amount_clp = 0;
+    }
+  }
+  window.recalculateManageDeclarationCosts();
+};
+
+window.resetAllChargesToAuto = function() {
+  window.currentDeclarationChargesOverrides = {};
+  window.recalculateManageDeclarationCosts();
+  if (window.Swal) {
+    window.Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'info',
+      title: 'Todos los cobros restaurados al cálculo automático',
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+};
+
+window.applyStandardUnloadingRate = function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+  let volConfirmed = 0;
+  if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
+    window.currentDeclarationProductsEditing.forEach(item => {
+      const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
+      const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+        ? parseFloat(item.confirmed_volumen)
+        : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+      volConfirmed += (unitVol * rec);
+    });
+  } else {
+    volConfirmed = parseFloat(document.getElementById('manage-dec-volume-confirmed')?.value) || parseFloat(dec.volume_confirmed) || parseFloat(dec.volume_declared) || 0;
+  }
+  const calculated = 0.1000 * volConfirmed;
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+  window.currentDeclarationChargesOverrides['unloading'] = {
+    overridden: true,
+    real_uf: parseFloat(calculated.toFixed(4))
+  };
+  window.recalculateManageDeclarationCosts();
+};
+
+window.enableSurchargeRow = function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+  let volConfirmed = 0;
+  if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing.length > 0) {
+    window.currentDeclarationProductsEditing.forEach(item => {
+      const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
+      const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+        ? parseFloat(item.confirmed_volumen)
+        : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
+      volConfirmed += (unitVol * rec);
+    });
+  } else {
+    volConfirmed = parseFloat(document.getElementById('manage-dec-volume-confirmed')?.value) || parseFloat(dec.volume_confirmed) || parseFloat(dec.volume_declared) || 0;
+  }
+  const calculated = 0.7500 * volConfirmed;
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+  window.currentDeclarationChargesOverrides['surcharge'] = {
+    overridden: true,
+    real_uf: parseFloat(calculated.toFixed(4))
+  };
+  window.recalculateManageDeclarationCosts();
+};
+
+window.enableLabelingRow = function() {
+  const dec = window.currentDeclarationEditing;
+  if (!dec) return;
+  const ufRate = window.modalUfRate || window.currentUfValue || 38200;
+  const qtyInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+  const qty = parseInt(qtyInput?.value, 10) || parseInt(dec.quantity_received, 10) || parseInt(dec.quantity_declared, 10) || 10;
+  if (qtyInput) qtyInput.value = qty;
+  const calculated = (qty * 100) / ufRate;
+  if (!window.currentDeclarationChargesOverrides) {
+    window.currentDeclarationChargesOverrides = {};
+  }
+  window.currentDeclarationChargesOverrides['labeling'] = {
+    overridden: true,
+    real_uf: parseFloat(calculated.toFixed(4))
+  };
+  window.recalculateManageDeclarationCosts();
+};
+
 window.applyCalculatedCostToRealCost = function() {
   const realCostInput = document.getElementById('manage-dec-real-cost');
   if (!realCostInput) return;
@@ -58684,7 +59514,7 @@ window.applyCalculatedCostToRealCost = function() {
       toast: true,
       position: 'top-end',
       icon: 'success',
-      title: `Costo calculado (${calculatedVal.toFixed(4)} UF) aplicado`,
+      title: `Costo calculado (${calculatedVal.toFixed(4)} UF) sincronizado`,
       showConfirmButton: false,
       timer: 2000
     });
@@ -61495,18 +62325,30 @@ window.exportDeclarationToPDF = async function(id) {
           const labEstClp = lqReq * 100;
           const labEstUf = labEstClp / ufR;
 
-          // Costos adicionales registrados por administración
-          const addCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          // Costos adicionales registrados por administración y configuración de cargos
+          const rawAddCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          const chargesConfig = rawAddCosts.find(c => c && c.__type === 'charges_config');
+          const addCosts = rawAddCosts.filter(c => c && !c.__type && c.name);
           const addCostsUf = addCosts.reduce((s, c) => s + (parseFloat(c.amount_uf) || 0), 0);
           const addCostsClp = addCosts.reduce((s, c) => s + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufR)), 0);
 
-          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null && Number(dec.real_cost) > 0;
+          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null;
           const totRealUf = hasReal ? Number(dec.real_cost) : ((dec.requires_unloading ? (0.1 * finalVol) : 0) + (surEst > 0 ? (0.75 * finalVol) : 0) + ((lqConf !== null ? lqConf : lqReq) * 100 / ufR) + addCostsUf);
           const totEstUf = (dec.estimated_cost !== undefined && dec.estimated_cost !== null && dec.estimated_cost > 0)
             ? Number(dec.estimated_cost)
             : (unlEst + surEst + labEstUf);
           const displayTotUf = hasReal ? totRealUf : totEstUf;
           const displayTotClp = Math.round(displayTotUf * ufR);
+
+          const unlRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.unloading_uf !== undefined)
+            ? chargesConfig.breakdown.unloading_uf
+            : (dec.requires_unloading ? (0.1 * finalVol) : 0);
+          const surRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.surcharge_uf !== undefined)
+            ? chargesConfig.breakdown.surcharge_uf
+            : (surEst > 0 ? (0.75 * finalVol) : 0);
+          const labRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.labeling_uf !== undefined)
+            ? chargesConfig.breakdown.labeling_uf
+            : ((((lqConf !== null ? lqConf : lqReq) * 100) / ufR) || 0);
 
           return `
             <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 11px; line-height: 1.5;">
@@ -61524,15 +62366,15 @@ window.exportDeclarationToPDF = async function(id) {
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 10.5px; color: #334155;">
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">1. Descarga (0.1 UF/m³):</strong><br>
-                  ${dec.requires_unloading ? `${(0.1 * finalVol).toFixed(4)} UF (~ $${Math.round((0.1 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
+                  ${unlRealVal > 0 ? `${unlRealVal.toFixed(4)} UF (~ $${Math.round(unlRealVal * ufR).toLocaleString('es-CL')} CLP)` : (dec.requires_unloading ? '0.0000 UF (Exonerada)' : '0.00 UF (No requerida)')}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">2. Recargo Tardío (&lt; 24h):</strong><br>
-                  ${surEst > 0 ? `${(0.75 * finalVol).toFixed(4)} UF (~ $${Math.round((0.75 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
+                  ${surRealVal > 0 ? `${surRealVal.toFixed(4)} UF (~ $${Math.round(surRealVal * ufR).toLocaleString('es-CL')} CLP)` : (surEst > 0 ? '0.0000 UF (Exonerado)' : '0.00 UF (No aplica)')}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">3. Etiquetado ($100 CLP/ud):</strong><br>
-                  ${(lqConf !== null ? lqConf : lqReq) > 0 ? `${(((lqConf !== null ? lqConf : lqReq) * 100) / ufR).toFixed(4)} UF ($${Math.round((lqConf !== null ? lqConf : lqReq) * 100).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
+                  ${labRealVal > 0 ? `${labRealVal.toFixed(4)} UF ($${Math.round(labRealVal * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
                 </div>
                 ${addCosts.map((extra, eIdx) => `
                   <div style="background: rgba(239, 246, 255, 0.85); padding: 8px; border-radius: 6px; border: 1px solid #bfdbfe;">

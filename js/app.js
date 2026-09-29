@@ -25326,7 +25326,7 @@ window.viewDeclarationDetail = async function(id) {
 
     // Componente Descarga: 0.10 UF por m3 si requiere descarga
     const unloadingCostEst = dec.requires_unloading ? (0.10 * volDeclared) : 0;
-    const unloadingCostReal = dec.requires_unloading ? (0.10 * finalVolume) : 0;
+    const unloadingCostRealAuto = dec.requires_unloading ? (0.10 * finalVolume) : 0;
 
     // Componente Recargo aviso tardío (< 24h)
     let surchargeCostEst = 0;
@@ -25338,7 +25338,7 @@ window.viewDeclarationDetail = async function(id) {
         surchargeCostEst = 0.75 * volDeclared;
       }
     }
-    const surchargeCostReal = surchargeCostEst > 0 ? (0.75 * finalVolume) : 0;
+    const surchargeCostRealAuto = surchargeCostEst > 0 ? (0.75 * finalVolume) : 0;
 
     // Componente Etiquetado
     const labelingQtyEst = dec.labeling_qty_requested || (dec.labeling_type === 'completely' ? totalDeclared : 0);
@@ -25350,14 +25350,26 @@ window.viewDeclarationDetail = async function(id) {
       ? (labelingQtyEst * (100 / ufRate))
       : 0;
 
-    const labelingCostReal = (dec.labeling_type && dec.labeling_type !== 'none' && labelingQtyReal > 0)
+    const labelingCostRealAuto = (dec.labeling_type && dec.labeling_type !== 'none' && labelingQtyReal > 0)
       ? (labelingQtyReal * (100 / ufRate))
       : 0;
 
-    // Componente Costos Adicionales de Recepción (Admin)
-    const additionalCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+    // Componente Costos Adicionales de Recepción (Admin) y Configuración de Cargos
+    const rawAdditionalCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+    const chargesConfig = rawAdditionalCosts.find(c => c && c.__type === 'charges_config');
+    const additionalCosts = rawAdditionalCosts.filter(c => c && !c.__type && c.name);
     const additionalCostsTotalUf = additionalCosts.reduce((sum, item) => sum + (parseFloat(item.amount_uf) || 0), 0);
     const additionalCostsTotalClp = additionalCosts.reduce((sum, item) => sum + (parseFloat(item.amount_clp) || ((parseFloat(item.amount_uf) || 0) * ufRate)), 0);
+
+    const unloadingCostReal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.unloading_uf !== undefined)
+      ? chargesConfig.breakdown.unloading_uf
+      : unloadingCostRealAuto;
+    const surchargeCostReal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.surcharge_uf !== undefined)
+      ? chargesConfig.breakdown.surcharge_uf
+      : surchargeCostRealAuto;
+    const labelingCostReal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.labeling_uf !== undefined)
+      ? chargesConfig.breakdown.labeling_uf
+      : labelingCostRealAuto;
 
     const calculatedRealTotalUF = unloadingCostReal + surchargeCostReal + labelingCostReal + additionalCostsTotalUf;
 
@@ -25365,7 +25377,7 @@ window.viewDeclarationDetail = async function(id) {
       ? parseFloat(dec.estimated_cost)
       : (unloadingCostEst + surchargeCostEst + labelingCostEst);
 
-    const hasRealCost = dec.real_cost !== undefined && dec.real_cost !== null && dec.real_cost > 0;
+    const hasRealCost = dec.real_cost !== undefined && dec.real_cost !== null;
     const realTotalUF = hasRealCost ? parseFloat(dec.real_cost) : (calculatedRealTotalUF > 0 ? calculatedRealTotalUF : estimatedTotalUF);
 
     // 6. Preparación de Ítems / Tabla de Productos
@@ -35788,18 +35800,30 @@ window.exportDeclarationToPDF = async function(id) {
           const labEstClp = lqReq * 100;
           const labEstUf = labEstClp / ufR;
 
-          // Costos adicionales registrados por administración
-          const addCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          // Costos adicionales registrados por administración y configuración de cargos
+          const rawAddCosts = Array.isArray(dec.additional_costs) ? dec.additional_costs : [];
+          const chargesConfig = rawAddCosts.find(c => c && c.__type === 'charges_config');
+          const addCosts = rawAddCosts.filter(c => c && !c.__type && c.name);
           const addCostsUf = addCosts.reduce((s, c) => s + (parseFloat(c.amount_uf) || 0), 0);
           const addCostsClp = addCosts.reduce((s, c) => s + (parseFloat(c.amount_clp) || ((parseFloat(c.amount_uf) || 0) * ufR)), 0);
 
-          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null && Number(dec.real_cost) > 0;
+          const hasReal = dec.real_cost !== undefined && dec.real_cost !== null;
           const totRealUf = hasReal ? Number(dec.real_cost) : ((dec.requires_unloading ? (0.1 * finalVol) : 0) + (surEst > 0 ? (0.75 * finalVol) : 0) + ((lqConf !== null ? lqConf : lqReq) * 100 / ufR) + addCostsUf);
           const totEstUf = (dec.estimated_cost !== undefined && dec.estimated_cost !== null && dec.estimated_cost > 0)
             ? Number(dec.estimated_cost)
             : (unlEst + surEst + labEstUf);
           const displayTotUf = hasReal ? totRealUf : totEstUf;
           const displayTotClp = Math.round(displayTotUf * ufR);
+
+          const unlRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.unloading_uf !== undefined)
+            ? chargesConfig.breakdown.unloading_uf
+            : (dec.requires_unloading ? (0.1 * finalVol) : 0);
+          const surRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.surcharge_uf !== undefined)
+            ? chargesConfig.breakdown.surcharge_uf
+            : (surEst > 0 ? (0.75 * finalVol) : 0);
+          const labRealVal = (chargesConfig && chargesConfig.breakdown && chargesConfig.breakdown.labeling_uf !== undefined)
+            ? chargesConfig.breakdown.labeling_uf
+            : ((((lqConf !== null ? lqConf : lqReq) * 100) / ufR) || 0);
 
           return `
             <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 11px; line-height: 1.5;">
@@ -35817,15 +35841,15 @@ window.exportDeclarationToPDF = async function(id) {
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 10.5px; color: #334155;">
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">1. Descarga (0.1 UF/m³):</strong><br>
-                  ${dec.requires_unloading ? `${(0.1 * finalVol).toFixed(4)} UF (~ $${Math.round((0.1 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
+                  ${unlRealVal > 0 ? `${unlRealVal.toFixed(4)} UF (~ $${Math.round(unlRealVal * ufR).toLocaleString('es-CL')} CLP)` : (dec.requires_unloading ? '0.0000 UF (Exonerada)' : '0.00 UF (No requerida)')}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">2. Recargo Tardío (&lt; 24h):</strong><br>
-                  ${surEst > 0 ? `${(0.75 * finalVol).toFixed(4)} UF (~ $${Math.round((0.75 * finalVol) * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
+                  ${surRealVal > 0 ? `${surRealVal.toFixed(4)} UF (~ $${Math.round(surRealVal * ufR).toLocaleString('es-CL')} CLP)` : (surEst > 0 ? '0.0000 UF (Exonerado)' : '0.00 UF (No aplica)')}
                 </div>
                 <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
                   <strong style="color: #166534;">3. Etiquetado ($100 CLP/ud):</strong><br>
-                  ${(lqConf !== null ? lqConf : lqReq) > 0 ? `${(((lqConf !== null ? lqConf : lqReq) * 100) / ufR).toFixed(4)} UF ($${Math.round((lqConf !== null ? lqConf : lqReq) * 100).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
+                  ${labRealVal > 0 ? `${labRealVal.toFixed(4)} UF ($${Math.round(labRealVal * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
                 </div>
                 ${addCosts.map((extra, eIdx) => `
                   <div style="background: rgba(239, 246, 255, 0.85); padding: 8px; border-radius: 6px; border: 1px solid #bfdbfe;">

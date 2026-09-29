@@ -2231,8 +2231,8 @@
               </label>
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <span id="manage-dec-uf-badge" class="badge" style="background: var(--color-surface-hover); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; font-weight: 600; padding: 4px 8px; border-radius: 6px;">UF Ref: $38.200</span>
-                <button type="button" class="btn btn-outline" id="btn-apply-cost-calc" onclick="window.applyCalculatedCostToRealCost()" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; background: rgba(95, 6, 250, 0.06); height: auto; line-height: 1.2;" title="Copiar el costo total real calculado al campo de Costo Real Confirmado">
-                  <i class="ri-magic-line"></i> Usar Costo Calculado
+                <button type="button" class="btn btn-outline" id="btn-apply-cost-calc" onclick="window.resetAllChargesToAuto()" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: var(--color-primary); border-color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 6px; background: rgba(95, 6, 250, 0.06); height: auto; line-height: 1.2;" title="Restaurar todos los cargos a los valores calculados automáticamente por el sistema">
+                  <i class="ri-refresh-line"></i> Restaurar Cálculos Auto
                 </button>
               </div>
             </div>
@@ -2317,7 +2317,7 @@
                     <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main);">Concepto / Servicio</th>
                     <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: center;">Tarifa Base</th>
                     <th style="padding: 8px 10px; font-weight: 700; color: var(--color-text-main); text-align: right;">Estimado (Declarado)</th>
-                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-primary); text-align: right;">Real Calculado (Físico)</th>
+                    <th style="padding: 8px 10px; font-weight: 700; color: var(--color-primary); text-align: right;">Real Confirmado (Editable)</th>
                     <th style="padding: 8px 12px; font-weight: 700; color: var(--color-text-main); text-align: right;">Diferencia</th>
                   </tr>
                 </thead>
@@ -2336,8 +2336,9 @@
               </table>
             </div>
 
-            <div style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic;">
-              * Puedes ajustar manualmente el campo "Costo Real Confirmado (UF)" abajo si deseas aplicar algún cobro especial o descuento antes de cerrar la recepción.
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem;">
+              <i class="ri-edit-line" style="color: var(--color-primary);"></i>
+              <span>Puedes editar o exonerar los cargos directamente en la columna <strong>Real Confirmado (Editable)</strong>. El valor UF definitivo se calcula de forma automática a partir de la suma de esta tabla.</span>
             </div>
           </div>
 
@@ -2356,13 +2357,16 @@
             <div class="form-group" id="manage-dec-group-real-cost" style="margin-bottom: 0;">
               <label class="form-label" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center;">
                 <span>Costo Real Confirmado (UF) *</span>
+                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">
+                  <i class="ri-calculator-line"></i> Vinculado a la tabla
+                </span>
               </label>
-              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required style="width: 100%; font-weight: 700; color: var(--color-primary);">
+              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required readonly style="width: 100%; font-weight: 700; color: var(--color-primary); background: var(--color-bg); cursor: default;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px; flex-wrap: wrap; gap: 4px;">
                 <span id="manage-dec-real-cost-clp" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">≈ $0 CLP</span>
-                <button type="button" onclick="window.applyCalculatedCostToRealCost()" style="font-size: 0.72rem; color: var(--color-primary); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0;">
-                  Usar auto (<span id="manage-dec-quick-calc-val">0.0000</span> UF)
-                </button>
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">
+                  Total liquidado según tabla editable
+                </span>
               </div>
             </div>
 
