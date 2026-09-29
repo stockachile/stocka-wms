@@ -4117,6 +4117,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         raw_shopify_data,
         raw_woocommerce_data,
         raw_meli_data,
+        raw_falabella_data,
         raw_jumpseller_data,
         raw_tiendanube_data,
         comercio,
@@ -4462,6 +4463,7 @@ window.resetWmsAllFilters = async function() {
 
   window.wmsMultiselectText = '';
   window.wmsColumnFilters = {};
+  window.wmsActiveSlaFilter = null;
 
   // Resetear fecha a últimos 7 días
   if (window.setWmsDatePreset) {
@@ -4608,6 +4610,7 @@ async function renderAdminOrders() {
     window.clearWmsTagsCache = function() {
       (window.loadedOrders || []).forEach(o => {
         delete o._wmsTags;
+        delete o._wmsSlaInfo;
       });
     };
 
@@ -5116,6 +5119,183 @@ async function renderAdminOrders() {
       return 'DISTRIBUCIÓN';
     };
 
+    window.getOrderSlaInfo = function(order) {
+      if (!order) return null;
+      if (order._wmsSlaInfo !== undefined) return order._wmsSlaInfo;
+
+      let slaDateStr = null;
+      let slaTimeStr = null;
+      let baseMethod = (order.shipping_method || '').trim();
+
+      const shipMethodStr = String(order.shipping_method || '').trim();
+
+      // Formatos de fecha en shipping_method: DMY, YMD, o tras guión final
+      const dmyRegex = /(?:L[íi]mite|SLA)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/i;
+      const ymdRegex = /(?:L[íi]mite|SLA)[\s:]+(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/i;
+      const dashYmdRegex = /(?:^|\s*-\s*)(?:SLA[\s:]*)?(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?(?:\s*:\d{2})?$/i;
+      const dashDmyRegex = /(?:^|\s*-\s*)(?:SLA[\s:]*)?(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?(?:\s*:\d{2})?$/i;
+
+      let match = shipMethodStr.match(dmyRegex);
+      if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        let year = match[3];
+        if (year.length === 4) year = year.slice(-2);
+        slaDateStr = `${day}-${month}-${year}`;
+        if (match[4] && match[5]) {
+          slaTimeStr = `${match[4].padStart(2, '0')}:${match[5].padStart(2, '0')}`;
+        }
+        baseMethod = shipMethodStr
+          .replace(/\s*\((?:L[íi]mite|Limite|SLA)[\s:][^)]*\)/i, '')
+          .replace(/\s*-\s*(?:L[íi]mite|Limite|SLA)[\s:][^)]*$/i, '')
+          .replace(/\s*-\s*$/, '')
+          .trim();
+      } else {
+        match = shipMethodStr.match(ymdRegex);
+        if (match) {
+          let year = match[1];
+          if (year.length === 4) year = year.slice(-2);
+          const month = match[2].padStart(2, '0');
+          const day = match[3].padStart(2, '0');
+          slaDateStr = `${day}-${month}-${year}`;
+          if (match[4] && match[5]) {
+            slaTimeStr = `${match[4].padStart(2, '0')}:${match[5].padStart(2, '0')}`;
+          }
+          baseMethod = shipMethodStr
+            .replace(/\s*\((?:L[íi]mite|Limite|SLA)[\s:][^)]*\)/i, '')
+            .replace(/\s*-\s*(?:L[íi]mite|Limite|SLA)[\s:][^)]*$/i, '')
+            .replace(/\s*-\s*$/, '')
+            .trim();
+        } else {
+          match = shipMethodStr.match(dashYmdRegex);
+          if (match) {
+            let year = match[1];
+            if (year.length === 4) year = year.slice(-2);
+            const month = match[2].padStart(2, '0');
+            const day = match[3].padStart(2, '0');
+            slaDateStr = `${day}-${month}-${year}`;
+            if (match[4] && match[5]) {
+              slaTimeStr = `${match[4].padStart(2, '0')}:${match[5].padStart(2, '0')}`;
+            }
+            baseMethod = shipMethodStr.replace(dashYmdRegex, '').replace(/\s*-\s*$/, '').trim();
+          } else {
+            match = shipMethodStr.match(dashDmyRegex);
+            if (match) {
+              const day = match[1].padStart(2, '0');
+              const month = match[2].padStart(2, '0');
+              let year = match[3];
+              if (year.length === 4) year = year.slice(-2);
+              slaDateStr = `${day}-${month}-${year}`;
+              if (match[4] && match[5]) {
+                slaTimeStr = `${match[4].padStart(2, '0')}:${match[5].padStart(2, '0')}`;
+              }
+              baseMethod = shipMethodStr.replace(dashDmyRegex, '').replace(/\s*-\s*$/, '').trim();
+            }
+          }
+        }
+      }
+
+      // Check tags si aún no tenemos SLA en shipping_method
+      if (!slaDateStr) {
+        const rawTags = [
+          ...(Array.isArray(order.tags) ? order.tags : String(order.tags || '').split(',')),
+          ...String(order.raw_shopify_data?.tags || '').split(',')
+        ].map(t => String(t).trim()).filter(Boolean);
+
+        for (const t of rawTags) {
+          const mYmd = t.match(/^(?:SLA|L[íi]mite)[\s:]+(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/i);
+          if (mYmd) {
+            let year = mYmd[1];
+            if (year.length === 4) year = year.slice(-2);
+            const month = mYmd[2].padStart(2, '0');
+            const day = mYmd[3].padStart(2, '0');
+            slaDateStr = `${day}-${month}-${year}`;
+            if (mYmd[4] && mYmd[5]) {
+              slaTimeStr = `${mYmd[4].padStart(2, '0')}:${mYmd[5].padStart(2, '0')}`;
+            }
+            break;
+          }
+          const mDmy = t.match(/^(?:SLA|L[íi]mite)[\s:]+(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+          if (mDmy) {
+            const day = mDmy[1].padStart(2, '0');
+            const month = mDmy[2].padStart(2, '0');
+            let year = mDmy[3];
+            if (year.length === 4) year = year.slice(-2);
+            slaDateStr = `${day}-${month}-${year}`;
+            if (mDmy[4] && mDmy[5]) {
+              slaTimeStr = `${mDmy[4].padStart(2, '0')}:${mDmy[5].padStart(2, '0')}`;
+            }
+            break;
+          }
+        }
+      }
+
+      // Fallback a raw_falabella_data.PromisedShippingTime si no venía en shipping_method
+      if (!slaDateStr && order.raw_falabella_data?.PromisedShippingTime) {
+        try {
+          const pt = String(order.raw_falabella_data.PromisedShippingTime).replace(' ', 'T');
+          const d = new Date(pt);
+          if (!isNaN(d.getTime())) {
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = String(d.getFullYear()).slice(-2);
+            const hour = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            slaDateStr = `${day}-${month}-${year}`;
+            slaTimeStr = `${hour}:${min}`;
+          }
+        } catch (e) {}
+      }
+
+      // Fallback a raw_meli_data si aplica
+      if (!slaDateStr && order.raw_meli_data) {
+        const expDate = order.raw_meli_data.expected_date || order.raw_meli_data.orders?.[0]?.shipping?.shipping_option?.estimated_delivery_limit?.date;
+        if (expDate) {
+          try {
+            const d = new Date(expDate);
+            if (!isNaN(d.getTime())) {
+              const formatter = new Intl.DateTimeFormat('es-CL', {
+                timeZone: 'America/Santiago',
+                day: '2-digit', month: '2-digit', year: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false
+              });
+              const parts = formatter.formatToParts(d);
+              const day = parts.find(p => p.type === 'day')?.value;
+              const month = parts.find(p => p.type === 'month')?.value;
+              const year = parts.find(p => p.type === 'year')?.value;
+              const hour = parts.find(p => p.type === 'hour')?.value;
+              const minute = parts.find(p => p.type === 'minute')?.value;
+              if (day && month && year) {
+                slaDateStr = `${day}-${month}-${year}`;
+                if (hour && minute) slaTimeStr = `${hour}:${minute}`;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (slaDateStr) {
+        const fullSlaKey = slaTimeStr ? `${slaDateStr} ${slaTimeStr}` : slaDateStr;
+        order._wmsSlaInfo = {
+          hasSla: true,
+          date: slaDateStr,
+          time: slaTimeStr || '',
+          slaKey: fullSlaKey,
+          baseMethod: baseMethod || order.shipping_method || 'Envío'
+        };
+      } else {
+        order._wmsSlaInfo = {
+          hasSla: false,
+          date: '',
+          time: '',
+          slaKey: '',
+          baseMethod: baseMethod || order.shipping_method || '-'
+        };
+      }
+
+      return order._wmsSlaInfo;
+    };
+
     window.getOrderTags = function(order) {
       if (!order) return [];
       if (order._wmsTags) return order._wmsTags;
@@ -5235,6 +5415,12 @@ async function renderAdminOrders() {
         });
       }
 
+      // 13. SLA (Marketplaces como Falabella, MercadoLibre)
+      const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
+      if (slaInfo && slaInfo.hasSla) {
+        tags.add(`SLA: ${slaInfo.slaKey}`);
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -5309,12 +5495,16 @@ async function renderAdminOrders() {
         ...otherKnownTags.map(t => t.key)
       ]);
 
+      const slaTags = [];
       const customPlatformTags = [];
       tagCounts.forEach((count, tagKey) => {
-        if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
+        if (tagKey.startsWith('SLA:')) {
+          slaTags.push({ key: tagKey, label: tagKey, icon: '⏰' });
+        } else if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
           customPlatformTags.push({ key: tagKey, label: tagKey, icon: '🏷️' });
         }
       });
+      slaTags.sort((a, b) => a.key.localeCompare(b.key));
 
       const buildOptgroup = (label, list) => {
         const present = list.filter(item => (tagCounts.get(item.key) || 0) > 0);
@@ -5327,6 +5517,9 @@ async function renderAdminOrders() {
       };
 
       let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+      if (slaTags.length > 0) {
+        html += buildOptgroup('Compromiso SLA (Marketplaces)', slaTags);
+      }
       html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
       html += buildOptgroup('Categoría de Entrega', deliveryTags);
       html += buildOptgroup('Despacho Courier', courierTags);
@@ -5368,6 +5561,49 @@ async function renderAdminOrders() {
           select.appendChild(opt);
         }
         select.value = tagName;
+      }
+
+      window.wmsCurrentPage = 1;
+      applyWmsFiltersAndRender();
+    };
+
+    window.filterByOrderSla = function(slaKey, event) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+
+      // Si no se envía clave o es igual a la ya activa, se desactiva (toggle)
+      if (!slaKey || window.wmsActiveSlaFilter === slaKey) {
+        window.wmsActiveSlaFilter = null;
+      } else {
+        window.wmsActiveSlaFilter = slaKey;
+      }
+
+      // Sincronizar el select de tags
+      const select = document.getElementById('filter-order-tag');
+      if (select) {
+        if (window.wmsActiveSlaFilter) {
+          const slaTagValue = `SLA: ${window.wmsActiveSlaFilter}`;
+          let exists = false;
+          for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === slaTagValue) {
+              exists = true;
+              break;
+            }
+          }
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = slaTagValue;
+            opt.textContent = `⏰ ${slaTagValue}`;
+            select.appendChild(opt);
+          }
+          select.value = slaTagValue;
+        } else {
+          if (select.value && select.value.startsWith('SLA:')) {
+            select.value = '';
+          }
+        }
       }
 
       window.wmsCurrentPage = 1;
@@ -5447,6 +5683,21 @@ async function renderAdminOrders() {
           .orders-top-header {
             grid-template-columns: 1fr;
           }
+        }
+        .wms-sla-tag {
+          cursor: pointer;
+          user-select: none;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        }
+        .wms-sla-tag:hover {
+          transform: translateY(-1px);
+          filter: brightness(0.94);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+        }
+        .wms-sla-active {
+          outline: 2px solid #d97706 !important;
+          box-shadow: 0 0 6px rgba(217, 119, 6, 0.45) !important;
+          font-weight: 700 !important;
         }
       </style>
       <div class="orders-top-header">
@@ -5539,10 +5790,16 @@ async function renderAdminOrders() {
           <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 0.35rem;">
             <i class="ri-filter-3-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> Filtros de Pedidos
           </span>
-          <button type="button" id="btn-toggle-wms-filters-bar" onclick="window.toggleWmsFiltersBar()" style="background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.74rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='var(--color-primary)'; this.style.borderColor='var(--color-primary)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.borderColor='var(--color-border)';" title="${isFiltersCollapsed ? 'Mostrar panel de filtros' : 'Ocultar panel de filtros'}">
-            <span id="text-toggle-wms-filters-bar">${isFiltersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}</span>
-            <i class="${isFiltersCollapsed ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'}" id="icon-toggle-wms-filters-bar" style="font-size: 0.95rem; transition: transform 0.2s;"></i>
-          </button>
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <button type="button" id="btn-reset-wms-filters" onclick="window.resetWmsAllFilters()" style="background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.74rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#ef4444'; this.style.borderColor='#fca5a5'; this.style.background='rgba(239, 68, 68, 0.04)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.borderColor='var(--color-border)'; this.style.background='transparent';" title="Restablecer todos los filtros a sus valores iniciales">
+              <i class="ri-restart-line" style="font-size: 0.85rem;"></i>
+              <span>Restablecer filtros</span>
+            </button>
+            <button type="button" id="btn-toggle-wms-filters-bar" onclick="window.toggleWmsFiltersBar()" style="background: transparent; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.74rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='var(--color-primary)'; this.style.borderColor='var(--color-primary)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.borderColor='var(--color-border)';" title="${isFiltersCollapsed ? 'Mostrar panel de filtros' : 'Ocultar panel de filtros'}">
+              <span id="text-toggle-wms-filters-bar">${isFiltersCollapsed ? 'Mostrar filtros' : 'Ocultar filtros'}</span>
+              <i class="${isFiltersCollapsed ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'}" id="icon-toggle-wms-filters-bar" style="font-size: 0.95rem; transition: transform 0.2s;"></i>
+            </button>
+          </div>
         </div>
 
         <div id="wms-filters-collapsible-content" style="display: ${isFiltersCollapsed ? 'none' : 'block'};">
@@ -5745,6 +6002,9 @@ async function renderAdminOrders() {
       <!-- Agrupación por Pestañas de Estado WMS -->
       <div id="wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
 
+      <!-- Banner Informativo de Filtro SLA Activo -->
+      <div id="wms-active-sla-filter-container"></div>
+
       <!-- Contenedor Flotante de Ambos Paneles de Acciones (Sticky al hacer Scroll) -->
       <div id="wms-sticky-actions-container" class="wms-sticky-actions-container" style="position: sticky; top: 0; z-index: 900; background: var(--color-bg); padding-top: 0.25rem; padding-bottom: 0.5rem;">
         <!-- Panel 1: Barra de Acciones Masivas Flotante (Azul) -->
@@ -5864,7 +6124,7 @@ async function renderAdminOrders() {
                     <i id="wms-filter-icon-operador" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'operador', 'Operador')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
                   </div>
                 </th>
-                <th style="min-width: 115px; max-width: 140px; padding: 0.55rem 0.4rem;">
+                <th style="min-width: 140px; max-width: 180px; padding: 0.55rem 0.4rem;">
                   <div style="display: inline-flex; align-items: center; gap: 0.2rem;">
                     <span>Envío</span>
                     <i id="wms-filter-icon-shipping_method" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'shipping_method', 'Envío')" style="cursor: pointer; font-size: 0.8rem; padding: 1px;"></i>
@@ -6186,7 +6446,16 @@ async function renderAdminOrders() {
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (categoriaSelect) categoriaSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
-    if (orderTagSelect) orderTagSelect.addEventListener('change', triggerFilterUpdate);
+    if (orderTagSelect) {
+      orderTagSelect.addEventListener('change', () => {
+        if (orderTagSelect.value && orderTagSelect.value.startsWith('SLA:')) {
+          window.wmsActiveSlaFilter = orderTagSelect.value.replace(/^SLA:\s*/, '').trim();
+        } else if (window.wmsActiveSlaFilter) {
+          window.wmsActiveSlaFilter = null;
+        }
+        triggerFilterUpdate();
+      });
+    }
     const warehouseSelect = document.getElementById('filter-warehouse');
     if (warehouseSelect) warehouseSelect.addEventListener('change', triggerFilterUpdate);
     if (dateFromInput) dateFromInput.addEventListener('change', handleDateChange);
@@ -6333,7 +6602,13 @@ window.applyWmsFiltersAndRender = function() {
     const matchesWarehouse = !selectedWarehouse || (order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse);
     const matchesTag = !selectedTag || orderTags.some(t => String(t).trim().toUpperCase() === String(selectedTag).trim().toUpperCase());
 
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag;
+    let matchesSla = true;
+    if (window.wmsActiveSlaFilter) {
+      const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
+      matchesSla = !!(slaInfo && slaInfo.hasSla && slaInfo.slaKey === window.wmsActiveSlaFilter);
+    }
+
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag && matchesSla;
   };
 
   // 1. Obtener conteo de pestañas
@@ -6416,6 +6691,26 @@ window.applyWmsFiltersAndRender = function() {
     return matchBase && matchTab && matchColFilters && matchMultiselect;
   });
   window.wmsLastFilteredOrders = filtered;
+
+  // Renderizar banner informativo de filtro SLA activo
+  const slaBannerContainer = document.getElementById('wms-active-sla-filter-container');
+  if (slaBannerContainer) {
+    if (window.wmsActiveSlaFilter) {
+      slaBannerContainer.innerHTML = `
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 0.55rem 0.95rem; margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; align-items: center; gap: 0.55rem; color: #92400e; font-size: 0.85rem; font-weight: 500;">
+            <i class="ri-alarm-warning-line" style="font-size: 1.15rem; color: #d97706; flex-shrink: 0;"></i>
+            <span>Filtrando por Compromiso SLA: <strong style="color: #b45309; font-weight: 700;">${window.wmsActiveSlaFilter}</strong> <span style="background: rgba(217, 119, 6, 0.15); color: #b45309; border: 1px solid rgba(217, 119, 6, 0.25); padding: 0.1rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; margin-left: 0.35rem;">${filtered.length} pedidos</span></span>
+          </div>
+          <button type="button" onclick="window.filterByOrderSla(null, event)" class="btn" style="background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; padding: 0.25rem 0.65rem; font-size: 0.75rem; font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; transition: all 0.15s;" title="Quitar filtro de SLA">
+            <i class="ri-close-circle-line" style="font-size: 0.9rem;"></i> Quitar filtro SLA
+          </button>
+        </div>
+      `;
+    } else {
+      slaBannerContainer.innerHTML = '';
+    }
+  }
 
   // Auto-seleccionar pedidos filtrados por el multiselect
   if (multiselectRefsSet.size > 0) {
@@ -7379,6 +7674,38 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
 
+    const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
+    const isSlaActive = !!(slaInfo && slaInfo.hasSla && window.wmsActiveSlaFilter && (window.wmsActiveSlaFilter === slaInfo.slaKey || window.wmsActiveSlaFilter === slaInfo.date));
+
+    let displayShipMethod = order.shipping_method || '-';
+    let slaCellBadgesHtml = '';
+    let slaBadgeHtml = '';
+
+    if (slaInfo && slaInfo.hasSla) {
+      displayShipMethod = slaInfo.baseMethod || order.shipping_method || '-';
+      const activeClass = isSlaActive ? 'wms-sla-active' : '';
+      const safeSlaKey = slaInfo.slaKey.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+      slaCellBadgesHtml = `
+        <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.1rem; margin-bottom: 0.1rem;">
+          <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Entrega: ${slaInfo.date} (Clic para filtrar)">
+            <i class="ri-calendar-event-line" style="font-size: 0.7rem; color: #d97706;"></i> ${slaInfo.date}
+          </span>
+          ${slaInfo.time ? `
+            <span class="badge wms-sla-tag ${activeClass}" onclick="event.stopPropagation(); window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;" title="SLA Hora: ${slaInfo.time} (Clic para filtrar)">
+              <i class="ri-time-line" style="font-size: 0.7rem; color: #ef4444;"></i> ${slaInfo.time}
+            </span>
+          ` : ''}
+        </div>
+      `;
+
+      slaBadgeHtml = `
+        <span class="badge wms-sla-tag ${activeClass}" onclick="window.filterByOrderSla('${safeSlaKey}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; letter-spacing: 0.2px;" title="Compromiso SLA: ${slaInfo.slaKey} (Clic para filtrar)">
+          <i class="ri-alarm-warning-line" style="color: #d97706; font-size: 0.75rem;"></i> SLA: ${slaInfo.date}${slaInfo.time ? ' ' + slaInfo.time : ''}
+        </span>
+      `;
+    }
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -7413,10 +7740,11 @@ window.applyWmsFiltersAndRender = function() {
         <td>${fechaProcHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
-        <td style="max-width: 135px;">
+        <td style="min-width: 140px; max-width: 180px;">
           <div style="display:flex; flex-direction:column; gap:0.1rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
-            <span style="font-weight:600; color:var(--color-text-main); max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
-            <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
+            <span style="font-weight:600; color:var(--color-text-main); max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
+            ${slaCellBadgesHtml}
+            <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
               ${order.shipping_city || 'Por definir'}
               ${!window.isChileComuna(order.shipping_city) ? `
                 <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
@@ -7446,7 +7774,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -7493,7 +7821,19 @@ window.applyWmsFiltersAndRender = function() {
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.4rem; margin-bottom: 0.65rem; background: var(--color-bg); padding: 0.5rem 0.65rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
                   <div>
                     <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Método Envío</span>
-                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.shipping_method || 'Por definir'}</span>
+                    <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${displayShipMethod}</span>
+                    ${slaInfo && slaInfo.hasSla ? `
+                      <div style="margin-top: 0.25rem; display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+                        <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Compromiso SLA de Entrega (Clic para filtrar)">
+                          <i class="ri-calendar-event-line" style="color: #d97706;"></i> ${slaInfo.date}
+                        </span>
+                        ${slaInfo.time ? `
+                          <span class="badge wms-sla-tag ${isSlaActive ? 'wms-sla-active' : ''}" onclick="window.filterByOrderSla('${slaInfo.slaKey.replace(/'/g, "\\'")}', event)" style="background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; font-size: 0.7rem; font-weight: 700; padding: 0.12rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;" title="Hora límite SLA de Entrega (Clic para filtrar)">
+                            <i class="ri-time-line" style="color: #ef4444;"></i> ${slaInfo.time}
+                          </span>
+                        ` : ''}
+                      </div>
+                    ` : ''}
                   </div>
                   <div>
                     <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Categoría</span>
@@ -7857,6 +8197,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     raw_shopify_data,
     raw_woocommerce_data,
     raw_meli_data,
+    raw_falabella_data,
     raw_jumpseller_data,
     raw_tiendanube_data,
     comercio,

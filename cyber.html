@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planificación Cyber 2026 - WMS STOCKA</title>
+  <meta name="description" content="Formulario de coordinación logística, proyecciones de venta y campañas para clientes WMS Stocka de cara a este Cyber.">
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./favicon.png">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css?v=1.0.3">
+  <link rel="stylesheet" href="./css/layout.css?v=1.0.1">
+  <script src="./js/theme.js"></script>
+  <style>
+    :root {
+      --cyber-gradient: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4338ca 100%);
+      --cyber-accent: #6366f1;
+      --cyber-glow: rgba(99, 102, 241, 0.15);
+    }
+    body {
+      background: var(--color-bg);
+      color: var(--color-text-main);
+      font-family: var(--font-family, 'Inter', sans-serif);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      margin: 0;
+      padding: 0;
+    }
+    .cyber-header-nav {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .cyber-hero {
+      background: var(--cyber-gradient);
+      color: #ffffff;
+      padding: 3rem 1.5rem 2.5rem 1.5rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .cyber-hero h1 {
+      color: #ffffff !important;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+    }
+    .cyber-hero p {
+      color: rgba(255, 255, 255, 0.9) !important;
+    }
+    .cyber-hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -20%;
+      width: 140%;
+      height: 200%;
+      background: radial-gradient(circle at center, rgba(129, 140, 248, 0.18) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .cyber-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 0.35rem 0.85rem;
+      border-radius: 99px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+      backdrop-filter: blur(4px);
+    }
+    .cyber-container {
+      max-width: 780px;
+      width: 100%;
+      margin: -1.75rem auto 3rem auto;
+      padding: 0 1rem;
+      position: relative;
+      z-index: 2;
+    }
+    .form-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg, 14px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+      padding: 2rem 2.25rem;
+      margin-bottom: 1.5rem;
+      transition: border-color 0.2s ease;
+    }
+    @media (max-width: 640px) {
+      .form-card {
+        padding: 1.5rem 1.15rem;
+      }
+      .cyber-hero {
+        padding: 2.25rem 1rem 2rem 1rem;
+      }
+    }
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      margin: 0 0 0.35rem 0;
+    }
+    .section-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--cyber-glow);
+      color: var(--color-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+      flex-shrink: 0;
+    }
+    .section-subtitle {
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+      margin: 0 0 1.25rem 0;
+      line-height: 1.4;
+    }
+
+    /* Option Cards (Radio & Checkbox) */
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .option-card {
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-md, 10px);
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      background: var(--color-surface);
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      user-select: none;
+    }
+    .option-card:hover {
+      border-color: var(--color-primary);
+      background: rgba(37, 99, 235, 0.02);
+      transform: translateY(-1px);
+    }
+    .option-card.selected {
+      border-color: var(--color-primary);
+      background: rgba(37, 99, 235, 0.08);
+      box-shadow: 0 0 0 1px var(--color-primary);
+    }
+    .option-indicator {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1.5px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+      background: var(--color-surface);
+      transition: all 0.15s ease;
+      color: #ffffff;
+      font-size: 0.75rem;
+    }
+    .option-card.selected .option-indicator {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+    }
+    .option-card.checkbox-type .option-indicator {
+      border-radius: 4px;
+    }
+    .option-content {
+      flex: 1;
+    }
+    .option-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+      line-height: 1.3;
+    }
+    .option-desc {
+      font-size: 0.78rem;
+      color: var(--color-text-muted);
+      margin-top: 0.2rem;
+      line-height: 1.35;
+    }
+
+    /* Date presets */
+    .date-presets-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.85rem;
+    }
+    .date-preset-pill {
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-main);
+      padding: 0.4rem 0.85rem;
+      border-radius: 99px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.15s ease;
+    }
+    .date-preset-pill:hover {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+    }
+    .date-preset-pill.active {
+      background: var(--color-primary);
+      border-color: var(--color-primary);
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* Inputs */
+    .cyber-input {
+      width: 100%;
+      padding: 0.7rem 0.9rem;
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-md, 8px);
+      background: var(--color-bg);
+      color: var(--color-text-main);
+      font-size: 0.9rem;
+      box-sizing: border-box;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .cyber-input:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+    .input-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+      margin-bottom: 0.35rem;
+    }
+    .input-hint {
+      font-size: 0.76rem;
+      color: var(--color-text-muted);
+      margin-top: 0.25rem;
+    }
+
+    /* Suggestions Dropdown (Privacy-Preserving 4-letter search) */
+    .cyber-suggestions-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--color-surface);
+      border: 1.5px solid var(--color-border);
+      border-radius: var(--radius-md, 8px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      z-index: 100;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .suggestion-item {
+      padding: 0.7rem 0.95rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+      border-bottom: 1px solid var(--color-border);
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
+    .suggestion-item:hover, .suggestion-item.active {
+      background: rgba(37, 99, 235, 0.08);
+      color: var(--color-primary);
+    }
+    .suggestion-item i {
+      color: var(--color-primary);
+      font-size: 1.05rem;
+    }
+    .suggestion-empty {
+      padding: 0.85rem 1rem;
+      font-size: 0.82rem;
+      color: var(--color-text-muted);
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* Primary Submit Button */
+    .btn-submit-cyber {
+      background: linear-gradient(135deg, #2563eb 0%, #4338ca 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-md, 10px);
+      padding: 1rem 2rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      width: 100%;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+      transition: all 0.2s ease;
+    }
+    .btn-submit-cyber:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+    }
+    .btn-submit-cyber:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .pulse-glow {
+      animation: pulse-glow-anim 2.5s infinite;
+    }
+    @keyframes pulse-glow-anim {
+      0%, 100% { opacity: 0.8; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.02); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header class="cyber-header-nav">
+    <div style="display: flex; align-items: center; gap: 0.85rem;">
+      <a href="https://stocka.cl" target="_blank" rel="noopener">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 32px; object-fit: contain;">
+      </a>
+      <span style="border-left: 1px solid var(--color-border); padding-left: 0.85rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted);">
+        Fulfillment &bull; Coordinación Cyber
+      </span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.6rem;">
+      <button class="theme-toggle-btn" aria-label="Cambiar tema">
+        <i class="ri-sun-line sun-icon"></i>
+        <i class="ri-moon-line moon-icon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Header -->
+  <section class="cyber-hero">
+    <div class="cyber-badge pulse-glow">
+      <i class="ri-flashlight-fill" style="color: #fbbf24;"></i> Cyber Oficial: 5 al 7 de Octubre
+    </div>
+    <h1 style="color: #ffffff !important; font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 800; margin: 0 0 0.65rem 0; letter-spacing: -0.5px; text-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+      Planificación y Proyecciones Cyber
+    </h1>
+    <p style="font-size: clamp(0.9rem, 2vw, 1.05rem); color: rgba(255, 255, 255, 0.85); max-width: 620px; margin: 0 auto; line-height: 1.5;">
+      Ayúdanos a dimensionar el equipo de bodega, turnos de empaque e insumos para que tus despachos salgan en tiempo récord durante el evento.
+    </p>
+    <div style="display: flex; justify-content: center; gap: 1.5rem; margin-top: 1.25rem; font-size: 0.82rem; color: rgba(255, 255, 255, 0.75); flex-wrap: wrap;">
+      <span><i class="ri-time-line"></i> Solo toma 2 minutos</span>
+      <span><i class="ri-shield-check-line"></i> Confidencial para tu marca</span>
+      <span><i class="ri-box-3-line"></i> Operaciones WMS Stocka</span>
+    </div>
+  </section>
+
+  <!-- Main Container Form -->
+  <main class="cyber-container">
+    <form id="cyber-plan-form" novalidate>
+
+      <!-- 1. Identificación y Correo Electrónico -->
+      <div class="form-card" id="card-identificacion">
+        <div class="section-title">
+          <div class="section-icon"><i class="ri-mail-check-line"></i></div>
+          <span>1. Identificación de tu Comercio</span>
+        </div>
+        <p class="section-subtitle">
+          Indícanos tu correo electrónico para asociar automáticamente tu marca y proyecciones a tu cuenta en Stocka.
+        </p>
+
+        <!-- Campo Correo Electrónico (Primer paso) -->
+        <div style="margin-bottom: 1.25rem;">
+          <label class="input-label" for="field-email">
+            Correo Electrónico de Contacto <span style="color: var(--color-danger);">*</span>
+          </label>
+          <div style="position: relative;">
+            <input type="email" id="field-email" class="cyber-input" placeholder="ejemplo@tumarca.cl" required autocomplete="email" style="padding-right: 2.75rem; font-size: 0.95rem;">
+            <div id="email-spinner" style="position: absolute; right: 0.9rem; top: 50%; transform: translateY(-50%); display: none; color: var(--color-primary);">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 1.25rem;"></i>
+            </div>
+            <div id="email-check-icon" style="position: absolute; right: 0.9rem; top: 50%; transform: translateY(-50%); display: none; color: #10b981;">
+              <i class="ri-checkbox-circle-fill" style="font-size: 1.3rem;"></i>
+            </div>
+          </div>
+          <div class="input-hint" id="email-hint">
+            Ingresa tu correo habitual de coordinación o con el que accedes al WMS Stocka.
+          </div>
+        </div>
+
+        <!-- Tarjeta de Comercio Detectado Automáticamente -->
+        <div id="box-comercio-detectado" style="display: none; margin-bottom: 1.25rem; background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: var(--radius-md, 8px); padding: 0.9rem 1.15rem; transition: all 0.3s ease;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="width: 40px; height: 40px; border-radius: 50%; background: #10b981; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+                <i class="ri-store-2-fill"></i>
+              </div>
+              <div>
+                <div style="font-size: 0.75rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Comercio Asociado a tu Cuenta
+                </div>
+                <div id="label-comercio-detectado" style="font-size: 1.1rem; font-weight: 800; color: var(--color-text-main); line-height: 1.25; margin-top: 0.1rem;">
+                  <!-- Nombre del comercio detectado -->
+                </div>
+              </div>
+            </div>
+            <button type="button" id="btn-cambiar-comercio" class="btn btn-outline btn-sm" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-edit-line"></i> Escribir otro nombre
+            </button>
+          </div>
+        </div>
+
+        <!-- Campo Manual de Nombre de Comercio (Privacidad: sugerencias solo tras 4 letras) -->
+        <div id="box-comercio-manual" style="margin-bottom: 1.25rem; position: relative;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label class="input-label" for="field-comercio" style="margin-bottom: 0;">
+              Nombre de tu Empresa / Marca <span style="color: var(--color-danger);">*</span>
+            </label>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-lock-2-line"></i> Privacidad entre marcas activa
+            </span>
+          </div>
+          <div style="position: relative;">
+            <input type="text" id="field-comercio" class="cyber-input" placeholder="Escribe el nombre de tu marca o tienda..." required autocomplete="off">
+            <!-- Sugerencias flotantes (solo se cargan y muestran con >= 4 letras) -->
+            <div id="comercio-suggestions" class="cyber-suggestions-dropdown" style="display: none;"></div>
+          </div>
+          <div class="input-hint" id="comercio-hint">
+            Por privacidad entre marcas, las sugerencias aparecerán automáticamente <strong>tras escribir 4 letras</strong>.
+          </div>
+        </div>
+
+        <!-- Campos de Contacto: Nombre y Teléfono / WhatsApp -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
+          <div>
+            <label class="input-label" for="field-nombre">Nombre del Encargado / Responsable <span style="color: var(--color-danger);">*</span></label>
+            <input type="text" id="field-nombre" class="cyber-input" placeholder="Ej: Carlos Silva" required autocomplete="name">
+            <div class="input-hint">Nombre de quien coordina la campaña e-commerce.</div>
+          </div>
+
+          <div>
+            <label class="input-label" for="field-telefono">Teléfono / WhatsApp de Contacto <span style="color: var(--color-danger);">*</span></label>
+            <input type="tel" id="field-telefono" class="cyber-input" placeholder="+56 9 1234 5678" required autocomplete="tel">
+            <div class="input-hint">Canal directo ante contingencias en bodega.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. ¿Participarán en este Cyber? -->
+      <div class="form-card" id="card-participacion">
+        <div class="section-title">
+          <div class="section-icon"><i class="ri-flag-2-line"></i></div>
+          <span>2. ¿Participarán en este Cyber? <span style="color: var(--color-danger);">*</span></span>
+        </div>
+        <p class="section-subtitle">
+          Confírmanos si tu marca activará ofertas y campañas para este evento.
+        </p>
+
+        <div class="option-grid" id="grid-participaran">
+          <div class="option-card selected" data-value="si" data-name="participaran">
+            <div class="option-indicator"><i class="ri-check-line"></i></div>
+            <div class="option-content">
+              <div class="option-title">Sí, participaremos activamente</div>
+              <div class="option-desc">Activaremos campañas, descuentos o promociones especiales.</div>
+            </div>
+          </div>
+
+          <div class="option-card" data-value="evaluando" data-name="participaran">
+            <div class="option-indicator"><i class="ri-check-line"></i></div>
+            <div class="option-content">
+              <div class="option-title">Aún por definir / En evaluación</div>
+              <div class="option-desc">Estamos evaluando participación según stock y condiciones.</div>
+            </div>
+          </div>
+
+          <div class="option-card" data-value="no" data-name="participaran">
+            <div class="option-indicator"><i class="ri-check-line"></i></div>
+            <div class="option-content">
+              <div class="option-title">No participaremos en este evento</div>
+              <div class="option-desc">Mantendremos operaciones y precios habituales sin Cyber.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mensaje condicional para cuando marcan NO -->
+        <div id="box-no-participa" style="display: none; margin-top: 1.25rem; background: var(--color-bg); padding: 1rem 1.15rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-text-muted);">
+          <label class="input-label" for="field-motivo-no">¿Deseas comentarnos algún motivo o cómo podemos apoyarte para futuras fechas? (Opcional)</label>
+          <textarea id="field-motivo-no" class="cyber-input" rows="2" placeholder="Ej: Esperando nueva importación, enfocados en Navidad, etc..."></textarea>
+        </div>
+      </div>
+
+      <!-- SECCIONES CONDICIONALES: SE OCULTAN SI MARCAN "NO" -->
+      <div id="secciones-activas">
+
+        <!-- 3. Fechas de la Campaña -->
+        <div class="form-card" id="card-fechas">
+          <div class="section-title">
+            <div class="section-icon"><i class="ri-calendar-event-line"></i></div>
+            <span>3. ¿Entre qué fechas esperan realizar sus campañas? <span style="color: var(--color-danger);">*</span></span>
+          </div>
+          <p class="section-subtitle">
+            Selecciona la ventana de tiempo en la que tus ofertas estarán disponibles para tus clientes.
+          </p>
+
+          <div class="date-presets-wrap">
+            <div class="date-preset-pill active" data-preset="oficial" data-start="2026-10-05" data-end="2026-10-07">
+              <i class="ri-calendar-check-line"></i> Solo fechas oficiales (5 al 7 de Octubre)
+            </div>
+            <div class="date-preset-pill" data-preset="adelantado" data-start="2026-10-02" data-end="2026-10-07">
+              <i class="ri-rocket-line"></i> Adelantado (Desde Viernes 2 / Sábado 3)
+            </div>
+            <div class="date-preset-pill" data-preset="semana" data-start="2026-10-05" data-end="2026-10-11">
+              <i class="ri-fire-line"></i> Cyber Week completo (5 al Domingo 11)
+            </div>
+            <div class="date-preset-pill" data-preset="personalizado">
+              <i class="ri-edit-line"></i> Rango personalizado
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+            <div>
+              <label class="input-label" for="field-fecha-inicio">Fecha de Inicio de Campaña</label>
+              <input type="date" id="field-fecha-inicio" class="cyber-input" value="2026-10-05">
+            </div>
+            <div>
+              <label class="input-label" for="field-fecha-fin">Fecha de Término de Campaña</label>
+              <input type="date" id="field-fecha-fin" class="cyber-input" value="2026-10-07">
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Extensión de las Ofertas -->
+        <div class="form-card" id="card-extension">
+          <div class="section-title">
+            <div class="section-icon"><i class="ri-timer-flash-line"></i></div>
+            <span>4. ¿Extenderán las ofertas más allá de la fecha oficial (5-7 de Octubre)? <span style="color: var(--color-danger);">*</span></span>
+          </div>
+          <p class="section-subtitle">
+            Saber si extenderán promociones nos ayuda a programar turnos de fin de semana en bodega.
+          </p>
+
+          <div class="option-grid" id="grid-extenderan">
+            <div class="option-card selected" data-value="si_semana" data-name="extenderan">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">Sí, toda la semana (Cyber Week)</div>
+                <div class="option-desc">Extenderemos hasta el domingo siguiente con promociones vigentes.</div>
+              </div>
+            </div>
+
+            <div class="option-card" data-value="si_dias" data-name="extenderan">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">Sí, 1 a 2 días adicionales</div>
+                <div class="option-desc">Continuaremos el Jueves 8 y Viernes 9 de Octubre.</div>
+              </div>
+            </div>
+
+            <div class="option-card" data-value="no_oficial" data-name="extenderan">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">No, solo fechas oficiales</div>
+                <div class="option-desc">Finalizaremos puntualmente el Miércoles 7 a las 23:59 hrs.</div>
+              </div>
+            </div>
+
+            <div class="option-card" data-value="por_definir" data-name="extenderan">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">Aún por definir</div>
+                <div class="option-desc">Dependerá del ritmo de ventas y stock disponible en los primeros días.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Tipo de Campañas y Promociones -->
+        <div class="form-card" id="card-campanas">
+          <div class="section-title">
+            <div class="section-icon"><i class="ri-price-tag-3-line"></i></div>
+            <span>5. ¿Qué tipo de campañas o promociones activarán?</span>
+          </div>
+          <p class="section-subtitle">
+            Selecciona todas las dinámicas comerciales que tienes planificado lanzar (puedes marcar varias).
+          </p>
+
+          <div class="option-grid" id="grid-campanas">
+            <div class="option-card checkbox-type selected" data-value="Descuentos generales % en catálogo">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🏷️ Descuentos generales %</div>
+                <div class="option-desc">Rebajas porcentuales en todo el sitio o líneas principales.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Liquidación / Zona Outlet">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🛍️ Liquidación / Zona Outlet</div>
+                <div class="option-desc">Descuentos agresivos para rotación de stock y temporadas pasadas.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Lanzamiento de nuevos productos">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">✨ Lanzamiento de nuevos productos</div>
+                <div class="option-desc">Nuevos SKUs o colecciones exclusivas para este evento.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Packs, Combos o 2x1 / 3x2">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">📦 Packs, Combos o 2x1 / 3x2</div>
+                <div class="option-desc">Bundles armados o promociones por volumen de compra.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Envío Gratis (Free Shipping)">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🚚 Envío Gratis (Free Shipping)</div>
+                <div class="option-desc">Despacho sin costo o tarifas bonificadas por compra mínima.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Ofertas Flash por horarios">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">⚡ Ofertas Flash por horarios</div>
+                <div class="option-desc">Precios especiales por pocas horas o 'horas doradas'.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Regalos o muestras por compra (GWP)">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🎁 Regalos o muestras (GWP)</div>
+                <div class="option-desc">Regalo con compra o muestras gratis en cada paquete.</div>
+              </div>
+            </div>
+
+            <div class="option-card checkbox-type" data-value="Otra estrategia">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">➕ Otra estrategia</div>
+                <div class="option-desc">Cupones de influenciadores, sorteos u otras acciones.</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="box-otra-campana" style="margin-top: 1rem;">
+            <input type="text" id="field-otra-campana" class="cyber-input" placeholder="Detalles de otra campaña o cupón especial (opcional)">
+          </div>
+        </div>
+
+        <!-- 6. Proyecciones de Ventas y Volumen -->
+        <div class="form-card" id="card-volumen">
+          <div class="section-title">
+            <div class="section-icon"><i class="ri-line-chart-line"></i></div>
+            <span>6. ¿Cuánto esperan aumentar sus ventas / pedidos respecto a un mes normal? <span style="color: var(--color-danger);">*</span></span>
+          </div>
+          <p class="section-subtitle">
+            Elige la estimación de crecimiento esperada sobre tu volumen promedio habitual de pedidos.
+          </p>
+
+          <div class="option-grid" id="grid-aumento">
+            <div class="option-card" data-value="moderado" data-name="aumento">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🟢 Moderado (+20% a +50%)</div>
+                <div class="option-desc">Un incremento contenido sobre el flujo normal de pedidos.</div>
+              </div>
+            </div>
+
+            <div class="option-card selected" data-value="significativo" data-name="aumento">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🔵 Significativo: 2x a 3x pedidos</div>
+                <div class="option-desc">Duplicar o triplicar el volumen habitual (+100% a +200%).</div>
+              </div>
+            </div>
+
+            <div class="option-card" data-value="alto" data-name="aumento">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🟣 Fuerte impacto: 3x a 5x pedidos</div>
+                <div class="option-desc">Aumento sustancial de 3 a 5 veces el volumen habitual (+200% a +400%).</div>
+              </div>
+            </div>
+
+            <div class="option-card" data-value="masivo" data-name="aumento">
+              <div class="option-indicator"><i class="ri-check-line"></i></div>
+              <div class="option-content">
+                <div class="option-title">🔥 Masivo / Peak: Más de 5x pedidos</div>
+                <div class="option-desc">Campaña de muy alto impacto (> 400% de crecimiento).</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 1.25rem;">
+            <label class="input-label" for="field-pedidos-estimados">
+              Estimación aproximada de pedidos totales esperados durante el Cyber
+            </label>
+            <input type="text" id="field-pedidos-estimados" class="cyber-input" placeholder="Ej: 800 pedidos en total (o 250 pedidos diarios)">
+            <div class="input-hint">Un número orientativo nos permite asegurar insumos de empaque (cajas, bolsas, etiquetas) y personal suficiente.</div>
+          </div>
+        </div>
+
+        <!-- 7. Coordinación Logística y Bodega WMS Stocka -->
+        <div class="form-card" id="card-bodega">
+          <div class="section-title">
+            <div class="section-icon"><i class="ri-truck-line"></i></div>
+            <span>7. Coordinación Operativa con Bodega WMS Stocka</span>
+          </div>
+          <p class="section-subtitle">
+            Detalles claves de recepción de stock, empaque y preparación en bodega.
+          </p>
+
+          <div style="margin-bottom: 1.25rem;">
+            <label class="input-label">¿Ingresarán mercadería previa de reposición antes del Cyber a bodega? <span style="color: var(--color-danger);">*</span></label>
+            <div class="option-grid" id="grid-abastecimiento">
+              <div class="option-card selected" data-value="si" data-name="abastecimiento">
+                <div class="option-indicator"><i class="ri-check-line"></i></div>
+                <div class="option-content">
+                  <div class="option-title">Sí, enviaremos reposición de stock previa</div>
+                  <div class="option-desc">Llegará mercadería a bodega antes del inicio del Cyber.</div>
+                </div>
+              </div>
+              <div class="option-card" data-value="no" data-name="abastecimiento">
+                <div class="option-indicator"><i class="ri-check-line"></i></div>
+                <div class="option-content">
+                  <div class="option-title">No, operaremos con el stock actual</div>
+                  <div class="option-desc">El inventario actualmente disponible en Stocka es suficiente.</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="box-fecha-llegada-stock" style="margin-top: 0.75rem;">
+              <label class="input-label" for="field-fecha-llegada">¿Fecha estimada de llegada del abastecimiento a bodega?</label>
+              <input type="date" id="field-fecha-llegada" class="cyber-input" style="max-width: 320px;">
+              <div class="input-hint">Recomendamos recibir stock con al menos 3 a 5 días de anticipación para garantizar el almacenaje a tiempo.</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 1.25rem;">
+            <label class="input-label">¿Requerimientos especiales de packaging o empaque?</label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; margin-top: 0.35rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md);">
+                <input type="checkbox" id="chk-flyers" value="Inclusión de flyers o folletos publicitarios">
+                <span>Inclusión de flyers / folletos</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md);">
+                <input type="checkbox" id="chk-cajas-marca" value="Cajas o bolsas con marca del cliente">
+                <span>Cajas / bolsas especiales de marca</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md);">
+                <input type="checkbox" id="chk-cinta-marca" value="Cintas de embalaje impresas">
+                <span>Cintas adhesivas con logo</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md);">
+                <input type="checkbox" id="chk-regalo-muestra" value="Muestras o stickers de regalo en paquetes">
+                <span>Stickers o muestras de regalo</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="input-label" for="field-comentarios-bodega">Comentarios, notas u observaciones para el equipo de operaciones</label>
+            <textarea id="field-comentarios-bodega" class="cyber-input" rows="3" placeholder="Indícanos cualquier necesidad especial, SKUs prioritarios, horarios de corte o sugerencias para nuestra bodega..."></textarea>
+          </div>
+        </div>
+
+      </div> <!-- Fin #secciones-activas -->
+
+      <!-- Botón de Envío -->
+      <div style="margin-top: 2rem; margin-bottom: 2rem;">
+        <button type="submit" id="btn-submit" class="btn-submit-cyber">
+          <i class="ri-send-plane-2-fill"></i>
+          <span id="btn-submit-text">Enviar Planificación Cyber</span>
+        </button>
+        <p style="text-align: center; font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.75rem;">
+          Al enviar este formulario, tu ejecutivo de cuenta y el equipo de operaciones recibirán tus requerimientos.
+        </p>
+      </div>
+
+    </form>
+
+    <!-- Pantalla de Éxito (Oculta al inicio) -->
+    <div id="pantalla-exito" style="display: none;">
+      <div class="form-card" style="text-align: center; padding: 3rem 2rem;">
+        <div style="width: 72px; height: 72px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; margin: 0 auto 1.25rem auto;">
+          <i class="ri-checkbox-circle-fill"></i>
+        </div>
+        <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--color-text-main); margin-bottom: 0.5rem;">
+          ¡Planificación Recibida con Éxito!
+        </h2>
+        <p style="color: var(--color-text-muted); font-size: 0.95rem; max-width: 540px; margin: 0 auto 1.5rem auto; line-height: 1.6;">
+          Muchas gracias por coordinar con nosotros. El equipo de Operaciones de WMS Stocka ya tiene registradas tus proyecciones y campañas para preparar turnos, insumos y espacio en bodega.
+        </p>
+
+        <!-- Resumen Breve de lo enviado -->
+        <div id="resumen-confirmacion" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.25rem; text-align: left; max-width: 540px; margin: 0 auto 2rem auto; font-size: 0.88rem;">
+          <!-- Inyectado vía JS -->
+        </div>
+
+        <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+          <button type="button" id="btn-copiar-enlace" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-file-copy-line"></i> Copiar Enlace del Formulario
+          </button>
+          <a href="https://stocka.cl" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-home-4-line"></i> Ir a Stocka.cl
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer style="margin-top: auto; padding: 1.75rem; text-align: center; font-size: 0.8rem; color: var(--color-text-muted); border-top: 1px solid var(--color-border); background: var(--color-surface);">
+    <div style="font-weight: 600;">WMS STOCKA &bull; Fulfillment &amp; Logística para E-Commerce</div>
+    <div style="font-size: 0.74rem; margin-top: 0.35rem; opacity: 0.8;">
+      Tus datos se transmiten de forma encriptada y segura. Todos los derechos reservados.
+    </div>
+  </footer>
+
+  <!-- Scripts: Supabase CDN & SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <script type="module">
+    import supabase from './js/supabase.js';
+
+    const CYBER_SURVEY_ID = 'c7be2026-0000-4000-8000-000000000001';
+
+    // 1. Lookup de comercio por correo electrónico
+    async function lookupEmail(rawEmail) {
+      if (!rawEmail) return;
+      const email = rawEmail.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+      const emailSpinner = document.getElementById('email-spinner');
+      const emailCheck = document.getElementById('email-check-icon');
+      const emailHint = document.getElementById('email-hint');
+      const boxDetectado = document.getElementById('box-comercio-detectado');
+      const labelDetectado = document.getElementById('label-comercio-detectado');
+      const boxManual = document.getElementById('box-comercio-manual');
+      const fieldComercio = document.getElementById('field-comercio');
+      const fieldNombre = document.getElementById('field-nombre');
+
+      if (emailSpinner) emailSpinner.style.display = 'block';
+      if (emailCheck) emailCheck.style.display = 'none';
+
+      try {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('full_name, comercio, email')
+          .ilike('email', email)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (profile && profile.comercio && profile.comercio.trim().toLowerCase() !== 'no asignado') {
+          const comName = profile.comercio.trim();
+          if (fieldComercio) fieldComercio.value = comName;
+          if (labelDetectado) labelDetectado.textContent = comName;
+          if (boxDetectado) {
+            boxDetectado.style.display = 'block';
+            boxDetectado.style.opacity = '1';
+          }
+          if (boxManual) boxManual.style.display = 'none';
+          if (emailCheck) emailCheck.style.display = 'block';
+
+          if (profile.full_name && fieldNombre && (!fieldNombre.value || fieldNombre.value.trim().toLowerCase() === 'stocka')) {
+            fieldNombre.value = profile.full_name;
+          }
+
+          if (emailHint) {
+            emailHint.innerHTML = `<span style="color: #10b981; font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> ¡Cuenta verificada! Marca asociada a <strong>${escapeHtml(comName)}</strong>.</span>`;
+          }
+        } else {
+          // No asociado o comercio no asignado
+          if (boxDetectado) boxDetectado.style.display = 'none';
+          if (boxManual) boxManual.style.display = 'block';
+          if (emailCheck) emailCheck.style.display = 'none';
+
+          if (emailHint) {
+            emailHint.innerHTML = `<span style="color: var(--color-text-muted);"><i class="ri-information-line"></i> Correo nuevo o no registrado en WMS. Por favor ingresa el nombre de tu marca abajo.</span>`;
+          }
+        }
+      } catch (err) {
+        console.warn('Aviso en lookup de correo:', err);
+        if (boxDetectado) boxDetectado.style.display = 'none';
+        if (boxManual) boxManual.style.display = 'block';
+      } finally {
+        if (emailSpinner) emailSpinner.style.display = 'none';
+      }
+    }
+
+    // 2. Búsqueda de comercio con privacidad (solo sugerir tras 4 caracteres)
+    function setupCommercePrivacySearch() {
+      const fieldComercio = document.getElementById('field-comercio');
+      const suggestionsBox = document.getElementById('comercio-suggestions');
+      const hint = document.getElementById('comercio-hint');
+      if (!fieldComercio || !suggestionsBox) return;
+
+      let debounceTimer = null;
+
+      fieldComercio.addEventListener('input', () => {
+        const query = fieldComercio.value.trim();
+        clearTimeout(debounceTimer);
+
+        // REGLA DE PRIVACIDAD: menos de 4 letras no muestra sugerencias
+        if (query.length < 4) {
+          suggestionsBox.style.display = 'none';
+          suggestionsBox.innerHTML = '';
+          if (hint) {
+            hint.innerHTML = 'Por privacidad entre marcas, las sugerencias aparecerán automáticamente <strong>tras escribir 4 letras</strong>.';
+          }
+          return;
+        }
+
+        if (hint) {
+          hint.innerHTML = `<i class="ri-search-line"></i> Buscando coincidencias para "<strong>${escapeHtml(query)}</strong>"...`;
+        }
+
+        debounceTimer = setTimeout(async () => {
+          try {
+            const { data: matches, error } = await supabase
+              .from('v_comercios_config')
+              .select('nombre')
+              .ilike('nombre', `%${query}%`)
+              .limit(5);
+
+            if (error) throw error;
+
+            if (matches && matches.length > 0) {
+              suggestionsBox.innerHTML = matches.map(m => `
+                <div class="suggestion-item" data-name="${escapeHtml(m.nombre)}">
+                  <i class="ri-store-2-line"></i>
+                  <span>${escapeHtml(m.nombre)}</span>
+                </div>
+              `).join('');
+              suggestionsBox.style.display = 'block';
+
+              suggestionsBox.querySelectorAll('.suggestion-item').forEach(item => {
+                item.addEventListener('click', () => {
+                  fieldComercio.value = item.dataset.name;
+                  suggestionsBox.style.display = 'none';
+                  if (hint) {
+                    hint.innerHTML = `<span style="color: #10b981; font-weight: 600;"><i class="ri-check-line"></i> Marca seleccionada: ${escapeHtml(item.dataset.name)}</span>`;
+                  }
+                });
+              });
+
+              if (hint) {
+                hint.innerHTML = `Sugerencias encontradas (${matches.length}). Haz clic para seleccionar o sigue escribiendo.`;
+              }
+            } else {
+              suggestionsBox.innerHTML = `
+                <div class="suggestion-empty">
+                  No se encontraron marcas registradas con "${escapeHtml(query)}".<br>
+                  <span style="font-size: 0.76rem; color: var(--color-primary);">Puedes continuar, se guardará como marca nueva.</span>
+                </div>
+              `;
+              suggestionsBox.style.display = 'block';
+              if (hint) {
+                hint.innerHTML = 'Marca no registrada previamente. Se guardará con el nombre que escribas.';
+              }
+            }
+          } catch (e) {
+            console.warn('Error buscando sugerencias de comercios:', e);
+            suggestionsBox.style.display = 'none';
+          }
+        }, 220);
+      });
+
+      // Ocultar dropdown al hacer clic fuera
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('#box-comercio-manual')) {
+          suggestionsBox.style.display = 'none';
+        }
+      });
+    }
+
+    async function initCyberForm() {
+      // Conectar privacidad en búsqueda de comercios
+      setupCommercePrivacySearch();
+
+      // Botón para cambiar o forzar edición manual de marca
+      document.getElementById('btn-cambiar-comercio')?.addEventListener('click', () => {
+        const boxManual = document.getElementById('box-comercio-manual');
+        const boxDetectado = document.getElementById('box-comercio-detectado');
+        const fieldComercio = document.getElementById('field-comercio');
+        if (boxManual) {
+          boxManual.style.display = 'block';
+          if (fieldComercio) {
+            fieldComercio.focus();
+            fieldComercio.select();
+          }
+        }
+        if (boxDetectado) {
+          boxDetectado.style.opacity = '0.5';
+        }
+      });
+
+      // Conectar detector en campo de correo electrónico
+      const emailInput = document.getElementById('field-email');
+      let emailTimer = null;
+      if (emailInput) {
+        emailInput.addEventListener('input', () => {
+          clearTimeout(emailTimer);
+          const val = emailInput.value.trim();
+          if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+            emailTimer = setTimeout(() => lookupEmail(val), 400);
+          }
+        });
+        emailInput.addEventListener('change', () => {
+          lookupEmail(emailInput.value);
+        });
+        emailInput.addEventListener('blur', () => {
+          lookupEmail(emailInput.value);
+        });
+      }
+
+      // Prellenar desde URL params o sesión si existe
+      const params = new URLSearchParams(window.location.search);
+      const urlEmail = params.get('email') || '';
+      const urlComercio = params.get('comercio') || params.get('brand') || '';
+      const urlNombre = params.get('nombre') || params.get('name') || '';
+      const urlTelefono = params.get('telefono') || params.get('tel') || '';
+
+      if (urlEmail) {
+        emailInput.value = urlEmail;
+        lookupEmail(urlEmail);
+      }
+      if (urlComercio) {
+        document.getElementById('field-comercio').value = urlComercio;
+        document.getElementById('box-comercio-manual').style.display = 'block';
+      }
+      if (urlNombre) document.getElementById('field-nombre').value = urlNombre;
+      if (urlTelefono) document.getElementById('field-telefono').value = urlTelefono;
+
+      // Si el cliente está logueado en WMS Stocka, auto-rellenar correo y buscar perfil
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.email && !urlEmail) {
+          emailInput.value = session.user.email;
+          lookupEmail(session.user.email);
+        }
+      } catch (e) {}
+
+      // 3. Conectar Radio Cards
+      setupRadioCards('grid-participaran', (val) => {
+        const seccionesActivas = document.getElementById('secciones-activas');
+        const boxNo = document.getElementById('box-no-participa');
+        if (val === 'no') {
+          seccionesActivas.style.display = 'none';
+          boxNo.style.display = 'block';
+          document.getElementById('btn-submit-text').textContent = 'Confirmar No Participación';
+        } else {
+          seccionesActivas.style.display = 'block';
+          boxNo.style.display = 'none';
+          document.getElementById('btn-submit-text').textContent = 'Enviar Planificación Cyber';
+        }
+      });
+
+      setupRadioCards('grid-extenderan');
+      setupRadioCards('grid-aumento');
+      setupRadioCards('grid-abastecimiento', (val) => {
+        const boxFecha = document.getElementById('box-fecha-llegada-stock');
+        if (boxFecha) {
+          boxFecha.style.display = val === 'si' ? 'block' : 'none';
+        }
+      });
+
+      // 4. Conectar Checkbox Cards (Campañas)
+      setupCheckboxCards('grid-campanas');
+
+      // 5. Conectar Date Preset Pills
+      const presetPills = document.querySelectorAll('.date-preset-pill');
+      const inputStart = document.getElementById('field-fecha-inicio');
+      const inputEnd = document.getElementById('field-fecha-fin');
+
+      presetPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          presetPills.forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+
+          const start = pill.dataset.start;
+          const end = pill.dataset.end;
+          if (start && end) {
+            inputStart.value = start;
+            inputEnd.value = end;
+          } else {
+            inputStart.focus();
+          }
+        });
+      });
+
+      [inputStart, inputEnd].forEach(inp => {
+        inp.addEventListener('change', () => {
+          // Si cambia manualmente, deseleccionar presets fijos si no coinciden
+          let matched = false;
+          presetPills.forEach(p => {
+            if (p.dataset.start === inputStart.value && p.dataset.end === inputEnd.value) {
+              p.classList.add('active');
+              matched = true;
+            } else {
+              p.classList.remove('active');
+            }
+          });
+          if (!matched) {
+            document.querySelector('.date-preset-pill[data-preset="personalizado"]')?.classList.add('active');
+          }
+        });
+      });
+
+      // 6. Botón de copiar enlace en pantalla de éxito
+      document.getElementById('btn-copiar-enlace')?.addEventListener('click', () => {
+        const shareUrl = window.location.href.split('?')[0];
+        navigator.clipboard.writeText(shareUrl).then(() => {
+          Swal.fire({
+            icon: 'success',
+            title: '¡Enlace Copiado!',
+            text: 'Enlace del formulario copiado al portapapeles.',
+            timer: 2000,
+            showConfirmButton: false
+          });
+        }).catch(() => {
+          prompt('Copia este enlace directo:', shareUrl);
+        });
+      });
+
+      // 7. Manejo del Submit
+      const form = document.getElementById('cyber-plan-form');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await handleSubmitCyberForm();
+      });
+    }
+
+    function setupRadioCards(gridId, onChangeCallback) {
+      const grid = document.getElementById(gridId);
+      if (!grid) return;
+      const cards = grid.querySelectorAll('.option-card');
+      cards.forEach(card => {
+        card.addEventListener('click', () => {
+          cards.forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          if (onChangeCallback) onChangeCallback(card.dataset.value);
+        });
+      });
+    }
+
+    function setupCheckboxCards(gridId) {
+      const grid = document.getElementById(gridId);
+      if (!grid) return;
+      const cards = grid.querySelectorAll('.option-card');
+      cards.forEach(card => {
+        card.addEventListener('click', () => {
+          card.classList.toggle('selected');
+        });
+      });
+    }
+
+    async function handleSubmitCyberForm() {
+      const btn = document.getElementById('btn-submit');
+      const btnText = document.getElementById('btn-submit-text');
+
+      // Validar datos básicos de contacto
+      const comercio = document.getElementById('field-comercio').value.trim();
+      const nombre = document.getElementById('field-nombre').value.trim();
+      const email = document.getElementById('field-email').value.trim();
+      const telefono = document.getElementById('field-telefono').value.trim();
+
+      if (!email) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Correo Requerido',
+          text: 'Por favor ingresa tu correo electrónico de contacto para comenzar.'
+        });
+        document.getElementById('field-email')?.focus();
+        return;
+      }
+
+      if (!comercio) {
+        const boxManual = document.getElementById('box-comercio-manual');
+        if (boxManual) boxManual.style.display = 'block';
+        Swal.fire({
+          icon: 'warning',
+          title: 'Nombre de Marca Requerido',
+          text: 'Por favor ingresa el nombre de tu empresa o tienda.'
+        });
+        document.getElementById('field-comercio')?.focus();
+        return;
+      }
+
+      if (!nombre || !telefono) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Datos Incompletos',
+          text: 'Por favor completa tu nombre de responsable y teléfono / WhatsApp de contacto.'
+        });
+        document.getElementById('card-identificacion').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      // Obtener Participación
+      const participaranCard = document.querySelector('#grid-participaran .option-card.selected');
+      const participaranVal = participaranCard ? participaranCard.dataset.value : 'si';
+      const participaranTexto = participaranCard ? participaranCard.querySelector('.option-title').innerText : 'Sí';
+
+      // Preparar estructura de answers
+      const answers = {
+        'b-comercio': comercio,
+        'b-contacto-nombre': nombre,
+        'b-contacto-email': email,
+        'b-contacto-telefono': telefono,
+        'b-participaran': participaranTexto
+      };
+
+      let resumenHtml = '';
+
+      if (participaranVal === 'no') {
+        const motivo = document.getElementById('field-motivo-no').value.trim();
+        if (motivo) answers['b-motivo-no-participa'] = motivo;
+
+        resumenHtml = `
+          <div><strong>Comercio:</strong> ${escapeHtml(comercio)}</div>
+          <div><strong>Contacto:</strong> ${escapeHtml(nombre)} (${escapeHtml(email)})</div>
+          <div><strong>Participación:</strong> No participará en este Cyber</div>
+          ${motivo ? `<div style="margin-top: 0.5rem; color: var(--color-text-muted);"><em>"${escapeHtml(motivo)}"</em></div>` : ''}
+        `;
+      } else {
+        // Campañas seleccionadas
+        const selectedCampanas = [];
+        document.querySelectorAll('#grid-campanas .option-card.selected').forEach(c => {
+          selectedCampanas.push(c.dataset.value);
+        });
+        const otraCampana = document.getElementById('field-otra-campana').value.trim();
+        if (otraCampana) selectedCampanas.push(`Otra: ${otraCampana}`);
+        answers['b-campanas'] = selectedCampanas;
+
+        // Fechas
+        const fechaInicio = document.getElementById('field-fecha-inicio').value;
+        const fechaFin = document.getElementById('field-fecha-fin').value;
+        answers['b-fechas-campana'] = `Desde ${fechaInicio} hasta ${fechaFin}`;
+        answers['b-fecha-inicio'] = fechaInicio;
+        answers['b-fecha-fin'] = fechaFin;
+
+        // Extensión
+        const extensionCard = document.querySelector('#grid-extenderan .option-card.selected');
+        const extensionTexto = extensionCard ? extensionCard.querySelector('.option-title').innerText : 'No definido';
+        answers['b-extenderan-ofertas'] = extensionTexto;
+
+        // Aumento de ventas
+        const aumentoCard = document.querySelector('#grid-aumento .option-card.selected');
+        const aumentoTexto = aumentoCard ? aumentoCard.querySelector('.option-title').innerText : 'No definido';
+        answers['b-aumento-ventas'] = aumentoTexto;
+
+        const pedidosEstimados = document.getElementById('field-pedidos-estimados').value.trim();
+        if (pedidosEstimados) answers['b-pedidos-estimados'] = pedidosEstimados;
+
+        // Abastecimiento previo y bodega
+        const abastecimientoCard = document.querySelector('#grid-abastecimiento .option-card.selected');
+        const abastecimientoTexto = abastecimientoCard ? abastecimientoCard.querySelector('.option-title').innerText : 'No';
+        answers['b-abastecimiento-previo'] = abastecimientoTexto;
+
+        const fechaLlegada = document.getElementById('field-fecha-llegada').value;
+        if (abastecimientoCard?.dataset.value === 'si' && fechaLlegada) {
+          answers['b-fecha-llegada-stock'] = fechaLlegada;
+        }
+
+        // Packaging
+        const packagingReqs = [];
+        if (document.getElementById('chk-flyers').checked) packagingReqs.push('Flyers / Folletos');
+        if (document.getElementById('chk-cajas-marca').checked) packagingReqs.push('Cajas/Bolsas especiales');
+        if (document.getElementById('chk-cinta-marca').checked) packagingReqs.push('Cinta con logo');
+        if (document.getElementById('chk-regalo-muestra').checked) packagingReqs.push('Regalos / Stickers');
+        if (packagingReqs.length > 0) answers['b-packaging-especial'] = packagingReqs;
+
+        const comentarios = document.getElementById('field-comentarios-bodega').value.trim();
+        if (comentarios) answers['b-comentarios-bodega'] = comentarios;
+
+        resumenHtml = `
+          <div style="display: grid; gap: 0.4rem;">
+            <div><strong>Comercio:</strong> ${escapeHtml(comercio)}</div>
+            <div><strong>Contacto:</strong> ${escapeHtml(nombre)} (${escapeHtml(email)} • ${escapeHtml(telefono)})</div>
+            <div><strong>Fechas de Campaña:</strong> ${escapeHtml(fechaInicio)} al ${escapeHtml(fechaFin)}</div>
+            <div><strong>Extensión:</strong> ${escapeHtml(extensionTexto)}</div>
+            <div><strong>Proyección de Ventas:</strong> ${escapeHtml(aumentoTexto)} ${pedidosEstimados ? `(${escapeHtml(pedidosEstimados)})` : ''}</div>
+            <div><strong>Campañas:</strong> ${selectedCampanas.length > 0 ? escapeHtml(selectedCampanas.join(', ')) : 'Estándar'}</div>
+            <div><strong>Ingreso Previo de Stock:</strong> ${escapeHtml(abastecimientoTexto)} ${fechaLlegada ? `(Llegada: ${escapeHtml(fechaLlegada)})` : ''}</div>
+          </div>
+        `;
+      }
+
+      // Deshabilitar botón durante el envío
+      btn.disabled = true;
+      btnText.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando planificación...';
+
+      try {
+        // Obtener usuario autenticado si existe en sesión
+        let userId = null;
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) userId = session.user.id;
+        } catch (e) {}
+
+        const payload = {
+          survey_id: CYBER_SURVEY_ID,
+          user_id: userId,
+          comercio: comercio,
+          user_email: email,
+          user_name: nombre,
+          answers: answers,
+          source: 'public_link',
+          metadata: {
+            telefono: telefono,
+            participa: participaranVal,
+            submitted_at: new Date().toISOString()
+          }
+        };
+
+        // 1. Intentar inserción directa
+        let insertSuccess = false;
+        let lastError = null;
+
+        try {
+          const { error: insertErr } = await supabase.from('survey_responses').insert(payload);
+          if (!insertErr) {
+            insertSuccess = true;
+          } else {
+            lastError = insertErr;
+          }
+        } catch (e) {
+          lastError = e;
+        }
+
+        // 2. Si falla por permisos/RLS, intentar mediante la RPC segura
+        if (!insertSuccess) {
+          try {
+            const { data: rpcRes, error: rpcErr } = await supabase.rpc('submit_cyber_survey_response', {
+              p_survey_id: CYBER_SURVEY_ID,
+              p_comercio: comercio,
+              p_user_name: nombre,
+              p_user_email: email,
+              p_answers: answers,
+              p_metadata: payload.metadata
+            });
+            if (!rpcErr) {
+              insertSuccess = true;
+            } else {
+              lastError = rpcErr;
+            }
+          } catch (e) {
+            lastError = e;
+          }
+        }
+
+        if (!insertSuccess) {
+          throw lastError || new Error('No se pudo guardar la respuesta en la base de datos.');
+        }
+
+        // Mostrar pantalla de éxito
+        document.getElementById('cyber-plan-form').style.display = 'none';
+        document.getElementById('resumen-confirmacion').innerHTML = resumenHtml;
+        const pantallaExito = document.getElementById('pantalla-exito');
+        pantallaExito.style.display = 'block';
+        pantallaExito.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      } catch (err) {
+        console.error('Error al enviar planificación:', err);
+        Swal.fire({
+          icon: 'error',
+          title: 'Error al Enviar',
+          text: 'Hubo un inconveniente al registrar tus respuestas: ' + (err.message || err)
+        });
+        btn.disabled = false;
+        btnText.textContent = participaranVal === 'no' ? 'Confirmar No Participación' : 'Enviar Planificación Cyber';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    initCyberForm();
+  </script>
+</body>
+</html>

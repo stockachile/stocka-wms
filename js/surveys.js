@@ -1211,7 +1211,9 @@ export async function renderSurveysAdmin(targetContainer) {
         const token = btn.dataset.token;
         const id = btn.dataset.id;
         const currentOrigin = window.location.origin;
-        const surveyUrl = `${currentOrigin}/encuesta.html?id=${id}`;
+        const surveyUrl = (id === 'c7be2026-0000-4000-8000-000000000001' || (token && token.includes('cyber')))
+          ? `${currentOrigin}/cyber.html`
+          : `${currentOrigin}/encuesta.html?id=${id}`;
         
         navigator.clipboard.writeText(surveyUrl).then(() => {
           if (window.Swal) {
@@ -3500,12 +3502,56 @@ export function renderSurveyWizard(survey, container, options = {}) {
 
       const avgRating = ratingCount > 0 ? (ratingSum / ratingCount).toFixed(2) : null;
 
+      // Extraer comercio, nombre y email de las respuestas si no están en userProfile
+      let respondentComercio = userProfile?.comercio || null;
+      let respondentName = userProfile?.full_name || null;
+      let respondentEmail = userProfile?.email || null;
+
+      if (!respondentComercio || respondentComercio === 'Invitado') {
+        if (answers['b-comercio']) {
+          respondentComercio = String(answers['b-comercio']).trim();
+        } else {
+          pages.forEach(p => (p.blocks || []).forEach(b => {
+            const t = (b.title || '').toLowerCase();
+            if ((t.includes('empresa') || t.includes('marca') || t.includes('comercio') || t.includes('tienda')) && answers[b.id]) {
+              respondentComercio = String(answers[b.id]).trim();
+            }
+          }));
+        }
+      }
+
+      if (!respondentName) {
+        if (answers['b-contacto-nombre']) {
+          respondentName = String(answers['b-contacto-nombre']).trim();
+        } else {
+          pages.forEach(p => (p.blocks || []).forEach(b => {
+            const t = (b.title || '').toLowerCase();
+            if ((t.includes('nombre') || t.includes('encargado') || t.includes('responsable')) && !t.includes('empresa') && answers[b.id]) {
+              respondentName = String(answers[b.id]).trim();
+            }
+          }));
+        }
+      }
+
+      if (!respondentEmail) {
+        if (answers['b-contacto-email']) {
+          respondentEmail = String(answers['b-contacto-email']).trim();
+        } else {
+          pages.forEach(p => (p.blocks || []).forEach(b => {
+            const t = (b.title || '').toLowerCase();
+            if ((t.includes('correo') || t.includes('email') || t.includes('mail')) && answers[b.id]) {
+              respondentEmail = String(answers[b.id]).trim();
+            }
+          }));
+        }
+      }
+
       const payload = {
         survey_id: survey.id,
         user_id: userProfile?.id || null,
-        comercio: userProfile?.comercio || 'Invitado',
-        user_email: userProfile?.email || null,
-        user_name: userProfile?.full_name || null,
+        comercio: respondentComercio || 'Invitado',
+        user_email: respondentEmail || null,
+        user_name: respondentName || null,
         answers: answers,
         rating_score: avgRating,
         nps_score: npsScore,

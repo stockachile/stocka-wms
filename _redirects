@@ -13,3 +13,7 @@ https://stocka-wms.netlify.app/* https://wms.stocka.cl/:splat 301!
 /downloads/Tarifarios* /downloads/presentacion_fulfillment_360.pdf 200
 /conteo /admin.html?view=inventory_count 200
 /inventario-movil /admin.html?view=inventory_count 200
+/cyber /cyber.html 200
+/cyber-2026 /cyber.html 200
+/planes-cyber /cyber.html 200
+/encuesta-cyber /cyber.html 200

@@ -162,6 +162,7 @@ serve(async (req: Request) => {
     // -------------------------------------------------------------------------
     if (req.method === "GET" && path === "stock") {
       const skuFilter = url.searchParams.get("sku")?.trim() || "";
+      const sinceParam = url.searchParams.get("since")?.trim() || url.searchParams.get("desde")?.trim() || "";
       const limit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10), 5000);
       const offset = parseInt(url.searchParams.get("offset") || "0", 10);
 
@@ -175,6 +176,43 @@ serve(async (req: Request) => {
 
       if (skuFilter) {
         prodQuery = prodQuery.eq("sku", skuFilter);
+      }
+
+      // Si solicitan filtrar por fecha de actualización
+      if (sinceParam) {
+        const { data: florProds } = await supabase
+          .from("products")
+          .select("id")
+          .eq("comercio", comercio);
+        
+        const florPids = (florProds || []).map((x: any) => x.id);
+
+        if (florPids.length === 0) {
+          return jsonResponse({
+            success: true,
+            comercio: comercio,
+            total: 0,
+            data: []
+          });
+        }
+
+        const { data: recentInv } = await supabase
+          .from("inventory")
+          .select("product_id")
+          .in("product_id", florPids)
+          .gte("updated_at", sinceParam);
+        
+        const recentPids = (recentInv || []).map((x: any) => x.product_id);
+        if (recentPids.length > 0) {
+          prodQuery = prodQuery.in("id", recentPids);
+        } else {
+          return jsonResponse({
+            success: true,
+            comercio: comercio,
+            total: 0,
+            data: []
+          });
+        }
       }
 
       const { data: products, error: prodErr } = await prodQuery;
@@ -301,6 +339,95 @@ serve(async (req: Request) => {
     }
 
     // -------------------------------------------------------------------------
+    // RUTA: POST /orders/:numero_pedido/cancel o POST /orders/cancel
+    // -------------------------------------------------------------------------
+    if (req.method === "POST" && (path.endsWith("/cancel") || path === "orders/cancel")) {
+      let orderNumber = "";
+      if (path.startsWith("orders/") && path.endsWith("/cancel")) {
+        orderNumber = decodeURIComponent(path.replace(/^orders\//, "").replace(/\/cancel$/, "")).trim();
+      } else {
+        const body = await req.json().catch(() => ({}));
+        orderNumber = (body.numero_pedido || body.order_number || url.searchParams.get("numero_pedido") || "").trim();
+      }
+
+      if (!orderNumber) {
+        return jsonResponse({
+          success: false,
+          error: "Bad Request",
+          message: "Debes indicar el 'numero_pedido' a cancelar."
+        }, 400);
+      }
+
+      const { data: order, error: ordErr } = await supabase
+        .from("orders")
+        .select("id, external_order_number, status, estado_wms, courier, tracking_number")
+        .eq("comercio", comercio)
+        .eq("external_order_number", orderNumber)
+        .maybeSingle();
+
+      if (ordErr || !order) {
+        return jsonResponse({
+          success: false,
+          error: "Not Found",
+          message: `El pedido '${orderNumber}' no fue encontrado en WMS Stocka.`
+        }, 404);
+      }
+
+      const currentWms = (order.estado_wms || "").toLowerCase();
+      const currentStatus = (order.status || "").toLowerCase();
+
+      // Si ya está despachado, NO se puede cancelar
+      if (currentWms === "despachado" || currentStatus === "despachado") {
+        return jsonResponse({
+          success: false,
+          error: "Conflict",
+          message: `El pedido '${orderNumber}' ya fue despachado (Courier: ${order.courier || 'N/A'}, Tracking: ${order.tracking_number || 'N/A'}) y no puede ser cancelado en WMS.`,
+          estado_wms: order.estado_wms,
+          tracking_number: order.tracking_number
+        }, 409);
+      }
+
+      // Si ya estaba cancelado
+      if (currentWms === "cancelado" || currentStatus === "cancelado") {
+        return jsonResponse({
+          success: true,
+          message: `El pedido '${orderNumber}' ya se encontraba cancelado previamente.`,
+          numero_pedido: orderNumber,
+          estado: "cancelado",
+          estado_wms: "Cancelado"
+        }, 200);
+      }
+
+      // Proceder con la cancelación
+      // El trigger handle_order_status_change() liberará automáticamente committed_quantity y reserved_quantity
+      const { error: upErr } = await supabase
+        .from("orders")
+        .update({
+          status: "cancelado",
+          estado_wms: "Cancelado"
+        })
+        .eq("id", order.id);
+
+      if (upErr) {
+        return jsonResponse({
+          success: false,
+          error: "Database Error",
+          message: `Error al actualizar estado del pedido: ${upErr.message}`
+        }, 500);
+      }
+
+      console.log(`🚫 [Floractive API] Pedido ${orderNumber} cancelado exitosamente en WMS.`);
+
+      return jsonResponse({
+        success: true,
+        message: `El pedido '${orderNumber}' fue cancelado exitosamente en WMS Stocka. El inventario comprometido fue liberado.`,
+        numero_pedido: orderNumber,
+        estado: "cancelado",
+        estado_wms: "Cancelado"
+      }, 200);
+    }
+
+    // -------------------------------------------------------------------------
     // RUTA: POST /orders (Creación de pedidos pagados en WMS)
     // -------------------------------------------------------------------------
     if (req.method === "POST" && (path === "orders" || path === "")) {
@@ -381,6 +508,7 @@ serve(async (req: Request) => {
       }
 
       // 3. Extraer y formatear datos del cliente
+      const isTestMode = !!(payload.modo_prueba || payload.test || numeroPedido.toUpperCase().startsWith("TEST-"));
       const cliente = payload.cliente || payload.customer || {};
       const customerName = (
         cliente.nombre || 
@@ -403,12 +531,13 @@ serve(async (req: Request) => {
       if (isPickup) {
         shippingAddress = "Retiro en Bodega Central (WMS Stocka)";
         shippingCity = "Santiago";
-        shippingComplement = "RETIRO EN BODEGA";
+        shippingComplement = isTestMode ? "[MODO PRUEBA - NO DESPACHAR] RETIRO EN BODEGA" : "RETIRO EN BODEGA";
       } else {
         shippingAddress = (dirData.direccion || dirData.address_1 || dirData.calle || "No especificada").trim();
         shippingCity = (dirData.comuna || dirData.ciudad || dirData.city || "Santiago").trim();
         
         const complementParts = [
+          isTestMode ? "[MODO PRUEBA - NO DESPACHAR]" : "",
           dirData.departamento || dirData.depto || dirData.address_2 || dirData.complemento,
           dirData.region || dirData.state,
           payload.notas || payload.notes
@@ -453,6 +582,9 @@ serve(async (req: Request) => {
       const flatQuantity = Object.values(itemQuantities).reduce((sum, q) => sum + q, 0);
       const finalTotalValue = Number(payload.total ?? payload.total_value ?? calculatedTotal);
 
+      const rawCourier = String(dirData.courier_preferido || payload.courier || "").trim().toUpperCase();
+      const chosenCourier = rawCourier || "Por definir (WMS Asigna)";
+
       // 7. Insertar orden en public.orders
       const orderInsertData: Record<string, any> = {
         merchant_id: merchantId,
@@ -467,7 +599,7 @@ serve(async (req: Request) => {
         shipping_address: shippingAddress,
         shipping_city: shippingCity,
         shipping_complement: shippingComplement,
-        shipping_method: isPickup ? "Retiro en Bodega" : (dirData.courier_preferido || "Despacho a Domicilio"),
+        shipping_method: isPickup ? "Retiro en Bodega" : chosenCourier,
         origen: "Floractive API",
         item: flatItemName,
         cantidad: flatQuantity,
@@ -570,15 +702,20 @@ serve(async (req: Request) => {
         }, 400);
       }
 
+      const nowIso = new Date().toISOString();
+      const eventId = `evt_${crypto.randomUUID()}`;
       const testPayload = {
+        event_id: eventId,
         event: "test.ping",
         message: "Ping de prueba desde WMS Stocka",
-        timestamp: new Date().toISOString()
+        timestamp: nowIso
       };
 
       const payloadText = JSON.stringify(testPayload);
       const headers: Record<string, string> = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-stocka-event-id": eventId,
+        "x-stocka-timestamp": nowIso
       };
 
       if (clientAuth.webhook_secret) {
