@@ -545,7 +545,7 @@ async function handleIndividualMode(idPedido) {
                   console.error('⚠️ Error al parsear JSON interno de response:', e.message);
                 }
               }
-              createdDid = json.dids || json.did || innerJson.did || innerJson.idenvio || (json.detalle && json.detalle.dids);
+              createdDid = json.didsProcesados || json.dids || json.did || innerJson.did || innerJson.idenvio || (json.detalle && json.detalle.dids);
               console.log(`🌐 API altaEnvio respondió con éxito. did/dids capturado: ${createdDid}`);
             } else {
               console.error(`❌ API altaEnvio reportó error interno en JSON:`, json.mensaje || json.error || json);
@@ -611,7 +611,7 @@ async function handleIndividualMode(idPedido) {
     // Esperar respuesta de la creación (AJAX) de forma dinámica
     console.log('⏳ Esperando respuesta de la creación (AJAX)...');
     let retries = 0;
-    while (!createdDid && retries < 12) {
+    while (!createdDid && retries < 30) {
       await page.waitForTimeout(500);
       retries++;
     }
@@ -753,12 +753,12 @@ async function handleBulkMode(limiteCarga) {
     console.log(`🔍 Filtrando búsqueda por ${idsList.length} IDs específicos seleccionados en el WMS...`);
     query = query.in('id', idsList);
   } else {
-    // Obtener pedidos en estado 'En preparación' que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' y no tengan tracking ni etiqueta
+    // Obtener pedidos que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' u operador 'ALPHA' y no tengan tracking ni etiqueta
     query = query
       .or('courier.eq.LIGHTDATA,courier.eq.PENDIENTE_LIGHTDATA,operador.eq.ALPHA')
-      .is('tracking_number', null)
+      .or('tracking_number.is.null,tracking_number.eq.No informado')
       .is('label_base64', null)
-      .eq('estado_wms', 'En preparación')
+      .in('estado_wms', ['En preparación', 'En procesamiento'])
       .limit(limiteCarga);
   }
 
@@ -959,13 +959,17 @@ async function handleBulkMode(limiteCarga) {
     }
 
     // Interceptar llamadas AJAX del procesamiento masivo
-    let createdDidsStr = '';
+    let createdDidsList = [];
     page.on('response', async (response) => {
-      if (response.url().includes('controlador.php')) {
+      const url = response.url();
+      if (url.includes('controlador.php') || url.includes('altaEnvio')) {
         try {
           const text = await response.text();
-          console.log(`🌐 Interceptada respuesta de controlador.php masivo. Raw: ${text}`);
-          const json = JSON.parse(text);
+          console.log(`🌐 Interceptada respuesta de subida masiva (${url}). Raw: ${text.slice(0, 300)}`);
+          let json;
+          try {
+            json = JSON.parse(text);
+          } catch (e) {}
           if (json) {
             let innerJson = {};
             if (json.response && typeof json.response === 'string') {
@@ -973,14 +977,16 @@ async function handleBulkMode(limiteCarga) {
                 innerJson = JSON.parse(json.response);
               } catch (e) {}
             }
-            const dids = json.dids || innerJson.dids || innerJson.did || json.did;
+            const dids = json.didsProcesados || json.dids || innerJson.dids || innerJson.didsProcesados || innerJson.did || json.did || (json.detalle && json.detalle.dids);
             if (dids) {
-              createdDidsStr = String(dids);
-              console.log(`🌐 Controlador masivo respondió con dids: ${createdDidsStr}`);
+              const str = Array.isArray(dids) ? dids.join(',') : String(dids);
+              const items = str.split(',').map(d => d.trim()).filter(Boolean);
+              createdDidsList.push(...items);
+              console.log(`🌐 Controlador masivo respondió con dids: ${items.join(',')}`);
             }
           }
         } catch (e) {
-          console.error('⚠️ Error al leer/parsear respuesta de controlador.php:', e.message);
+          console.error('⚠️ Error al leer/parsear respuesta masiva:', e.message);
         }
       }
     });
@@ -996,20 +1002,47 @@ async function handleBulkMode(limiteCarga) {
     const confirmButton = page.locator('button:has-text("Si, subir"), button.swal2-confirm, button.swal-button--confirm, button.swal-button').first();
     await confirmButton.click({ timeout: 5000 });
 
-    // Esperar respuesta de inserción (donde se interceptará el controlador.php) de forma reactiva
-    console.log('⏳ Esperando respuesta de la creación masiva (controlador.php)...');
+    // Esperar respuesta de inserción de forma reactiva
+    console.log('⏳ Esperando respuesta de la creación masiva...');
     let retries = 0;
-    while (!createdDidsStr && retries < 24) {
+    while (createdDidsList.length === 0 && retries < 60) {
       await page.waitForTimeout(500);
+
+      // Fallback: verificar si la variable global didaimprimir fue poblada en el contexto de la página
+      if (createdDidsList.length === 0 && retries > 10) {
+        try {
+          const windowDids = await page.evaluate(() => {
+            if (typeof didaimprimir !== 'undefined' && didaimprimir) return String(didaimprimir);
+            if (typeof window.didaimprimir !== 'undefined' && window.didaimprimir) return String(window.didaimprimir);
+            return null;
+          });
+          if (windowDids) {
+            const items = windowDids.split(',').map(d => d.trim()).filter(Boolean);
+            if (items.length > 0) {
+              createdDidsList.push(...items);
+              console.log(`🌐 Capturados dids desde variable de página didaimprimir: ${items.join(',')}`);
+            }
+          }
+        } catch (e) {}
+      }
+
       retries++;
     }
 
-    if (!createdDidsStr) {
+    if (createdDidsList.length === 0) {
       console.error('❌ ERROR: No se pudieron capturar los dids de la respuesta de subida.');
+      const postSwal = await page.evaluate(() => {
+        const title = document.querySelector('.swal2-title, .swal-title, .sweet-alert h2')?.innerText;
+        const text = document.querySelector('.swal2-html-container, .swal-text, .sweet-alert p')?.innerText;
+        return { title, text };
+      }).catch(() => null);
+      if (postSwal) {
+        console.error(`💬 Estado SweetAlert al fallar: [Título: "${postSwal.title}"] [Texto: "${postSwal.text}"]`);
+      }
       process.exit(1);
     }
 
-    const listDids = createdDidsStr.split(',').filter(Boolean);
+    const listDids = [...new Set(createdDidsList)];
     console.log(`📥 Descargando etiquetas consolidadas para ${listDids.length} envíos...`);
 
     const printData = {
