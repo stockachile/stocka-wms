@@ -363,6 +363,7 @@ async function getValidAccessToken(integration) {
  * Sincroniza los pedidos de un cliente específico de Walmart
  */
 async function syncMerchantOrders(integration) {
+  const orderErrors = [];
   // A. Obtener bodega por defecto para el cliente
   let warehouseId = null;
   const { data: whRel } = await supabase
@@ -506,6 +507,9 @@ async function syncMerchantOrders(integration) {
       let itemQuantities = {};
       let itemNames = [];
       let totalAmount = 0;
+      let trackingNumber = null;
+      let trackingUrl = null;
+      let courierName = null;
 
       const orderLines = order.orderLines?.orderLine || [];
       const linesArray = Array.isArray(orderLines) ? orderLines : [orderLines];
@@ -517,9 +521,9 @@ async function syncMerchantOrders(integration) {
         const qty = Number(line.orderLineQuantity?.amount || 1);
         
         let price = 0;
-        const charges = line.charge?.charges || [];
-        const chargesArray = Array.isArray(charges) ? charges : [charges];
-        const productCharge = chargesArray.find(c => c.chargeType === 'PRODUCT');
+        const chargesObj = line.charges?.charge || line.charge?.charges || line.charges || line.charge || [];
+        const chargesArray = Array.isArray(chargesObj) ? chargesObj : [chargesObj];
+        const productCharge = chargesArray.find(c => c && c.chargeType === 'PRODUCT');
         if (productCharge && productCharge.chargeAmount) {
           price = Number(productCharge.chargeAmount.amount || 0);
         }
@@ -542,7 +546,27 @@ async function syncMerchantOrders(integration) {
         const statusArray = Array.isArray(orderStatuses) ? orderStatuses : [orderStatuses];
         for (const st of statusArray) {
           if (st.status) lineStatuses.push(st.status);
+          if (st.trackingInfo) {
+            if (!trackingNumber && st.trackingInfo.trackingNumber) {
+              trackingNumber = String(st.trackingInfo.trackingNumber).trim();
+            }
+            if (!trackingUrl && st.trackingInfo.trackingURL) {
+              trackingUrl = String(st.trackingInfo.trackingURL).trim();
+            }
+            const rawCarrier = st.trackingInfo.carrierName?.carrier || st.trackingInfo.carrierName?.otherCarrier;
+            if (!courierName && rawCarrier) {
+              const carrierUpper = String(rawCarrier).trim().toUpperCase();
+              if (carrierUpper.includes('BLUE')) courierName = 'BLUEXPRESS';
+              else if (carrierUpper.includes('STARKEN')) courierName = 'STARKEN';
+              else if (carrierUpper.includes('CHILE')) courierName = 'CHILEXPRESS';
+              else courierName = String(rawCarrier).trim();
+            }
+          }
         }
+      }
+
+      if (order.orderSummary?.totalAmount?.amount) {
+        totalAmount = Number(order.orderSummary.totalAmount.amount);
       }
 
       // Si hay varios estados, tomamos el más prioritario
@@ -580,9 +604,9 @@ async function syncMerchantOrders(integration) {
       // B. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, raw_walmart_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, status, estado_wms, comercio, raw_walmart_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, tracking_number, tracking_url, courier')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderId)
+        .in('external_order_number', [orderNumber, finalOrderId])
         .eq('external_platform', 'Walmart')
         .maybeSingle();
 
@@ -612,7 +636,10 @@ async function syncMerchantOrders(integration) {
               ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
               ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
             },
-            shipping_method: shippingMethod
+            shipping_method: shippingMethod,
+            ...(trackingNumber && !existingOrder.tracking_number ? { tracking_number: trackingNumber } : {}),
+            ...(trackingUrl && !existingOrder.tracking_url ? { tracking_url: trackingUrl } : {}),
+            ...(courierName && !existingOrder.courier ? { courier: courierName } : {})
           };
           
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
@@ -685,6 +712,14 @@ async function syncMerchantOrders(integration) {
           resolvedCommerce = uniqueComercios[0];
         }
 
+        let createdAtIso = new Date().toISOString();
+        if (order.orderDate) {
+          const d = new Date(typeof order.orderDate === 'string' && /^\d+$/.test(order.orderDate) ? Number(order.orderDate) : order.orderDate);
+          if (!isNaN(d.getTime())) {
+            createdAtIso = d.toISOString();
+          }
+        }
+
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
           comercio: resolvedCommerce,
@@ -705,7 +740,10 @@ async function syncMerchantOrders(integration) {
           sku: flatSku,
           shipping_method: shippingMethod,
           status: 'para procesar', // Insertar en para procesar temporalmente
-          created_at: order.orderDate
+          created_at: createdAtIso,
+          ...(trackingNumber ? { tracking_number: trackingNumber } : {}),
+          ...(trackingUrl ? { tracking_url: trackingUrl } : {}),
+          ...(courierName ? { courier: courierName } : {})
         };
 
         const { data: newOrder, error: insErr } = await supabase
@@ -716,6 +754,7 @@ async function syncMerchantOrders(integration) {
 
         if (insErr) {
           console.error(`❌ Error al insertar pedido local ${finalOrderId}:`, insErr.message);
+          orderErrors.push(`Pedido ${finalOrderId}: ${insErr.message}`);
           continue;
         }
 
@@ -747,7 +786,7 @@ async function syncMerchantOrders(integration) {
                 .from('products')
                 .insert([{
                   merchant_id: integration.merchant_id,
-                  comercio: integration.comercio,
+                  comercio: resolvedCommerce,
                   sku: sku,
                   name: name,
                   barcode: sku, // Usar SKU como código de barras por defecto
@@ -799,6 +838,10 @@ async function syncMerchantOrders(integration) {
           }
         }
       }
+    }
+
+    if (orderErrors.length > 0) {
+      throw new Error(`Falló la sincronización de ${orderErrors.length} pedidos: ${orderErrors.join('; ')}`);
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para el comercio ${integration.comercio}:`, error.message);
