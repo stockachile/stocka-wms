@@ -24,6 +24,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 5000);
   };
 
+  // Verificar si se redirigió por caducidad de sesión
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('reason') === 'session_expired') {
+      showAlert('Tu sesión ha expirado por inactividad. Por favor ingresa nuevamente para renovar tus credenciales.', 'warning');
+    }
+  } catch (e) {}
+
   // Elementos de Registro
   const registerForm = document.getElementById('register-form');
   const regNameInput = document.getElementById('reg-name');

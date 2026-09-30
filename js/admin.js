@@ -2259,6 +2259,14 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
 
 // Helper robusto para invocar Edge Functions de Supabase con auto-refresh de sesión y tolerancia a expiración
 window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
+  // Soporte para modo demo
+  if (typeof window.isDemoMode === 'function' && window.isDemoMode()) {
+    if (functionName === 'trigger-lightdata-label' && (!options.method || options.method === 'GET')) {
+      return { workflow_runs: [] };
+    }
+    return { ok: true, message: 'Operación simulada en modo demo' };
+  }
+
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
   const url = `https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/${functionName}`;
 
@@ -2279,6 +2287,8 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
       const { data: refreshed, error: refErr } = await supabase.auth.refreshSession();
       if (!refErr && refreshed?.session) {
         session = refreshed.session;
+      } else if (refErr) {
+        console.warn('[fetchWmsEdgeFunction] Refresh proactivo falló:', refErr);
       }
     } catch (refEx) {
       console.warn('[fetchWmsEdgeFunction] Refresh proactivo falló:', refEx);
@@ -2286,7 +2296,7 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
   }
 
   if (!session?.access_token) {
-    throw new Error('Tu sesión en el WMS ha expirado o no está activa. Por favor recarga la página (F5) o inicia sesión nuevamente.');
+    throw new Error('Tu sesión en el WMS ha expirado o no está activa. Inicia sesión nuevamente para renovar credenciales.');
   }
 
   const doFetch = async (token) => {
@@ -2311,6 +2321,8 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
       if (!refErr && refreshed?.session?.access_token) {
         session = refreshed.session;
         response = await doFetch(session.access_token);
+      } else {
+        console.warn('[fetchWmsEdgeFunction] Reintento tras 401 falló al renovar sesión:', refErr);
       }
     } catch (retryEx) {
       console.warn('[fetchWmsEdgeFunction] Reintento tras 401 falló:', retryEx);
@@ -2321,7 +2333,7 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new Error('Tu sesión ha caducado por inactividad. Por favor recarga la página (F5) para renovar tus credenciales.');
+      throw new Error('Tu sesión ha caducado por inactividad. Inicia sesión nuevamente para renovar tus credenciales.');
     }
     throw new Error(result.error || `Error del servidor (${response.status})`);
   }
@@ -2737,6 +2749,11 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           if (typeof window.updatePickerTrackingForOrder === 'function') {
             await window.updatePickerTrackingForOrder(order, trackingNum, 'ALPHA');
           }
+        } else {
+          console.error('[bulkSyncLightDataTracking] Error al actualizar pedido en DB:', order.id, updErr);
+          if (updErr.message && (updErr.message.includes('JWT') || updErr.message.includes('expired') || updErr.code === 'PGRST301')) {
+            throw new Error('Tu sesión ha caducado por inactividad. Inicia sesión nuevamente para renovar credenciales.');
+          }
         }
       } else {
         notFoundOrders.push(order.external_order_number || order.id.split('-')[0]);
@@ -2818,21 +2835,10 @@ window.triggerLightDataPortalSync = async function() {
   });
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token || '';
-    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+    await window.fetchWmsEdgeFunction('sync-integrations', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
       body: JSON.stringify({ platform: 'LightData' })
     });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Error al iniciar descarga.');
-    }
 
     Swal.fire({
       icon: 'success',
@@ -3008,7 +3014,7 @@ async function init() {
   try {
     // Verify authentication & Admin Role
     console.log('DEBUG: Obteniendo sesión de Supabase...');
-    const { data: { session }, error } = await supabase.auth.getSession();
+    let { data: { session }, error } = await supabase.auth.getSession();
 
     if (error) {
       console.error('DEBUG: Error al obtener sesión:', error);
@@ -3020,7 +3026,31 @@ async function init() {
       return;
     }
 
-    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
+    // Refrescar proactivamente si el token está expirado o próximo a expirar
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (session.expires_at && (session.expires_at - nowSec < 60)) {
+      console.log('DEBUG: Token expirado o próximo a expirar en init, refrescando sesión...');
+      try {
+        const { data: refData, error: refErr } = await supabase.auth.refreshSession();
+        if (refErr || !refData?.session) {
+          console.warn('DEBUG: No se pudo refrescar la sesión en init:', refErr);
+          await supabase.auth.signOut().catch(() => {});
+          try {
+            localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+            sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+          } catch(e) {}
+          window.location.href = 'index.html?reason=session_expired';
+          return;
+        } else {
+          session = refData.session;
+          console.log('DEBUG: Sesión renovada exitosamente en init.');
+        }
+      } catch (e) {
+        console.warn('DEBUG: Excepción refrescando sesión en init:', e);
+      }
+    }
+
+    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user?.email || 'Usuario');
 
     console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
@@ -3031,6 +3061,17 @@ async function init() {
     
     if (profileError) {
       console.warn('DEBUG: Error al obtener perfil:', profileError);
+      // Si el error es por JWT expirado en PostgREST
+      if (profileError.message && (profileError.message.includes('JWT') || profileError.message.includes('expired') || profileError.code === 'PGRST301')) {
+        console.warn('DEBUG: Token JWT expirado confirmado en PostgREST. Redirigiendo a login...');
+        await supabase.auth.signOut().catch(() => {});
+        try {
+          localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+          sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+        } catch(e) {}
+        window.location.href = 'index.html?reason=session_expired';
+        return;
+      }
     } else {
       console.log('DEBUG: Perfil encontrado:', profile);
     }
@@ -74989,6 +75030,25 @@ window.updateWmsMonitorUI = async function() {
   const btn = document.getElementById('wms-monitor-btn');
   if (!body || !btn) return;
 
+  // Verificación rápida de sesión antes de consultar la Edge Function
+  try {
+    const { data: sessData } = await supabase.auth.getSession();
+    const isDemo = typeof window.isDemoMode === 'function' && window.isDemoMode();
+    if (!sessData?.session && !isDemo) {
+      body.innerHTML = `
+        <div style="text-align: center; padding: 1.5rem 1rem; color: var(--color-text-muted); font-size: 0.8rem;">
+          <i class="ri-user-unfollow-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.4rem; color: var(--color-warning);"></i>
+          <div style="font-weight: 600; margin-bottom: 0.25rem;">Sin sesión activa</div>
+          <div>Inicia sesión para consultar el estado de etiquetas.</div>
+          <button type="button" onclick="window.reloginAndRefresh()" class="btn btn-outline" style="margin-top: 0.65rem; font-size: 0.75rem; padding: 0.25rem 0.65rem; border-color: #7117eb; color: #7117eb; cursor: pointer; border-radius: 4px;">
+            <i class="ri-login-box-line"></i> Iniciar Sesión
+          </button>
+        </div>
+      `;
+      return;
+    }
+  } catch (e) {}
+
   try {
     const data = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'GET'
@@ -75130,13 +75190,45 @@ window.updateWmsMonitorUI = async function() {
 
   } catch (err) {
     console.error('Error fetching workflow runs for monitor:', err);
+    const isAuthErr = err.message && (err.message.includes('sesión') || err.message.includes('caducado') || err.message.includes('credenciales') || err.message.includes('401') || err.message.includes('Unauthorized'));
+    
+    // Si es error de credenciales/sesión caducada, pausar el polling para no saturar con errores 401 cada 8s
+    if (isAuthErr && window.wmsMonitorState.pollIntervalId) {
+      clearInterval(window.wmsMonitorState.pollIntervalId);
+      window.wmsMonitorState.isPolling = false;
+    }
+
     body.innerHTML = `
-      <div style="text-align: center; padding: 2rem; color: var(--color-danger); font-size: 0.8rem;">
+      <div style="text-align: center; padding: 1.75rem 1rem; color: var(--color-danger); font-size: 0.8rem;">
         <i class="ri-error-warning-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-        Error al obtener datos de GitHub.<br>${err.message}
+        <div style="font-weight: 600; margin-bottom: 0.35rem;">Estado de Etiquetas no disponible</div>
+        <div style="color: var(--color-text-muted); line-height: 1.4; margin-bottom: 0.85rem;">${err.message}</div>
+        ${isAuthErr ? `
+          <button type="button" onclick="window.reloginAndRefresh()" class="btn btn-primary" style="padding: 0.35rem 0.85rem; font-size: 0.78rem; font-weight: 700; background: #7117eb; color: #ffffff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-login-box-line"></i> Iniciar Sesión Nuevamente
+          </button>
+        ` : `
+          <button type="button" onclick="window.updateWmsMonitorUI()" class="btn btn-outline" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main);">
+            <i class="ri-refresh-line"></i> Reintentar
+          </button>
+        `}
       </div>
     `;
   }
+};
+
+window.reloginAndRefresh = async function() {
+  try {
+    if (window.supabase?.auth) {
+      await window.supabase.auth.signOut().catch(() => {});
+    }
+  } catch (e) {}
+  try {
+    localStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+    sessionStorage.removeItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+    sessionStorage.removeItem('wms_demo_mode');
+  } catch (e) {}
+  window.location.href = 'index.html?reason=session_expired';
 };
 
 // =======================================================
