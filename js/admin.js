@@ -2518,8 +2518,9 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
     // Si no hay pedidos seleccionados, consultar si desea sincronizar todos los pedidos con operador ALPHA pendientes de tracking
     const alphaPendingOrders = (window.loadedOrders || []).filter(o => {
       const isAlpha = (o.operador === 'ALPHA' || o.courier === 'LIGHTDATA' || o.courier === 'PENDIENTE_LIGHTDATA');
-      const hasTracking = !!o.tracking_number && o.tracking_number.trim() !== '' && !o.tracking_number.toUpperCase().includes('RECIBELO') && !o.tracking_number.toUpperCase().includes('WELIVERY');
-      return isAlpha && !hasTracking;
+      const trk = String(o.tracking_number || '').trim().toUpperCase();
+      const hasValidTracking = trk !== '' && trk !== 'NO INFORMADO' && trk !== 'NULL' && trk !== 'UNDEFINED' && !trk.includes('RECIBELO') && !trk.includes('WELIVERY');
+      return isAlpha && !hasValidTracking;
     });
 
     if (alphaPendingOrders.length === 0) {
@@ -2714,6 +2715,9 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
           operador: 'ALPHA',
           raw_lightdata_data: rawLd
         };
+        if (order.estado_wms === 'En procesamiento') {
+          updatePayload.estado_wms = 'En preparación';
+        }
 
         const { error: updErr } = await supabase
           .from('orders')
@@ -57919,7 +57923,7 @@ window.updatePickerTrackingForOrder = async function(order, newTracking, operato
         .update(updatePayload)
         .eq('order_number', orderNumber);
       console.log(`✅ [PICKER UPDATE] Tracking actualizado en Picker para ${orderNumber}: ${cleanTrack}`);
-    } else if (order.estado_wms === 'En preparación') {
+    } else if (order.estado_wms === 'En preparación' || order.estado_wms === 'En procesamiento') {
       await window.sendSingleOrderToPicker(order);
       console.log(`✅ [PICKER UPDATE] Pedido ${orderNumber} enviado al Picker con nuevo tracking: ${cleanTrack}`);
     }
