@@ -664,6 +664,26 @@
       background: #f1f5f9;
       color: var(--text-main);
     }
+    .btn-copy-token {
+      background: var(--primary-subtle);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      border-radius: 9999px;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+    .btn-copy-token:hover {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
 
     .delivery-actions-right {
       display: flex;
@@ -1101,7 +1121,51 @@
       return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}.`;
     }
 
-    // Query WMS via RPC
+    // Query WMS via RPC (Token / Anonymous)
+    async function searchTrackingByToken(token) {
+      setLoading(true);
+      hideAllOutputs();
+
+      try {
+        const cleanToken = (token || '').trim();
+        if (!cleanToken) return;
+
+        const { data, error } = await sbClient.rpc('get_customer_tracking', {
+          p_token: cleanToken
+        });
+
+        if (error) {
+          console.error('Error en RPC get_customer_tracking (token):', error);
+          showNotFound('Enlace Seguro', 'El enlace no es válido o ha caducado');
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          showNotFound('Enlace Seguro', 'Pedido no encontrado para este enlace');
+          return;
+        }
+
+        renderTrackingResults(data);
+        btnReset.style.display = 'inline-flex';
+
+        // Mantener URL limpia con el token
+        const currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.delete('email');
+        currentUrl.searchParams.delete('correo');
+        currentUrl.searchParams.delete('pedido');
+        currentUrl.searchParams.delete('orden');
+        currentUrl.searchParams.set('t', cleanToken);
+        window.history.replaceState({}, '', currentUrl.toString());
+
+      } catch (err) {
+        console.error('Excepción consultando tracking por token:', err);
+        showNotFound('Enlace Seguro', 'Error al procesar consulta');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Query WMS via RPC (Manual: Order + Email)
     async function searchTracking(orderNumber, email) {
       setLoading(true);
       hideAllOutputs();
@@ -1128,6 +1192,21 @@
 
         renderTrackingResults(data);
         btnReset.style.display = 'inline-flex';
+
+        // Privacidad Total: En lugar de guardar el email en la barra de direcciones,
+        // convertimos la URL al token anónimo seguro del pedido (?t=UUID)
+        if (data[0] && data[0].id) {
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.delete('email');
+          currentUrl.searchParams.delete('correo');
+          currentUrl.searchParams.delete('mail');
+          currentUrl.searchParams.delete('pedido');
+          currentUrl.searchParams.delete('orden');
+          currentUrl.searchParams.delete('order');
+          currentUrl.searchParams.delete('n');
+          currentUrl.searchParams.set('t', data[0].id);
+          window.history.replaceState({}, '', currentUrl.toString());
+        }
 
       } catch (err) {
         console.error('Excepción consultando tracking:', err);
@@ -1251,9 +1330,14 @@
             <!-- Header -->
             <div class="order-card-header">
               <div class="order-header-left">
-                <span class="store-badge">
-                  <i class="ri-store-line"></i> ${escapeHtml(order.comercio)}
-                </span>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                  <span class="store-badge">
+                    <i class="ri-store-line"></i> ${escapeHtml(order.comercio)}
+                  </span>
+                  <button type="button" class="btn-copy-token" onclick="copyPrivateLink('${escapeHtml(order.id)}', this)" title="Copia un enlace privado sin datos de correo ni personales">
+                    <i class="ri-shield-keyhole-line"></i> Copiar Enlace Seguro
+                  </button>
+                </div>
                 <h2 class="order-title">Orden #${escapeHtml(order.order_number)}</h2>
                 <div class="order-meta">
                   <div class="order-meta-item">
@@ -1425,7 +1509,22 @@
       });
     };
 
-    // Form Submit Event
+    // Helper: Copy Private Tracking Link
+    window.copyPrivateLink = function(orderId, btnElement) {
+      if (!orderId) return;
+      const cleanUrl = window.location.origin + window.location.pathname + '?t=' + encodeURIComponent(orderId);
+      navigator.clipboard.writeText(cleanUrl).then(() => {
+        const origHtml = btnElement.innerHTML;
+        btnElement.innerHTML = '<i class="ri-checkbox-circle-line" style="color:#059669;"></i> ¡Enlace copiado!';
+        setTimeout(() => {
+          btnElement.innerHTML = origHtml;
+        }, 2500);
+      }).catch(err => {
+        console.error('Error al copiar enlace privado:', err);
+      });
+    };
+
+    // Form Submit Event (Zero PII in URL)
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const order = inputOrder.value.trim();
@@ -1436,12 +1535,7 @@
         return;
       }
 
-      // Update URL with search params for easy sharing/bookmarking
-      const currentUrl = new URL(window.location.href);
-      currentUrl.searchParams.set('pedido', order);
-      currentUrl.searchParams.set('email', email);
-      window.history.replaceState({}, '', currentUrl.toString());
-
+      // No inyectamos email en la URL para máxima privacidad y seguridad
       searchTracking(order, email);
     });
 
@@ -1461,9 +1555,18 @@
     // Auto-load from URL Query Parameters on page load
     window.addEventListener('DOMContentLoaded', () => {
       const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('t') || params.get('token');
       const urlOrder = params.get('pedido') || params.get('orden') || params.get('order') || params.get('n');
       const urlEmail = params.get('email') || params.get('correo') || params.get('mail');
 
+      // 1. Acceso Directo por Token Seguro Oculto (?t=... o ?token=...)
+      // Proporciona acceso inmediato con CERO datos personales expuestos en la URL
+      if (urlToken) {
+        searchTrackingByToken(urlToken);
+        return;
+      }
+
+      // 2. Parámetros manuales de búsqueda
       if (urlOrder) {
         inputOrder.value = urlOrder.trim();
       }
@@ -1472,11 +1575,11 @@
         inputEmail.value = urlEmail.trim();
       }
 
-      // If both parameters exist, auto-trigger search immediately
+      // Si ambos parámetros existen, auto-ejecutar búsqueda
       if (urlOrder && urlEmail) {
         searchTracking(urlOrder, urlEmail);
       } else if (urlOrder && !urlEmail) {
-        // Show notice requiring email for security
+        // Mostrar aviso amigable requiriendo correo como 2do factor
         noticeOrderNo.textContent = `#${urlOrder.trim()}`;
         prefillNotice.style.display = 'flex';
         inputEmail.focus();
