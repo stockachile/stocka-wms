@@ -1041,11 +1041,12 @@
   </footer>
 
   <script>
-    // Supabase Configuration
-    const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+    (function() {
+      // Supabase Configuration
+      const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+      const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // DOM Elements
     const form = document.getElementById('tracking-form');
@@ -1106,7 +1107,7 @@
         const cleanOrder = (orderNumber || '').trim();
         const cleanEmail = (email || '').trim().toLowerCase();
 
-        const { data, error } = await supabase.rpc('get_customer_tracking', {
+        const { data, error } = await sbClient.rpc('get_customer_tracking', {
           p_order_number: cleanOrder,
           p_email: cleanEmail
         });
@@ -1472,6 +1473,7 @@
         inputEmail.focus();
       }
     });
+  })();
   </script>
 
 </body>
