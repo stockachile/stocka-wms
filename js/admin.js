@@ -213,23 +213,90 @@ window.getChileCommunesList = function() {
   return list;
 };
 
-window.getComunaCoverageBadge = function(comunaName) {
-  if (!comunaName || !String(comunaName).trim()) {
-    return `<span style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="No hay comuna registrada para este pedido."><i class="ri-alert-fill" style="font-size: 0.8rem;"></i> Sin Comuna</span>`;
+window.wmsActiveCoverageFilter = null;
+
+window.getOrderCoverageInfo = function(orderOrComuna) {
+  let comunaName = '';
+  if (typeof orderOrComuna === 'string') {
+    comunaName = orderOrComuna;
+  } else if (orderOrComuna && typeof orderOrComuna === 'object') {
+    comunaName = orderOrComuna.shipping_city || orderOrComuna.comuna_destino || '';
+  }
+  const trimmed = String(comunaName || '').trim();
+
+  // 1. Sin asignar / Comuna vacía o no coincide con ninguna comuna de Chile
+  if (!trimmed || !window.isChileComuna(trimmed)) {
+    return {
+      key: 'SIN_ASIGNAR',
+      label: 'Sin Asignar',
+      badgeText: 'Sin Asignar',
+      filterName: 'Sin Asignar',
+      icon: 'ri-question-mark',
+      bg: '#fef2f2',
+      color: '#b91c1c',
+      border: '#fecaca',
+      activeBg: '#dc2626',
+      activeColor: '#ffffff',
+      activeBorder: '#b91c1c',
+      title: trimmed 
+        ? `Comuna no coincide con ninguna comuna oficial de Chile ('${trimmed.replace(/"/g, '&quot;')}'). Clic para filtrar.`
+        : 'Pedido sin comuna de destino registrada. Clic para filtrar.'
+    };
   }
 
-  const isAlpha = window.isAlphaComunaExact(comunaName);
-  if (isAlpha) {
-    return `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Comuna con cobertura directa urbana RM (Alpha / Stocka Flex)."><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura RM OK</span>`;
+  // 2. Cobertura RM (Dentro de las 36 comunas con entrega en Santiago)
+  if (window.isAlphaComunaExact(trimmed)) {
+    return {
+      key: 'RM',
+      label: 'Cobertura RM',
+      badgeText: 'Cobertura RM',
+      filterName: 'Cobertura RM',
+      icon: 'ri-building-line',
+      bg: '#ecfdf5',
+      color: '#047857',
+      border: '#a7f3d0',
+      activeBg: '#059669',
+      activeColor: '#ffffff',
+      activeBorder: '#047857',
+      title: 'Comuna dentro de las 36 comunas con cobertura directa Santiago RM. Clic para filtrar.'
+    };
   }
 
-  const isChile = window.isChileComuna(comunaName);
-  if (isChile) {
-    return `<span style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Comuna válida de Chile (Regiones / RM Periférica). Requiere courier tradicional (Starken, Blue Express, Chilexpress)."><i class="ri-map-pin-2-fill" style="font-size: 0.8rem;"></i> Regiones / Otras Comunas</span>`;
-  }
+  // 3. Cobertura Regiones (Comuna válida de Chile fuera de cobertura RM)
+  return {
+    key: 'REGIONES',
+    label: 'Cobertura Regiones',
+    badgeText: 'Cobertura Regiones',
+    filterName: 'Cobertura Regiones',
+    icon: 'ri-map-pin-2-fill',
+    bg: '#eff6ff',
+    color: '#1d4ed8',
+    border: '#bfdbfe',
+    activeBg: '#2563eb',
+    activeColor: '#ffffff',
+    activeBorder: '#1d4ed8',
+    title: 'Comuna válida de Chile fuera de cobertura RM (Regiones / Otras comunas). Clic para filtrar.'
+  };
+};
 
-  const escaped = String(comunaName || '').replace(/"/g, '&quot;');
-  return `<span style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta ciudad/comuna ('${escaped}') no coincide con ninguna de las 346 comunas oficiales de Chile. Por favor edítala para evitar fallas con el courier o despacho."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Comuna No Válida (Chile)</span>`;
+window.getComunaCoverageBadge = function(orderOrComuna) {
+  const covInfo = window.getOrderCoverageInfo ? window.getOrderCoverageInfo(orderOrComuna) : null;
+  if (!covInfo) return '';
+
+  const isCovActive = !!(window.wmsActiveCoverageFilter && (
+    window.wmsActiveCoverageFilter === covInfo.key ||
+    window.wmsActiveCoverageFilter === covInfo.badgeText ||
+    window.wmsActiveCoverageFilter === covInfo.filterName
+  ));
+  const covActiveClass = isCovActive ? 'wms-coverage-active' : '';
+  const safeCovKey = (covInfo.key || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  const safeCovLabel = (covInfo.badgeText || covInfo.label || '').replace(/"/g, '&quot;');
+  const safeCovTitle = (covInfo.title || '').replace(/"/g, '&quot;');
+  const covBg = isCovActive ? covInfo.activeBg : covInfo.bg;
+  const covColor = isCovActive ? covInfo.activeColor : covInfo.color;
+  const covBorder = isCovActive ? covInfo.activeBorder : covInfo.border;
+
+  return `<span class="badge wms-coverage-tag ${covActiveClass}" onclick="event.stopPropagation(); window.filterByComunaCoverage('${safeCovKey}', event)" style="background-color: ${covBg}; color: ${covColor}; border: 1px solid ${covBorder}; padding: 0.12rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem; cursor: pointer; transition: all 0.15s;" title="${safeCovTitle}"><i class="${covInfo.icon}" style="font-size: 0.75rem;"></i> ${safeCovLabel}</span>`;
 };
 
 let userRole = 'admin';
@@ -1287,8 +1354,11 @@ window.updateWmsOrderField = async function(orderId, field, value) {
       if (value === 'RETIRO') {
         updatePayload.agenda = 'RETIRO';
         updatePayload.operador = 'SUCURSAL ÑUÑOA';
+      } else if (value === 'SHOP POINT (POS)' || value === 'SHOP POINT' || value === 'POS') {
+        updatePayload.agenda = 'COMPRA EN BODEGA';
+        updatePayload.operador = 'SUCURSAL ÑUÑOA';
       } else if (value === 'DISTRIBUCIÓN' || value === 'LOGÍSTICA INVERSA' || value === 'LOGISTICA INVERSA') {
-        if (order && order.agenda === 'RETIRO') updatePayload.agenda = null;
+        if (order && (order.agenda === 'RETIRO' || order.agenda === 'COMPRA EN BODEGA')) updatePayload.agenda = null;
         if (order && order.operador === 'SUCURSAL ÑUÑOA') updatePayload.operador = null;
       }
     }
@@ -1485,6 +1555,9 @@ window.getOrderPaymentBadgeHtml = function(order) {
 window.getOrderCategoriaBadgeHtml = function(order) {
   if (!order) return '-';
   const cat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+  if (cat === 'SHOP POINT (POS)' || cat === 'SHOP POINT' || cat === 'POS') {
+    return `<span style="background: rgba(109, 40, 217, 0.12); color: #6d28d9; border: 1px solid rgba(109, 40, 217, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Shop Point (POS)</span>`;
+  }
   if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') {
     return `<span style="background: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>`;
   }
@@ -4586,6 +4659,7 @@ window.resetWmsAllFilters = async function() {
   window.wmsColumnFilters = {};
   window.wmsActiveSlaFilter = null;
   window.wmsActiveDeliveryTypeFilter = null;
+  window.wmsActiveCoverageFilter = null;
 
   // Resetear fecha a últimos 7 días
   if (window.setWmsDatePreset) {
@@ -4617,6 +4691,24 @@ if (!window._wmsDateRangeClickListenerAttached) {
     }
   });
 }
+
+window.updateWmsStickyHeaderPositions = function() {
+  const bulkContainer = document.getElementById('wms-bulk-actions-container');
+  const controlBar = document.getElementById('wms-orders-control-bar');
+  const card = document.getElementById('wms-orders-card');
+  if (!controlBar || !card) return;
+
+  let bulkH = 0;
+  if (bulkContainer && bulkContainer.firstElementChild && bulkContainer.firstElementChild.offsetHeight > 0) {
+    bulkH = bulkContainer.offsetHeight;
+  }
+
+  card.style.setProperty('--wms-control-bar-top', `${bulkH}px`);
+  
+  const controlH = controlBar.offsetHeight || 51;
+  const tableHeaderTop = Math.max(0, bulkH + controlH - 1);
+  card.style.setProperty('--wms-table-header-top', `${tableHeaderTop}px`);
+};
 
 async function renderAdminOrders() {
   window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
@@ -5215,7 +5307,17 @@ async function renderAdminOrders() {
     window.getOrderEffectiveCategoriaEntrega = function(order) {
       if (!order) return 'DISTRIBUCIÓN';
       let cat = String(order.categoria_entrega || '').toUpperCase().trim();
+      if (cat === 'SHOP POINT (POS)' || cat === 'SHOP POINT' || cat === 'POS') return 'SHOP POINT (POS)';
       if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') return 'LOGÍSTICA INVERSA';
+
+      // Auto-detección SHOP POINT (POS) por origen, plataforma, agenda o prefijo
+      if (order.origen === 'Punto de Venta' ||
+          order.external_platform === 'Punto de Venta' ||
+          order.agenda === 'COMPRA EN BODEGA' ||
+          order.raw_shopify_data?.is_pos_sale ||
+          (order.external_order_number && (String(order.external_order_number).startsWith('POS-') || String(order.external_order_number).startsWith('VTA-')))) {
+        return 'SHOP POINT (POS)';
+      }
 
       // Auto-detección por origen, prefijo, flags o datos de plataforma
       if (order.origen === 'Logística Inversa' || 
@@ -5227,12 +5329,18 @@ async function renderAdminOrders() {
 
       // Auto-detección por tags de Shopify u origen
       const rawTags = String(order.raw_shopify_data?.tags || order.tags || '').toLowerCase();
+      if (rawTags.includes('pos-sale') || rawTags.includes('punto de venta') || rawTags.includes('shop-point')) {
+        return 'SHOP POINT (POS)';
+      }
       if (rawTags.includes('logistica-inversa') || rawTags.includes('logistica inversa') || rawTags.includes('logística inversa') || rawTags.includes('reverse-logistics')) {
         return 'LOGÍSTICA INVERSA';
       }
 
       // Auto-detección por método de envío
       const shipMethod = String(order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || '').toLowerCase();
+      if (shipMethod.includes('punto de venta') || shipMethod.includes('compra en bodega') || shipMethod.includes('venta presencial')) {
+        return 'SHOP POINT (POS)';
+      }
       if (shipMethod.includes('logistica inversa') || shipMethod.includes('logística inversa')) {
         return 'LOGÍSTICA INVERSA';
       }
@@ -5570,6 +5678,25 @@ async function renderAdminOrders() {
         border = '#6ee7b7';
         isMarketplace = true;
       }
+      // 8.5 SHOP POINT (POS) / COMPRA EN BODEGA
+      else if (
+        methodUpper.includes('PUNTO DE VENTA') || 
+        methodUpper.includes('COMPRA EN BODEGA') || 
+        methodUpper.includes('SHOP POINT') ||
+        agendaUpper.includes('COMPRA EN BODEGA') ||
+        agendaUpper === 'POS' ||
+        String(order.categoria_entrega || '').toUpperCase() === 'SHOP POINT (POS)' ||
+        String(order.categoria_entrega || '').toUpperCase() === 'SHOP POINT' ||
+        String(order.categoria_entrega || '').toUpperCase() === 'POS'
+      ) {
+        key = 'SHOP_POINT';
+        label = 'SHOP POINT';
+        filterName = 'Shop Point (POS)';
+        icon = 'ri-shopping-cart-2-line';
+        bg = '#ede9fe';
+        text = '#6d28d9';
+        border = '#ddd6fe';
+      }
       // 9. Generic Retiro en Tienda / Sucursal
       else if (methodUpper.includes('RETIRO') || agendaUpper.includes('RETIRO') || String(order.categoria_entrega || '').toUpperCase() === 'RETIRO') {
         key = 'RETIRO';
@@ -5761,6 +5888,12 @@ async function renderAdminOrders() {
         tags.add(`ENTREGA: ${dtInfo.filterName}`);
       }
 
+      // 15. Cobertura Comuna Destino (RM 36 comunas, Regiones, Sin Asignar)
+      const covInfo = window.getOrderCoverageInfo ? window.getOrderCoverageInfo(order) : null;
+      if (covInfo) {
+        tags.add(`COBERTURA: ${covInfo.badgeText}`);
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -5786,6 +5919,12 @@ async function renderAdminOrders() {
         { key: 'Etiqueta', label: 'Etiqueta Generada', icon: '🏷️' },
         { key: 'Exportado', label: 'Exportado a Shopify', icon: '✔️' },
         { key: 'SIN STOCK', label: 'SIN STOCK', icon: '🚨' }
+      ];
+
+      const coverageTags = [
+        { key: 'COBERTURA: Cobertura RM', label: 'Cobertura RM (Santiago)', icon: '🏢' },
+        { key: 'COBERTURA: Cobertura Regiones', label: 'Cobertura Regiones', icon: '🚚' },
+        { key: 'COBERTURA: Sin Asignar', label: 'Sin Asignar', icon: '❓' }
       ];
 
       const deliveryTags = [
@@ -5828,6 +5967,7 @@ async function renderAdminOrders() {
 
       const knownKeys = new Set([
         ...orderPillTags.map(t => t.key),
+        ...coverageTags.map(t => t.key),
         ...deliveryTags.map(t => t.key),
         ...courierTags.map(t => t.key),
         ...pickerTags.map(t => t.key),
@@ -5861,6 +6001,7 @@ async function renderAdminOrders() {
       };
 
       let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
+      html += buildOptgroup('Cobertura Comuna Destino', coverageTags);
       if (deliveryTypeTags.length > 0) {
         html += buildOptgroup('Tipo de Entrega (Marketplaces)', deliveryTypeTags);
       }
@@ -5910,7 +6051,7 @@ async function renderAdminOrders() {
         select.value = tagName;
       }
 
-      // Sincronizar estados de SLA y Tipo de Entrega si la tag los contiene
+      // Sincronizar estados de SLA, Tipo de Entrega y Cobertura si la tag los contiene
       if (select.value && select.value.startsWith('SLA:')) {
         window.wmsActiveSlaFilter = select.value.replace(/^SLA:\s*/, '').trim();
       } else {
@@ -5921,6 +6062,16 @@ async function renderAdminOrders() {
         window.wmsActiveDeliveryTypeFilter = select.value.replace(/^ENTREGA:\s*/, '').trim();
       } else {
         window.wmsActiveDeliveryTypeFilter = null;
+      }
+
+      if (select.value && select.value.startsWith('COBERTURA:')) {
+        const rawCov = select.value.replace(/^COBERTURA:\s*/, '').trim();
+        if (rawCov === 'Cobertura RM') window.wmsActiveCoverageFilter = 'RM';
+        else if (rawCov === 'Cobertura Regiones') window.wmsActiveCoverageFilter = 'REGIONES';
+        else if (rawCov === 'Sin Asignar') window.wmsActiveCoverageFilter = 'SIN_ASIGNAR';
+        else window.wmsActiveCoverageFilter = rawCov;
+      } else {
+        window.wmsActiveCoverageFilter = null;
       }
 
       window.wmsCurrentPage = 1;
@@ -6013,6 +6164,54 @@ async function renderAdminOrders() {
       applyWmsFiltersAndRender();
     };
 
+    window.filterByComunaCoverage = function(coverageKey, event) {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+
+      // Si no se envía clave o es igual a la ya activa, se desactiva (toggle)
+      if (!coverageKey || window.wmsActiveCoverageFilter === coverageKey) {
+        window.wmsActiveCoverageFilter = null;
+      } else {
+        window.wmsActiveCoverageFilter = coverageKey;
+      }
+
+      // Sincronizar el select de tags (#filter-order-tag)
+      const select = document.getElementById('filter-order-tag');
+      if (select) {
+        if (window.wmsActiveCoverageFilter) {
+          let targetTagValue = '';
+          if (window.wmsActiveCoverageFilter === 'RM') targetTagValue = 'COBERTURA: Cobertura RM';
+          else if (window.wmsActiveCoverageFilter === 'REGIONES') targetTagValue = 'COBERTURA: Cobertura Regiones';
+          else if (window.wmsActiveCoverageFilter === 'SIN_ASIGNAR') targetTagValue = 'COBERTURA: Sin Asignar';
+          else targetTagValue = `COBERTURA: ${window.wmsActiveCoverageFilter}`;
+
+          let exists = false;
+          for (let i = 0; i < select.options.length; i++) {
+            if (select.options[i].value === targetTagValue) {
+              exists = true;
+              break;
+            }
+          }
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = targetTagValue;
+            opt.textContent = targetTagValue;
+            select.appendChild(opt);
+          }
+          select.value = targetTagValue;
+        } else {
+          if (select.value && select.value.startsWith('COBERTURA:')) {
+            select.value = '';
+          }
+        }
+      }
+
+      window.wmsCurrentPage = 1;
+      applyWmsFiltersAndRender();
+    };
+
     // Cargar comercios de v_comercios_config para la reasignación manual
     if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
       try {
@@ -6042,7 +6241,7 @@ async function renderAdminOrders() {
       <style>
         .orders-top-header {
           display: grid;
-          grid-template-columns: minmax(280px, 1.4fr) repeat(4, minmax(130px, 1fr));
+          grid-template-columns: minmax(260px, 1.3fr) repeat(5, minmax(115px, 1fr));
           gap: 0.75rem;
           align-items: center;
           margin-bottom: 1rem;
@@ -6074,7 +6273,20 @@ async function renderAdminOrders() {
           height: 52px;
           box-shadow: var(--shadow-sm);
         }
-        @media (max-width: 1200px) {
+        .orders-top-header .kpi-card-compact.kpi-clickable {
+          cursor: pointer;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+        }
+        .orders-top-header .kpi-card-compact.kpi-clickable:hover {
+          transform: translateY(-1px);
+          box-shadow: var(--shadow-md);
+        }
+        @media (max-width: 1400px) and (min-width: 1024px) {
+          .orders-top-header {
+            grid-template-columns: minmax(220px, 1.2fr) repeat(5, minmax(100px, 1fr));
+          }
+        }
+        @media (max-width: 1023px) {
           .orders-top-header {
             grid-template-columns: repeat(2, 1fr);
           }
@@ -6169,6 +6381,17 @@ async function renderAdminOrders() {
           <div style="min-width: 0; overflow: hidden;">
             <span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ventas Totales</span>
             <strong id="kpi-total-sales" style="font-size: 1.15rem; color: var(--color-text-main); font-weight: 700; line-height: 1.1;">$0</strong>
+          </div>
+        </div>
+
+        <!-- KPI 5: Shop Point (POS) -->
+        <div class="kpi-card-compact kpi-clickable" id="kpi-card-shop-point" onclick="window.filterByOrderTag('SHOP POINT (POS)', event)" title="Categoría de Entrega: Shop Point (POS) (Clic para filtrar)">
+          <div style="background: #ede9fe; color: #6d28d9; width: 34px; height: 34px; min-width: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="ri-shopping-cart-2-line"></i>
+          </div>
+          <div style="min-width: 0; overflow: hidden;">
+            <span style="font-size: 0.68rem; color: #6d28d9; display: block; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Shop Point</span>
+            <strong id="kpi-shop-point" style="font-size: 1.15rem; color: #6d28d9; font-weight: 700; line-height: 1.1;">0</strong>
           </div>
         </div>
       </div>
@@ -6289,6 +6512,7 @@ async function renderAdminOrders() {
                 <option value="DISTRIBUCIÓN">DISTRIBUCIÓN</option>
                 <option value="RETIRO">RETIRO</option>
                 <option value="LOGÍSTICA INVERSA">LOGÍSTICA INVERSA</option>
+                <option value="SHOP POINT (POS)">SHOP POINT (POS)</option>
               </select>
             </div>
 
@@ -6423,13 +6647,16 @@ async function renderAdminOrders() {
       <!-- Banner Informativo de Filtro SLA Activo -->
       <div id="wms-active-sla-filter-container"></div>
 
-      <!-- Contenedor Flotante de Ambos Paneles de Acciones (Sticky al hacer Scroll) -->
-      <div id="wms-sticky-actions-container" class="wms-sticky-actions-container" style="position: sticky; top: 0; z-index: 900; background: var(--color-bg); padding-top: 0.25rem; padding-bottom: 0.5rem;">
-        <!-- Panel 1: Barra de Acciones Masivas Flotante (Azul) -->
-        <div id="wms-bulk-actions-container"></div>
+      <!-- Banner Informativo de Filtro Cobertura Comuna Destino Activo -->
+      <div id="wms-active-coverage-filter-container"></div>
 
-        <!-- Panel 2: Barra de Control de Pedidos Flotante -->
-        <div id="wms-orders-control-bar" class="card-header wms-control-panel-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06); padding: 0.75rem 1.25rem;">
+      <!-- Barra de Acciones Masivas Flotante (Azul) -->
+      <div id="wms-bulk-actions-container" style="position: sticky; top: 0; z-index: 950;"></div>
+
+      <!-- Card Unificada de Pedidos (Panel de Control + Tabla Pegada) -->
+      <div class="card" id="wms-orders-card" style="margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06); overflow: visible;">
+        <!-- Panel 2: Barra de Control de Pedidos Flotante (Cabecera de la Card) -->
+        <div id="wms-orders-control-bar" class="card-header wms-control-panel-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); border: none; border-bottom: 1px solid var(--color-border); border-top-left-radius: var(--radius-lg); border-top-right-radius: var(--radius-lg); border-bottom-left-radius: 0; border-bottom-right-radius: 0; padding: 0.75rem 1.25rem; position: sticky; top: var(--wms-control-bar-top, 0px); z-index: 920; margin: 0;">
           <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 700;">Panel de Control de Pedidos</h3>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
@@ -6496,14 +6723,12 @@ async function renderAdminOrders() {
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- Tabla de Pedidos -->
-      <div class="card" style="margin-top: 0.5rem;">
-        <div class="card-body" style="padding: 0; overflow-x: auto;">
-          <table class="data-table wms-admin-orders-table">
-            <thead>
-              <tr style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); border-bottom: 2px solid var(--color-border);">
+        <!-- Tabla de Pedidos Pegada al Panel -->
+        <div class="card-body" style="padding: 0; overflow: visible;">
+          <table class="data-table wms-admin-orders-table" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+            <thead class="wms-orders-sticky-thead">
+              <tr style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);">
                 <th style="width: 32px; min-width: 32px; max-width: 32px; text-align: center; padding: 0.55rem 0.25rem;">
                   <input type="checkbox" id="wms-select-all" onclick="window.toggleWmsSelectAll(this)" style="width: 15px; height: 15px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
@@ -6575,6 +6800,33 @@ async function renderAdminOrders() {
         <div id="wms-pagination-container" style="padding: 1rem; border-top: 1px solid var(--color-border);"></div>
       </div>
     `;
+
+    // Configurar posiciones sticky para la barra de control y cabecera de la tabla
+    if (window.updateWmsStickyHeaderPositions) {
+      window.updateWmsStickyHeaderPositions();
+    }
+    if (window.ResizeObserver) {
+      if (window._wmsStickyResizeObserver) {
+        window._wmsStickyResizeObserver.disconnect();
+      }
+      window._wmsStickyResizeObserver = new ResizeObserver(() => {
+        if (window.updateWmsStickyHeaderPositions) {
+          window.updateWmsStickyHeaderPositions();
+        }
+      });
+      const cBar = document.getElementById('wms-orders-control-bar');
+      const bContainer = document.getElementById('wms-bulk-actions-container');
+      if (cBar) window._wmsStickyResizeObserver.observe(cBar);
+      if (bContainer) window._wmsStickyResizeObserver.observe(bContainer);
+    }
+    if (!window._wmsStickyResizeBound) {
+      window._wmsStickyResizeBound = true;
+      window.addEventListener('resize', () => {
+        if (window.updateWmsStickyHeaderPositions) {
+          window.updateWmsStickyHeaderPositions();
+        }
+      });
+    }
 
     // Escuchar eventos para aplicar filtros
     const searchInput = document.getElementById('search-orders');
@@ -6875,6 +7127,16 @@ async function renderAdminOrders() {
           window.wmsActiveDeliveryTypeFilter = null;
         }
 
+        if (orderTagSelect.value && orderTagSelect.value.startsWith('COBERTURA:')) {
+          const rawCov = orderTagSelect.value.replace(/^COBERTURA:\s*/, '').trim();
+          if (rawCov === 'Cobertura RM') window.wmsActiveCoverageFilter = 'RM';
+          else if (rawCov === 'Cobertura Regiones') window.wmsActiveCoverageFilter = 'REGIONES';
+          else if (rawCov === 'Sin Asignar') window.wmsActiveCoverageFilter = 'SIN_ASIGNAR';
+          else window.wmsActiveCoverageFilter = rawCov;
+        } else if (window.wmsActiveCoverageFilter) {
+          window.wmsActiveCoverageFilter = null;
+        }
+
         triggerFilterUpdate();
       });
     }
@@ -6896,9 +7158,23 @@ async function renderAdminOrders() {
   }
 }
 
-window.applyWmsFiltersAndRender = function() {
+window.getWmsOrderColumnValue = function(order, columnKey) {
+  if (!order) return '';
+  let val = '';
+  if (columnKey === 'comercio') val = order.comercio;
+  else if (columnKey === 'origen') val = order.origen || order.external_platform || 'Manual';
+  else if (columnKey === 'categoria_entrega') val = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
+  else if (columnKey === 'agenda') val = order.agenda;
+  else if (columnKey === 'operador') val = order.operador || '';
+  else if (columnKey === 'shipping_method') val = order.shipping_method;
+  else if (columnKey === 'periodo_facturacion') val = order.periodo_facturacion;
+  else if (columnKey === 'status') val = order.status;
+  else if (columnKey === 'estado_wms') val = order.estado_wms;
+  return val === null || val === undefined ? '' : String(val).trim();
+};
+
+window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null) {
   const orders = window.loadedOrders || [];
-  const shipments = window.loadedShipments || [];
 
   const searchInput = document.getElementById('search-orders');
   const merchantSelect = document.getElementById('filter-merchant');
@@ -6923,7 +7199,133 @@ window.applyWmsFiltersAndRender = function() {
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
 
-  // Parsear multiselección
+  const multiselectRefs = multiselectText
+    .split(/[\n,; \t]+/)
+    .map(r => r.trim())
+    .filter(Boolean);
+  const multiselectRefsSet = new Set(multiselectRefs.map(r => r.toUpperCase()));
+
+  const targetTab = forTab !== null ? forTab : window.wmsActiveTab;
+
+  return orders.filter(order => {
+    // 1. Multiselección
+    if (multiselectRefsSet.size > 0) {
+      const extNo = (order.external_order_number || '').trim().toUpperCase();
+      const orderId = (order.id || '').trim().toUpperCase();
+      if (!multiselectRefsSet.has(extNo) && !multiselectRefsSet.has(orderId)) {
+        return false;
+      }
+    }
+
+    // 2. Filtros base
+    const platform = order.origen || order.external_platform || 'Manual';
+    if (selectedMerchant && order.comercio !== selectedMerchant) return false;
+    if (selectedOrigen && platform.toLowerCase() !== selectedOrigen.toLowerCase()) return false;
+    if (selectedStatus && order.status !== selectedStatus) return false;
+
+    const effCat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
+    if (selectedCategoriaEntrega && effCat !== selectedCategoriaEntrega) return false;
+
+    if (selectedExportStatus === 'pending' && order.shopify_exported) return false;
+    if (selectedExportStatus === 'exported' && !order.shopify_exported) return false;
+
+    if (dateFrom || dateTo) {
+      if (!order.created_at) return false;
+      const d = new Date(order.created_at);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const orderDateStr = `${year}-${month}-${day}`;
+      if (dateFrom && orderDateStr < dateFrom) return false;
+      if (dateTo && orderDateStr > dateTo) return false;
+    }
+
+    if (selectedWarehouse && !(order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse)) return false;
+
+    const orderTags = window.getOrderTags ? window.getOrderTags(order) : [];
+    if (selectedTag && !orderTags.some(t => String(t).trim().toUpperCase() === String(selectedTag).trim().toUpperCase())) return false;
+
+    if (window.wmsActiveSlaFilter) {
+      const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
+      if (!slaInfo || !slaInfo.hasSla || slaInfo.slaKey !== window.wmsActiveSlaFilter) return false;
+    }
+
+    if (window.wmsActiveDeliveryTypeFilter) {
+      const dtInfo = window.getOrderDeliveryTypeInfo ? window.getOrderDeliveryTypeInfo(order) : null;
+      if (!dtInfo || !(dtInfo.filterName === window.wmsActiveDeliveryTypeFilter || dtInfo.key === window.wmsActiveDeliveryTypeFilter || dtInfo.label === window.wmsActiveDeliveryTypeFilter)) {
+        return false;
+      }
+    }
+
+    if (window.wmsActiveCoverageFilter) {
+      const covInfo = window.getOrderCoverageInfo ? window.getOrderCoverageInfo(order) : null;
+      if (!covInfo || !(covInfo.key === window.wmsActiveCoverageFilter || covInfo.badgeText === window.wmsActiveCoverageFilter || covInfo.filterName === window.wmsActiveCoverageFilter)) {
+        return false;
+      }
+    }
+
+    // Buscador general de texto
+    if (searchText) {
+      const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
+      const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
+      const company = (order.comercio || '').toLowerCase();
+      const customer = (order.customer_name || '').toLowerCase();
+      const extNo = (order.external_order_number || '').toLowerCase();
+      const tracking = (order.tracking_number || '').toLowerCase();
+      const orderIdLower = (order.id || '').toLowerCase();
+      const sucursal = (order.sucursal_pickeo || '').toLowerCase();
+      const shippingMethodStr = (order.shipping_method || '').toLowerCase();
+      const shippingCityStr = (order.shipping_city || '').toLowerCase();
+      const operadorStr = (order.operador || '').toLowerCase();
+      const agendaStr = (order.agenda || '').toLowerCase();
+      const tagsStr = orderTags.join(' ').toLowerCase();
+
+      const matchesSearch = orderIdLower.includes(searchText) || 
+        extNo.includes(searchText) || 
+        skuStr.includes(searchText) || 
+        nameStr.includes(searchText) || 
+        company.includes(searchText) || 
+        customer.includes(searchText) ||
+        tracking.includes(searchText) ||
+        sucursal.includes(searchText) ||
+        shippingMethodStr.includes(searchText) ||
+        shippingCityStr.includes(searchText) ||
+        operadorStr.includes(searchText) ||
+        agendaStr.includes(searchText) ||
+        tagsStr.includes(searchText);
+
+      if (!matchesSearch) return false;
+    }
+
+    // 3. Pestaña activa
+    if (targetTab && targetTab !== 'Todos') {
+      if (excludeColKey !== 'estado_wms' && order.estado_wms !== targetTab) {
+        return false;
+      }
+    }
+
+    // 4. Filtros de columnas tipo Excel (AND logic)
+    for (const [colKey, selectedVals] of Object.entries(window.wmsColumnFilters || {})) {
+      if (!selectedVals || selectedVals.length === 0) continue;
+      if (excludeColKey && colKey === excludeColKey) continue;
+
+      const val = window.getWmsOrderColumnValue(order, colKey);
+      if (!selectedVals.includes(val)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+};
+
+window.applyWmsFiltersAndRender = function() {
+  const orderTagSelect = document.getElementById('filter-order-tag');
+  const selectedTag = orderTagSelect?.value || '';
+  const categoriaSelect = document.getElementById('filter-categoria-entrega');
+  const selectedCategoriaEntrega = categoriaSelect?.value || '';
+
+  const multiselectText = window.wmsMultiselectText || '';
   const multiselectRefs = multiselectText
     .split(/[\n,; \t]+/)
     .map(r => r.trim())
@@ -6954,109 +7356,11 @@ window.applyWmsFiltersAndRender = function() {
     }
   }
 
-  const matchesMultiselect = (order) => {
-    if (multiselectRefsSet.size === 0) return true;
-    const extNo = (order.external_order_number || '').trim().toUpperCase();
-    const orderId = (order.id || '').trim().toUpperCase();
-    return multiselectRefsSet.has(extNo) || multiselectRefsSet.has(orderId);
-  };
-
-  // Filtro de base para los dropdowns y buscador
-  const matchesBaseFilters = (order) => {
-    const platform = order.origen || order.external_platform || 'Manual';
-    const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
-    const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
-    const company = (order.comercio || '').toLowerCase();
-    const customer = (order.customer_name || '').toLowerCase();
-    const extNo = (order.external_order_number || '').toLowerCase();
-    const tracking = (order.tracking_number || '').toLowerCase();
-    const orderIdLower = order.id.toLowerCase();
-    const sucursal = (order.sucursal_pickeo || '').toLowerCase();
-    const shippingMethodStr = (order.shipping_method || '').toLowerCase();
-    const shippingCityStr = (order.shipping_city || '').toLowerCase();
-    const operadorStr = (order.operador || '').toLowerCase();
-    const agendaStr = (order.agenda || '').toLowerCase();
-    const orderTags = window.getOrderTags ? window.getOrderTags(order) : [];
-    const tagsStr = orderTags.join(' ').toLowerCase();
-
-    const matchesSearch = !searchText || 
-      orderIdLower.includes(searchText) || 
-      extNo.includes(searchText) || 
-      skuStr.includes(searchText) || 
-      nameStr.includes(searchText) || 
-      company.includes(searchText) || 
-      customer.includes(searchText) ||
-      tracking.includes(searchText) ||
-      sucursal.includes(searchText) ||
-      shippingMethodStr.includes(searchText) ||
-      shippingCityStr.includes(searchText) ||
-      operadorStr.includes(searchText) ||
-      agendaStr.includes(searchText) ||
-      tagsStr.includes(searchText);
-
-    const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
-    const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
-    const matchesStatus = !selectedStatus || order.status === selectedStatus;
-    const effCat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN');
-    const matchesCategoria = !selectedCategoriaEntrega || effCat === selectedCategoriaEntrega;
-    
-    let matchesExport = true;
-    if (selectedExportStatus === 'pending') {
-      matchesExport = !order.shopify_exported;
-    } else if (selectedExportStatus === 'exported') {
-      matchesExport = !!order.shopify_exported;
-    }
-
-    let matchesDate = true;
-    if (order.created_at) {
-      const d = new Date(order.created_at);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const orderDateStr = `${year}-${month}-${day}`;
-      
-      if (dateFrom && orderDateStr < dateFrom) matchesDate = false;
-      if (dateTo && orderDateStr > dateTo) matchesDate = false;
-    } else {
-      if (dateFrom || dateTo) matchesDate = false;
-    }
-
-    const matchesWarehouse = !selectedWarehouse || (order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse);
-    const matchesTag = !selectedTag || orderTags.some(t => String(t).trim().toUpperCase() === String(selectedTag).trim().toUpperCase());
-
-    let matchesSla = true;
-    if (window.wmsActiveSlaFilter) {
-      const slaInfo = window.getOrderSlaInfo ? window.getOrderSlaInfo(order) : null;
-      matchesSla = !!(slaInfo && slaInfo.hasSla && slaInfo.slaKey === window.wmsActiveSlaFilter);
-    }
-
-    let matchesDeliveryType = true;
-    if (window.wmsActiveDeliveryTypeFilter) {
-      const dtInfo = window.getOrderDeliveryTypeInfo ? window.getOrderDeliveryTypeInfo(order) : null;
-      matchesDeliveryType = !!(dtInfo && (
-        dtInfo.filterName === window.wmsActiveDeliveryTypeFilter || 
-        dtInfo.key === window.wmsActiveDeliveryTypeFilter ||
-        dtInfo.label === window.wmsActiveDeliveryTypeFilter
-      ));
-    }
-
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse && matchesTag && matchesSla && matchesDeliveryType;
-  };
-
   // 1. Obtener conteo de pestañas
-  const getTabCount = (tabName) => {
-    return orders.filter(o => {
-      const matchBase = matchesBaseFilters(o);
-      const matchTab = tabName === 'Todos' || o.estado_wms === tabName;
-      const matchMultiselect = matchesMultiselect(o);
-      return matchBase && matchTab && matchMultiselect;
-    }).length;
-  };
-
   const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
-    const count = getTabCount(tab);
+    const count = window.getWmsFilteredOrders('estado_wms', tab).length;
     let badgeClass = 'status-gray';
     if (tab === 'Incidencia') {
       badgeClass = 'status-red';
@@ -7070,7 +7374,6 @@ window.applyWmsFiltersAndRender = function() {
       badgeClass = 'status-gray';
     }
 
-    // When the tab is active, we use inline styling to contrast with the primary background
     const activeSpanStyle = `background: rgba(255,255,255,0.2); color: #ffffff; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: none;`;
     const inactiveSpanStyle = `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
 
@@ -7092,36 +7395,7 @@ window.applyWmsFiltersAndRender = function() {
   }
 
   // 2. Filtrar lista de pedidos completa
-  const filtered = orders.filter(o => {
-    const matchBase = matchesBaseFilters(o);
-    const matchTab = window.wmsActiveTab === 'Todos' || o.estado_wms === window.wmsActiveTab;
-    const matchMultiselect = matchesMultiselect(o);
-    
-    // Filtros de columnas tipo Excel (AND logic)
-    let matchColFilters = true;
-    for (const [colKey, selectedVals] of Object.entries(window.wmsColumnFilters || {})) {
-      if (!selectedVals || selectedVals.length === 0) continue;
-      
-      let val = '';
-      if (colKey === 'comercio') val = o.comercio;
-      else if (colKey === 'origen') val = o.origen || o.external_platform || 'Manual';
-      else if (colKey === 'categoria_entrega') val = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(o) : (o.categoria_entrega || 'DISTRIBUCIÓN');
-      else if (colKey === 'agenda') val = o.agenda;
-      else if (colKey === 'operador') val = o.operador || '';
-      else if (colKey === 'shipping_method') val = o.shipping_method;
-      else if (colKey === 'periodo_facturacion') val = o.periodo_facturacion;
-      else if (colKey === 'status') val = o.status;
-      else if (colKey === 'estado_wms') val = o.estado_wms;
-
-      val = val === null || val === undefined ? '' : String(val).trim();
-      if (!selectedVals.includes(val)) {
-        matchColFilters = false;
-        break;
-      }
-    }
-    
-    return matchBase && matchTab && matchColFilters && matchMultiselect;
-  });
+  const filtered = window.getWmsFilteredOrders();
   window.wmsLastFilteredOrders = filtered;
 
   // Renderizar banner informativo de filtro SLA activo
@@ -7141,6 +7415,55 @@ window.applyWmsFiltersAndRender = function() {
       `;
     } else {
       slaBannerContainer.innerHTML = '';
+    }
+  }
+
+  // Renderizar banner informativo de filtro Cobertura activo
+  const covBannerContainer = document.getElementById('wms-active-coverage-filter-container');
+  if (covBannerContainer) {
+    if (window.wmsActiveCoverageFilter) {
+      let covLabel = 'Cobertura';
+      let covIcon = 'ri-map-pin-line';
+      let covBg = '#eff6ff';
+      let covBorder = '#bfdbfe';
+      let covTextColor = '#1d4ed8';
+      let covBtnBg = '#dbeafe';
+      if (window.wmsActiveCoverageFilter === 'RM') {
+        covLabel = 'Cobertura RM (36 comunas Santiago)';
+        covIcon = 'ri-building-line';
+        covBg = '#ecfdf5';
+        covBorder = '#a7f3d0';
+        covTextColor = '#047857';
+        covBtnBg = '#d1fae5';
+      } else if (window.wmsActiveCoverageFilter === 'REGIONES') {
+        covLabel = 'Cobertura Regiones (Otras comunas de Chile)';
+        covIcon = 'ri-map-pin-2-fill';
+        covBg = '#eff6ff';
+        covBorder = '#bfdbfe';
+        covTextColor = '#1d4ed8';
+        covBtnBg = '#dbeafe';
+      } else if (window.wmsActiveCoverageFilter === 'SIN_ASIGNAR') {
+        covLabel = 'Sin Asignar (Comuna no válida o no especificada)';
+        covIcon = 'ri-question-mark';
+        covBg = '#fef2f2';
+        covBorder = '#fecaca';
+        covTextColor = '#b91c1c';
+        covBtnBg = '#fee2e2';
+      }
+
+      covBannerContainer.innerHTML = `
+        <div style="background: ${covBg}; border: 1px solid ${covBorder}; border-radius: var(--radius-md); padding: 0.55rem 0.95rem; margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; align-items: center; gap: 0.55rem; color: ${covTextColor}; font-size: 0.85rem; font-weight: 500;">
+            <i class="${covIcon}" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+            <span>Filtrando por Cobertura Destino: <strong style="font-weight: 700;">${covLabel}</strong> <span style="background: rgba(0, 0, 0, 0.06); color: ${covTextColor}; border: 1px solid rgba(0, 0, 0, 0.1); padding: 0.1rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; margin-left: 0.35rem;">${filtered.length} pedidos</span></span>
+          </div>
+          <button type="button" onclick="window.filterByComunaCoverage(null, event)" class="btn" style="background: ${covBtnBg}; color: ${covTextColor}; border: 1px solid ${covBorder}; padding: 0.25rem 0.65rem; font-size: 0.75rem; font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; transition: all 0.15s;" title="Quitar filtro de Cobertura">
+            <i class="ri-close-circle-line" style="font-size: 0.9rem;"></i> Quitar filtro Cobertura
+          </button>
+        </div>
+      `;
+    } else {
+      covBannerContainer.innerHTML = '';
     }
   }
 
@@ -7172,11 +7495,30 @@ window.applyWmsFiltersAndRender = function() {
   const ordersToProcess = filtered.filter(o => o.estado_wms === 'En procesamiento').length;
   const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
   const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.estado_wms !== 'Cancelado' && o.estado_wms !== 'Archivado' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+  const shopPointOrders = filtered.filter(o => {
+    const cat = window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(o) : (o.categoria_entrega || 'DISTRIBUCIÓN');
+    return cat === 'SHOP POINT (POS)' || cat === 'SHOP POINT' || cat === 'POS';
+  }).length;
 
   const _kpi1 = document.getElementById('kpi-total-orders'); if (_kpi1) _kpi1.textContent = totalOrders;
   const _kpi2 = document.getElementById('kpi-to-process'); if (_kpi2) _kpi2.textContent = ordersToProcess;
   const _kpi3 = document.getElementById('kpi-in-prep'); if (_kpi3) _kpi3.textContent = ordersInPrep;
   const _kpi4 = document.getElementById('kpi-total-sales'); if (_kpi4) _kpi4.textContent = window.formatCLP(totalSales);
+  const _kpiShopPoint = document.getElementById('kpi-shop-point'); if (_kpiShopPoint) _kpiShopPoint.textContent = shopPointOrders;
+
+  const kpiShopCard = document.getElementById('kpi-card-shop-point');
+  if (kpiShopCard) {
+    const isCatActive = selectedTag === 'SHOP POINT (POS)' || selectedCategoriaEntrega === 'SHOP POINT (POS)';
+    if (isCatActive) {
+      kpiShopCard.style.outline = '2px solid #6d28d9';
+      kpiShopCard.style.boxShadow = '0 0 8px rgba(109, 40, 217, 0.35)';
+      kpiShopCard.style.backgroundColor = '#faf5ff';
+    } else {
+      kpiShopCard.style.outline = 'none';
+      kpiShopCard.style.boxShadow = 'var(--shadow-sm)';
+      kpiShopCard.style.backgroundColor = 'var(--color-surface)';
+    }
+  }
 
   // 3. Paginación
   const totalResults = filtered.length;
@@ -7384,7 +7726,9 @@ window.applyWmsFiltersAndRender = function() {
     let categoryBadgeHtml = '';
     const catFilterTag = (catDelivery === 'DISTRIBUCION' ? 'DISTRIBUCIÓN' : catDelivery);
     const isCatActive = selectedTag === catFilterTag;
-    if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
+    if (catDelivery === 'SHOP POINT (POS)' || catDelivery === 'SHOP POINT' || catDelivery === 'POS') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #6d28d9; box-shadow: 0 0 6px rgba(109,40,217,0.4);' : ''}" title="Categoría de Entrega: Shop Point (POS) (Clic para filtrar)"><i class="ri-shopping-cart-2-line" style="color: #6d28d9;"></i> SHOP POINT (POS)</span>`;
+    } else if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #f3e8ff; color: #7e22ce; border: 1px solid #d8b4fe; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #7e22ce; box-shadow: 0 0 6px rgba(126,34,206,0.4);' : ''}" title="Categoría de Entrega: Logística Inversa (Clic para filtrar)"><i class="ri-arrow-left-right-line" style="color: #7e22ce;"></i> LOGÍSTICA INVERSA</span>`;
     } else if (catDelivery === 'RETIRO') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
@@ -8015,6 +8359,7 @@ window.applyWmsFiltersAndRender = function() {
         <option value="DISTRIBUCIÓN" ${currentCategoria === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
         <option value="RETIRO" ${currentCategoria === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
         <option value="LOGÍSTICA INVERSA" ${currentCategoria === 'LOGÍSTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
+        <option value="SHOP POINT (POS)" ${currentCategoria === 'SHOP POINT (POS)' ? 'selected' : ''}>SHOP POINT (POS)</option>
       </select>
     `;
 
@@ -8164,6 +8509,31 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
+    const covInfo = window.getOrderCoverageInfo ? window.getOrderCoverageInfo(order) : null;
+    let coverageCellBadgeHtml = '';
+
+    if (covInfo) {
+      const isCovActive = !!(window.wmsActiveCoverageFilter && (
+        window.wmsActiveCoverageFilter === covInfo.key ||
+        window.wmsActiveCoverageFilter === covInfo.badgeText ||
+        window.wmsActiveCoverageFilter === covInfo.filterName
+      ));
+      const covActiveClass = isCovActive ? 'wms-coverage-active' : '';
+      const safeCovKey = (covInfo.key || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const safeCovLabel = (covInfo.badgeText || covInfo.label || '').replace(/"/g, '&quot;');
+      const safeCovTitle = (covInfo.title || '').replace(/"/g, '&quot;');
+
+      const covBg = isCovActive ? covInfo.activeBg : covInfo.bg;
+      const covColor = isCovActive ? covInfo.activeColor : covInfo.color;
+      const covBorder = isCovActive ? covInfo.activeBorder : covInfo.border;
+
+      coverageCellBadgeHtml = `
+        <span class="badge wms-coverage-tag ${covActiveClass}" onclick="event.stopPropagation(); window.filterByComunaCoverage('${safeCovKey}', event)" style="background-color: ${covBg}; color: ${covColor}; border: 1px solid ${covBorder}; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; cursor: pointer; transition: all 0.15s; line-height: 1.2;" title="${safeCovTitle}">
+          <i class="${covInfo.icon}" style="font-size: 0.7rem;"></i> ${safeCovLabel}
+        </span>
+      `;
+    }
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -8198,23 +8568,26 @@ window.applyWmsFiltersAndRender = function() {
         <td>${fechaProcHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
-        <td style="min-width: 140px; max-width: 180px;">
-          <div style="display:flex; flex-direction:column; gap:0.1rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
-            <span style="font-weight:600; color:var(--color-text-main); max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
+        <td style="min-width: 140px; max-width: 195px;">
+          <div style="display:flex; flex-direction:column; gap:0.12rem; font-size:0.75rem; white-space:nowrap; overflow: hidden;">
+            <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${displayShipMethod}</span>
             ${(deliveryTypeCellBadgeHtml || slaCellBadgesHtml) ? `
-              <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.1rem; margin-bottom: 0.1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.05rem; margin-bottom: 0.05rem;">
                 ${deliveryTypeCellBadgeHtml}
                 ${slaCellBadgesHtml}
               </div>
             ` : ''}
-            <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
-              ${order.shipping_city || 'Por definir'}
-              ${!window.isChileComuna(order.shipping_city) ? `
-                <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
-              ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
-                <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.85rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
-              ` : '')}
-            </span>
+            <div style="display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.05rem;">
+              <span style="font-size:0.7rem; color:var(--color-text-muted); font-weight:500; max-width:115px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
+                ${order.shipping_city || 'Por definir'}
+                ${!window.isChileComuna(order.shipping_city) ? `
+                  <i class="ri-alert-fill" style="color: #ef4444; font-size: 0.85rem; cursor: help;" title="Comuna no coincide con ninguna comuna de Chile ('${(order.shipping_city || '').replace(/"/g, '&quot;')}'). Requiere corrección."></i>
+                ` : ((String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `
+                  <i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.85rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha RM."></i>
+                ` : '')}
+              </span>
+              ${coverageCellBadgeHtml}
+            </div>
           </div>
         </td>
         <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong></td>
@@ -8385,6 +8758,7 @@ window.applyWmsFiltersAndRender = function() {
                         <option value="DISTRIBUCIÓN" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
                         <option value="RETIRO" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
                         <option value="LOGÍSTICA INVERSA" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'LOGÍSTICA INVERSA' ? 'selected' : ''}>LOGÍSTICA INVERSA</option>
+                        <option value="SHOP POINT (POS)" ${(window.getOrderEffectiveCategoriaEntrega ? window.getOrderEffectiveCategoriaEntrega(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')) === 'SHOP POINT (POS)' ? 'selected' : ''}>SHOP POINT (POS)</option>
                       </select>
                     </div>
                     <button onclick="window.openEditOrderItemsModal('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -8934,6 +9308,8 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       if (selectedCategoria) {
         if (selectedCategoria === 'LOGÍSTICA INVERSA') {
           query = query.or('categoria_entrega.in.("LOGÍSTICA INVERSA","LOGISTICA INVERSA"),origen.eq.Logística Inversa,external_platform.eq.Logística Inversa,external_order_number.like.LI-%');
+        } else if (selectedCategoria === 'SHOP POINT (POS)' || selectedCategoria === 'SHOP POINT' || selectedCategoria === 'POS') {
+          query = query.or('categoria_entrega.in.("SHOP POINT (POS)","SHOP POINT","POS"),origen.eq.Punto de Venta,external_platform.eq.Punto de Venta,agenda.eq.COMPRA EN BODEGA,external_order_number.like.POS-%,external_order_number.like.VTA-%');
         } else {
           query = query.eq('categoria_entrega', selectedCategoria);
         }
@@ -9345,6 +9721,7 @@ function renderWmsBulkActionsBar() {
   
   if (selectedCount === 0) {
     container.innerHTML = '';
+    if (window.updateWmsStickyHeaderPositions) window.updateWmsStickyHeaderPositions();
     return;
   }
   
@@ -9446,6 +9823,9 @@ function renderWmsBulkActionsBar() {
       </div>
     </div>
   `;
+  if (window.updateWmsStickyHeaderPositions) {
+    window.updateWmsStickyHeaderPositions();
+  }
 }
 
 function getWarehouseIdFromSucursal(sucursalName) {
@@ -10101,19 +10481,21 @@ window.applyBulkWmsStatus = async function() {
 
         const newWarehouseId = getWarehouseIdFromSucursal(shortageSwalRes.targetSucursal);
 
-        // 1. Actualizar sucursal_pickeo en base de datos
-        const { error: updOrdErr } = await supabase
-          .from('orders')
-          .update({ sucursal_pickeo: shortageSwalRes.targetSucursal })
-          .in('id', shortageSwalRes.orderIds);
-        if (updOrdErr) console.error('Error al actualizar sucursal_pickeo en orders:', updOrdErr);
+        // 1 & 2. Actualizar sucursal_pickeo en orders y warehouse_id en order_items en base de datos (por lotes)
+        for (let i = 0; i < shortageSwalRes.orderIds.length; i += 100) {
+          const chunk = shortageSwalRes.orderIds.slice(i, i + 100);
+          const { error: updOrdErr } = await supabase
+            .from('orders')
+            .update({ sucursal_pickeo: shortageSwalRes.targetSucursal })
+            .in('id', chunk);
+          if (updOrdErr) console.error('Error al actualizar sucursal_pickeo en orders:', updOrdErr);
 
-        // 2. Actualizar warehouse_id en order_items en base de datos
-        const { error: updItmErr } = await supabase
-          .from('order_items')
-          .update({ warehouse_id: newWarehouseId })
-          .in('order_id', shortageSwalRes.orderIds);
-        if (updItmErr) console.error('Error al actualizar warehouse_id en order_items:', updItmErr);
+          const { error: updItmErr } = await supabase
+            .from('order_items')
+            .update({ warehouse_id: newWarehouseId })
+            .in('order_id', chunk);
+          if (updItmErr) console.error('Error al actualizar warehouse_id en order_items:', updItmErr);
+        }
 
         // 3. Actualizar memoria local en window.loadedOrders
         for (const ordId of shortageSwalRes.orderIds) {
@@ -10265,21 +10647,26 @@ window.applyBulkWmsStatus = async function() {
         const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
           ? formValues.bodegaStock
           : getWarehouseIdFromSucursal(formValues.sucursal);
-        const { error: itemsErr } = await supabase
-          .from('order_items')
-          .update({ warehouse_id: effWarehouseId })
-          .in('order_id', ids);
 
-        if (itemsErr) {
-          console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+          const chunk = ids.slice(i, i + BATCH_SIZE);
+          const { error: itemsErr } = await supabase
+            .from('order_items')
+            .update({ warehouse_id: effWarehouseId })
+            .in('order_id', chunk);
+
+          if (itemsErr) {
+            console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
+          }
+
+          const { error: wmsErr } = await supabase
+            .from('orders')
+            .update(updatePayload)
+            .in('id', chunk);
+
+          if (wmsErr) throw wmsErr;
         }
-
-        const { error: wmsErr } = await supabase
-          .from('orders')
-          .update(updatePayload)
-          .in('id', ids);
-
-        if (wmsErr) throw wmsErr;
 
         for (const order of successOrders) {
           order.estado_wms = 'En preparación';
@@ -10532,20 +10919,26 @@ window.applyBulkWmsStatus = async function() {
         }
 
         if (priorIds.length > 0) {
-          const { error: errPrior } = await supabase
-            .from('orders')
-            .update(baseUpdateData)
-            .in('id', priorIds);
-          if (errPrior) throw errPrior;
+          for (let i = 0; i < priorIds.length; i += 100) {
+            const chunk = priorIds.slice(i, i + 100);
+            const { error: errPrior } = await supabase
+              .from('orders')
+              .update(baseUpdateData)
+              .in('id', chunk);
+            if (errPrior) throw errPrior;
+          }
         }
 
         if (normalIds.length > 0) {
           const normalUpdateData = { ...baseUpdateData, status: 'despachado' };
-          const { error: errNormal } = await supabase
-            .from('orders')
-            .update(normalUpdateData)
-            .in('id', normalIds);
-          if (errNormal) throw errNormal;
+          for (let i = 0; i < normalIds.length; i += 100) {
+            const chunk = normalIds.slice(i, i + 100);
+            const { error: errNormal } = await supabase
+              .from('orders')
+              .update(normalUpdateData)
+              .in('id', chunk);
+            if (errNormal) throw errNormal;
+          }
         }
 
         if (window.syncReverseLogisticsOnOrdersDispatched) {
@@ -10648,29 +11041,35 @@ window.applyBulkWmsStatus = async function() {
       } else if (newStatus === 'Pickeado') {
         updateData.status = 'preparado';
       }
-      const { error } = await supabase
-        .from('orders')
-        .update(updateData)
-        .in('id', idsToProcess);
-        
-      if (error) throw error;
+      for (let i = 0; i < idsToProcess.length; i += 100) {
+        const chunk = idsToProcess.slice(i, i + 100);
+        const { error } = await supabase
+          .from('orders')
+          .update(updateData)
+          .in('id', chunk);
+
+        if (error) throw error;
+      }
 
       if (newStatus !== 'Cancelado' && newStatus !== 'En procesamiento') {
         const toRestoreIds = [];
         if (window.loadedOrders) {
-          idsToProcess.forEach(id => {
-            const o = window.loadedOrders.find(ord => ord.id === id);
-            if (o && o.status === 'cancelado' && !o.raw_shopify_data?.cancelled_at) {
-              toRestoreIds.push(id);
+          const procSet = new Set(idsToProcess);
+          window.loadedOrders.forEach(o => {
+            if (procSet.has(o.id) && o.status === 'cancelado' && !o.raw_shopify_data?.cancelled_at) {
+              toRestoreIds.push(o.id);
               o.status = 'para procesar';
             }
           });
         }
         if (toRestoreIds.length > 0) {
-          await supabase
-            .from('orders')
-            .update({ status: 'para procesar' })
-            .in('id', toRestoreIds);
+          for (let i = 0; i < toRestoreIds.length; i += 100) {
+            const chunk = toRestoreIds.slice(i, i + 100);
+            await supabase
+              .from('orders')
+              .update({ status: 'para procesar' })
+              .in('id', chunk);
+          }
         }
       }
       
@@ -31489,10 +31888,12 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       let manualOrdersQuery = supabase
         .from('orders')
         .select('id, external_order_number, comercio, customer_name, customer_phone, origen, external_platform, status, estado_wms, created_at, shipping_method, operador, cantidad, sku, item')
+        .gte('created_at', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString())
         .or('origen.ilike.%manual%,external_platform.ilike.%manual%')
         .ilike('estado_wms', '%procesamiento%')
         .not('status', 'in', '("cancelado","anulado")')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (selectedCommerce) {
         ordQuery = ordQuery.eq('comercio', selectedCommerce);
@@ -40509,6 +40910,14 @@ function injectBillingStyles() {
       color: #a78bfa;
     }
 
+    .billing-action-btn.btn-history {
+      color: #6366f1;
+    }
+    .billing-action-btn.btn-history:hover {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+    }
+
     .billing-action-btn.btn-attachment {
       color: var(--color-text-muted);
     }
@@ -41311,6 +41720,19 @@ function injectBillingStyles() {
       border-radius: 12px !important;
       border: 1px solid var(--color-border) !important;
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;
+    }
+    .billing-history-modal-dialog {
+      max-width: 980px !important;
+      width: 95% !important;
+      max-height: 94vh !important;
+      display: flex !important;
+      flex-direction: column !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+      background: var(--color-surface) !important;
+      border-radius: 14px !important;
+      border: 1px solid var(--color-border) !important;
+      box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.25), 0 12px 15px -5px rgba(0, 0, 0, 0.05) !important;
     }
     .billing-detail-header {
       display: flex;
@@ -43132,6 +43554,9 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
           <button type="button" class="btn btn-outline btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'fulfillment')" style="display: inline-flex; align-items: center; gap: 0.4rem;">
             <i class="ri-question-answer-line"></i> Apelaciones / Observaciones
           </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.openCommerceBillingHistoryModal('${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" style="display: inline-flex; align-items: center; gap: 0.4rem; border-color: #6366f1; color: #6366f1;">
+            <i class="ri-line-chart-line"></i> Evolución y Variación Mensual
+          </button>
           <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.modal-overlay').remove(); deleteBillingRecord('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}');" style="display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto;">
             <i class="ri-delete-bin-line"></i> Eliminar Registro
           </button>
@@ -43605,6 +44030,835 @@ window.toggleCommerceStatusFromModal = async function(comercio, badgeEl, periodI
   }
 };
 
+// ==========================================
+// MODAL DE HISTÓRICO Y VARIACIÓN POR COMERCIO
+// ==========================================
+let commerceBillingHistoryChartInstance = null;
+let currentHistoryData = null;
+
+window.closeCommerceBillingHistoryModal = function() {
+  if (commerceBillingHistoryChartInstance) {
+    commerceBillingHistoryChartInstance.destroy();
+    commerceBillingHistoryChartInstance = null;
+  }
+  const modal = document.getElementById('modal-billing-commerce-history');
+  if (modal) modal.remove();
+  currentHistoryData = null;
+};
+
+window.openCommerceBillingHistoryModal = async function(commerceName, periodId) {
+  if (!commerceName) return;
+
+  window.closeCommerceBillingHistoryModal();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-billing-commerce-history';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '995';
+  modal.onclick = function(e) {
+    if (e.target === modal) window.closeCommerceBillingHistoryModal();
+  };
+
+  modal.innerHTML = `
+    <div class="modal-content billing-history-modal-dialog" onclick="event.stopPropagation()">
+      <div class="billing-detail-header" style="border-bottom: 1px solid var(--color-border); padding: 1rem 1.35rem; background: var(--color-surface);">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(99, 102, 241, 0.12); color: #6366f1; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+            <i class="ri-line-chart-line"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 id="modal-history-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">
+                ${commerceName}
+              </h3>
+              <span id="modal-history-period-badge" style="font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(99, 102, 241, 0.1); color: var(--color-primary); font-weight: 600;">
+                <i class="ri-loader-4-line spin"></i> Cargando...
+              </span>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+              Evolución de facturación mensual y análisis de variación
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Comercio:</label>
+            <select id="modal-history-commerce-select" class="form-input" style="font-size: 0.8rem; padding: 0.25rem 0.6rem; height: 32px; margin: 0; min-width: 140px; display: none;" onchange="window.openCommerceBillingHistoryModal(this.value, '${periodId || ''}')">
+            </select>
+          </div>
+          <button class="modal-close" onclick="window.closeCommerceBillingHistoryModal()" style="background: none; border: none; font-size: 1.6rem; line-height: 1; cursor: pointer; color: var(--color-text-muted);" title="Cerrar modal">&times;</button>
+        </div>
+      </div>
+
+      <div class="modal-body" id="modal-history-body" style="padding: 1.25rem; overflow-y: auto; flex: 1; max-height: calc(94vh - 120px); background: var(--color-bg);">
+        <div style="text-align: center; padding: 4rem 1rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 2.2rem; color: var(--color-primary); display: block; margin-bottom: 0.75rem;"></i>
+          <span>Cargando histórico de facturación de ${commerceName}...</span>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    // 1. Cargar periodos si no están en caché
+    let periods = window.cachedBillingPeriods || [];
+    if (!periods || periods.length === 0) {
+      const { data: pData, error: pErr } = await supabase
+        .from('billing_periods')
+        .select('*');
+      if (pErr) throw pErr;
+      periods = pData || [];
+      window.cachedBillingPeriods = periods;
+    }
+
+    const periodMap = {};
+    periods.forEach(p => { periodMap[p.id] = p; });
+
+    // 2. Cargar todos los registros de facturación de este comercio
+    let { data: records, error: rErr } = await supabase
+      .from('billing_records')
+      .select('*, billing_periods(id, name, status, period_month, period_year)')
+      .eq('comercio', commerceName);
+
+    if (rErr) throw rErr;
+
+    // Fallback ilike si no encontró por exact match (diferencias de mayúsculas/minúsculas)
+    if (!records || records.length === 0) {
+      const { data: fallbackRecords } = await supabase
+        .from('billing_records')
+        .select('*, billing_periods(id, name, status, period_month, period_year)')
+        .ilike('comercio', commerceName);
+      records = fallbackRecords || [];
+    }
+
+    if (!records || records.length === 0) {
+      const bodyEl = document.getElementById('modal-history-body');
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div style="padding: 3.5rem 1rem; text-align: center; color: var(--color-text-muted);">
+            <i class="ri-history-line" style="font-size: 3rem; display: block; margin-bottom: 0.75rem; color: var(--color-border);"></i>
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-text-main);">Sin registros de facturación</h4>
+            <p style="font-size: 0.85rem; margin: 0;">No se encontraron periodos de facturación registrados para <strong>${commerceName}</strong>.</p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Asociar periodos si billing_periods no vino expandido por Supabase
+    records.forEach(r => {
+      if (!r.billing_periods && periodMap[r.period_id]) {
+        r.billing_periods = periodMap[r.period_id];
+      }
+    });
+
+    // Ordenar cronológicamente (del periodo más antiguo al más reciente)
+    records.sort((a, b) => {
+      const pA = a.billing_periods || periodMap[a.period_id] || {};
+      const pB = b.billing_periods || periodMap[b.period_id] || {};
+      return window.getPeriodSortKey(pA) - window.getPeriodSortKey(pB);
+    });
+
+    // Poblar selector rápido de comercios
+    try {
+      const commSet = new Set();
+      document.querySelectorAll('.billing-record-row-resumen').forEach(el => {
+        const c = el.querySelector('td')?.textContent?.trim();
+        if (c) commSet.add(c.split('\n')[0].trim());
+      });
+      if (window.cachedDashboardRecords && window.cachedDashboardRecords.length > 0) {
+        window.cachedDashboardRecords.forEach(r => { if (r.comercio) commSet.add(r.comercio); });
+      }
+      commSet.add(commerceName);
+
+      const selectEl = document.getElementById('modal-history-commerce-select');
+      if (selectEl && commSet.size > 1) {
+        const sortedComms = Array.from(commSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        selectEl.innerHTML = sortedComms.map(c => `
+          <option value="${c}" ${c.toUpperCase() === commerceName.toUpperCase() ? 'selected' : ''}>${c}</option>
+        `).join('');
+        selectEl.style.display = 'block';
+      }
+    } catch (e) {
+      console.warn('Error loading commerce select in modal:', e);
+    }
+
+    // Determinar periodo seleccionado a inspeccionar
+    let selectedRecord = null;
+    if (periodId) {
+      selectedRecord = records.find(r => r.period_id === periodId);
+    }
+    if (!selectedRecord && records.length > 0) {
+      selectedRecord = records[records.length - 1]; // Más reciente por defecto
+    }
+
+    currentHistoryData = {
+      commerceName,
+      records,
+      periodMap,
+      selectedPeriodId: selectedRecord ? selectedRecord.period_id : null,
+      chartType: 'mixed'
+    };
+
+    window.renderCommerceHistoryModalView();
+
+  } catch (err) {
+    console.error('Error opening commerce billing history modal:', err);
+    const bodyEl = document.getElementById('modal-history-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="padding: 2.5rem; text-align: center; color: var(--color-danger);">
+          <i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.5rem;"></i>
+          <strong>Error al cargar datos históricos:</strong> ${err.message}
+        </div>
+      `;
+    }
+  }
+};
+
+window.renderCommerceHistoryModalView = function() {
+  if (!currentHistoryData) return;
+  const { commerceName, records, periodMap, selectedPeriodId, chartType } = currentHistoryData;
+  const bodyEl = document.getElementById('modal-history-body');
+  if (!bodyEl) return;
+
+  const selectedIdx = records.findIndex(r => r.period_id === selectedPeriodId);
+  const selectedRecord = selectedIdx >= 0 ? records[selectedIdx] : records[records.length - 1];
+  const selectedPeriod = selectedRecord.billing_periods || periodMap[selectedRecord.period_id] || {};
+  const selectedPeriodName = (selectedPeriod.name || 'Periodo Actual').toUpperCase();
+
+  // Actualizar badge en cabecera
+  const badgeEl = document.getElementById('modal-history-period-badge');
+  if (badgeEl) {
+    badgeEl.innerHTML = `<i class="ri-calendar-check-line"></i> ${selectedPeriodName} (${records.length} ${records.length === 1 ? 'mes registrado' : 'meses registrados'})`;
+  }
+
+  // Identificar el mes inmediatamente anterior
+  const selMonth = window.getBillingPeriodMonth(selectedPeriod);
+  const selYear = window.getBillingPeriodYear(selectedPeriod);
+
+  let targetPrevMonth = selMonth === 1 ? 12 : selMonth - 1;
+  let targetPrevYear = selMonth === 1 ? selYear - 1 : selYear;
+
+  let prevRecord = null;
+  let prevRelationText = '';
+
+  // 1. Buscar coincidencia calendario estricto (mes inmediatamente anterior calendario)
+  const calPrevRecord = records.find(r => {
+    const p = r.billing_periods || periodMap[r.period_id] || {};
+    return window.getBillingPeriodMonth(p) === targetPrevMonth && window.getBillingPeriodYear(p) === targetPrevYear;
+  });
+
+  if (calPrevRecord) {
+    prevRecord = calPrevRecord;
+    const pPrev = prevRecord.billing_periods || periodMap[prevRecord.period_id] || {};
+    prevRelationText = `Mes anterior (${pPrev.name || 'Anterior'})`;
+  } else if (selectedIdx > 0) {
+    // 2. Si no coincide mes calendario estricto, tomar el registro cronológicamente anterior más cercano
+    prevRecord = records[selectedIdx - 1];
+    const pPrev = prevRecord.billing_periods || periodMap[prevRecord.period_id] || {};
+    prevRelationText = `Periodo anterior registrado (${pPrev.name || 'Anterior'})`;
+  }
+
+  // Cálculos de variación
+  function calculateVariation(curr, prev) {
+    const diff = curr - prev;
+    let pct = 0;
+    if (prev > 0) {
+      pct = ((curr - prev) / prev) * 100;
+    } else if (prev === 0 && curr > 0) {
+      pct = 100;
+    } else if (prev === 0 && curr === 0) {
+      pct = 0;
+    } else {
+      pct = ((curr - prev) / Math.abs(prev)) * 100;
+    }
+
+    let arrow = '=';
+    let badgeStyle = 'background: rgba(148, 163, 184, 0.12); color: var(--color-text-muted); border: 1px solid rgba(148, 163, 184, 0.25);';
+    let sign = pct > 0 ? '+' : '';
+
+    if (diff > 0) {
+      arrow = '▲';
+      badgeStyle = 'background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25);';
+    } else if (diff < 0) {
+      arrow = '▼';
+      badgeStyle = 'background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);';
+    }
+
+    return {
+      curr,
+      prev,
+      diff,
+      pct,
+      sign,
+      arrow,
+      badgeStyle,
+      formattedDiff: (diff >= 0 ? '+' : '') + window.formatCLP(diff),
+      formattedPct: `${arrow} ${sign}${pct.toFixed(1)}%`
+    };
+  }
+
+  const curFulf = selectedRecord.total_fulfillment || 0;
+  const curEnv = selectedRecord.enviame || 0;
+  const curTot = curFulf + curEnv;
+
+  let fulfVar = null;
+  let envVar = null;
+  let totVar = null;
+
+  if (prevRecord) {
+    const prevFulf = prevRecord.total_fulfillment || 0;
+    const prevEnv = prevRecord.enviame || 0;
+    const prevTot = prevFulf + prevEnv;
+
+    fulfVar = calculateVariation(curFulf, prevFulf);
+    envVar = calculateVariation(curEnv, prevEnv);
+    totVar = calculateVariation(curTot, prevTot);
+  }
+
+  // Opciones del selector de periodo analizado
+  const periodSelectOptions = records.map((r, idx) => {
+    const p = r.billing_periods || periodMap[r.period_id] || {};
+    const name = p.name || `Periodo ${idx + 1}`;
+    return `<option value="${r.period_id}" ${r.period_id === selectedRecord.period_id ? 'selected' : ''}>${name}</option>`;
+  }).join('');
+
+  // Estadísticas globales históricas
+  let sumAllTotals = 0;
+  let sumAllFulf = 0;
+  let sumAllEnv = 0;
+  let maxMonth = { name: '', total: -1 };
+
+  records.forEach(r => {
+    const f = r.total_fulfillment || 0;
+    const e = r.enviame || 0;
+    const t = f + e;
+    sumAllFulf += f;
+    sumAllEnv += e;
+    sumAllTotals += t;
+    const pName = (r.billing_periods?.name || 'Periodo').toUpperCase();
+    if (t > maxMonth.total) {
+      maxMonth = { name: pName, total: t };
+    }
+  });
+
+  const avgMonthlyTotal = records.length > 0 ? Math.round(sumAllTotals / records.length) : 0;
+
+  // Generar filas para la tabla histórica detallada
+  let tableRowsHistory = '';
+  records.forEach((r, idx) => {
+    const p = r.billing_periods || periodMap[r.period_id] || {};
+    const pName = (p.name || `Periodo ${idx + 1}`).toUpperCase();
+    const isSelected = r.period_id === selectedRecord.period_id;
+
+    const f = r.total_fulfillment || 0;
+    const e = r.enviame || 0;
+    const tot = f + e;
+
+    let vFulfHtml = '<span style="color: var(--color-text-muted); font-size: 0.72rem;">-</span>';
+    let vEnvHtml = '<span style="color: var(--color-text-muted); font-size: 0.72rem;">-</span>';
+    let vTotHtml = '<span style="color: var(--color-text-muted); font-size: 0.72rem;">-</span>';
+
+    if (idx > 0) {
+      const prevR = records[idx - 1];
+      const pF = prevR.total_fulfillment || 0;
+      const pE = prevR.enviame || 0;
+      const pT = pF + pE;
+
+      const vf = calculateVariation(f, pF);
+      const ve = calculateVariation(e, pE);
+      const vt = calculateVariation(tot, pT);
+
+      vFulfHtml = `<span style="font-size: 0.74rem; font-weight: 600; padding: 0.1rem 0.35rem; border-radius: 4px; ${vf.badgeStyle}">${vf.formattedPct}</span>`;
+      vEnvHtml = `<span style="font-size: 0.74rem; font-weight: 600; padding: 0.1rem 0.35rem; border-radius: 4px; ${ve.badgeStyle}">${ve.formattedPct}</span>`;
+      vTotHtml = `<span style="font-size: 0.74rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; ${vt.badgeStyle}">${vt.formattedPct}</span>`;
+    }
+
+    const pagoFulfStatus = r.pago_fulfillment || 'Por solicitar';
+    const pagoEnvStatus = r.pago_enviame || 'Por solicitar';
+
+    tableRowsHistory += `
+      <tr onclick="window.changeHistoryModalPeriod('${r.period_id}')" style="cursor: pointer; transition: background 0.15s; ${isSelected ? 'background: rgba(99, 102, 241, 0.08); font-weight: 600;' : ''}">
+        <td style="padding: 0.65rem 0.85rem; vertical-align: middle;">
+          <div style="display: flex; align-items: center; gap: 0.45rem;">
+            <i class="ri-calendar-line" style="color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-size: 0.95rem;"></i>
+            <span style="color: var(--color-text-main); font-weight: ${isSelected ? '700' : '600'};">${pName}</span>
+            ${isSelected ? '<span class="badge badge-purple" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">📌 Analizado</span>' : ''}
+          </div>
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle; font-weight: 600; color: #3b82f6;">
+          ${window.formatCLP(f)}
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle;">
+          ${vFulfHtml}
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle; font-weight: 600; color: #10b981;">
+          ${window.formatCLP(e)}
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle;">
+          ${vEnvHtml}
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle; background: rgba(99, 102, 241, 0.04); font-weight: 700; color: var(--color-primary); font-size: 0.88rem;">
+          ${window.formatCLP(tot)}
+        </td>
+        <td style="text-align: right; padding: 0.65rem 0.85rem; vertical-align: middle; background: rgba(99, 102, 241, 0.04);">
+          ${vTotHtml}
+        </td>
+        <td style="text-align: center; padding: 0.65rem 0.85rem; vertical-align: middle;">
+          <div style="display: inline-flex; gap: 0.35rem; align-items: center;">
+            <span class="client-badge ${getStatusClass(pagoFulfStatus)}" title="Pago Fulfillment: ${pagoFulfStatus}" style="font-size: 0.68rem; padding: 0.12rem 0.35rem;">Fulf: ${pagoFulfStatus}</span>
+            <span class="client-badge ${getStatusClass(pagoEnvStatus)}" title="Pago Envíame: ${pagoEnvStatus}" style="font-size: 0.68rem; padding: 0.12rem 0.35rem;">Env: ${pagoEnvStatus}</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  bodyEl.innerHTML = `
+    <!-- SECCIÓN 1: VARIACIÓN RESPECTO AL MES ANTERIOR -->
+    <div class="card" style="margin: 0 0 1.25rem 0; padding: 1.15rem 1.35rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+        <div>
+          <div style="font-weight: 700; font-size: 0.98rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-arrow-up-down-line" style="color: #6366f1; font-size: 1.15rem;"></i>
+            <span>Variación respecto al Mes Inmediatamente Anterior</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+            ${prevRecord ? `Comparando <strong>${selectedPeriodName}</strong> contra <strong>${prevRelationText}</strong>` : `Periodo actual: <strong>${selectedPeriodName}</strong>`}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.45rem;">
+          <label style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">Mes analizado:</label>
+          <select class="form-input" style="font-size: 0.8rem; padding: 0.25rem 0.65rem; height: 32px; margin: 0; width: auto; font-weight: 600; border-radius: 6px;" onchange="window.changeHistoryModalPeriod(this.value)">
+            ${periodSelectOptions}
+          </select>
+        </div>
+      </div>
+
+      ${!prevRecord ? `
+        <div style="display: flex; align-items: center; gap: 0.65rem; background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 8px; padding: 0.85rem 1rem; color: var(--color-text-main); font-size: 0.82rem; margin-bottom: 0.5rem;">
+          <i class="ri-information-line" style="font-size: 1.35rem; color: #6366f1; flex-shrink: 0;"></i>
+          <div>
+            <strong>Primer periodo registrado (${selectedPeriodName}):</strong> Este comercio no registra un periodo anterior en el sistema para calcular variaciones relativas. Los montos de facturación de este mes se muestran a continuación.
+          </div>
+        </div>
+      ` : ''}
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 0.5rem;">
+        <!-- Card Total Facturado -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #6366f1; border-radius: 10px; padding: 1rem; position: relative;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.73rem; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.04em;">Total Facturado</span>
+            <i class="ri-bill-line" style="color: #6366f1; font-size: 1.15rem;"></i>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #6366f1; margin-top: 0.35rem;">
+            ${window.formatCLP(curTot)}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.35rem;">
+            ${totVar ? `
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.76rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; ${totVar.badgeStyle}">
+                ${totVar.formattedPct} (${totVar.formattedDiff})
+              </span>
+              <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+                Ant: ${window.formatCLP(totVar.prev)}
+              </span>
+            ` : `
+              <span style="font-size: 0.72rem; color: var(--color-text-muted);">Primer registro mensual</span>
+            `}
+          </div>
+        </div>
+
+        <!-- Card Fulfillment -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #3b82f6; border-radius: 10px; padding: 1rem; position: relative;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.73rem; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.04em;">Fulfillment</span>
+            <i class="ri-box-3-line" style="color: #3b82f6; font-size: 1.15rem;"></i>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #3b82f6; margin-top: 0.35rem;">
+            ${window.formatCLP(curFulf)}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.35rem;">
+            ${fulfVar ? `
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.76rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; ${fulfVar.badgeStyle}">
+                ${fulfVar.formattedPct} (${fulfVar.formattedDiff})
+              </span>
+              <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+                Ant: ${window.formatCLP(fulfVar.prev)}
+              </span>
+            ` : `
+              <span style="font-size: 0.72rem; color: var(--color-text-muted);">Primer registro mensual</span>
+            `}
+          </div>
+        </div>
+
+        <!-- Card Envíame -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-left: 4px solid #10b981; border-radius: 10px; padding: 1rem; position: relative;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.73rem; text-transform: uppercase; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.04em;">Envíame</span>
+            <i class="ri-truck-line" style="color: #10b981; font-size: 1.15rem;"></i>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #10b981; margin-top: 0.35rem;">
+            ${window.formatCLP(curEnv)}
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem; flex-wrap: wrap; gap: 0.35rem;">
+            ${envVar ? `
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.76rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 6px; ${envVar.badgeStyle}">
+                ${envVar.formattedPct} (${envVar.formattedDiff})
+              </span>
+              <span style="font-size: 0.74rem; color: var(--color-text-muted);">
+                Ant: ${window.formatCLP(envVar.prev)}
+              </span>
+            ` : `
+              <span style="font-size: 0.72rem; color: var(--color-text-muted);">Primer registro mensual</span>
+            `}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 2: GRÁFICA DE FACTURACIÓN HISTÓRICA -->
+    <div class="card" style="margin: 0 0 1.25rem 0; padding: 1.15rem 1.35rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
+        <div>
+          <div style="font-weight: 700; font-size: 0.98rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-bar-chart-grouped-line" style="color: #6366f1; font-size: 1.15rem;"></i>
+            <span>Facturación Fulfillment, Envíame y Total a lo largo de los meses</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+            Evolución histórica completa registrada en el sistema Stocka WMS
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.35rem; background: var(--color-bg); padding: 3px; border-radius: 8px; border: 1px solid var(--color-border);">
+          <button type="button" class="btn-chart-mode" onclick="window.switchHistoryChartMode('mixed')" style="border: none; cursor: pointer; padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; font-family: Outfit, sans-serif; transition: all 0.2s; ${chartType === 'mixed' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);'}">
+            <i class="ri-funds-line"></i> Apilado + Total
+          </button>
+          <button type="button" class="btn-chart-mode" onclick="window.switchHistoryChartMode('grouped')" style="border: none; cursor: pointer; padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; font-family: Outfit, sans-serif; transition: all 0.2s; ${chartType === 'grouped' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);'}">
+            <i class="ri-bar-chart-2-line"></i> Barras Agrupadas
+          </button>
+          <button type="button" class="btn-chart-mode" onclick="window.switchHistoryChartMode('lines')" style="border: none; cursor: pointer; padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; font-family: Outfit, sans-serif; transition: all 0.2s; ${chartType === 'lines' ? 'background: var(--color-surface); color: var(--color-primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: var(--color-text-muted);'}">
+            <i class="ri-line-chart-line"></i> Líneas
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick KPI Strip -->
+      <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.6rem 0.85rem; background: var(--color-bg); border-radius: 8px; border: 1px solid var(--color-border); font-size: 0.78rem;">
+        <div>
+          <span style="color: var(--color-text-muted);">Total Acumulado:</span>
+          <strong style="color: var(--color-text-main); margin-left: 0.25rem;">${window.formatCLP(sumAllTotals)}</strong>
+        </div>
+        <div>
+          <span style="color: var(--color-text-muted);">Promedio Mensual:</span>
+          <strong style="color: var(--color-text-main); margin-left: 0.25rem;">${window.formatCLP(avgMonthlyTotal)}</strong>
+        </div>
+        ${maxMonth.total > 0 ? `
+          <div>
+            <span style="color: var(--color-text-muted);">Mes Pico:</span>
+            <strong style="color: #6366f1; margin-left: 0.25rem;">${maxMonth.name} (${window.formatCLP(maxMonth.total)})</strong>
+          </div>
+        ` : ''}
+        <div style="margin-left: auto; color: var(--color-text-muted); font-size: 0.74rem;">
+          <i class="ri-cursor-line"></i> Haz clic en una barra para analizar ese mes
+        </div>
+      </div>
+
+      <div style="position: relative; height: 320px; width: 100%;">
+        <canvas id="chart-commerce-billing-history"></canvas>
+      </div>
+    </div>
+
+    <!-- SECCIÓN 3: TABLA DETALLADA MES A MES -->
+    <div class="card" style="margin: 0; padding: 1.15rem 1.35rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="font-weight: 700; font-size: 0.98rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-table-line" style="color: #6366f1; font-size: 1.15rem;"></i>
+          <span>Desglose Histórico Periodo por Periodo</span>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+          Haz clic en cualquier fila para seleccionarla y comparar su variación
+        </span>
+      </div>
+
+      <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden;">
+        <table class="data-table billing-table" style="width: 100%; font-size: 0.82rem; border-collapse: collapse; margin: 0;">
+          <thead>
+            <tr style="background: var(--color-bg);">
+              <th style="text-align: left; padding: 0.65rem 0.85rem;">Periodo</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem; color: #3b82f6;">Total Fulf</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem;">Var. Fulf</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem; color: #10b981;">Total Env</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem;">Var. Env</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem; background: rgba(99, 102, 241, 0.05); color: var(--color-primary);">Total General</th>
+              <th style="text-align: right; padding: 0.65rem 0.85rem; background: rgba(99, 102, 241, 0.05);">Var. Total</th>
+              <th style="text-align: center; padding: 0.65rem 0.85rem;">Estado Cobro</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHistory}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Renderizar la gráfica Chart.js
+  const labels = records.map(r => {
+    const p = r.billing_periods || periodMap[r.period_id] || {};
+    return (p.name || 'Periodo').toUpperCase();
+  });
+  const fulfData = records.map(r => r.total_fulfillment || 0);
+  const envData = records.map(r => r.enviame || 0);
+  const totalData = records.map(r => (r.total_fulfillment || 0) + (r.enviame || 0));
+
+  renderCommerceHistoryChart(labels, fulfData, envData, totalData, chartType, records);
+};
+
+function renderCommerceHistoryChart(labels, fulfData, envData, totalData, chartType = 'mixed', records = []) {
+  const canvas = document.getElementById('chart-commerce-billing-history');
+  if (!canvas) return;
+
+  if (commerceBillingHistoryChartInstance) {
+    commerceBillingHistoryChartInstance.destroy();
+    commerceBillingHistoryChartInstance = null;
+  }
+
+  const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark' || document.body.classList.contains('dark-theme');
+  const textColor = isDarkMode ? '#cbd5e1' : '#64748b';
+  const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+
+  const ctx = canvas.getContext('2d');
+  let datasets = [];
+  let scales = {};
+
+  if (chartType === 'mixed') {
+    // Barras apiladas (Fulfillment + Envíame) con Línea superior de Total
+    datasets = [
+      {
+        type: 'line',
+        label: 'Total General',
+        data: totalData,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.12)',
+        borderWidth: 3,
+        pointBackgroundColor: '#6366f1',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        tension: 0.25,
+        order: 1
+      },
+      {
+        type: 'bar',
+        label: 'Fulfillment',
+        data: fulfData,
+        backgroundColor: 'rgba(59, 130, 246, 0.85)',
+        borderColor: '#3b82f6',
+        borderWidth: 1,
+        borderRadius: 4,
+        stack: 'combined',
+        order: 2
+      },
+      {
+        type: 'bar',
+        label: 'Envíame',
+        data: envData,
+        backgroundColor: 'rgba(16, 185, 129, 0.85)',
+        borderColor: '#10b981',
+        borderWidth: 1,
+        borderRadius: 4,
+        stack: 'combined',
+        order: 3
+      }
+    ];
+    scales = {
+      x: {
+        stacked: true,
+        grid: { display: false },
+        ticks: { color: textColor, font: { family: 'Outfit, sans-serif', weight: 500 } }
+      },
+      y: {
+        stacked: false,
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { family: 'Outfit, sans-serif' },
+          callback: function(val) {
+            return window.formatCLP ? window.formatCLP(val) : '$' + val.toLocaleString('es-CL');
+          }
+        }
+      }
+    };
+  } else if (chartType === 'grouped') {
+    // 3 Barras agrupadas lado a lado
+    datasets = [
+      {
+        type: 'bar',
+        label: 'Fulfillment',
+        data: fulfData,
+        backgroundColor: 'rgba(59, 130, 246, 0.85)',
+        borderColor: '#3b82f6',
+        borderWidth: 1,
+        borderRadius: 4
+      },
+      {
+        type: 'bar',
+        label: 'Envíame',
+        data: envData,
+        backgroundColor: 'rgba(16, 185, 129, 0.85)',
+        borderColor: '#10b981',
+        borderWidth: 1,
+        borderRadius: 4
+      },
+      {
+        type: 'bar',
+        label: 'Total General',
+        data: totalData,
+        backgroundColor: 'rgba(99, 102, 241, 0.85)',
+        borderColor: '#6366f1',
+        borderWidth: 1,
+        borderRadius: 4
+      }
+    ];
+    scales = {
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor, font: { family: 'Outfit, sans-serif', weight: 500 } }
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { family: 'Outfit, sans-serif' },
+          callback: function(val) {
+            return window.formatCLP ? window.formatCLP(val) : '$' + val.toLocaleString('es-CL');
+          }
+        }
+      }
+    };
+  } else if (chartType === 'lines') {
+    // 3 Líneas de tendencia
+    datasets = [
+      {
+        type: 'line',
+        label: 'Total General',
+        data: totalData,
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        borderWidth: 3,
+        pointBackgroundColor: '#6366f1',
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        tension: 0.25
+      },
+      {
+        type: 'line',
+        label: 'Fulfillment',
+        data: fulfData,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        pointBackgroundColor: '#3b82f6',
+        pointRadius: 4,
+        tension: 0.25
+      },
+      {
+        type: 'line',
+        label: 'Envíame',
+        data: envData,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        borderWidth: 2,
+        pointBackgroundColor: '#10b981',
+        pointRadius: 4,
+        tension: 0.25
+      }
+    ];
+    scales = {
+      x: {
+        grid: { display: false },
+        ticks: { color: textColor, font: { family: 'Outfit, sans-serif', weight: 500 } }
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: {
+          color: textColor,
+          font: { family: 'Outfit, sans-serif' },
+          callback: function(val) {
+            return window.formatCLP ? window.formatCLP(val) : '$' + val.toLocaleString('es-CL');
+          }
+        }
+      }
+    };
+  }
+
+  commerceBillingHistoryChartInstance = new Chart(ctx, {
+    type: chartType === 'lines' ? 'line' : 'bar',
+    data: {
+      labels: labels,
+      datasets: datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      onClick: (event, elements) => {
+        if (elements && elements.length > 0) {
+          const idx = elements[0].index;
+          if (records && records[idx]) {
+            window.changeHistoryModalPeriod(records[idx].period_id);
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: textColor,
+            font: { family: 'Outfit, sans-serif', size: 12, weight: 600 },
+            usePointStyle: true,
+            boxWidth: 8
+          }
+        },
+        tooltip: {
+          backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          titleColor: isDarkMode ? '#f8fafc' : '#0f172a',
+          bodyColor: isDarkMode ? '#e2e8f0' : '#334155',
+          borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)',
+          borderWidth: 1,
+          padding: 10,
+          boxPadding: 4,
+          usePointStyle: true,
+          callbacks: {
+            label: function(context) {
+              const val = context.raw || 0;
+              return ' ' + context.dataset.label + ': ' + (window.formatCLP ? window.formatCLP(val) : '$' + val.toLocaleString('es-CL'));
+            }
+          }
+        }
+      },
+      scales: scales
+    }
+  });
+}
+
+window.changeHistoryModalPeriod = function(periodId) {
+  if (!currentHistoryData) return;
+  currentHistoryData.selectedPeriodId = periodId;
+  window.renderCommerceHistoryModalView();
+};
+
+window.switchHistoryChartMode = function(mode) {
+  if (!currentHistoryData) return;
+  currentHistoryData.chartType = mode;
+  window.renderCommerceHistoryModalView();
+};
+
 async function loadBillingRecords(periodId, bodyElement) {
   try {
     // 1. Obtener registros de facturación
@@ -44062,6 +45316,9 @@ async function loadBillingRecords(periodId, bodyElement) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <div class="billing-actions-group">
+              <button class="billing-action-btn btn-history" onclick="window.openCommerceBillingHistoryModal('${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" title="📊 Ver evolución histórica y variación vs mes anterior" style="color: #6366f1;">
+                <i class="ri-line-chart-line"></i>
+              </button>
               <button class="billing-action-btn" onclick="window.goToBillingRecordTab('${periodId}', 'fulf', '${r.id}')" title="Ir al desglose de Fulfillment">
                 <i class="ri-bill-line"></i>
               </button>
@@ -44353,7 +45610,7 @@ async function loadBillingRecords(periodId, bodyElement) {
                   <th style="min-width: 110px; text-align: right; border-bottom: 2px solid var(--color-border); background: rgba(16, 185, 129, 0.05);" title="Total Abonos Combinados">Total Pagado</th>
                   <th style="min-width: 115px; text-align: right; border-bottom: 2px solid var(--color-border); background: rgba(239, 68, 68, 0.05);" title="Saldo Pendiente por Cobrar">Saldo Pendiente</th>
                   <th style="min-width: 130px; text-align: center; border-bottom: 2px solid var(--color-border);">Estado General</th>
-                  <th style="width: 130px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
+                  <th style="min-width: 170px; width: 170px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
                 </tr>
               </thead>
               <tbody id="tbody-resumen-${periodId}">
@@ -52473,12 +53730,24 @@ async function renderMerchantsAdmin() {
           ? activeIntList.join(', ')
           : '<span style="color: var(--color-text-muted); font-style: italic;">Ninguna activa</span>';
 
+        const isPosActive = c.onboarding_checklist?.pos_active === true;
+        const posMachine = c.onboarding_checklist?.pos_machine;
+        const machineDesc = (isPosActive && (posMachine?.brand || posMachine?.model))
+          ? `<span title="Máquina de pago POS asignada" style="font-size: 0.7rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;"><i class="ri-bank-card-line" style="color: var(--color-primary);"></i> ${window.escapeHtml(posMachine.brand || '')}${posMachine.color ? ` (${window.escapeHtml(posMachine.color)})` : ''}${posMachine.model ? ` #${window.escapeHtml(posMachine.model)}` : ''}</span>`
+          : '';
+        const posPill = isPosActive 
+          ? `<div><span class="badge-status enabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Punto de Venta en este comercio"><i class="ri-store-3-line"></i> POS Activo</span>${machineDesc}</div>`
+          : `<div><span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantPosQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Punto de Venta en este comercio"><i class="ri-forbid-line"></i> Sin POS</span></div>`;
+
         return `
           <tr>
             <td style="text-align: center;">
               <input type="checkbox" class="merchant-select-checkbox" value="${c.nombre}" onchange="window.updateMerchantSelectionBar()" style="cursor: pointer; width: 16px; height: 16px;">
             </td>
-            <td><strong>${c.nombre}</strong></td>
+            <td>
+              <strong>${c.nombre}</strong>
+              <div style="margin-top: 0.2rem;">${posPill}</div>
+            </td>
             <td>${companyInfo}</td>
             <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
             <td>${kamInfo}</td>
@@ -52794,6 +54063,68 @@ window.toggleMerchantOnboardingQuick = async function(comercioName, enable, sile
       alert("Error al actualizar estado de Onboarding: " + err.message);
     }
     throw err;
+  }
+};
+
+window.toggleMerchantPosQuick = async function(comercioName, enable) {
+  try {
+    const { data: cacData } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, onboarding_checklist')
+      .ilike('comercio', comercioName.trim())
+      .maybeSingle();
+
+    const checklist = cacData?.onboarding_checklist || {};
+    checklist.pos_active = enable;
+
+    const dbComercioName = cacData?.comercio || comercioName;
+    const { error } = await supabase
+      .from('comercios_adicional_config')
+      .upsert({
+        comercio: dbComercioName,
+        onboarding_checklist: checklist
+      }, { onConflict: 'comercio' });
+
+    if (error) throw error;
+
+    // Actualizar cache local en memoria
+    if (window.cachedAdminMerchants) {
+      const c = window.cachedAdminMerchants.find(m => m.nombre === dbComercioName || m.nombre === comercioName);
+      if (c) {
+        c.onboarding_checklist = checklist;
+      }
+    }
+    if (window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[dbComercioName]) {
+      window.loadedCommerceConfigsMap[dbComercioName].onboarding_checklist = checklist;
+    }
+
+    if (typeof renderMerchantsAdmin === 'function') {
+      renderMerchantsAdmin();
+    }
+    if (window.Swal) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: enable ? 'success' : 'info',
+        title: `Punto de Venta ${enable ? 'activado' : 'desactivado'} para ${comercioName}`,
+        showConfirmButton: false,
+        timer: 2500
+      });
+    }
+  } catch (err) {
+    console.error("Error toggling merchant POS quick:", err);
+    if (window.Swal) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'error',
+        title: `Error al actualizar POS: ${err.message}`,
+        showConfirmButton: false,
+        timer: 3500
+      });
+    } else {
+      alert("Error al actualizar estado de Punto de Venta: " + err.message);
+    }
   }
 };
 
@@ -54576,6 +55907,65 @@ window.showMerchantCreateModal = function() {
             </div>
           </div>
 
+          <!-- Configuración de Punto de Venta (POS) y Máquina de Cobro -->
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-create-pos-active" onchange="document.getElementById('merchant-create-pos-details-container').style.display = this.checked ? 'block' : 'none';">
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-create-pos-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Habilitar Punto de Venta (POS)</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Permite registrar ventas presenciales en sucursal para este comercio.</p>
+            </div>
+          </div>
+
+          <div id="merchant-create-pos-details-container" style="display: none; margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.85rem 1rem; background: var(--color-bg);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-bank-card-line" style="color: var(--color-primary);"></i> Máquina de Pago Asignada para Ventas POS
+            </h4>
+            <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">
+              Define las características de la máquina POS física que debe usar el cajero para recibir pagos con tarjeta de este comercio.
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Marca / Proveedor Máquina</label>
+                <input type="text" id="merchant-create-pos-brand" class="form-input" list="pos-brands-list-create" placeholder="Ej: TUU, Transbank, SumUp..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                <datalist id="pos-brands-list-create">
+                  <option value="TUU">
+                  <option value="Transbank">
+                  <option value="SumUp">
+                  <option value="Redelcom">
+                  <option value="Compraquí">
+                  <option value="Mercado Pago">
+                  <option value="STOCKA POS">
+                </datalist>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Color / Distintivo Visual</label>
+                <input type="text" id="merchant-create-pos-color" class="form-input" placeholder="Ej: Azul, Naranja, Negro..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">N° Máquina / Terminal</label>
+                <input type="text" id="merchant-create-pos-model" class="form-input" placeholder="Ej: N001, POS-01..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Propiedad del Equipo</label>
+                <input type="text" id="merchant-create-pos-owner" class="form-input" placeholder="Ej: Propiedad del Comercio / Propiedad de STOCKA" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Instrucciones de Cobro para Cajero</label>
+              <input type="text" id="merchant-create-pos-notes" class="form-input" placeholder="Ej: Cobro en terminal TUU directo del comercio, verificar cuenta corriente..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Configuración de Prefijos por Plataforma</label>
             <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
@@ -54861,7 +56251,15 @@ window.showMerchantCreateModal = function() {
               shipping_configured: !!(enviameId && String(enviameId).trim().toLowerCase() !== 'null'),
               sku_guide: false,
               stock_declared: false,
-              dismissed: false
+              dismissed: false,
+              pos_active: document.getElementById('merchant-create-pos-active')?.checked === true,
+              pos_machine: {
+                brand: document.getElementById('merchant-create-pos-brand')?.value.trim() || '',
+                color: document.getElementById('merchant-create-pos-color')?.value.trim() || '',
+                model: document.getElementById('merchant-create-pos-model')?.value.trim() || '',
+                owner: document.getElementById('merchant-create-pos-owner')?.value.trim() || '',
+                notes: document.getElementById('merchant-create-pos-notes')?.value.trim() || ''
+              }
             }
           });
 
@@ -55182,6 +56580,69 @@ window.showMerchantEditModal = async function(comercioName) {
             <div>
               <label for="merchant-edit-catalog-ready" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Catálogo Inicial Configurado (Onboarding)</label>
               <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Marca esta opción en cuanto el catálogo base de productos haya sido configurado e importado por operaciones de Stocka. Esto enviará un correo automático de notificación al comercio.</p>
+            </div>
+          </div>
+
+          <!-- Configuración de Punto de Venta (POS) y Máquina de Cobro -->
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-pos-active" ${commerce.onboarding_checklist?.pos_active === true ? 'checked' : ''} onchange="document.getElementById('merchant-edit-pos-details-container').style.display = this.checked ? 'block' : 'none';">
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-pos-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Habilitar Punto de Venta (POS)</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Permite registrar ventas presenciales en sucursal física para este comercio.</p>
+            </div>
+          </div>
+
+          <div id="merchant-edit-pos-details-container" style="display: ${commerce.onboarding_checklist?.pos_active === true ? 'block' : 'none'}; margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.85rem 1rem; background: var(--color-bg);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-bank-card-line" style="color: var(--color-primary);"></i> Máquina de Pago Asignada para Ventas POS
+            </h4>
+            <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">
+              Define las características de la máquina POS física que debe usar el cajero para recibir pagos con tarjeta de este comercio.
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Marca / Proveedor Máquina</label>
+                <input type="text" id="merchant-edit-pos-brand" class="form-input" list="pos-brands-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.brand || '').replace(/"/g, '&quot;')}" placeholder="Ej: TUU, Transbank, SumUp..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                <datalist id="pos-brands-list-edit">
+                  <option value="TUU">
+                  <option value="Transbank">
+                  <option value="SumUp">
+                  <option value="Redelcom">
+                  <option value="Compraquí">
+                  <option value="Mercado Pago">
+                  <option value="STOCKA POS">
+                </datalist>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Color / Distintivo Visual</label>
+                <input type="text" id="merchant-edit-pos-color" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.color || '').replace(/"/g, '&quot;')}" placeholder="Ej: Azul, Naranja, Negro..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">N° Máquina / Terminal</label>
+                <input type="text" id="merchant-edit-pos-model" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.model || '').replace(/"/g, '&quot;')}" placeholder="Ej: N001, POS-01..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Propiedad del Equipo</label>
+                <input type="text" id="merchant-edit-pos-owner" class="form-input" list="pos-owners-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.owner || '').replace(/"/g, '&quot;')}" placeholder="Ej: Propiedad de ${commerce.nombre} / Propiedad de STOCKA" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                <datalist id="pos-owners-list-edit">
+                  <option value="Propiedad de ${commerce.nombre}">
+                  <option value="Propiedad de STOCKA">
+                </datalist>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Instrucciones de Cobro para Cajero</label>
+              <input type="text" id="merchant-edit-pos-notes" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.notes || '').replace(/"/g, '&quot;')}" placeholder="Ej: Cobro en terminal TUU directo del comercio, verificar cuenta corriente..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
             </div>
           </div>
 
@@ -55567,12 +57028,29 @@ window.showMerchantEditModal = async function(comercioName) {
 
     const oldChecklist = commerce.onboarding_checklist || {};
     const oldCatalogReady = !!(oldChecklist.catalog_ready || commerce.inventario_seguimiento);
+
+    const posActiveInput = document.getElementById('merchant-edit-pos-active');
+    const newPosActive = posActiveInput ? posActiveInput.checked : false;
+    const newPosBrand = document.getElementById('merchant-edit-pos-brand')?.value.trim() || '';
+    const newPosColor = document.getElementById('merchant-edit-pos-color')?.value.trim() || '';
+    const newPosModel = document.getElementById('merchant-edit-pos-model')?.value.trim() || '';
+    const newPosOwner = document.getElementById('merchant-edit-pos-owner')?.value.trim() || '';
+    const newPosNotes = document.getElementById('merchant-edit-pos-notes')?.value.trim() || '';
+
     const updatedChecklist = {
       ...oldChecklist,
       enabled: newOnboardingActive,
       dismissed: !newOnboardingActive,
       catalog_ready: !!(newCatalogReady || newInventory),
-      shipping_configured: isValidEnviame
+      shipping_configured: isValidEnviame,
+      pos_active: newPosActive,
+      pos_machine: {
+        brand: newPosBrand,
+        color: newPosColor,
+        model: newPosModel,
+        owner: newPosOwner,
+        notes: newPosNotes
+      }
     };
 
     // Obtener configuración de prefijos por plataforma
@@ -55653,6 +57131,12 @@ window.showMerchantEditModal = async function(comercioName) {
           });
 
         if (configErr) throw configErr;
+
+        // Actualizar cache en memoria inmediatamente
+        commerce.sigla = newSigla;
+        commerce.al_dia = (newBilling === 'activo');
+        commerce.inventario_seguimiento = newInventory;
+        commerce.onboarding_checklist = updatedChecklist;
 
         // Si cambió de false a true, enviar el correo
         if (!oldCatalogReady && newCatalogReady) {
@@ -59998,23 +61482,40 @@ window.bulkSetWmsOrderPickingInfo = async function() {
       updatePayload.fecha_procesamiento = formValues.fechaProc;
     }
 
-    const { error } = await supabase
-      .from('orders')
-      .update(updatePayload)
-      .in('id', ids);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .in('id', chunk);
 
-    if (error) throw error;
+      if (error) throw error;
+
+      if (ids.length > BATCH_SIZE && Swal.isVisible()) {
+        const processed = Math.min(i + BATCH_SIZE, ids.length);
+        const percent = Math.round((processed / ids.length) * 100);
+        Swal.update({
+          title: 'Actualizando pedidos...',
+          html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">${processed} de ${ids.length} pedidos procesados (${percent}%)</div>`
+        });
+      }
+    }
 
     const targetWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
       ? formValues.bodegaStock
       : getWarehouseIdFromSucursal(formValues.sucursal);
-    const { error: itemsErr } = await supabase
-      .from('order_items')
-      .update({ warehouse_id: targetWarehouseId })
-      .in('order_id', ids);
 
-    if (itemsErr) {
-      console.error('Error al actualizar bodega de los ítems en bulkSetWmsOrderPickingInfo:', itemsErr);
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .update({ warehouse_id: targetWarehouseId })
+        .in('order_id', chunk);
+
+      if (itemsErr) {
+        console.error('Error al actualizar bodega de los ítems en bulkSetWmsOrderPickingInfo:', itemsErr);
+      }
     }
 
     for (const id of ids) {
@@ -60109,14 +61610,27 @@ window.bulkSetWmsOrderAgenda = async function() {
       didOpen: () => { Swal.showLoading(); }
     });
 
-    const { error } = await supabase
-      .from('orders')
-      .update({
-        agenda: formValues.agenda || null
-      })
-      .in('id', ids);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          agenda: formValues.agenda || null
+        })
+        .in('id', chunk);
 
-    if (error) throw error;
+      if (error) throw error;
+
+      if (ids.length > BATCH_SIZE && Swal.isVisible()) {
+        const processed = Math.min(i + BATCH_SIZE, ids.length);
+        const percent = Math.round((processed / ids.length) * 100);
+        Swal.update({
+          title: 'Actualizando agenda...',
+          html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">${processed} de ${ids.length} pedidos procesados (${percent}%)</div>`
+        });
+      }
+    }
 
     for (const id of ids) {
       const order = window.loadedOrders.find(o => o.id === id);
@@ -60192,22 +61706,36 @@ window.bulkSetWmsOrderOperador = async function() {
   try {
     Swal.fire({
       title: 'Actualizando pedidos...',
+      html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">0 de ${ids.length} pedidos procesados (0%)</div>`,
       allowOutsideClick: false,
       didOpen: () => { Swal.showLoading(); }
     });
 
-    const { error } = await supabase
-      .from('orders')
-      .update({
-        operador: formValues.operador || null
-      })
-      .in('id', ids);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          operador: formValues.operador || null
+        })
+        .in('id', chunk);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    for (const id of ids) {
-      const order = window.loadedOrders.find(o => o.id === id);
-      if (order) {
+      if (ids.length > BATCH_SIZE && Swal.isVisible()) {
+        const processed = Math.min(i + BATCH_SIZE, ids.length);
+        const percent = Math.round((processed / ids.length) * 100);
+        Swal.update({
+          title: 'Actualizando pedidos...',
+          html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">${processed} de ${ids.length} pedidos procesados (${percent}%)</div>`
+        });
+      }
+    }
+
+    const idSet = new Set(ids);
+    for (const order of (window.loadedOrders || [])) {
+      if (idSet.has(order.id)) {
         order.operador = formValues.operador || null;
         if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
           await window.propagateOrderUpdateToPicker(order);
@@ -60241,10 +61769,11 @@ window.bulkSetWmsOrderCategoria = async function() {
             <option value="DISTRIBUCIÓN">🚚 DISTRIBUCIÓN</option>
             <option value="RETIRO">🏬 RETIRO</option>
             <option value="LOGÍSTICA INVERSA">🔄 LOGÍSTICA INVERSA</option>
+            <option value="SHOP POINT (POS)">🛒 SHOP POINT (POS)</option>
           </select>
           <div style="margin-top: 0.75rem; padding: 0.65rem; background: rgba(126, 34, 206, 0.05); border: 1px solid rgba(126, 34, 206, 0.2); border-radius: 6px; font-size: 0.8rem; color: var(--color-text-muted);">
             <i class="ri-information-line" style="color: #7e22ce;"></i> 
-            Si seleccionas <strong>RETIRO</strong>, la agenda y operador se configurarán automáticamente para retiro en sucursal si aún no lo están.
+            Si seleccionas <strong>RETIRO</strong> o <strong>SHOP POINT (POS)</strong>, la agenda y operador se configurarán automáticamente para entrega presencial en sucursal si aún no lo están.
           </div>
         </div>
 
@@ -60274,34 +61803,55 @@ window.bulkSetWmsOrderCategoria = async function() {
   try {
     Swal.fire({
       title: 'Actualizando pedidos...',
+      html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">0 de ${ids.length} pedidos procesados (0%)</div>`,
       allowOutsideClick: false,
       didOpen: () => { Swal.showLoading(); }
     });
 
     const isRetiro = formValues.categoria_entrega === 'RETIRO';
+    const isShopPoint = formValues.categoria_entrega === 'SHOP POINT (POS)';
     const updatePayload = {
       categoria_entrega: formValues.categoria_entrega
     };
     if (isRetiro) {
       updatePayload.agenda = 'RETIRO';
       updatePayload.operador = 'SUCURSAL ÑUÑOA';
+    } else if (isShopPoint) {
+      updatePayload.agenda = 'COMPRA EN BODEGA';
+      updatePayload.operador = 'SUCURSAL ÑUÑOA';
     }
 
-    const { error } = await supabase
-      .from('orders')
-      .update(updatePayload)
-      .in('id', ids);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .in('id', chunk);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    for (const id of ids) {
-      const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === id) : null;
-      if (order) {
+      if (ids.length > BATCH_SIZE && Swal.isVisible()) {
+        const processed = Math.min(i + BATCH_SIZE, ids.length);
+        const percent = Math.round((processed / ids.length) * 100);
+        Swal.update({
+          title: 'Actualizando pedidos...',
+          html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">${processed} de ${ids.length} pedidos procesados (${percent}%)</div>`
+        });
+      }
+    }
+
+    const idSet = new Set(ids);
+    for (const order of (window.loadedOrders || [])) {
+      if (idSet.has(order.id)) {
         order.categoria_entrega = formValues.categoria_entrega;
         if (isRetiro) {
           order.agenda = 'RETIRO';
           order.operador = 'SUCURSAL ÑUÑOA';
-        } else if (order.agenda === 'RETIRO') {
+        } else if (isShopPoint) {
+          order.agenda = 'COMPRA EN BODEGA';
+          order.operador = 'SUCURSAL ÑUÑOA';
+        } else if (order.agenda === 'RETIRO' || order.agenda === 'COMPRA EN BODEGA') {
           order.agenda = null;
           if (order.operador === 'SUCURSAL ÑUÑOA') order.operador = null;
         }
@@ -60491,23 +62041,39 @@ window.bulkSetWmsOrderBillingPeriod = async function() {
   try {
     Swal.fire({
       title: 'Actualizando pedidos...',
+      html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">0 de ${ids.length} pedidos procesados (0%)</div>`,
       allowOutsideClick: false,
       didOpen: () => { Swal.showLoading(); }
     });
 
-    const { error } = await supabase
-      .from('orders')
-      .update({
-        periodo_facturacion: val
-      })
-      .in('id', ids);
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const chunk = ids.slice(i, i + BATCH_SIZE);
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          periodo_facturacion: val
+        })
+        .in('id', chunk);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    for (const id of ids) {
-      const order = window.loadedOrders.find(o => o.id === id);
-      if (order) {
-        order.periodo_facturacion = val;
+      if (ids.length > BATCH_SIZE && Swal.isVisible()) {
+        const processed = Math.min(i + BATCH_SIZE, ids.length);
+        const percent = Math.round((processed / ids.length) * 100);
+        Swal.update({
+          title: 'Actualizando pedidos...',
+          html: `<div style="font-size: 0.9rem; color: var(--color-text-muted); margin-top: 0.5rem;">${processed} de ${ids.length} pedidos procesados (${percent}%)</div>`
+        });
+      }
+    }
+
+    const idsSet = new Set(ids);
+    if (window.loadedOrders) {
+      for (const order of window.loadedOrders) {
+        if (idsSet.has(order.id)) {
+          order.periodo_facturacion = val;
+        }
       }
     }
 
@@ -61450,61 +63016,88 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
     existing.remove();
   }
   
-  // Obtener valores únicos para esta columna a partir de los pedidos cargados
-  const allOrders = window.loadedOrders || [];
-  const uniqueValues = new Set();
-  allOrders.forEach(o => {
-    let val = '';
-    if (columnKey === 'comercio') val = o.comercio;
-    else if (columnKey === 'origen') val = o.origen || o.external_platform || 'Manual';
-    else if (columnKey === 'agenda') val = o.agenda;
-    else if (columnKey === 'operador') val = o.operador || '';
-    else if (columnKey === 'shipping_method') val = o.shipping_method;
-    else if (columnKey === 'periodo_facturacion') val = o.periodo_facturacion;
-    else if (columnKey === 'status') val = o.status;
-    else if (columnKey === 'estado_wms') val = o.estado_wms;
-    
-    uniqueValues.add(val === null || val === undefined ? '' : String(val).trim());
+  // Obtener pedidos candidatos respetando todos los filtros activos (buscador, fecha, comercio, SLA, tab, etc.)
+  // y excluyendo el filtro de la propia columna para permitir cambiar o ampliar la selección estilo Excel
+  const candidateOrders = typeof window.getWmsFilteredOrders === 'function'
+    ? window.getWmsFilteredOrders(columnKey)
+    : (window.wmsLastFilteredOrders || window.loadedOrders || []);
+
+  const valueCounts = new Map();
+  candidateOrders.forEach(o => {
+    const val = typeof window.getWmsOrderColumnValue === 'function'
+      ? window.getWmsOrderColumnValue(o, columnKey)
+      : (o[columnKey] === null || o[columnKey] === undefined ? '' : String(o[columnKey]).trim());
+    valueCounts.set(val, (valueCounts.get(val) || 0) + 1);
   });
-  
-  const sortedValues = Array.from(uniqueValues).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  
-  // Selecciones activas actuales
-  const activeSelections = window.wmsColumnFilters[columnKey] || [];
-  
+
+  // Asegurar que las opciones actualmente seleccionadas (si las hay) aparezcan en la lista
+  const activeSelections = (window.wmsColumnFilters && window.wmsColumnFilters[columnKey]) || [];
+  activeSelections.forEach(val => {
+    if (!valueCounts.has(val)) {
+      valueCounts.set(val, 0);
+    }
+  });
+
+  const sortedValues = Array.from(valueCounts.keys()).sort((a, b) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  });
+
   // Crear contenedor flotante
   const popover = document.createElement('div');
   popover.id = 'wms-col-filter-popover';
-  popover.style.position = 'absolute';
+  popover.style.position = 'fixed';
   popover.style.background = 'var(--color-surface)';
   popover.style.border = '1px solid var(--color-border)';
   popover.style.borderRadius = 'var(--radius-md)';
   popover.style.boxShadow = 'var(--shadow-lg)';
-  popover.style.zIndex = '10000';
+  popover.style.zIndex = '100000';
   popover.style.minWidth = '270px';
-  popover.style.maxWidth = '340px';
+  popover.style.maxWidth = '350px';
   popover.style.padding = '0.75rem';
   popover.style.fontFamily = 'inherit';
   popover.style.color = 'var(--color-text-main)';
-  
+
   // Posicionar el popover respecto al icono cliqueado
-  const rect = event.target.getBoundingClientRect();
-  popover.style.top = `${rect.bottom + window.scrollY + 5}px`;
-  popover.style.left = `${Math.max(10, rect.left + window.scrollX - 120)}px`;
-  
-  let checkboxesHtml = sortedValues.map((val, idx) => {
-    const displayVal = val === '' ? '(Vacío)' : val;
-    // Si no hay filtro configurado (vacío), por defecto todos seleccionados. Si hay filtro, se marcan los incluidos.
-    const checked = activeSelections.length === 0 || activeSelections.includes(val) ? 'checked' : '';
-    const safeText = val.toLowerCase().replace(/"/g, '&quot;');
-    return `
-      <label class="wms-col-filter-item" data-text="${safeText}" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem 0.35rem; cursor: pointer; user-select: none; color: var(--color-text-main); border-radius: 4px; transition: background 0.15s;" onmouseover="this.style.background='rgba(0,0,0,0.04)'" onmouseout="this.style.background='transparent'">
-        <input type="checkbox" class="wms-col-filter-cb" data-value="${val.replace(/"/g, '&quot;')}" ${checked} style="width: 14px; height: 14px; accent-color: var(--color-primary); cursor: pointer; margin: 0; flex-shrink: 0;">
-        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayVal.replace(/"/g, '&quot;')}">${displayVal}</span>
-      </label>
+  const triggerEl = event?.target || event?.currentTarget;
+  if (triggerEl && triggerEl.getBoundingClientRect) {
+    const rect = triggerEl.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + 5}px`;
+    popover.style.left = `${Math.max(10, Math.min(window.innerWidth - 320, rect.left - 100))}px`;
+  } else {
+    popover.style.top = '100px';
+    popover.style.left = '100px';
+  }
+
+  let checkboxesHtml = '';
+  if (sortedValues.length === 0) {
+    checkboxesHtml = `
+      <div style="padding: 1.25rem 0.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">
+        <i class="ri-filter-off-line" style="font-size: 1.25rem; display: block; margin-bottom: 0.35rem; opacity: 0.6;"></i>
+        No hay datos con los filtros aplicados
+      </div>
     `;
-  }).join('');
-  
+  } else {
+    checkboxesHtml = sortedValues.map((val) => {
+      const count = valueCounts.get(val) || 0;
+      const displayVal = val === '' ? '(Vacío)' : val;
+      // Si no hay filtro configurado (vacío), por defecto todos seleccionados. Si hay filtro, se marcan los incluidos.
+      const checked = activeSelections.length === 0 || activeSelections.includes(val) ? 'checked' : '';
+      const safeText = `${displayVal} ${val}`.toLowerCase().replace(/"/g, '&quot;');
+      const isMuted = count === 0 ? 'opacity: 0.55;' : '';
+      return `
+        <label class="wms-col-filter-item" data-text="${safeText}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem 0.35rem; cursor: pointer; user-select: none; color: var(--color-text-main); border-radius: 4px; transition: background 0.15s; ${isMuted}" onmouseover="this.style.background='rgba(0,0,0,0.04)'" onmouseout="this.style.background='transparent'">
+          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1;">
+            <input type="checkbox" class="wms-col-filter-cb" data-value="${val.replace(/"/g, '&quot;')}" ${checked} style="width: 14px; height: 14px; accent-color: var(--color-primary); cursor: pointer; margin: 0; flex-shrink: 0;">
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${displayVal.replace(/"/g, '&quot;')}">${displayVal}</span>
+          </div>
+          <span style="font-size: 0.7rem; color: var(--color-text-muted); background: var(--color-surface-hover, rgba(0,0,0,0.05)); padding: 0.05rem 0.35rem; border-radius: 9999px; font-weight: 600; flex-shrink: 0;">${count}</span>
+        </label>
+      `;
+    }).join('');
+  }
+
   popover.innerHTML = `
     <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: center; color: var(--color-text-main);">
       <span>Filtrar ${columnName}</span>
@@ -61546,16 +63139,26 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
     if (searchInput) searchInput.focus();
   }, 50);
   
-  // Cerrar al hacer clic fuera del popover
+  // Cerrar al hacer clic o scroll fuera del popover
   setTimeout(() => {
     const outsideClickListener = (e) => {
       const pop = document.getElementById('wms-col-filter-popover');
       if (pop && !pop.contains(e.target) && e.target !== event.target) {
         pop.remove();
         document.removeEventListener('click', outsideClickListener);
+        window.removeEventListener('scroll', outsideScrollListener, true);
+      }
+    };
+    const outsideScrollListener = (e) => {
+      const pop = document.getElementById('wms-col-filter-popover');
+      if (pop && !pop.contains(e.target)) {
+        pop.remove();
+        document.removeEventListener('click', outsideClickListener);
+        window.removeEventListener('scroll', outsideScrollListener, true);
       }
     };
     document.addEventListener('click', outsideClickListener);
+    window.addEventListener('scroll', outsideScrollListener, true);
   }, 0);
 };
 
@@ -80208,6 +81811,9 @@ window.openCreateOrderModal = async function() {
   const form = document.getElementById('form-new-order');
   if (form) form.reset();
 
+  const catSelectEl = document.getElementById('order-categoria-entrega');
+  if (catSelectEl) catSelectEl.value = 'DISTRIBUCIÓN';
+
   const allowOutOfStockCheckbox = document.getElementById('order-allow-out-of-stock');
   if (allowOutOfStockCheckbox) allowOutOfStockCheckbox.checked = false;
 
@@ -80294,7 +81900,7 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
   }
 
   try {
-    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
     if (selectedCommerce) {
       query = query.eq('comercio', selectedCommerce);
     }
@@ -80390,12 +81996,21 @@ window.filterAdminNewOrderProducts = function() {
 
     html += `
       <div class="order-product-option" data-id="${p.id}" data-display="${displayVal.replace(/"/g, '&quot;')}" style="padding: 0.55rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.25rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
-          <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">${p.sku}</span>
-          <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.8rem;">${window.formatCLP(p.price || 0)}</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.name}">
-          ${p.name}
+        <div style="display: flex; gap: 0.65rem; align-items: center;">
+          ${p.image_url ? `
+            <img src="${escapeHtml(p.image_url)}" alt="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+          ` : `
+            <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>
+          `}
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
+              <span style="font-weight: 700; color: var(--color-primary); font-size: 0.85rem;">${p.sku}</span>
+              <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.8rem;">${window.formatCLP(p.price || 0)}</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.name}">
+              ${p.name}
+            </div>
+          </div>
         </div>
         <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem; font-size: 0.72rem; margin-top: 0.15rem; background: var(--color-surface-hover, rgba(0,0,0,0.02)); padding: 0.25rem 0.4rem; border-radius: 4px; border: 1px dashed var(--color-border);">
           <div style="display: flex; gap: 0.6rem; color: var(--color-text-muted); align-items: center; font-size: 0.72rem;">
@@ -80449,14 +82064,21 @@ window.updateAdminProductStockAlert = function() {
   const isDeficit = totalRequested > avail;
   const deficitQty = Math.max(0, totalRequested - avail);
 
+  const imgHtml = product.image_url 
+    ? `<img src="${escapeHtml(product.image_url)}" alt="" style="width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">`
+    : '';
+
   if (isDeficit) {
     container.style.display = 'block';
     container.innerHTML = `
       <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; animation: fadeIn 0.2s ease;">
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-          <span style="font-weight: 700; color: #ef4444; font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem;">
-            <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i> Advertencia: Stock disponible insuficiente para ${product.sku}
-          </span>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            ${imgHtml}
+            <span style="font-weight: 700; color: #ef4444; font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i> Advertencia: Stock disponible insuficiente para ${product.sku}
+            </span>
+          </div>
           <span style="font-size: 0.78rem; font-weight: 700; background: #ef4444; color: white; padding: 2px 8px; border-radius: 12px;">
             Faltante: ${deficitQty} und.
           </span>
@@ -80480,7 +82102,8 @@ window.updateAdminProductStockAlert = function() {
     container.innerHTML = `
       <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem; color: var(--color-text-main);">
-          <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> Stock OK:</span>
+          ${imgHtml}
+          <span style="color: #10b981; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> Stock OK (${product.sku}):</span>
           <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Fís: <strong>${phys}</strong></span>
           <span style="color: var(--color-border);">|</span>
           <span style="display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.85rem;"></i> Mesa: <strong>${res}</strong></span>
@@ -80546,6 +82169,7 @@ window.addAdminNewOrderItem = function() {
         sku: product.sku,
         name: product.name,
         price: product.price || 0,
+        image_url: product.image_url || '',
         volumen: product.volumen || 0,
         quantity: qty,
         isOversold: (qty > avail),
@@ -80684,8 +82308,15 @@ window.renderAdminNewOrderItemsTable = function() {
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
         <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
         <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">
-          <div>${item.name}</div>
-          ${oversoldBadge}
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            ${item.image_url ? `
+              <img src="${escapeHtml(item.image_url)}" alt="" style="width: 34px; height: 34px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+            ` : ''}
+            <div>
+              <div>${item.name}</div>
+              ${oversoldBadge}
+            </div>
+          </div>
         </td>
         <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
@@ -80905,6 +82536,23 @@ window.initAdminWizardOrder = function() {
     };
   });
 
+  const catSelectEl = document.getElementById('order-categoria-entrega');
+  if (catSelectEl) {
+    catSelectEl.onchange = function() {
+      const val = this.value;
+      if (val === 'SHOP POINT (POS)') {
+        window.updateOrderFlowType('shop_point');
+      } else if (val === 'RETIRO') {
+        window.updateOrderFlowType('retiro');
+      } else if (val === 'DISTRIBUCIÓN') {
+        window.updateOrderFlowType('despacho');
+      } else if (val === 'LOGÍSTICA INVERSA') {
+        const origenSelect = document.getElementById('order-cust-origen');
+        if (origenSelect) origenSelect.value = 'Logística Inversa';
+      }
+    };
+  }
+
   window.updateOrderFlowType('despacho');
   window.tempAdminOrderOriginalData = null;
 };
@@ -80930,7 +82578,11 @@ window.updateOrderFlowType = function(flowType) {
 
   const cardDespacho = document.getElementById('card-flow-despacho');
   const cardRetiro = document.getElementById('card-flow-retiro');
+  const cardShopPoint = document.getElementById('card-flow-shop-point');
   const cardFull = document.getElementById('card-flow-full');
+
+  const catSelect = document.getElementById('order-categoria-entrega');
+  const origenSelect = document.getElementById('order-cust-origen');
 
   const inputName = document.getElementById('order-cust-name');
   const inputEmail = document.getElementById('order-cust-email');
@@ -80945,12 +82597,13 @@ window.updateOrderFlowType = function(flowType) {
 
   if (!cardDespacho || !cardRetiro || !cardFull) return;
 
-  const setCardActive = (card, active) => {
+  const setCardActive = (card, active, customColor = null, customBg = null) => {
+    if (!card) return;
     const icon = card.querySelector('i');
     if (active) {
-      card.style.borderColor = 'var(--color-primary)';
-      card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
-      if (icon) icon.style.color = 'var(--color-primary)';
+      card.style.borderColor = customColor || 'var(--color-primary)';
+      card.style.background = customBg || 'rgba(var(--color-primary-rgb), 0.04)';
+      if (icon) icon.style.color = customColor || 'var(--color-primary)';
     } else {
       card.style.borderColor = 'var(--color-border)';
       card.style.background = 'var(--color-surface)';
@@ -80960,6 +82613,7 @@ window.updateOrderFlowType = function(flowType) {
 
   setCardActive(cardDespacho, flowType === 'despacho');
   setCardActive(cardRetiro, flowType === 'retiro');
+  setCardActive(cardShopPoint, flowType === 'shop_point', '#6d28d9', '#ede9fe');
   setCardActive(cardFull, flowType === 'full');
 
   const radioInput = document.getElementById(`order-flow-${flowType}`);
@@ -80986,6 +82640,19 @@ window.updateOrderFlowType = function(flowType) {
     }
     if (inputComplement) inputComplement.value = cache.complement || '';
 
+    if (catSelect && (catSelect.value === 'SHOP POINT (POS)' || catSelect.value === 'RETIRO')) {
+      catSelect.value = 'DISTRIBUCIÓN';
+    }
+    if (origenSelect && origenSelect.value === 'Punto de Venta') {
+      origenSelect.value = 'Manual';
+    }
+
+    const domRadio = document.querySelector('input[name="order-shipping-type"][value="domicilio"]');
+    if (domRadio && !domRadio.checked) {
+      domRadio.checked = true;
+      domRadio.dispatchEvent(new Event('change'));
+    }
+
   } else if (flowType === 'retiro') {
     if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
     if (groupAddress) groupAddress.style.display = 'block';
@@ -81002,10 +82669,58 @@ window.updateOrderFlowType = function(flowType) {
     if (inputPhone) inputPhone.value = (window.currentAdminOrderFlowType === 'full') ? (cache.phone || '') : (inputPhone.value || '');
     if (inputComplement) inputComplement.value = (window.currentAdminOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
 
-    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes';
+    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes 405';
     if (inputCity) {
       inputCity.value = 'Ñuñoa';
       inputCity.dispatchEvent(new Event('change'));
+    }
+
+    if (catSelect && catSelect.value !== 'RETIRO') {
+      catSelect.value = 'RETIRO';
+    }
+    if (origenSelect && origenSelect.value === 'Punto de Venta') {
+      origenSelect.value = 'Manual';
+    }
+
+    const puntoStockaRadio = document.querySelector('input[name="order-shipping-type"][value="punto_stocka"]');
+    if (puntoStockaRadio && !puntoStockaRadio.checked) {
+      puntoStockaRadio.checked = true;
+      puntoStockaRadio.dispatchEvent(new Event('change'));
+    }
+
+  } else if (flowType === 'shop_point') {
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Cliente Sucursal (Venta Presencial)';
+    }
+
+    const cache = window.tempAdminOrderOriginalData || {};
+    if (inputName) inputName.value = (window.currentAdminOrderFlowType === 'full') ? (cache.name || '') : (inputName.value || '');
+    if (inputEmail) inputEmail.value = (window.currentAdminOrderFlowType === 'full') ? (cache.email || '') : (inputEmail.value || '');
+    if (inputPhone) inputPhone.value = (window.currentAdminOrderFlowType === 'full') ? (cache.phone || '') : (inputPhone.value || '');
+    if (inputComplement) inputComplement.value = (window.currentAdminOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
+
+    if (inputAddress) inputAddress.value = 'Campo de Deportes 405 (Sucursal Ñuñoa)';
+    if (inputCity) {
+      inputCity.value = 'Ñuñoa';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+
+    if (catSelect && catSelect.value !== 'SHOP POINT (POS)') {
+      catSelect.value = 'SHOP POINT (POS)';
+    }
+    if (origenSelect) {
+      origenSelect.value = 'Punto de Venta';
+    }
+
+    const puntoStockaRadio = document.querySelector('input[name="order-shipping-type"][value="punto_stocka"]');
+    if (puntoStockaRadio && !puntoStockaRadio.checked) {
+      puntoStockaRadio.checked = true;
+      puntoStockaRadio.dispatchEvent(new Event('change'));
     }
 
   } else if (flowType === 'full') {
@@ -81026,6 +82741,10 @@ window.updateOrderFlowType = function(flowType) {
       inputCity.dispatchEvent(new Event('change'));
     }
     if (inputComplement) inputComplement.value = '';
+
+    if (catSelect && catSelect.value === 'SHOP POINT (POS)') {
+      catSelect.value = 'DISTRIBUCIÓN';
+    }
   }
 
   window.currentAdminOrderFlowType = flowType;
@@ -81144,6 +82863,12 @@ window.populateAdminWizardSummary = function() {
   document.getElementById('summary-city').textContent = city;
   document.getElementById('summary-origin').textContent = origin || 'Manual';
   document.getElementById('summary-external-id').textContent = finalExtId;
+  const sumCatEl = document.getElementById('summary-categoria');
+  if (sumCatEl) {
+    const catVal = document.getElementById('order-categoria-entrega')?.value || 
+      (window.currentAdminOrderFlowType === 'shop_point' ? 'SHOP POINT (POS)' : (window.currentAdminOrderFlowType === 'retiro' ? 'RETIRO' : 'DISTRIBUCIÓN'));
+    sumCatEl.innerHTML = window.getOrderCategoriaBadgeHtml ? window.getOrderCategoriaBadgeHtml({ categoria_entrega: catVal }) : catVal;
+  }
   document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
 
   const tbody = document.getElementById('summary-items-tbody');
@@ -82013,6 +83738,31 @@ setTimeout(() => {
       taxShippingCost = 0;
     }
 
+    const catSelectEl = document.getElementById('order-categoria-entrega');
+    const selectedCategoria = catSelectEl ? catSelectEl.value : 
+      (window.currentAdminOrderFlowType === 'shop_point' ? 'SHOP POINT (POS)' : 
+      (window.currentAdminOrderFlowType === 'retiro' ? 'RETIRO' : 'DISTRIBUCIÓN'));
+
+    let finalAgenda = null;
+    let finalOperador = courierName;
+    let finalSucursalPickeo = null;
+
+    if (selectedCategoria === 'SHOP POINT (POS)') {
+      finalAgenda = 'COMPRA EN BODEGA';
+      finalOperador = 'SUCURSAL ÑUÑOA';
+      finalSucursalPickeo = 'Matriz Ñuñoa';
+      if (!finalShippingMethod || finalShippingMethod === 'Envío a Domicilio' || finalShippingMethod === 'Retiro en Punto STOCKA') {
+        finalShippingMethod = 'Venta Presencial Sucursal Ñuñoa';
+      }
+    } else if (selectedCategoria === 'RETIRO') {
+      finalAgenda = 'RETIRO';
+      finalOperador = 'SUCURSAL ÑUÑOA';
+      finalSucursalPickeo = 'Matriz Ñuñoa';
+      if (!finalShippingMethod || finalShippingMethod === 'Envío a Domicilio') {
+        finalShippingMethod = 'Retiro en Sucursal';
+      }
+    }
+
     try {
       // 1. Resolver merchant_id
       let merchantId = null;
@@ -82046,7 +83796,10 @@ setTimeout(() => {
         shipping_city: city,
         shipping_complement: complement,
         shipping_method: finalShippingMethod,
-        operador: courierName,
+        operador: finalOperador,
+        categoria_entrega: selectedCategoria,
+        agenda: finalAgenda,
+        sucursal_pickeo: finalSucursalPickeo,
         shipping_cost: netShippingCost,
         shipping_cost_tax: taxShippingCost,
         status: 'para procesar',
@@ -82085,6 +83838,14 @@ setTimeout(() => {
         }
       } else {
         insertedOrder = insertResult.data;
+      }
+
+      if (insertedOrder) {
+        insertedOrder.categoria_entrega = insertedOrder.categoria_entrega || selectedCategoria;
+        insertedOrder.agenda = insertedOrder.agenda !== undefined ? insertedOrder.agenda : finalAgenda;
+        insertedOrder.operador = insertedOrder.operador || finalOperador;
+        insertedOrder.sucursal_pickeo = insertedOrder.sucursal_pickeo || finalSucursalPickeo;
+        insertedOrder.shipping_method = insertedOrder.shipping_method || finalShippingMethod;
       }
 
       // 3. Determinar mejor bodega para cada ítem e insertar order_items

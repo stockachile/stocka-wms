@@ -662,10 +662,12 @@ window.openCreatePosSaleModal = async function() {
       if (selected) {
         await window.loadPosCommerceCatalog(selected);
         window.regeneratePosCode();
+        window.updatePosPaymentMachineBanner();
       } else {
         if (badgesContainer) badgesContainer.innerHTML = '';
         if (tbody) tbody.innerHTML = '';
         window.calculatePosTotals();
+        window.updatePosPaymentMachineBanner();
       }
     };
   }
@@ -694,6 +696,17 @@ window.goToPosStep = function(targetStep) {
           icon: 'warning',
           title: 'Comercio Requerido',
           text: 'Por favor selecciona el comercio para el cual se registra la venta.',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+
+      // Validar si el comercio tiene activo el Punto de Venta (POS)
+      if (window.posSelectedCommerceConfig?.onboarding_checklist?.pos_active !== true) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Punto de Venta Deshabilitado',
+          text: `El comercio "${commerce}" tiene deshabilitada la opción de Punto de Venta en la configuración de comercios. Por favor actívalo en Admin > Comercios para registrar ventas presenciales.`,
           confirmButtonColor: 'var(--color-primary)'
         });
         return;
@@ -768,6 +781,12 @@ window.goToPosStep = function(targetStep) {
           return;
         }
 
+        if (price <= 0) {
+          hasError = true;
+          errorMsg = `Por favor ingresa el Precio Unitario en la fila #${idx + 1}. Debes usar estrictamente el valor vigente dado por el comercio en su web o el precio autorizado por el mismo comercio.`;
+          return;
+        }
+
         if (isManual) {
           const sku = row.querySelector('.pos-row-sku')?.value.trim();
           const name = row.querySelector('.pos-row-name')?.value.trim();
@@ -816,6 +835,9 @@ window.goToPosStep = function(targetStep) {
       document.getElementById('pos-confirm-client').textContent = `Cliente: ${clientName || '-'}`;
       document.getElementById('pos-confirm-total').textContent = totalAmount || '$0';
       document.getElementById('pos-confirm-items-count').textContent = `${totalQty} unidades (${rows.length} producto${rows.length > 1 ? 's' : ''})`;
+
+      // Actualizar recuadro notorio de máquina de cobro asignada
+      window.updatePosPaymentMachineBanner();
     }
   }
 
@@ -1007,6 +1029,196 @@ window.selectPosModoPago = function(modo) {
       card.querySelector('i').style.color = 'var(--color-text-muted)';
     }
   });
+
+  window.updatePosPaymentMachineBanner();
+};
+
+// Actualización del recuadro notorio de Máquina de Pagos para Tarjetas (Paso 3)
+window.updatePosPaymentMachineBanner = function() {
+  const banner = document.getElementById('pos-payment-machine-banner');
+  if (!banner) return;
+
+  const commerceName = (document.getElementById('pos-select-commerce')?.value || '').trim();
+  const modoPago = document.getElementById('pos-modo-pago')?.value || 'Tarjeta de Débito';
+
+  if (!commerceName) {
+    banner.innerHTML = '';
+    return;
+  }
+
+  // Buscar configuración del comercio (desde cache activa o fallback global)
+  let config = window.posSelectedCommerceConfig;
+  if (!config && window.loadedCommerceConfigsMap) {
+    const foundKey = Object.keys(window.loadedCommerceConfigsMap).find(k => k.trim().toLowerCase() === commerceName.toLowerCase());
+    if (foundKey) config = window.loadedCommerceConfigsMap[foundKey];
+  }
+  if (!config && window.cachedAdminMerchants) {
+    const foundM = window.cachedAdminMerchants.find(m => (m.nombre || '').trim().toLowerCase() === commerceName.toLowerCase());
+    if (foundM) {
+      config = {
+        comercio: foundM.nombre,
+        inventario_seguimiento: Boolean(foundM.inventario_seguimiento),
+        onboarding_checklist: foundM.onboarding_checklist || {}
+      };
+    }
+  }
+
+  const ob = config?.onboarding_checklist || {};
+  const isPosActive = ob.pos_active === true;
+  const machine = ob.pos_machine || {};
+  const isCard = (modoPago === 'Tarjeta de Débito' || modoPago === 'Tarjeta de Crédito');
+
+  if (!isPosActive) {
+    banner.innerHTML = `
+      <div style="background: rgba(239, 68, 68, 0.08); border: 2px solid #ef4444; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
+        <i class="ri-forbid-2-line" style="color: #dc2626; font-size: 1.6rem; flex-shrink: 0;"></i>
+        <div>
+          <strong style="color: #dc2626; font-size: 0.88rem; display: block; margin-bottom: 0.2rem;">PUNTO DE VENTA DESHABILITADO PARA ${escapeHtml(commerceName)}</strong>
+          <span style="font-size: 0.8rem; color: var(--color-text-main); line-height: 1.4;">
+            Este comercio tiene la opción de POS inactiva en la configuración de comercios. Para operar presencialmente, habilítalo en la sección de Comercios.
+          </span>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (isCard) {
+    const hasMachineConfig = Boolean(machine.brand || machine.model || machine.color || machine.owner);
+
+    if (hasMachineConfig) {
+      const colorMap = {
+        azul: '#2563eb', blue: '#2563eb',
+        naranja: '#f97316', orange: '#f97316',
+        negro: '#1e293b', black: '#1e293b',
+        rojo: '#dc2626', red: '#dc2626',
+        verde: '#16a34a', green: '#16a34a',
+        amarillo: '#ca8a04', yellow: '#ca8a04',
+        blanco: '#e2e8f0', white: '#e2e8f0',
+        morado: '#7c3aed', violeta: '#7c3aed', purple: '#7c3aed',
+        rosa: '#db2777', rosado: '#db2777', pink: '#db2777',
+        gris: '#64748b', plomo: '#64748b', gray: '#64748b'
+      };
+      const rawColor = (machine.color || '').trim().toLowerCase();
+      const dotColor = colorMap[rawColor] || '#3b82f6';
+
+      banner.innerHTML = `
+        <div style="background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); border: 2px solid #2563eb; border-radius: var(--radius-md); padding: 1.15rem 1.35rem; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12); position: relative; overflow: hidden;">
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #2563eb;"></div>
+          
+          <div style="display: flex; align-items: flex-start; gap: 1rem;">
+            <div style="width: 48px; height: 48px; border-radius: 12px; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; box-shadow: 0 4px 8px rgba(37, 99, 235, 0.35);">
+              <i class="ri-bank-card-fill"></i>
+            </div>
+            
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.45rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <span style="background: #2563eb; color: #ffffff; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; padding: 0.22rem 0.6rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-bank-card-line"></i> MÁQUINA DE PAGO OBLIGATORIA
+                  </span>
+                  <span style="font-size: 0.92rem; font-weight: 700; color: var(--color-text-main);">
+                    Cobro con Tarjeta para <span style="color: #2563eb;">${escapeHtml(commerceName)}</span>
+                  </span>
+                </div>
+              </div>
+              
+              <div style="font-size: 0.84rem; color: var(--color-text-main); margin-bottom: 0.75rem; line-height: 1.4;">
+                Para evitar errores de recaudación o abonos a cuentas erróneas, realiza el cobro exclusivamente en este equipo físico:
+              </div>
+              
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: ${machine.notes ? '0.65rem' : '0'};">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                  <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Marca / Proveedor</span>
+                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                    <i class="ri-terminal-box-line" style="color: #2563eb;"></i> ${escapeHtml(machine.brand || 'No asignada')}
+                  </strong>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                  <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Color / Distintivo</span>
+                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.35rem; margin-top: 0.15rem;">
+                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: ${dotColor}; border: 1px solid rgba(0,0,0,0.25);"></span>
+                    ${escapeHtml(machine.color || 'No especificado')}
+                  </strong>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                  <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">N° Máquina / Terminal</span>
+                  <strong style="font-size: 0.95rem; font-family: monospace; color: #2563eb; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                    <i class="ri-hashtag"></i> ${escapeHtml(machine.model || 'S/N')}
+                  </strong>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                  <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Propiedad</span>
+                  <strong style="font-size: 0.85rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                    <i class="ri-building-line" style="color: #7c3aed;"></i> ${escapeHtml(machine.owner || 'STOCKA')}
+                  </strong>
+                </div>
+              </div>
+
+              ${machine.notes ? `
+                <div style="background: rgba(255, 255, 255, 0.95); border-left: 4px solid #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); border-left-width: 4px; border-left-color: #f59e0b; padding: 0.55rem 0.85rem; border-radius: 6px; font-size: 0.82rem; color: var(--color-text-main);">
+                  <strong style="color: #d97706;"><i class="ri-error-warning-fill"></i> Nota / Instrucción para Cajero:</strong> ${escapeHtml(machine.notes)}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      banner.innerHTML = `
+        <div style="background: rgba(245, 158, 11, 0.08); border: 2px dashed #f59e0b; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: #f59e0b; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+            <i class="ri-bank-card-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #d97706; margin-bottom: 0.15rem;">
+              MÁQUINA GENERAL DE STOCKA
+            </div>
+            <div style="font-size: 0.85rem; color: var(--color-text-main);">
+              El comercio <strong>${escapeHtml(commerceName)}</strong> no tiene un terminal exclusivo registrado. Utiliza el terminal POS general de <strong>STOCKA</strong> para procesar el cobro con tarjeta.
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  } else if (modoPago === 'Efectivo') {
+    banner.innerHTML = `
+      <div style="background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-md); padding: 0.85rem 1.15rem; display: flex; align-items: center; gap: 0.75rem;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: #10b981; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-money-dollar-circle-fill"></i>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #059669; margin-bottom: 0.15rem;">
+            Cobro en Efectivo
+          </div>
+          <div style="font-size: 0.83rem; color: var(--color-text-main);">
+            Recibe el dinero en efectivo del cliente, ingrésalo en la gaveta física de caja y entrega el comprobante correspondiente.
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (modoPago === 'Transferencia') {
+    banner.innerHTML = `
+      <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.3); border-radius: var(--radius-md); padding: 0.85rem 1.15rem; display: flex; align-items: center; gap: 0.75rem;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: #6366f1; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+          <i class="ri-exchange-dollar-fill"></i>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #4f46e5; margin-bottom: 0.15rem;">
+            Transferencia Bancaria
+          </div>
+          <div style="font-size: 0.83rem; color: var(--color-text-main);">
+            Verifica la acreditación bancaria y anota el número de operación o comprobante en el campo de comentarios antes de registrar la venta.
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    banner.innerHTML = '';
+  }
 };
 
 // ====== 4. CARGA DE CATÁLOGO E INVENTARIO POR COMERCIO ======
@@ -1021,25 +1233,52 @@ window.loadPosCommerceCatalog = async function(commerceName) {
   window.posSelectedCommerceConfig = null;
 
   try {
-    // 1. Obtener configuración adicional del comercio
-    const { data: cac } = await supabase
-      .from('comercios_adicional_config')
-      .select('comercio, inventario_seguimiento, onboarding_checklist, sigla')
-      .ilike('comercio', commerceName.trim())
-      .maybeSingle();
+    // 1. Obtener configuración adicional del comercio (evitando solicitar columnas inexistentes como sigla)
+    let cac = null;
+    try {
+      const { data: cacRes, error: cacErr } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, inventario_seguimiento, onboarding_checklist')
+        .ilike('comercio', commerceName.trim())
+        .maybeSingle();
+
+      if (!cacErr && cacRes) {
+        cac = cacRes;
+      }
+    } catch (e) {
+      console.warn('Aviso consultando comercios_adicional_config:', e);
+    }
+
+    // Fallbacks robustos con las cachés globales cargadas en Admin
+    if (!cac && window.loadedCommerceConfigsMap) {
+      const foundKey = Object.keys(window.loadedCommerceConfigsMap).find(k => k.trim().toLowerCase() === commerceName.trim().toLowerCase());
+      if (foundKey) {
+        cac = window.loadedCommerceConfigsMap[foundKey];
+      }
+    }
+    if (!cac && window.cachedAdminMerchants) {
+      const foundM = window.cachedAdminMerchants.find(m => (m.nombre || '').trim().toLowerCase() === commerceName.trim().toLowerCase());
+      if (foundM) {
+        cac = {
+          comercio: foundM.nombre,
+          inventario_seguimiento: foundM.inventario_seguimiento !== undefined ? Boolean(foundM.inventario_seguimiento) : false,
+          onboarding_checklist: foundM.onboarding_checklist || {}
+        };
+      }
+    }
 
     window.posSelectedCommerceConfig = cac || {
       inventario_seguimiento: false,
       onboarding_checklist: {}
     };
 
-    const hasStockTracking = Boolean(cac?.inventario_seguimiento);
-    const isCatalogConfigured = Boolean(cac?.onboarding_checklist?.catalog_ready);
+    const hasStockTracking = Boolean(window.posSelectedCommerceConfig?.inventario_seguimiento);
+    const isCatalogConfigured = Boolean(window.posSelectedCommerceConfig?.onboarding_checklist?.catalog_ready);
 
-    // 2. Obtener productos del catálogo con su inventario en Matriz Ñuñoa
+    // 2. Obtener productos del catálogo con su inventario en Matriz Ñuñoa e imagen
     const { data: products, error: prodErr } = await supabase
       .from('products')
-      .select('id, sku, name, price, is_pack, is_virtual, inventory(quantity, committed_quantity, warehouse_id)')
+      .select('id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, warehouse_id)')
       .eq('comercio', commerceName)
       .neq('status', 'archived')
       .order('name');
@@ -1064,6 +1303,7 @@ window.loadPosCommerceCatalog = async function(commerceName) {
         sku: p.sku || '',
         name: p.name || '',
         price: p.price || 0,
+        image_url: p.image_url || '',
         available_nunoa: availableInNunoa,
         available_total: totalAvailable
       };
@@ -1073,6 +1313,16 @@ window.loadPosCommerceCatalog = async function(commerceName) {
 
     // 3. Renderizar badges de estado en el Paso 1
     if (badgesContainer) {
+      const isPosActive = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_active === true;
+      const machineInfo = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine;
+      const machineSnippet = (machineInfo?.brand || machineInfo?.model) 
+        ? ` (${escapeHtml(machineInfo.brand || '')}${machineInfo.color ? ' ' + escapeHtml(machineInfo.color) : ''}${machineInfo.model ? ' - ' + escapeHtml(machineInfo.model) : ''})` 
+        : '';
+
+      const posBadge = isPosActive
+        ? `<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem;"><i class="ri-store-3-line"></i> POS Activo${machineSnippet}</span>`
+        : `<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.75rem;"><i class="ri-forbid-line"></i> POS Deshabilitado</span>`;
+
       const catalogBadge = (hasCatalogItems || isCatalogConfigured)
         ? `<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem;"><i class="ri-checkbox-circle-line"></i> Catálogo Activo (${window.posCatalogProducts.length} productos)</span>`
         : `<span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem;"><i class="ri-alert-line"></i> Sin Catálogo (Modo Manual)</span>`;
@@ -1081,7 +1331,7 @@ window.loadPosCommerceCatalog = async function(commerceName) {
         ? `<span class="badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.75rem;"><i class="ri-database-2-line"></i> Seguimiento de Stock Activo (Descuenta en Ñuñoa)</span>`
         : `<span class="badge badge-neutral" style="font-size: 0.75rem;"><i class="ri-information-line"></i> Sin Seguimiento de Stock</span>`;
 
-      badgesContainer.innerHTML = `${catalogBadge} ${stockBadge}`;
+      badgesContainer.innerHTML = `${posBadge} ${catalogBadge} ${stockBadge}`;
     }
 
     // 4. Ajustar modo manual y filas de la tabla de productos
@@ -1110,6 +1360,24 @@ window.loadPosCommerceCatalog = async function(commerceName) {
   }
 };
 
+// Helper para abrir imagen en grande (lightbox / confirmación visual)
+window.openPosImageLightbox = function(imageUrl, productName) {
+  if (!imageUrl) return;
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: productName || 'Vista previa del producto',
+      imageUrl: imageUrl,
+      imageAlt: productName || 'Producto',
+      imageMaxHeight: 450,
+      showCloseButton: true,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  } else {
+    window.open(imageUrl, '_blank');
+  }
+};
+
 // ====== 5. TABLA DINÁMICA DE PRODUCTOS ======
 
 window.addPosRow = function(isManual) {
@@ -1125,23 +1393,35 @@ window.addPosRow = function(isManual) {
   if (isManual) {
     tr.dataset.manual = 'true';
     prodCellHtml = `
-      <div style="display: flex; gap: 0.5rem;">
-        <input type="text" class="form-input pos-row-sku" placeholder="SKU" required style="width: 35%;">
-        <input type="text" class="form-input pos-row-name" placeholder="Nombre del Producto" required style="width: 65%;">
+      <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <div class="pos-product-img-preview" style="width: 44px; height: 44px; min-width: 44px; border-radius: var(--radius-sm, 6px); border: 1px dashed var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;" title="Ingreso manual">
+          <i class="ri-edit-line" style="color: var(--color-text-muted); font-size: 1.15rem;"></i>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex: 1; min-width: 0;">
+          <input type="text" class="form-input pos-row-sku" placeholder="SKU" required style="width: 35%;">
+          <input type="text" class="form-input pos-row-name" placeholder="Nombre del Producto" required style="width: 65%;">
+        </div>
       </div>
     `;
   } else {
     tr.dataset.manual = 'false';
     const datalistId = `pos-datalist-${rowId}`;
     const options = (window.posCatalogProducts || []).map(p => {
-      return `<option value="${escapeHtml(p.sku)} - ${escapeHtml(p.name)}" data-id="${p.id}" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" data-price="${p.price}" data-stock="${p.available_nunoa}"></option>`;
+      return `<option value="${escapeHtml(p.sku)} - ${escapeHtml(p.name)}" data-id="${p.id}" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" data-price="${p.price}" data-stock="${p.available_nunoa}" data-image="${escapeHtml(p.image_url || '')}"></option>`;
     }).join('');
 
     prodCellHtml = `
-      <input type="text" class="form-input pos-row-catalog-input" list="${datalistId}" placeholder="Escribe para buscar SKU o nombre..." required style="width: 100%;">
-      <datalist id="${datalistId}">
-        ${options}
-      </datalist>
+      <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <div class="pos-product-img-preview" style="width: 44px; height: 44px; min-width: 44px; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; box-shadow: var(--shadow-sm); transition: all 0.2s;" title="Vista previa del producto">
+          <i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <input type="text" class="form-input pos-row-catalog-input" list="${datalistId}" placeholder="Escribe para buscar SKU o nombre..." required style="width: 100%;">
+          <datalist id="${datalistId}">
+            ${options}
+          </datalist>
+        </div>
+      </div>
     `;
   }
 
@@ -1158,7 +1438,7 @@ window.addPosRow = function(isManual) {
     <td style="text-align: right;">
       <div style="display: flex; align-items: center; justify-content: flex-end; gap: 0.25rem;">
         <span style="color: var(--color-text-muted);">$</span>
-        <input type="number" class="form-input pos-row-price" min="0" value="0" step="10" required style="width: 110px; text-align: right;">
+        <input type="number" class="form-input pos-row-price" min="0" value="" placeholder="Ingresa $" step="10" required style="width: 115px; text-align: right; font-weight: 600;" title="Ingresa estrictamente el valor dado por el comercio en su web o autorizado">
       </div>
     </td>
     <td style="text-align: right; font-weight: 700; color: #10b981; font-size: 0.95rem;">
@@ -1173,26 +1453,51 @@ window.addPosRow = function(isManual) {
 
   tbody.appendChild(tr);
 
-  // Listener para autocomplete de catálogo
+  // Listener para autocomplete de catálogo y actualización de vista previa de imagen
   if (!isManual) {
     const input = tr.querySelector('.pos-row-catalog-input');
-    input.addEventListener('change', () => {
+    const updateProductDetails = () => {
       const val = input.value.trim().toLowerCase();
       const matched = (window.posCatalogProducts || []).find(p => {
         const full = `${p.sku} - ${p.name}`.toLowerCase();
         return full === val || p.sku.toLowerCase() === val || p.name.toLowerCase() === val;
       });
 
+      const imgPreview = tr.querySelector('.pos-product-img-preview');
+
       if (matched) {
         tr.dataset.productId = matched.id;
         tr.dataset.sku = matched.sku;
         tr.dataset.name = matched.name;
         tr.dataset.stock = matched.available_nunoa;
+        tr.dataset.imageUrl = matched.image_url || '';
 
-        // Autocompletar precio
+        // Actualizar foto del producto para confirmación visual
+        if (imgPreview) {
+          if (matched.image_url) {
+            imgPreview.innerHTML = `
+              <img src="${escapeHtml(matched.image_url)}" alt="${escapeHtml(matched.name)}" 
+                   style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px;" 
+                   onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'color:var(--color-text-muted);font-size:1.25rem;\\'></i>'">
+            `;
+            imgPreview.style.borderColor = 'var(--color-primary)';
+            imgPreview.style.cursor = 'pointer';
+            imgPreview.title = `${matched.name} (Click para ampliar)`;
+            imgPreview.onclick = () => window.openPosImageLightbox(matched.image_url, matched.name);
+          } else {
+            imgPreview.innerHTML = `<i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>`;
+            imgPreview.style.borderColor = 'var(--color-border)';
+            imgPreview.style.cursor = 'default';
+            imgPreview.title = 'Sin imagen disponible';
+            imgPreview.onclick = null;
+          }
+        }
+
+        // NO autocompletar precio: exigir ingreso manual según web oficial para evitar errores
         const priceInput = tr.querySelector('.pos-row-price');
-        if (priceInput && (parseInt(priceInput.value, 10) === 0 || !priceInput.value)) {
-          priceInput.value = matched.price || 0;
+        if (priceInput) {
+          priceInput.placeholder = 'Ingresa $';
+          priceInput.title = 'Ingresa estrictamente el valor vigente dado por el comercio en su web o autorizado';
         }
 
         // Badge de stock disponible
@@ -1212,9 +1517,32 @@ window.addPosRow = function(isManual) {
           const qtyInput = tr.querySelector('.pos-row-qty');
           if (qtyInput) qtyInput.max = matched.available_nunoa;
         }
+      } else {
+        delete tr.dataset.productId;
+        delete tr.dataset.sku;
+        delete tr.dataset.name;
+        delete tr.dataset.stock;
+        delete tr.dataset.imageUrl;
+
+        if (imgPreview) {
+          imgPreview.innerHTML = `<i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>`;
+          imgPreview.style.borderColor = 'var(--color-border)';
+          imgPreview.style.cursor = 'default';
+          imgPreview.title = 'Vista previa del producto';
+          imgPreview.onclick = null;
+        }
+
+        const stockBadge = tr.querySelector('.pos-row-stock-badge');
+        if (stockBadge) {
+          stockBadge.className = 'pos-row-stock-badge badge badge-neutral';
+          stockBadge.innerHTML = isManual ? 'Manual' : '-';
+        }
       }
       window.calculatePosTotals();
-    });
+    };
+
+    input.addEventListener('change', updateProductDetails);
+    input.addEventListener('input', updateProductDetails);
   }
 
   // Listeners de cálculo en tiempo real
@@ -1223,7 +1551,8 @@ window.addPosRow = function(isManual) {
 
   const updateLineSubtotal = () => {
     const qty = parseInt(qtyInput?.value, 10) || 0;
-    const price = parseInt(priceInput?.value, 10) || 0;
+    const priceVal = priceInput?.value;
+    const price = (priceVal !== '' && !isNaN(priceVal)) ? Math.max(0, parseInt(priceVal, 10)) : 0;
     const subtotal = Math.max(0, qty * price);
     const subtotalSpan = tr.querySelector('.pos-row-subtotal');
     if (subtotalSpan) subtotalSpan.textContent = formatCLP(subtotal);
@@ -1249,7 +1578,8 @@ window.calculatePosTotals = function() {
 
   rows.forEach(r => {
     const qty = parseInt(r.querySelector('.pos-row-qty')?.value, 10) || 0;
-    const price = parseInt(r.querySelector('.pos-row-price')?.value, 10) || 0;
+    const priceVal = r.querySelector('.pos-row-price')?.value;
+    const price = (priceVal !== '' && !isNaN(priceVal)) ? Math.max(0, parseInt(priceVal, 10)) : 0;
     total += Math.max(0, qty * price);
   });
 
@@ -1332,7 +1662,8 @@ window.savePosSale = async function(e) {
       product_id: productId,
       cantidad: qty,
       precio: price,
-      subtotal: subtotal
+      subtotal: subtotal,
+      image_url: r.dataset.imageUrl || null
     });
   }
 
@@ -1409,7 +1740,10 @@ window.savePosSale = async function(e) {
         pos_sale_code: codigoVenta,
         payment_method: modoPago,
         document_type: docTipo,
-        recorded_by: adminUser
+        recorded_by: adminUser,
+        pos_machine: (modoPago.includes('Tarjeta') || modoPago.includes('Débito') || modoPago.includes('Crédito'))
+          ? (window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine || { brand: 'STOCKA POS' })
+          : null
       }
     };
 
@@ -1456,6 +1790,12 @@ window.savePosSale = async function(e) {
       console.warn('Aviso calculando nextSaleId para store_sales:', e);
     }
 
+    const assignedMachine = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine;
+    const isCard = modoPago.includes('Tarjeta') || modoPago.includes('Débito') || modoPago.includes('Crédito');
+    const machineTag = isCard 
+      ? ` [Terminal: ${(assignedMachine?.brand || 'STOCKA') + (assignedMachine?.model ? ' ' + assignedMachine.model : '')}]`
+      : '';
+
     const salePayload = {
       ...(nextSaleId ? { id: nextSaleId } : {}),
       codigo_venta: codigoVenta,
@@ -1471,7 +1811,7 @@ window.savePosSale = async function(e) {
       giro_facturacion: docTipo === 'FACTURA' ? fGiro : null,
       razon_social_facturacion: docTipo === 'FACTURA' ? fRazon : null,
       direccion_facturacion: docTipo === 'FACTURA' ? fDireccion : null,
-      comentarios: comments ? `${comments} [WMS-ORD: ${insertedOrder.id}]` : `[WMS-ORD: ${insertedOrder.id}]`,
+      comentarios: comments ? `${comments} [WMS-ORD: ${insertedOrder.id}]${machineTag}` : `[WMS-ORD: ${insertedOrder.id}]${machineTag}`,
       sucursal: 'Ñuñoa',
       creado_por: adminUser
     };
@@ -1663,8 +2003,15 @@ window.openPosSaleDetail = function(idOrData) {
           <tr>
             <td style="text-align: center; font-weight: 700;">${qty}x</td>
             <td>
-              <strong style="color: var(--color-text-main);">${escapeHtml(i.producto || i.name || 'N/A')}</strong>
-              ${i.sku ? `<div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${escapeHtml(i.sku)}</div>` : ''}
+              <div style="display: flex; align-items: center; gap: 0.65rem;">
+                ${i.image_url ? `
+                  <img src="${escapeHtml(i.image_url)}" alt="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0; cursor: pointer;" onclick="window.openPosImageLightbox('${escapeHtml(i.image_url)}', '${escapeHtml(i.producto || i.name || '')}')" onerror="this.style.display='none'">
+                ` : ''}
+                <div>
+                  <strong style="color: var(--color-text-main);">${escapeHtml(i.producto || i.name || 'N/A')}</strong>
+                  ${i.sku ? `<div style="font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${escapeHtml(i.sku)}</div>` : ''}
+                </div>
+              </div>
             </td>
             <td style="text-align: right;">${formatCLP(price)}</td>
             <td style="text-align: right; font-weight: 700; color: #10b981;">${formatCLP(subtotal)}</td>

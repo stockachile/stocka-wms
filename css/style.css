@@ -3060,21 +3060,39 @@ html[data-theme="dark"] .stat-card-modern.teal .icon-wrapper { background: rgba(
 /* Compact Admin Orders Table layout to prevent screen overflow */
 .wms-admin-orders-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
 }
 
-.wms-admin-orders-table th,
-.wms-admin-orders-table td {
+.wms-admin-orders-table > tbody > tr.order-row > td {
   padding: 0.45rem 0.35rem !important;
   font-size: 0.78rem;
   vertical-align: middle;
 }
 
-.wms-admin-orders-table th {
+.wms-admin-orders-table > thead > tr > th,
+.wms-orders-sticky-thead > tr > th {
   padding: 0.55rem 0.35rem !important;
   font-size: 0.72rem;
   white-space: nowrap;
   letter-spacing: 0.02em;
+  position: sticky !important;
+  top: var(--wms-table-header-top, 51px) !important;
+  z-index: 910 !important;
+  background-color: var(--color-surface) !important;
+  border-bottom: 2px solid var(--color-border) !important;
+  box-shadow: 0 3px 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+/* Explicit reset for any nested tables inside order details */
+.order-details-row table th,
+.order-detail-card table th {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  letter-spacing: normal !important;
 }
 
 /* Responsive order details grid layout width ratios & spacing */
@@ -4231,5 +4249,25 @@ html[data-theme="dark"] .cm-cell-total {
   border-color: var(--color-primary) !important;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2) !important;
   outline: none !important;
+}
+
+/* Tags de Cobertura de Comuna Destino (RM 36 comunas, Regiones, Sin Asignar) */
+.wms-coverage-tag {
+  cursor: pointer !important;
+  user-select: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+  white-space: nowrap;
+}
+
+.wms-coverage-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
+  filter: brightness(0.96);
+}
+
+.wms-coverage-tag.wms-coverage-active {
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+  font-weight: 800 !important;
+  transform: translateY(-1px);
 }
 

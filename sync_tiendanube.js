@@ -566,11 +566,22 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
             shouldInsertItems = true;
           }
         }
-      } else if (isActive) {
-        // Insertar nuevo pedido activo en WMS como 'para procesar'
+      } else {
+        // Insertar pedido en WMS respetando su estado en Tiendanube
+        let initialStatus = 'para procesar';
+        let initialEstadoWms = 'En procesamiento';
+
+        if (isCancelled) {
+          initialStatus = 'cancelado';
+          initialEstadoWms = 'Cancelado';
+        } else if (isDelivered || statusName === 'closed') {
+          initialStatus = 'despachado';
+          initialEstadoWms = 'Despachado';
+        }
+
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
-          .insert([{ ...orderDataToSave, status: 'para procesar' }])
+          .insert([{ ...orderDataToSave, status: initialStatus, estado_wms: initialEstadoWms }])
           .select('id')
           .single();
 
@@ -579,11 +590,9 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} en estado 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con status "${initialStatus}" / estado_wms "${initialEstadoWms}"`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
-      } else {
-        console.log(`ℹ5 Pedido ${finalOrderNumber} ignorado por estar en estado final y no existir en WMS.`);
       }
 
       // Registrar ítems en order_items

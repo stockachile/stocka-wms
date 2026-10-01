@@ -1012,9 +1012,10 @@
               </h4>
               
               <!-- Selector de Flujo mediante Tarjetas -->
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 0.5rem;">
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 0.5rem;">
                 <input type="radio" name="order-flow-type" id="order-flow-despacho" value="despacho" checked style="display: none;">
                 <input type="radio" name="order-flow-type" id="order-flow-retiro" value="retiro" style="display: none;">
+                <input type="radio" name="order-flow-type" id="order-flow-shop-point" value="shop_point" style="display: none;">
                 <input type="radio" name="order-flow-type" id="order-flow-full" value="full" style="display: none;">
 
                 <label for="order-flow-despacho" id="card-flow-despacho" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 2px solid var(--color-primary); background: rgba(var(--color-primary-rgb), 0.04); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
@@ -1027,6 +1028,12 @@
                   <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
                   <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Retiro</span>
                   <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Retiro en Oficina</span>
+                </label>
+
+                <label for="order-flow-shop-point" id="card-flow-shop-point" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  <i class="ri-shopping-cart-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Shop Point</span>
+                  <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Venta POS Sucursal</span>
                 </label>
 
                 <label for="order-flow-full" id="card-flow-full" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
@@ -1310,20 +1317,33 @@
 
                 <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
 
-                <!-- Canal de Origen e ID Externo -->
-                <div class="form-group" style="margin: 0;">
-                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Canal de Origen</label>
-                  <select id="order-cust-origen" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
-                    <option value="Manual" selected>Manual</option>
-                    <option value="Shopify">Shopify</option>
-                    <option value="WooCommerce">WooCommerce</option>
-                    <option value="Jumpseller">Jumpseller</option>
-                    <option value="Tiendanube">Tiendanube</option>
-                    <option value="MercadoLibre">Mercado Libre</option>
-                    <option value="Falabella">Falabella</option>
-                    <option value="Paris">Paris</option>
-                    <option value="Ripley">Ripley</option>
-                  </select>
+                <!-- Categoría de Entrega y Canal de Origen -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Categoría de Entrega <span style="color: var(--color-danger);">*</span></label>
+                    <select id="order-categoria-entrega" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem; font-weight: 600;">
+                      <option value="DISTRIBUCIÓN" selected>🚚 DISTRIBUCIÓN</option>
+                      <option value="RETIRO">🏬 RETIRO</option>
+                      <option value="LOGÍSTICA INVERSA">🔄 LOGÍSTICA INVERSA</option>
+                      <option value="SHOP POINT (POS)">🛒 SHOP POINT (POS)</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin: 0;">
+                    <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Canal de Origen</label>
+                    <select id="order-cust-origen" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
+                      <option value="Manual" selected>Manual</option>
+                      <option value="Punto de Venta">Punto de Venta</option>
+                      <option value="Shopify">Shopify</option>
+                      <option value="WooCommerce">WooCommerce</option>
+                      <option value="Jumpseller">Jumpseller</option>
+                      <option value="Tiendanube">Tiendanube</option>
+                      <option value="MercadoLibre">Mercado Libre</option>
+                      <option value="Falabella">Falabella</option>
+                      <option value="Paris">Paris</option>
+                      <option value="Ripley">Ripley</option>
+                      <option value="Logística Inversa">Logística Inversa</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div class="form-group" style="margin: 0;">
@@ -1425,6 +1445,10 @@
                   <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Número de Pedido:</span>
                     <span id="summary-external-id" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Categoría:</span>
+                    <span id="summary-categoria" style="font-weight: bold; color: var(--color-primary);">--</span>
                   </div>
                   <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Entrega / Courier:</span>
@@ -3519,14 +3543,25 @@
               </label>
             </div>
 
-            <!-- Banner Informativo Paso 2 -->
-            <div style="margin-bottom: 1.25rem; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4;">
-              <div style="font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
-                <i class="ri-information-line"></i> Control de Stock en Sucursal Ñuñoa
+            <!-- Banners Informativos Paso 2 -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+              <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4;">
+                <div style="font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <i class="ri-information-line"></i> Control de Stock en Sucursal Ñuñoa
+                </div>
+                <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                  Los productos cargados verifican el stock disponible físicamente en la sucursal de Ñuñoa. Al registrar la venta se descontará el stock si el comercio tiene seguimiento activo.
+                </p>
               </div>
-              <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
-                Los productos cargados verifican el stock disponible físicamente en la sucursal de Ñuñoa. Al registrar la venta se descontará el stock si el comercio tiene seguimiento activo.
-              </p>
+
+              <div style="background: rgba(245, 158, 11, 0.08); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4;">
+                <div style="font-weight: 700; color: #d97706; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.25rem;">
+                  <i class="ri-alert-line" style="font-size: 1.05rem;"></i> Advertencia: Precio Unitario Manual
+                </div>
+                <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-main);">
+                  Para evitar errores de cobro, el precio <strong>no se autocompleta</strong>. Debes usar estrictamente el valor vigente dado por el comercio en su web o el precio autorizado por el mismo comercio.
+                </p>
+              </div>
             </div>
 
             <!-- Tabla de Productos -->
@@ -3537,7 +3572,10 @@
                     <th style="width: 42%;">Producto</th>
                     <th style="width: 14%; text-align: center;">Stock Disp. Ñuñoa</th>
                     <th style="width: 12%; text-align: center;">Cantidad</th>
-                    <th style="width: 16%; text-align: right;">Precio Unit. ($)</th>
+                    <th style="width: 16%; text-align: right;">
+                      Precio Unit. ($)
+                      <span style="display: block; font-size: 0.68rem; color: #d97706; font-weight: 600;">*Estrictamente según web</span>
+                    </th>
                     <th style="width: 16%; text-align: right;">Subtotal ($)</th>
                     <th style="width: 5%; text-align: center;"></th>
                   </tr>
@@ -3622,6 +3660,9 @@
 
               </div>
             </div>
+
+            <!-- Recuadro Notorio de Máquina de Pagos para Tarjetas -->
+            <div id="pos-payment-machine-banner" style="display: block; margin-bottom: 1.5rem; transition: all 0.25s ease;"></div>
 
             <!-- Código de Venta y Observaciones -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
@@ -3717,10 +3758,10 @@
   <script src="./js/inventory_notifications.js?v=1.0.0"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.4.3"></script>
+  <script type="module" src="./js/admin.js?v=1.4.4"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.4"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
-  <script type="module" src="./js/billing_generator.js?v=1.0.7"></script>
+  <script type="module" src="./js/billing_generator.js?v=1.1.5"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
   <script type="module" src="./js/pos_admin.js?v=1.0.5"></script>
   <script type="module" src="./js/inventory_count.js?v=1.0.9"></script>

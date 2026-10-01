@@ -1824,22 +1824,61 @@ body.swal2-toast-shown .swal2-popup.swal2-toast,
 }
 
 /* Floating Bulk Actions Bar & Sticky Action Containers */
+#wms-bulk-actions-container,
 #wms-sticky-actions-container,
 #catalog-bulk-actions-container,
 #merchants-bulk-actions-container {
   position: sticky;
   top: 0;
-  z-index: 900;
+  z-index: 950;
 }
 
-#wms-sticky-actions-container {
-  background: var(--color-bg);
-  padding-top: 0.25rem;
-  padding-bottom: 0.5rem;
-}
-
-#wms-sticky-actions-container .bulk-actions-bar {
+#wms-bulk-actions-container .bulk-actions-bar {
   margin-bottom: 0.5rem;
+}
+
+/* Card Unificada del Gestor de Pedidos con Panel de Control y Fila Superior Sticky */
+#wms-orders-card {
+  overflow: visible !important;
+  --wms-control-bar-top: 0px;
+  --wms-table-header-top: 51px;
+}
+
+#wms-orders-card .card-body {
+  overflow: visible !important;
+}
+
+#wms-orders-control-bar {
+  position: sticky !important;
+  top: var(--wms-control-bar-top, 0px) !important;
+  z-index: 920 !important;
+  background-color: var(--color-surface) !important;
+}
+
+.wms-admin-orders-table {
+  width: 100%;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+.wms-admin-orders-table > thead > tr > th,
+.wms-orders-sticky-thead > tr > th {
+  position: sticky !important;
+  top: var(--wms-table-header-top, 51px) !important;
+  z-index: 910 !important;
+  background-color: var(--color-surface) !important;
+  border-bottom: 2px solid var(--color-border) !important;
+  box-shadow: 0 3px 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.order-details-row table th,
+.order-detail-card table th {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  letter-spacing: normal !important;
 }
 
 .bulk-actions-bar {

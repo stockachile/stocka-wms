@@ -82,6 +82,12 @@ export const billingState = {
     fixedFeeNet: 0,
     fixedFeeUF: 0,
     fixedFeeReason: '',
+    posActive: false,
+    posFeeUF: 0,
+    posFeeNet: 0,
+    posFeeDetails: '',
+    posIsStocka: false,
+    posMachine: null,
     suppliesNet: 0,
     adjustmentsNet: 0,
     totalNet: 0,
@@ -90,7 +96,13 @@ export const billingState = {
     totalToPay: 0
   },
   isSaved: true,
-  isLoading: false
+  isLoading: false,
+  isConglomerate: false,
+  conglomerateName: null,
+  conglomerateChildren: [],
+  selectedAsChildStore: false,
+  storeBreakdown: [],
+  activeConglomerateStoreFilter: null
 };
 
 // Inyectar estilos visuales avanzados del Gestor de Facturación
@@ -309,6 +321,45 @@ export function injectBillingGeneratorStyles() {
       color: #5f06fa;
       border-color: rgba(95, 6, 250, 0.35);
       box-shadow: 0 2px 6px rgba(95, 6, 250, 0.1);
+    }
+
+    /* Conglomerados y Holdings */
+    .bg-conglomerate-banner {
+      background: linear-gradient(135deg, rgba(95, 6, 250, 0.07) 0%, rgba(124, 58, 237, 0.03) 100%);
+      border: 1.5px solid rgba(95, 6, 250, 0.28);
+      border-radius: 12px;
+      padding: 0.85rem 1.25rem;
+      margin-top: 0.75rem;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      box-shadow: 0 2px 6px rgba(95, 6, 250, 0.05);
+    }
+    [data-theme="dark"] .bg-conglomerate-banner {
+      background: linear-gradient(135deg, rgba(95, 6, 250, 0.16) 0%, rgba(30, 27, 75, 0.45) 100%);
+      border-color: rgba(168, 85, 247, 0.35);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .bg-order-child-store-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      background: rgba(95, 6, 250, 0.08);
+      color: #5f06fa;
+      border: 1px solid rgba(95, 6, 250, 0.2);
+      white-space: nowrap;
+    }
+    [data-theme="dark"] .bg-order-child-store-badge {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border-color: rgba(168, 85, 247, 0.3);
     }
 
     /* Tabla editable tipo Excel */
@@ -1032,9 +1083,34 @@ export async function getUfForPeriod(year, month) {
   }
 }
 
-// Resolver comercios mapeados (Punto A del análisis crítico)
-export async function resolveCommerceGroup(commerceName) {
-  if (!commerceName) return [commerceName];
+// Obtener mapa completo de conglomerados y relaciones de comercios mapeados
+export async function getConglomerateMappings() {
+  // Seed canónico por defecto de alta disponibilidad
+  const canonicalConglomerates = [
+    {
+      canonicalName: 'BIG BANG SPA',
+      aliases: ['BIG BANG', 'BIG BANG SPA', 'HOLDING BIG BANG'],
+      children: ['BACK IN TIME', 'DORMILONES', 'RELAJARTE']
+    },
+    {
+      canonicalName: 'SILVER FOX',
+      aliases: ['SILVER FOX', 'SILVER FOX SPA', 'HOLDING SILVER FOX'],
+      children: ['FORTE MAX', 'MENPRIME']
+    }
+  ];
+
+  const conglomeratesMap = {};
+  const childToConglomerateMap = {};
+
+  // Inicializar seed en ambos mapas
+  canonicalConglomerates.forEach(cg => {
+    cg.aliases.forEach(alias => {
+      conglomeratesMap[alias.toUpperCase()] = [...cg.children];
+    });
+    cg.children.forEach(child => {
+      childToConglomerateMap[child.toUpperCase()] = cg.canonicalName;
+    });
+  });
 
   try {
     const { data, error } = await supabase
@@ -1042,29 +1118,242 @@ export async function resolveCommerceGroup(commerceName) {
       .select('comercio_nombre, billing_name');
 
     if (!error && data && data.length > 0) {
-      // Caso 1: commerceName es el billing_name (ej: 'BIG BANG')
-      const children = data
-        .filter(m => m.billing_name.toUpperCase() === commerceName.toUpperCase())
-        .map(m => m.comercio_nombre);
+      data.forEach(m => {
+        let parent = (m.billing_name || '').trim().toUpperCase();
+        const child = (m.comercio_nombre || '').trim().toUpperCase();
+        if (!parent || !child) return;
 
-      if (children.length > 0) {
-        return children;
-      }
+        // Normalizar alias canónicos
+        if (parent === 'BIG BANG' || parent === 'BIG BANG SPA') parent = 'BIG BANG SPA';
+        if (parent === 'SILVER FOX' || parent === 'SILVER FOX SPA') parent = 'SILVER FOX';
+        
+        if (!conglomeratesMap[parent]) conglomeratesMap[parent] = [];
+        if (!conglomeratesMap[parent].includes(child)) conglomeratesMap[parent].push(child);
+        childToConglomerateMap[child] = parent;
 
-      // Caso 2: commerceName es un comercio hijo, verificar si tiene billing_name
-      const mapping = data.find(m => m.comercio_nombre.toUpperCase() === commerceName.toUpperCase());
-      if (mapping) {
-        const siblings = data
-          .filter(m => m.billing_name.toUpperCase() === mapping.billing_name.toUpperCase())
-          .map(m => m.comercio_nombre);
-        return siblings.length > 0 ? siblings : [commerceName];
-      }
+        // Mantener sincronizado el alias corto/largo
+        if (parent === 'BIG BANG SPA') conglomeratesMap['BIG BANG'] = conglomeratesMap['BIG BANG SPA'];
+        if (parent === 'SILVER FOX') conglomeratesMap['SILVER FOX SPA'] = conglomeratesMap['SILVER FOX'];
+      });
     }
   } catch (e) {
-    console.warn('Error resolviendo billing_mappings:', e);
+    console.warn('Error cargando billing_mappings:', e);
   }
 
-  return [commerceName];
+  // Detectar holdings en comercios_adicional_config por RUT común (>1 tienda)
+  try {
+    const { data: configs } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, razon_social, rut');
+    
+    if (configs && configs.length > 0) {
+      const byRut = {};
+      configs.forEach(c => {
+        const r = (c.rut || '').trim().toUpperCase();
+        if (!r || r === '—' || r === '-') return;
+        if (!byRut[r]) byRut[r] = [];
+        byRut[r].push(c);
+      });
+      Object.entries(byRut).forEach(([rut, stores]) => {
+        if (stores.length > 1) {
+          let mainName = (stores[0].razon_social || stores[0].comercio || '').trim().toUpperCase();
+          if (mainName.includes('BIG BANG')) mainName = 'BIG BANG SPA';
+          if (mainName.includes('SILVER FOX')) mainName = 'SILVER FOX';
+
+          if (mainName) {
+            const childNames = stores.map(s => s.comercio.trim().toUpperCase());
+            if (!conglomeratesMap[mainName]) conglomeratesMap[mainName] = [];
+            childNames.forEach(cn => {
+              if (!conglomeratesMap[mainName].includes(cn)) conglomeratesMap[mainName].push(cn);
+              childToConglomerateMap[cn] = mainName;
+            });
+
+            // Sincronizar alias
+            if (mainName === 'BIG BANG SPA') conglomeratesMap['BIG BANG'] = conglomeratesMap['BIG BANG SPA'];
+            if (mainName === 'SILVER FOX') conglomeratesMap['SILVER FOX SPA'] = conglomeratesMap['SILVER FOX'];
+          }
+        }
+      });
+    }
+  } catch (eH) {}
+
+  // Construir lista canónica deduplicada para despliegue en UI (solo nombres canónicos únicos)
+  const canonicalDisplayList = [];
+  const addedCanonical = new Set();
+
+  canonicalConglomerates.forEach(cg => {
+    const canonicalName = cg.canonicalName;
+    const resolvedChildren = Array.from(new Set(conglomeratesMap[canonicalName] || cg.children));
+    canonicalDisplayList.push({
+      name: canonicalName,
+      children: resolvedChildren
+    });
+    addedCanonical.add(canonicalName.toUpperCase());
+    cg.aliases.forEach(a => addedCanonical.add(a.toUpperCase()));
+  });
+
+  Object.keys(conglomeratesMap).forEach(k => {
+    const kUpper = k.toUpperCase();
+    if (!addedCanonical.has(kUpper) && !kUpper.includes('BIG BANG') && !kUpper.includes('SILVER FOX')) {
+      canonicalDisplayList.push({
+        name: k,
+        children: [...conglomeratesMap[k]]
+      });
+      addedCanonical.add(kUpper);
+    }
+  });
+
+  return { conglomeratesMap, childToConglomerateMap, canonicalDisplayList };
+}
+
+// Normalizar el comercio hijo de cada pedido a su nombre oficial dentro del conglomerado
+export function normalizeOrderChildStore(orderComercio, conglomerateChildren = [], defaultCommerce = '') {
+  if (!orderComercio) return defaultCommerce;
+  const upper = String(orderComercio).trim().toUpperCase();
+  for (const child of (conglomerateChildren || [])) {
+    const cUpper = child.toUpperCase();
+    if (upper === cUpper || upper.includes(cUpper) || cUpper.includes(upper)) {
+      return child;
+    }
+  }
+  return orderComercio;
+}
+
+// Calcular desglose métrico por tienda dentro de un conglomerado
+export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
+  const children = bState.conglomerateChildren || [];
+  if (!bState.isConglomerate || children.length === 0) {
+    return [];
+  }
+
+  const breakdown = [];
+  const totalNetAll = bState.totals?.totalNet || 0;
+
+  children.forEach(storeName => {
+    const storeUpper = storeName.toUpperCase();
+    const storeOrders = (orders || []).filter(o => {
+      const oCom = String(o.comercio || '').toUpperCase();
+      return oCom === storeUpper || oCom.includes(storeUpper) || storeUpper.includes(oCom);
+    });
+
+    const billableOrders = storeOrders.filter(o => !o.isExcluded);
+    const pickPackNet = billableOrders.reduce((sum, o) => sum + (o.pickPackTotal || 0), 0);
+    const shippingFreightNet = billableOrders.reduce((sum, o) => sum + (o.shippingFreight || 0), 0);
+    const shippingRmCount = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'FLEX' || o.deliveryType === 'COLINA').length;
+    const shippingEnviameCount = billableOrders.filter(o => o.deliveryType === 'ENVIAME' || o.deliveryType === 'REGION' || o.deliveryType === 'ENVIAME_REGION').length;
+    const totalSalesTicket = storeOrders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
+    const avgTicket = storeOrders.length > 0 ? Math.round(totalSalesTicket / storeOrders.length) : 0;
+    const mktCount = storeOrders.filter(o => o.isMarketplace).length;
+    const excludedOrders = storeOrders.length - billableOrders.length;
+
+    const storeTotalNet = pickPackNet + shippingFreightNet;
+    const sharePct = totalNetAll > 0 ? parseFloat(((storeTotalNet / totalNetAll) * 100).toFixed(1)) : 0;
+
+    breakdown.push({
+      storeName,
+      totalOrders: storeOrders.length,
+      billableOrders: billableOrders.length,
+      excludedOrders,
+      shippingRmCount,
+      shippingEnviameCount,
+      mktCount,
+      avgTicket,
+      pickPackNet,
+      shippingFreightNet,
+      totalSalesTicket,
+      storeTotalNet,
+      sharePct
+    });
+  });
+
+  return breakdown;
+}
+
+// Calcular ranking de productos y estadísticas de artículos vendidos desde una lista de pedidos
+export function computeProductsStatsFromOrders(orders = []) {
+  const billableOrders = (orders || []).filter(o => !o.isExcluded);
+  const productMap = {};
+  let totalUnitsSold = 0;
+
+  billableOrders.forEach(ord => {
+    const items = (ord.items && ord.items.length > 0) ? ord.items : [{
+      sku: String(ord.sku || 'S/SKU').trim(),
+      name: String(ord.item || ord.sku || 'Producto general').trim(),
+      quantity: parseInt(ord.unitsCount, 10) || 1
+    }];
+
+    items.forEach(it => {
+      const key = it.sku && it.sku !== 'S/SKU' ? it.sku : (it.name || 'Desconocido');
+      const qty = parseInt(it.quantity, 10) || 1;
+      totalUnitsSold += qty;
+      if (!productMap[key]) {
+        productMap[key] = {
+          sku: it.sku || 'S/SKU',
+          name: it.name || 'Producto',
+          quantity: 0
+        };
+      }
+      productMap[key].quantity += qty;
+      if (it.name && it.name !== 'Producto sin nombre' && productMap[key].name === 'Producto sin nombre') {
+        productMap[key].name = it.name;
+      }
+    });
+  });
+
+  const sortedProducts = Object.values(productMap)
+    .sort((a, b) => b.quantity - a.quantity)
+    .map((p, idx) => ({
+      rank: idx + 1,
+      sku: p.sku,
+      name: p.name,
+      quantity: p.quantity,
+      sharePct: totalUnitsSold > 0 ? parseFloat(((p.quantity / totalUnitsSold) * 100).toFixed(1)) : 0
+    }));
+
+  return {
+    totalUnits: totalUnitsSold,
+    avgUnitsPerOrder: billableOrders.length > 0 ? parseFloat((totalUnitsSold / billableOrders.length).toFixed(2)) : 0,
+    topProducts: sortedProducts.slice(0, 10),
+    allProducts: sortedProducts
+  };
+}
+
+// Resolver comercios mapeados (Punto A del análisis crítico)
+export async function resolveCommerceGroup(commerceName) {
+  if (!commerceName) return [commerceName];
+  const clean = commerceName.trim();
+  const upper = clean.toUpperCase();
+
+  const { conglomeratesMap } = await getConglomerateMappings();
+
+  let group = [];
+  
+  // Detección directa y exhaustiva de Holdings conocidos
+  if (upper === 'BIG BANG' || upper === 'BIG BANG SPA' || upper.includes('BIG BANG')) {
+    const list = conglomeratesMap['BIG BANG SPA'] || conglomeratesMap['BIG BANG'] || ['BACK IN TIME', 'DORMILONES', 'RELAJARTE'];
+    group = ['BIG BANG SPA', 'BIG BANG', ...list];
+  } else if (upper === 'SILVER FOX' || upper === 'SILVER FOX SPA' || upper.includes('SILVER FOX')) {
+    const list = conglomeratesMap['SILVER FOX'] || conglomeratesMap['SILVER FOX SPA'] || ['FORTE MAX', 'MENPRIME'];
+    group = ['SILVER FOX', 'SILVER FOX SPA', ...list];
+  } else if (conglomeratesMap[upper] && conglomeratesMap[upper].length > 0) {
+    group = [clean, ...conglomeratesMap[upper]];
+  } else {
+    // Comercio o tienda individual (ej: DORMILONES, BACK IN TIME, STREET GYM, etc.)
+    // Se factura de manera individual para esa tienda específica
+    group = [clean];
+  }
+
+  // Deduplicar respetando mayúsculas/minúsculas pero agregando variantes comunes para queries Supabase case-sensitive
+  const resultSet = new Set();
+  group.forEach(name => {
+    if (!name) return;
+    const n = name.trim();
+    resultSet.add(n);
+    resultSet.add(n.toUpperCase());
+    resultSet.add(n.toLowerCase());
+  });
+
+  return Array.from(resultSet);
 }
 
 // Obtener datos legales del comercio (Razón Social, RUT, Sigla, Contacto)
@@ -1091,11 +1380,11 @@ export async function getCommerceBillingInfo(commerceName) {
       result.sigla = vConfig.sigla.toUpperCase().trim();
     }
 
-    // 2. Datos legales adicionales (Razón Social, RUT, email) desde comercios_adicional_config
+    // 2. Datos legales adicionales y configuración POS desde comercios_adicional_config
     let extra = null;
     const { data: extraByName } = await supabase
       .from('comercios_adicional_config')
-      .select('razon_social, rut, email_colaborador')
+      .select('razon_social, rut, email_colaborador, onboarding_checklist')
       .ilike('comercio', cleanName)
       .maybeSingle();
 
@@ -1104,7 +1393,7 @@ export async function getCommerceBillingInfo(commerceName) {
     } else if (vConfig && vConfig.id) {
       const { data: extraById } = await supabase
         .from('comercios_adicional_config')
-        .select('razon_social, rut, email_colaborador')
+        .select('razon_social, rut, email_colaborador, onboarding_checklist')
         .eq('comercio_id', vConfig.id)
         .maybeSingle();
       if (extraById) extra = extraById;
@@ -1121,8 +1410,94 @@ export async function getCommerceBillingInfo(commerceName) {
         result.emailFacturacion = extra.email_colaborador.trim();
       }
     }
+
+    // Comprobar también en window.cachedAdminMerchants o window.loadedCommerceConfigsMap
+    let cachedMerch = null;
+    if (typeof window !== 'undefined' && Array.isArray(window.cachedAdminMerchants)) {
+      cachedMerch = window.cachedAdminMerchants.find(m => m.nombre && m.nombre.trim().toLowerCase() === cleanName.toLowerCase());
+    }
+    const obChecklist = extra?.onboarding_checklist || cachedMerch?.onboarding_checklist || null;
+    result.onboardingChecklist = obChecklist;
+
+    // Resolver POS config del comercio
+    const isPosActive = obChecklist?.pos_active === true;
+    const machine = obChecklist?.pos_machine || {};
+    const ownerStr = String(machine.owner || '').trim();
+    let isStocka = false;
+    if (ownerStr.toUpperCase().includes('STOCKA') || (machine.brand || '').toUpperCase().includes('STOCKA')) {
+      isStocka = true;
+    } else if (ownerStr.toLowerCase().includes('propiedad de') || ownerStr.toLowerCase().includes('propio') || ownerStr.toUpperCase().includes(cleanName.toUpperCase())) {
+      isStocka = false;
+    } else {
+      isStocka = false;
+    }
+
+    result.posConfig = {
+      active: isPosActive,
+      isStockaMachine: isStocka,
+      ownerText: ownerStr || (isStocka ? 'Propiedad de STOCKA' : `Propiedad de ${cleanName}`),
+      brand: machine.brand || '',
+      model: machine.model || '',
+      color: machine.color || '',
+      notes: machine.notes || ''
+    };
+
+    // 3. Si es un conglomerado o no se encontró RUT, intentar obtener datos legales y POS de sus comercios asociados
+    try {
+      const groupStores = await resolveCommerceGroup(cleanName);
+      const childStores = groupStores.filter(s => s.toUpperCase() !== cleanName.toUpperCase());
+      if (childStores.length > 0) {
+        const { data: childConfigs } = await supabase
+          .from('comercios_adicional_config')
+          .select('comercio, razon_social, rut, email_colaborador, onboarding_checklist')
+          .in('comercio', childStores);
+        
+        if (childConfigs && childConfigs.length > 0) {
+          const validChild = childConfigs.find(c => c.rut && c.rut !== '—' && c.rut.trim() !== '') || childConfigs[0];
+          if (validChild) {
+            if ((!result.rut || result.rut === '—') && validChild.rut) result.rut = validChild.rut.trim();
+            if ((!result.razonSocial || result.razonSocial === cleanName) && validChild.razon_social) result.razonSocial = validChild.razon_social.trim();
+            if ((!result.emailFacturacion || result.emailFacturacion === '—') && validChild.email_colaborador) result.emailFacturacion = validChild.email_colaborador.trim();
+          }
+        }
+
+        // Mapear configuración POS de tiendas del conglomerado
+        result.childPosConfigs = childStores.map(childName => {
+          const chCfg = (childConfigs || []).find(c => c.comercio?.toLowerCase() === childName.toLowerCase());
+          const chCached = (typeof window !== 'undefined' && Array.isArray(window.cachedAdminMerchants))
+            ? window.cachedAdminMerchants.find(m => m.nombre && m.nombre.trim().toLowerCase() === childName.toLowerCase())
+            : null;
+          const chOb = chCfg?.onboarding_checklist || chCached?.onboarding_checklist || {};
+          const chMach = chOb.pos_machine || {};
+          const chOwner = String(chMach.owner || '').trim();
+          const chIsStocka = chOwner.toUpperCase().includes('STOCKA') || (chMach.brand || '').toUpperCase().includes('STOCKA');
+          return {
+            store: childName,
+            posConfig: {
+              active: chOb.pos_active === true,
+              isStockaMachine: chIsStocka,
+              ownerText: chOwner || (chIsStocka ? 'Propiedad de STOCKA' : `Propiedad de ${childName}`),
+              brand: chMach.brand || '',
+              model: chMach.model || '',
+              color: chMach.color || '',
+              notes: chMach.notes || ''
+            }
+          };
+        });
+      }
+    } catch (eChild) {
+      console.warn('Error resolviendo datos fiscales de comercios del conglomerado:', eChild);
+    }
   } catch (e) {
     console.warn('Error cargando información legal del comercio:', e);
+  }
+
+  // Si aún no hay sigla y es un conglomerado conocido, usar nombre
+  if (result.sigla === '—') {
+    const upper = cleanName.toUpperCase();
+    if (upper === 'BIG BANG') result.sigla = 'BIG BANG';
+    else if (upper === 'SILVER FOX') result.sigla = 'SILVER FOX';
+    else if (cleanName.length <= 5) result.sigla = cleanName.toUpperCase();
   }
 
   // Fallback a localStorage si el usuario guardó datos legales previamente en el navegador
@@ -1207,6 +1582,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.isLoading = true;
   billingState.currentCommerce = commerceName;
   billingState.currentPeriodName = periodName;
+  billingState.activeConglomerateStoreFilter = null;
 
   // 1. Cargar tarifas oficiales desde pricing_manager
   const rawPricing = await loadPricingConfig(supabase);
@@ -1218,12 +1594,22 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   let savedRecordStatus = null;
   if (billingState.currentPeriodId && commerceName && !customOverrides.forceFresh) {
     try {
-      const { data: bRec } = await supabase
+      // Buscar tanto por el nombre exacto como por alias conocidos (ej: 'BIG BANG' y 'BIG BANG SPA')
+      const lookupCommerces = [commerceName];
+      const upperCheck = commerceName.trim().toUpperCase();
+      if (upperCheck === 'BIG BANG' || upperCheck === 'BIG BANG SPA' || upperCheck.includes('BIG BANG')) {
+        lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
+      } else if (upperCheck === 'SILVER FOX' || upperCheck === 'SILVER FOX SPA' || upperCheck.includes('SILVER FOX')) {
+        lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
+      }
+
+      const { data: bRecList } = await supabase
         .from('billing_records')
-        .select('desglose_fulfillment, total_fulfillment, fulfillment_link')
+        .select('desglose_fulfillment, total_fulfillment, fulfillment_link, comercio')
         .eq('period_id', billingState.currentPeriodId)
-        .eq('comercio', commerceName)
-        .maybeSingle();
+        .in('comercio', lookupCommerces);
+
+      const bRec = bRecList && bRecList.length > 0 ? bRecList[0] : null;
 
       if (bRec) {
         savedRecordStatus = bRec.desglose_fulfillment;
@@ -1278,6 +1664,26 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.ufDate = ufResult.dateStr;
 
   // 4. Resolver holdings y obtener datos legales del cliente (Punto A)
+  const { conglomeratesMap, childToConglomerateMap } = await getConglomerateMappings();
+  const upperCommerce = (commerceName || '').trim().toUpperCase();
+
+  // Detección estricta de holding / conglomerado
+  const isConglomerateName = !!conglomeratesMap[upperCommerce] || 
+                             upperCommerce === 'BIG BANG' || upperCommerce === 'BIG BANG SPA' || upperCommerce.includes('BIG BANG') ||
+                             upperCommerce === 'SILVER FOX' || upperCommerce === 'SILVER FOX SPA' || upperCommerce.includes('SILVER FOX');
+
+  const parentConglomerate = childToConglomerateMap[upperCommerce];
+
+  billingState.isConglomerate = isConglomerateName;
+  billingState.conglomerateName = isConglomerateName 
+    ? (upperCommerce.includes('BIG BANG') ? 'BIG BANG SPA' : (upperCommerce.includes('SILVER FOX') ? 'SILVER FOX' : upperCommerce))
+    : (parentConglomerate || upperCommerce);
+
+  billingState.conglomerateChildren = (conglomeratesMap[billingState.conglomerateName] || conglomeratesMap[upperCommerce] || [])
+    .filter(c => c.toUpperCase() !== billingState.conglomerateName && c.toUpperCase() !== 'BIG BANG' && c.toUpperCase() !== 'SILVER FOX');
+
+  billingState.selectedAsChildStore = !isConglomerateName && !!parentConglomerate;
+
   const commerceGroup = await resolveCommerceGroup(commerceName);
   const fetchedCommerceInfo = await getCommerceBillingInfo(commerceName);
 
@@ -1349,8 +1755,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   // 5.1 Consultar declaraciones de ingreso de stock asignadas al periodo
   let inboundDeclarationsList = [];
   try {
-    let rawDecs = null;
-    const res1 = await supabase
+    const { data: rawDecs, error: decErr } = await supabase
       .from('stock_declarations')
       .select(`
         id,
@@ -1366,46 +1771,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
         package_count,
         package_type,
         billing_status,
-        periodo_facturacion,
         billing_notes,
         created_at
       `)
       .in('comercio', commerceGroup);
 
-    if (!res1.error && res1.data) {
-      rawDecs = res1.data;
-    } else {
-      // Fallback si la columna periodo_facturacion aún no existe en el esquema
-      const res2 = await supabase
-        .from('stock_declarations')
-        .select(`
-          id,
-          title,
-          status,
-          quantity_declared,
-          quantity_received,
-          volume_declared,
-          volume_confirmed,
-          estimated_cost,
-          real_cost,
-          delivery_method,
-          package_count,
-          package_type,
-          billing_status,
-          billing_notes,
-          created_at
-        `)
-        .in('comercio', commerceGroup);
-
-      if (!res2.error && res2.data) {
-        rawDecs = res2.data;
-      }
-    }
-
-    if (rawDecs) {
+    if (!decErr && rawDecs) {
       const pNorm = (periodName || '').trim().toUpperCase();
       inboundDeclarationsList = rawDecs.filter(d => {
-        if (d.periodo_facturacion && d.periodo_facturacion.trim().toUpperCase() === pNorm) return true;
         if (d.billing_notes && d.billing_notes.toUpperCase().includes(pNorm)) return true;
         return false;
       });
@@ -1431,48 +1804,81 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   });
   billingState.inboundDeclarations = processedInbounds;
 
-  // 6. Consultar pedidos asignados al periodo en el Gestor de Pedidos
+  // 6. Consultar pedidos asignados al periodo en el Gestor de Pedidos con paginación keyset determinista
   let ordersList = [];
   try {
-    const { data: rawOrders, error: ordErr } = await supabase
-      .from('orders')
-      .select(`
-        id,
-        created_at,
-        external_order_number,
-        external_platform,
-        status,
-        estado_wms,
-        comercio,
-        categoria_entrega,
-        agenda,
-        operador,
-        shipping_city,
-        shipping_address,
-        shipping_method,
-        total_value,
-        sku,
-        cantidad,
-        item,
-        raw_shopify_data,
-        raw_woocommerce_data,
-        raw_meli_data,
-        periodo_facturacion,
-        order_items (
-          quantity,
-          products (
-            id,
-            sku,
-            name,
-            is_virtual
-          )
-        )
-      `)
-      .in('comercio', commerceGroup)
-      .eq('periodo_facturacion', periodName);
+    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion';
 
-    if (ordErr) throw ordErr;
-    ordersList = rawOrders || [];
+    const step = 1000;
+    let lastCreatedAt = null;
+    let pageCount = 0;
+    const existingIds = new Set();
+
+    while (pageCount < 50) {
+      pageCount++;
+      let q = supabase
+        .from('orders')
+        .select(orderSelectFields)
+        .in('comercio', commerceGroup)
+        .eq('periodo_facturacion', periodName)
+        .order('created_at', { ascending: false })
+        .limit(step);
+
+      if (lastCreatedAt) {
+        q = q.lte('created_at', lastCreatedAt);
+      }
+
+      let resData = null;
+      let lastErr = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const { data, error } = await q;
+        if (!error && data) {
+          resData = data;
+          lastErr = null;
+          break;
+        }
+        lastErr = error;
+        console.warn(`[BillingGenerator] Reintento ${attempt} página ${pageCount}:`, error?.message || error);
+        await new Promise(r => setTimeout(r, 400 * attempt));
+      }
+
+      if (lastErr || !resData || resData.length === 0) {
+        if (lastErr) console.error(`[BillingGenerator] Error en página ${pageCount}:`, lastErr);
+        break;
+      }
+
+      // Filtrar pedidos repetidos en el límite temporal idéntico
+      const newOrders = resData.filter(o => !existingIds.has(o.id));
+      if (newOrders.length === 0) {
+        break;
+      }
+
+      newOrders.forEach(o => existingIds.add(o.id));
+      ordersList = ordersList.concat(newOrders);
+      console.log(`[BillingGenerator] Página ${pageCount}: +${newOrders.length} pedidos (Total: ${ordersList.length})`);
+
+      if (resData.length < step) {
+        break;
+      }
+
+      lastCreatedAt = resData[resData.length - 1].created_at;
+    }
+
+    // Fallback secundario de alta disponibilidad: si la consulta directa no trajo pedidos pero están en window.loadedOrders
+    if (ordersList.length === 0 && window.loadedOrders && Array.isArray(window.loadedOrders) && window.loadedOrders.length > 0) {
+      const pNorm = (periodName || '').trim().toUpperCase();
+      const groupSet = new Set(commerceGroup.map(c => c.trim().toUpperCase()));
+      const memoryMatches = window.loadedOrders.filter(o => {
+        const cNorm = (o.comercio || '').trim().toUpperCase();
+        const oPeriod = (o.periodo_facturacion || '').trim().toUpperCase();
+        return groupSet.has(cNorm) && oPeriod === pNorm;
+      });
+      if (memoryMatches.length > 0) {
+        console.log(`[BillingGenerator] Recuperados ${memoryMatches.length} pedidos desde memoria de sesión (window.loadedOrders)`);
+        ordersList = memoryMatches;
+      }
+    }
   } catch (e) {
     console.error('Error cargando pedidos para facturación:', e);
   }
@@ -1693,7 +2099,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       shippingFreight: finalShippingFreight,
       orderTotal: finalOrderTotal,
       isExcluded: !!isExcluded,
-      estadoWms: ord.estado_wms || 'Completado'
+      estadoWms: ord.estado_wms || 'Completado',
+      comercio: normalizeOrderChildStore(ord.comercio, billingState.conglomerateChildren, billingState.currentCommerce)
     };
   });
 
@@ -1757,39 +2164,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       });
     }
 
-    items.forEach(it => {
-      const key = it.sku && it.sku !== 'S/SKU' ? it.sku : (it.name || 'Desconocido');
-      totalUnitsSold += it.quantity;
-      if (!productMap[key]) {
-        productMap[key] = {
-          sku: it.sku || 'S/SKU',
-          name: it.name || 'Producto',
-          quantity: 0
-        };
-      }
-      productMap[key].quantity += it.quantity;
-      if (it.name && it.name !== 'Producto sin nombre' && productMap[key].name === 'Producto sin nombre') {
-        productMap[key].name = it.name;
-      }
-    });
+    ord.items = items;
   });
 
-  const sortedProducts = Object.values(productMap)
-    .sort((a, b) => b.quantity - a.quantity)
-    .map((p, idx) => ({
-      rank: idx + 1,
-      sku: p.sku,
-      name: p.name,
-      quantity: p.quantity,
-      sharePct: totalUnitsSold > 0 ? parseFloat(((p.quantity / totalUnitsSold) * 100).toFixed(1)) : 0
-    }));
-
-  billingState.productsStats = {
-    totalUnits: totalUnitsSold,
-    avgUnitsPerOrder: billableOrders.length > 0 ? parseFloat((totalUnitsSold / billableOrders.length).toFixed(2)) : 0,
-    topProducts: sortedProducts.slice(0, 10),
-    allProducts: sortedProducts
-  };
+  billingState.productsStats = computeProductsStatsFromOrders(billableOrders);
 
   // 10. Cálculo de Almacenamiento y Descuento por Volumen (> 10 m3)
   const baseStorageM3Rate = activeRange.storage_m3; // ej: $48.900
@@ -1837,6 +2215,77 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     fixedFeeUF = billingState.ufValue > 0 ? parseFloat((fixedFeeCLP / billingState.ufValue).toFixed(2)) : 0;
   }
 
+  // 11.1 Cálculo de Servicio Punto de Venta (POS) - 0,2 UF mensual (Punto G)
+  const defaultPosUfRate = cfg.services?.pos_monthly_uf || cfg.pos_service_fee?.monthly_fee_uf || 0.2;
+  const savedPosTotals = savedSnapshot?.totals || {};
+  const commPosConfig = billingState.commerceInfo?.posConfig || {};
+
+  let isPosActive = commPosConfig.active === true;
+  let posFeeUF = 0;
+  let posFeeCLP = 0;
+  let posFeeDetails = "";
+  let posIsStocka = commPosConfig.isStockaMachine || false;
+  let posMachine = {
+    brand: commPosConfig.brand || '',
+    model: commPosConfig.model || '',
+    color: commPosConfig.color || '',
+    owner: commPosConfig.ownerText || '',
+    notes: commPosConfig.notes || ''
+  };
+
+  // Manejo de tiendas activas en conglomerado si el padre no tiene POS pero las hijas sí
+  const childPosConfigs = billingState.commerceInfo?.childPosConfigs || [];
+  if (!isPosActive && childPosConfigs.length > 0) {
+    const activeChildren = childPosConfigs.filter(c => c.posConfig?.active === true);
+    if (activeChildren.length > 0) {
+      isPosActive = true;
+      posFeeUF = parseFloat((activeChildren.length * defaultPosUfRate).toFixed(2));
+      posFeeCLP = Math.round(posFeeUF * billingState.ufValue);
+      const childDetails = activeChildren.map(c => {
+        const m = c.posConfig;
+        const ownerLabel = m.isStockaMachine ? 'Máquina STOCKA' : 'Máquina Propia';
+        const parts = [m.brand, m.model ? '#' + m.model : '', m.color ? '(' + m.color + ')' : ''].filter(Boolean).join(' ');
+        return `${c.store}: ${ownerLabel} ${parts ? `[${parts}]` : ''}`;
+      }).join('; ');
+      posFeeDetails = `Habilitación POS en ${activeChildren.length} tienda(s) (${childDetails}) @ ${formatCLP(billingState.ufValue)}/UF`;
+      posIsStocka = activeChildren.some(c => c.posConfig?.isStockaMachine);
+    }
+  } else if (isPosActive) {
+    posFeeUF = defaultPosUfRate;
+    posFeeCLP = Math.round(posFeeUF * billingState.ufValue);
+    const ownerLabel = posIsStocka ? 'Equipo provisto por STOCKA' : 'Equipo propio del comercio';
+    const techDetails = [
+      posMachine.brand ? `Marca: ${posMachine.brand}` : '',
+      posMachine.model ? `N°/Terminal: #${posMachine.model}` : '',
+      posMachine.color ? `Color: ${posMachine.color}` : '',
+      posMachine.notes ? `Instrucciones: ${posMachine.notes}` : ''
+    ].filter(Boolean).join(', ');
+    posFeeDetails = `Habilitación mensual POS (0,2 UF) @ ${formatCLP(billingState.ufValue)}/UF. ${ownerLabel}${techDetails ? ` [${techDetails}]` : ''}.`;
+  } else {
+    posFeeUF = 0;
+    posFeeCLP = 0;
+    posFeeDetails = 'Punto de Venta no habilitado para este comercio';
+  }
+
+  // Respetar snapshot guardado si ya tenía valores calculados
+  if (savedPosTotals.posFeeNet !== undefined) {
+    posFeeCLP = savedPosTotals.posFeeNet;
+    posFeeUF = savedPosTotals.posFeeUF !== undefined ? savedPosTotals.posFeeUF : (billingState.ufValue > 0 ? parseFloat((posFeeCLP / billingState.ufValue).toFixed(2)) : 0);
+    if (savedPosTotals.posFeeDetails) posFeeDetails = savedPosTotals.posFeeDetails;
+    if (savedPosTotals.posIsStocka !== undefined) posIsStocka = savedPosTotals.posIsStocka;
+    if (savedPosTotals.posMachine) posMachine = savedPosTotals.posMachine;
+    if (savedPosTotals.posActive !== undefined) isPosActive = savedPosTotals.posActive;
+  }
+
+  // Permitir override manual si el usuario editó el cobro de POS en el periodo
+  if (customOverrides.posFeeCLP !== undefined) {
+    posFeeCLP = Math.round(customOverrides.posFeeCLP);
+    posFeeUF = billingState.ufValue > 0 ? parseFloat((posFeeCLP / billingState.ufValue).toFixed(2)) : 0;
+    if (customOverrides.posFeeDetails) {
+      posFeeDetails = customOverrides.posFeeDetails;
+    }
+  }
+
   // 12. Insumos y Ajustes Adicionales (Punto F)
   const currentSuppliesKey = `${billingState.currentPeriodId}_${commerceName}`;
   if (customOverrides.supplies !== undefined) {
@@ -1876,7 +2325,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
 
   // 13. Totales Finales Consolidados
-  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
+  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
 
@@ -1898,6 +2347,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     fixedFeeUF,
     fixedFeeNet: fixedFeeCLP,
     fixedFeeReason,
+    posActive: isPosActive,
+    posFeeUF,
+    posFeeNet: posFeeCLP,
+    posFeeDetails,
+    posIsStocka,
+    posMachine,
     suppliesNet: totalSuppliesNet,
     adjustmentsNet: totalAdjustmentsNet,
     totalNet,
@@ -1905,6 +2360,9 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     totalGross,
     totalToPay: totalGross
   };
+
+  // 10. Desglose analítico por tienda si es un conglomerado
+  billingState.storeBreakdown = computeConglomerateStoreBreakdown(billingState.orders, billingState);
 
   billingState.isLoading = false;
   return billingState;
@@ -1918,6 +2376,9 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
   const invDates = b.invoiceDates || {};
   const isClient = Boolean(b.isClientView);
   const commName = b.currentCommerce || b.comercio || '';
+  const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
+    ? b.storeBreakdown
+    : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []);
 
   // Auto-enriquecimiento de respaldo desde localStorage si RUT o Razón Social vienen vacíos o con guión
   if (commName) {
@@ -2024,6 +2485,20 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               <span style="color: #64748b; font-weight: 600;">Cód. Comercio:</span>
               <span style="font-weight: 800; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 1px 6px; border-radius: 4px;">${escapeHtml(c.sigla || '—')}</span>
             </div>
+            ${b.isConglomerate ? `
+            <div class="stocka-entity-row">
+              <span style="color: #64748b; font-weight: 600;">Tipo Facturación:</span>
+              <span style="font-weight: 800; color: #5f06fa; display: inline-flex; align-items: center; gap: 4px; background: rgba(95, 6, 250, 0.08); padding: 1px 6px; border-radius: 4px; font-size: 0.78rem;">
+                <i class="ri-building-line"></i> Holding / Conglomerado
+              </span>
+            </div>
+            <div class="stocka-entity-row">
+              <span style="color: #64748b; font-weight: 600;">Tiendas Consolidadas:</span>
+              <span style="font-weight: 700; color: #0f172a; font-size: 0.78rem; line-height: 1.3;">
+                ${(b.conglomerateChildren || []).join(' • ')}
+              </span>
+            </div>
+            ` : ''}
             <div class="stocka-entity-row" ${!isClient ? 'style="cursor: pointer;" onclick="window.openEditDesgloseHeaderModal()" title="Haga clic para editar fecha de emisión"' : ''}>
               <span style="color: #64748b; font-weight: 600;">Fecha Emisión:</span>
               <span style="font-weight: 700; color: #0f172a; display: inline-flex; align-items: center; gap: 4px;">
@@ -2065,6 +2540,14 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
           <div class="stocka-metric-value">${t.fixedFeeUF > 0 ? `${formatDec(t.fixedFeeUF, 1)} UF` : 'EXENTO'}</div>
           <div class="stocka-metric-sub">${t.fixedFeeUF > 0 ? formatCLP(t.fixedFeeNet) : '$0'}</div>
         </div>
+
+        ${(t.posActive || t.posFeeUF > 0) ? `
+        <div class="stocka-metric-card" style="border-top: 3px solid #0ea5e9;">
+          <div class="stocka-metric-title"><i class="ri-store-3-line" style="color: #0ea5e9;"></i> Punto de Venta (POS)</div>
+          <div class="stocka-metric-value" style="color: #0ea5e9;">${t.posFeeUF > 0 ? `${formatDec(t.posFeeUF, 1)} UF` : 'EXENTO'}</div>
+          <div class="stocka-metric-sub">${t.posFeeUF > 0 ? formatCLP(t.posFeeNet) : '$0'} · ${t.posIsStocka ? 'Equipo STOCKA' : 'Equipo Propio'}</div>
+        </div>
+        ` : ''}
       </div>
 
       <!-- Hero Card: Total a Pagar y Resumen Fiscal -->
@@ -2232,6 +2715,44 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP(t.fixedFeeNet * 1.19)}</td>
             </tr>
 
+            <!-- 6.1 Servicio Punto de Venta (POS) -->
+            ${(t.posFeeUF > 0 || t.posActive) ? `
+            <tr>
+              <td>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                      <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de Punto de Venta (POS) - Sucursal Ñuñoa</span>
+                      ${t.posIsStocka ? `
+                        <span style="background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                          <i class="ri-store-3-line"></i> Equipo STOCKA
+                        </span>
+                      ` : `
+                        <span style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; font-size: 0.7rem; font-weight: 700; padding: 1px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                          <i class="ri-user-star-line"></i> Equipo Propio del Comercio
+                        </span>
+                      `}
+                    </div>
+                    <div style="font-size: 0.725rem; color: #64748b; margin-top: 3px; line-height: 1.35;">
+                      ${escapeHtml(t.posFeeDetails || '')}
+                    </div>
+                  </div>
+                  ${!isClient ? `
+                  <div class="no-print">
+                    <button type="button" onclick="window.openEditPosFeeModal()" title="Editar o eximir cobro de Punto de Venta" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                      <i class="ri-pencil-line"></i> Editar
+                    </button>
+                  </div>` : ''}
+                </div>
+              </td>
+              <td style="text-align: center; font-weight: 600; color: #64748b;">UF</td>
+              <td style="text-align: center; font-weight: 700; color: #0f172a;">${t.posFeeUF > 0 ? formatDec(t.posFeeUF, 1) : '0'}</td>
+              <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(t.posFeeNet)}</td>
+              <td style="text-align: right; color: #64748b;">${formatCLP(t.posFeeNet * 0.19)}</td>
+              <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP(t.posFeeNet * 1.19)}</td>
+            </tr>
+            ` : ''}
+
             <!-- 7. Ajustes Comerciales si existen -->
             ${b.adjustments.map((a, idx) => `
               <tr>
@@ -2269,6 +2790,97 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
           </tbody>
         </table>
       </div>
+
+      ${b.isConglomerate && sBreakdown && sBreakdown.length > 0 ? `
+        <!-- Desglose Consolidado por Tienda del Conglomerado -->
+        <div style="margin-top: 1.5rem; background: #ffffff; border-radius: 10px; border: 1px solid #cbd5e1; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+          <div style="background: rgba(95, 6, 250, 0.05); padding: 0.75rem 1.25rem; border-bottom: 1px solid rgba(95, 6, 250, 0.15); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <div style="width: 28px; height: 28px; border-radius: 6px; background: #5f06fa; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1rem;">
+                <i class="ri-pie-chart-2-line"></i>
+              </div>
+              <div>
+                <strong style="color: #0f172a; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.4px;">
+                  Resumen Consolidado por Tienda del Conglomerado
+                </strong>
+                <div style="font-size: 0.72rem; color: #64748b;">
+                  Distribución de pedidos, preparación y despachos de ${escapeHtml(b.currentCommerce || b.comercio || 'Conglomerado')}
+                </div>
+              </div>
+            </div>
+            <span style="background: #ffffff; color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.3); padding: 0.25rem 0.65rem; border-radius: 6px; font-size: 0.725rem; font-weight: 800;">
+              ${sBreakdown.length} TIENDAS AGRUPADAS
+            </span>
+          </div>
+
+          <div style="overflow-x: auto;">
+            <table class="stocka-table-official" style="margin: 0; border: none; width: 100%;">
+              <thead>
+                <tr style="background: #f8fafc;">
+                  <th style="text-align: left; padding: 8px 12px;">TIENDA / COMERCIO</th>
+                  <th style="text-align: center; width: 85px;">PEDIDOS</th>
+                  <th style="text-align: center; width: 85px;">ENVÍOS RM</th>
+                  <th style="text-align: right; width: 120px;">PICK & PACK</th>
+                  <th style="text-align: right; width: 120px;">FLETE RM</th>
+                  <th style="text-align: right; width: 130px;">TOTAL NETO OP.</th>
+                  <th style="text-align: right; width: 90px;">% PART.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sBreakdown.map(s => `
+                  <tr>
+                    <td style="padding: 8px 12px;">
+                      <div style="font-weight: 700; color: #0f172a; font-size: 0.825rem; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
+                        <span style="display: inline-flex; align-items: center; gap: 5px;">
+                          <i class="ri-store-2-line" style="color: #5f06fa;"></i> ${escapeHtml(s.storeName)}
+                        </span>
+                        ${!isClient ? `
+                          <div class="no-print" style="display: flex; gap: 4px;">
+                            <button type="button"
+                                    onclick="window.switchBgSubTab('register'); window.setConglomerateStoreView('${escapeHtml(s.storeName)}');"
+                                    class="btn btn-xs"
+                                    style="background: rgba(95,6,250,0.08); color: #5f06fa; border: 1px solid rgba(95,6,250,0.25); border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;"
+                                    title="Ver tabla de pedidos filtrada para ${escapeHtml(s.storeName)}">
+                              <i class="ri-table-line"></i> Pedidos
+                            </button>
+                            <button type="button"
+                                    onclick="window.switchBgSubTab('analytics'); window.setConglomerateStoreView('${escapeHtml(s.storeName)}');"
+                                    class="btn btn-xs"
+                                    style="background: rgba(95,6,250,0.08); color: #5f06fa; border: 1px solid rgba(95,6,250,0.25); border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;"
+                                    title="Ver analítica y gráficos de ${escapeHtml(s.storeName)}">
+                              <i class="ri-pie-chart-line"></i> Analítica
+                            </button>
+                          </div>
+                        ` : ''}
+                      </div>
+                      ${s.totalSalesTicket > 0 ? `<div style="font-size: 0.68rem; color: #64748b; margin-top: 1px;">Venta total declarada: ${formatCLP(s.totalSalesTicket)}</div>` : ''}
+                    </td>
+                    <td style="text-align: center; font-weight: 700; color: #0f172a;">${s.billableOrders}</td>
+                    <td style="text-align: center; font-weight: 600; color: #475569;">${s.shippingRmCount}</td>
+                    <td style="text-align: right; font-weight: 600; color: #0f172a;">${formatCLP(s.pickPackNet)}</td>
+                    <td style="text-align: right; font-weight: 600; color: #0f172a;">${formatCLP(s.shippingFreightNet)}</td>
+                    <td style="text-align: right; font-weight: 800; color: #5f06fa;">${formatCLP(s.storeTotalNet)}</td>
+                    <td style="text-align: right; font-weight: 700; color: #0f172a;">
+                      <span style="background: rgba(95, 6, 250, 0.08); padding: 2px 6px; border-radius: 4px;">${s.sharePct}%</span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+              <tfoot>
+                <tr style="background: #f8fafc; font-weight: 800; border-top: 1px solid #cbd5e1;">
+                  <td style="text-align: left; padding: 8px 12px; color: #0f172a;">TOTALES OPERACIONALES:</td>
+                  <td style="text-align: center; color: #0f172a;">${sBreakdown.reduce((sum, s) => sum + s.billableOrders, 0)}</td>
+                  <td style="text-align: center; color: #0f172a;">${sBreakdown.reduce((sum, s) => sum + s.shippingRmCount, 0)}</td>
+                  <td style="text-align: right; color: #0f172a;">${formatCLP(sBreakdown.reduce((sum, s) => sum + s.pickPackNet, 0))}</td>
+                  <td style="text-align: right; color: #0f172a;">${formatCLP(sBreakdown.reduce((sum, s) => sum + s.shippingFreightNet, 0))}</td>
+                  <td style="text-align: right; color: #5f06fa; font-size: 0.9rem;">${formatCLP(sBreakdown.reduce((sum, s) => sum + s.storeTotalNet, 0))}</td>
+                  <td style="text-align: right; color: #5f06fa;">100%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Cuadro de Pago e Información Bancaria Oficial STOCKA -->
       <div style="margin-top: 1.75rem; background: #f8fafc; border-radius: 10px; border: 1px solid #cbd5e1; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
@@ -2352,6 +2964,10 @@ export function exportBillingToExcel(customState = null) {
     ["www.stocka.cl", "", "Fecha Emisión:", emisionStr],
     ["", "", "Fecha Límite Pago:", `${vencimientoStr} (${b.invoiceDates?.termLabel || ''})`],
     ["", "", "UF Referencia:", b.ufValue],
+    ...(b.isConglomerate ? [
+      ["", "", "Tipo Facturación:", "Holding / Conglomerado Consolidado"],
+      ["", "", "Tiendas Agrupadas:", (b.conglomerateChildren || []).join(', ')]
+    ] : []),
     [],
     ["DESGLOSE MENSUAL DE SERVICIOS DE FULFILLMENT"],
     ["ITEM", "UNIDAD", "CANTIDAD", "NETO ($)", "IVA ($)", "TOTAL ($)"],
@@ -2425,6 +3041,18 @@ export function exportBillingToExcel(customState = null) {
     Math.round(t.fixedFeeNet * 1.19)
   ]);
 
+  // Servicio Punto de Venta (POS) si aplica
+  if (t.posFeeNet > 0 || t.posActive) {
+    summaryData.push([
+      `Servicio Punto de Venta (POS) - ${t.posIsStocka ? 'Equipo STOCKA' : 'Equipo Propio'} (${t.posFeeDetails || ''})`,
+      "UF",
+      t.posFeeUF || 0.2,
+      t.posFeeNet,
+      Math.round(t.posFeeNet * 0.19),
+      Math.round(t.posFeeNet * 1.19)
+    ]);
+  }
+
   // Ajustes
   (b.adjustments || []).forEach(a => {
     summaryData.push([
@@ -2443,6 +3071,36 @@ export function exportBillingToExcel(customState = null) {
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
   XLSX.utils.book_append_sheet(wb, wsSummary, "Desglose Oficial");
 
+  // Pestaña adicional para Conglomerados: Resumen Consolidado por Tienda
+  const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
+    ? b.storeBreakdown
+    : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []);
+
+  if (b.isConglomerate && sBreakdown.length > 0) {
+    const storeBreakdownData = [
+      ["RESUMEN CONSOLIDADO POR TIENDA - CONGLOMERADO", b.currentCommerce || b.comercio, "PERIODO:", b.currentPeriodName || b.periodName],
+      ["Tiendas Consolidadas:", (b.conglomerateChildren || []).join(', ')],
+      [],
+      ["TIENDA / COMERCIO", "TOTAL PEDIDOS", "PEDIDOS FACTURABLES", "ENVÍOS RM", "ENVÍOS REGIÓN", "TICKET VENTA TOTAL ($)", "PICK & PACK NETO ($)", "FLETE RM NETO ($)", "TOTAL NETO OPERACIONAL ($)", "% PARTICIPACIÓN"]
+    ];
+    sBreakdown.forEach(st => {
+      storeBreakdownData.push([
+        st.storeName,
+        st.totalOrders,
+        st.billableOrders,
+        st.shippingRmCount,
+        st.shippingEnviameCount,
+        st.totalSalesTicket,
+        st.pickPackNet,
+        st.shippingFreightNet,
+        st.storeTotalNet,
+        `${st.sharePct}%`
+      ]);
+    });
+    const wsStoreBreakdown = XLSX.utils.aoa_to_sheet(storeBreakdownData);
+    XLSX.utils.book_append_sheet(wb, wsStoreBreakdown, "Resumen por Tienda");
+  }
+
   // Pestaña 2: Detalle de Todos los Pedidos (Formato tipo Excel Auditoría)
   const deliveryTypesMap = getDeliveryTypes(b.pricingConfig).reduce((acc, dt) => {
     acc[dt.key] = dt.name;
@@ -2450,7 +3108,7 @@ export function exportBillingToExcel(customState = null) {
   }, {});
 
   const ordersHeaders = [
-    "N°", "REF. ORIGEN", "PLATAFORMA", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
+    "N°", "REF. ORIGEN", "PLATAFORMA", "TIENDA / COMERCIO", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
     "TICKET VENTA ($)", "TIPO ENTREGA", "SKUS", "UNIDADES", "MKT?",
     "TARIFA BASE ($)", "REC. SKU ($)", "REC. UNID ($)", "REC. MKT ($)",
     "PREPARACIÓN TOTAL ($)", "FLETE ENVÍO ($)", "TOTAL COBRADO ($)", "ESTADO WMS", "INCLUIDO?"
@@ -2460,6 +3118,7 @@ export function exportBillingToExcel(customState = null) {
     idx + 1,
     o.orderNumber || o.externalOrderNumber || o.id,
     o.platform || o.externalPlatform || 'Manual',
+    o.comercio || b.currentCommerce || '—',
     o.id,
     o.date,
     o.agenda || 'Sin agenda',
@@ -2614,6 +3273,12 @@ export async function saveBillingRecordToSupabase() {
       periodId: b.currentPeriodId,
       periodName: b.currentPeriodName,
       comercio: b.currentCommerce,
+      isConglomerate: Boolean(b.isConglomerate),
+      conglomerateName: b.conglomerateName || null,
+      conglomerateChildren: b.conglomerateChildren || [],
+      storeBreakdown: (b.storeBreakdown && b.storeBreakdown.length > 0)
+        ? b.storeBreakdown
+        : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []),
       commerceInfo: b.commerceInfo,
       invoiceDates: b.invoiceDates,
       volumeM3: b.volumeM3,
@@ -2775,6 +3440,12 @@ export async function confirmAndPublishBillingToCommerce() {
       periodId: b.currentPeriodId,
       periodName: b.currentPeriodName,
       comercio: b.currentCommerce,
+      isConglomerate: Boolean(b.isConglomerate),
+      conglomerateName: b.conglomerateName || null,
+      conglomerateChildren: b.conglomerateChildren || [],
+      storeBreakdown: (b.storeBreakdown && b.storeBreakdown.length > 0)
+        ? b.storeBreakdown
+        : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []),
       commerceInfo: b.commerceInfo,
       invoiceDates: b.invoiceDates,
       volumeM3: b.volumeM3,
@@ -2939,61 +3610,153 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
 
   const b = snapshotState || billingState;
   const t = b.totals || {};
-  const orders = b.orders || [];
+  const allOrders = b.orders || [];
+  const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
+    ? b.storeBreakdown
+    : (b.isConglomerate ? computeConglomerateStoreBreakdown(allOrders, b) : []);
+
+  const activeStore = (snapshotState ? snapshotState.activeConglomerateStoreFilter : billingState.activeConglomerateStoreFilter) || null;
+  const isStoreFiltered = Boolean(b.isConglomerate && activeStore);
+
+  // Filtrar pedidos según tienda activa seleccionada o mostrar todos los pedidos del conglomerado
+  const orders = isStoreFiltered
+    ? allOrders.filter(o => {
+        const oCom = String(o.comercio || '').toUpperCase();
+        const stUp = activeStore.toUpperCase();
+        return oCom === stUp || oCom.includes(stUp) || stUp.includes(oCom);
+      })
+    : allOrders;
+
+  const billableOrders = orders.filter(o => !o.isExcluded);
+
+  // Datos de la tienda seleccionada
+  const storeData = isStoreFiltered
+    ? (sBreakdown.find(s => s.storeName.toUpperCase() === activeStore.toUpperCase()) || {
+        storeName: activeStore,
+        totalOrders: orders.length,
+        billableOrders: billableOrders.length,
+        pickPackNet: billableOrders.reduce((sum, o) => sum + (o.pickPackTotal || 0), 0),
+        shippingFreightNet: billableOrders.reduce((sum, o) => sum + (o.shippingFreight || 0), 0),
+        storeTotalNet: billableOrders.reduce((sum, o) => sum + (o.pickPackTotal || 0) + (o.shippingFreight || 0), 0),
+        sharePct: 0
+      })
+    : null;
 
   // Cálculos analíticos clave
-  const totalOrders = orders.length || 1;
-  const avgCostPerOrder = Math.round((t.totalNet || 0) / totalOrders);
+  const totalOrders = orders.length || 0;
+  const totalNetOperational = isStoreFiltered
+    ? (storeData?.storeTotalNet || 0)
+    : (t.totalNet || 0);
+
+  const avgCostPerOrder = totalOrders > 0 ? Math.round(totalNetOperational / totalOrders) : 0;
   const totalSalesAmount = orders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
   const avgTicket = totalOrders > 0 ? Math.round(totalSalesAmount / totalOrders) : 0;
-  const rmPct = (((t.shippingRmFlexCount || 0) / totalOrders) * 100).toFixed(1);
-  const envPct = (((t.shippingEnviameCount || 0) / totalOrders) * 100).toFixed(1);
+  const rmCount = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'FLEX' || o.deliveryType === 'COLINA').length;
+  const rmPct = totalOrders > 0 ? (((rmCount) / totalOrders) * 100).toFixed(1) : '0.0';
+  const envCount = billableOrders.filter(o => o.deliveryType === 'ENVIAME' || o.deliveryType === 'REGION' || o.deliveryType === 'ENVIAME_REGION').length;
+  const envPct = totalOrders > 0 ? (((envCount) / totalOrders) * 100).toFixed(1) : '0.0';
   const mktCount = orders.filter(o => o.isMarketplace).length;
-  const mktPct = ((mktCount / totalOrders) * 100).toFixed(1);
+  const mktPct = totalOrders > 0 ? (((mktCount) / totalOrders) * 100).toFixed(1) : '0.0';
+
+  // Métricas de catálogo y productos para este alcance
+  const productsStats = isStoreFiltered
+    ? computeProductsStatsFromOrders(billableOrders)
+    : (b.productsStats || computeProductsStatsFromOrders(billableOrders));
 
   container.innerHTML = `
     <!-- Banner de Encabezado Analítico -->
     <div class="bg-analytics-hero">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <div style="width: 48px; height: 48px; border-radius: 12px; background: #5f06fa; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.3);">
-          <i class="ri-line-chart-fill"></i>
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #5f06fa; color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.3); flex-shrink: 0;">
+          <i class="${isStoreFiltered ? 'ri-store-2-fill' : 'ri-line-chart-fill'}"></i>
         </div>
         <div>
-          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main);">Dashboard Analítico del Periodo</h3>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span>${isStoreFiltered ? `Analítica por Tienda: 🏪 ${escapeHtml(activeStore)}` : 'Dashboard Analítico del Periodo'}</span>
+            ${isStoreFiltered ? `
+              <span class="badge" style="background: rgba(95, 6, 250, 0.15); color: #5f06fa; font-size: 0.72rem; padding: 2px 8px; border-radius: 6px; font-weight: 800;">
+                ${storeData.sharePct}% del Holding
+              </span>
+            ` : ''}
+          </h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
-            Métricas de rendimiento operativo, costos logísticos unitarios y comportamiento de envíos para <strong>${escapeHtml(b.currentCommerce || b.comercio || '')}</strong> (${escapeHtml(b.currentPeriodName || b.periodName || '')}).
+            ${isStoreFiltered
+              ? `Métricas operacionales específicas de la tienda <strong>${escapeHtml(activeStore)}</strong> dentro del conglomerado <strong>${escapeHtml(b.currentCommerce || b.comercio || '')}</strong> (${escapeHtml(b.currentPeriodName || b.periodName || '')}).`
+              : `Métricas de rendimiento operativo consolidado, costos logísticos unitarios y comportamiento de envíos para <strong>${escapeHtml(b.currentCommerce || b.comercio || '')}</strong> (${escapeHtml(b.currentPeriodName || b.periodName || '')}).`}
           </p>
         </div>
       </div>
 
-      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
         <span class="bg-hero-badge purple">
           <i class="ri-wallet-3-line"></i> Costo Promedio Logística: ${formatCLP(avgCostPerOrder)} / pedido
         </span>
-        <span class="bg-hero-badge teal" title="Ticket promedio de venta de los pedidos del periodo">
+        <span class="bg-hero-badge teal" title="Ticket promedio de venta de los pedidos">
           <i class="ri-shopping-cart-2-line"></i> Ticket Promedio Venta: ${formatCLP(avgTicket)}
         </span>
+        ${isStoreFiltered ? `
+          <button type="button" class="btn btn-sm" onclick="window.setConglomerateStoreView(null)" style="background: var(--color-surface); border: 1.5px solid rgba(95,6,250,0.35); color: #5f06fa; font-weight: 700; border-radius: 8px; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <i class="ri-building-line"></i> Ver Consolidado Holding
+          </button>
+        ` : ''}
       </div>
     </div>
+
+    ${b.isConglomerate ? `
+      <!-- Selector Rápido de Tienda para Analítica -->
+      <div style="background: var(--color-surface); border: 1.5px solid rgba(95, 6, 250, 0.25); border-radius: 10px; padding: 0.65rem 1rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-store-3-line" style="color: #5f06fa; font-size: 1.25rem;"></i>
+          <span style="font-size: 0.82rem; font-weight: 800; color: var(--color-text-main);">
+            Ver Analítica por Tienda del Holding:
+          </span>
+        </div>
+        <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+          <button type="button"
+                  onclick="window.setConglomerateStoreView(null)"
+                  class="btn btn-sm"
+                  style="border-radius: 6px; font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.8rem; border: 1.5px solid ${!activeStore ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${!activeStore ? '#5f06fa' : 'var(--color-surface)'}; color: ${!activeStore ? '#ffffff' : 'var(--color-text-main)'}; cursor: pointer; transition: all 0.2s;">
+            <i class="ri-building-line"></i> 🏢 Consolidado Holding (${allOrders.length})
+          </button>
+          ${(b.conglomerateChildren || []).map(ch => {
+            const chData = sBreakdown.find(s => s.storeName.toUpperCase() === ch.toUpperCase());
+            const chCount = chData ? chData.totalOrders : 0;
+            const isChActive = activeStore && activeStore.toUpperCase() === ch.toUpperCase();
+            return `
+              <button type="button"
+                      onclick="window.setConglomerateStoreView('${escapeHtml(ch)}')"
+                      class="btn btn-sm"
+                      style="border-radius: 6px; font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.8rem; border: 1.5px solid ${isChActive ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isChActive ? '#5f06fa' : 'var(--color-surface)'}; color: ${isChActive ? '#ffffff' : 'var(--color-text-main)'}; cursor: pointer; transition: all 0.2s;">
+                <i class="ri-store-2-line" style="${isChActive ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
+                <span>${escapeHtml(ch)}</span>
+                <span style="background: ${isChActive ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isChActive ? '#ffffff' : '#5f06fa'}; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 800;">
+                  ${chCount}
+                </span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    ` : ''}
 
     <!-- 4 KPI Cards Ejecutivas en 1 Sola Línea con Estilo Uniforme y Sobrio -->
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">COSTO LOGÍSTICO UNITARIO</div>
         <div class="bg-kpi-value">${formatCLP(avgCostPerOrder)}</div>
-        <div class="bg-kpi-subtitle">Costo neto por pedido</div>
+        <div class="bg-kpi-subtitle">${isStoreFiltered ? `Costo neto por pedido de ${escapeHtml(activeStore)}` : 'Costo neto por pedido'}</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">DESPACHOS RM / FLEX</div>
         <div class="bg-kpi-value">${rmPct}%</div>
-        <div class="bg-kpi-subtitle">${t.shippingRmFlexCount} de ${totalOrders} pedidos locales</div>
+        <div class="bg-kpi-subtitle">${rmCount} de ${totalOrders} pedidos locales</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
         <div class="bg-kpi-title">ENVÍOS A REGIONES</div>
         <div class="bg-kpi-value">${envPct}%</div>
-        <div class="bg-kpi-subtitle">${t.shippingEnviameCount} pedidos vía Envíame</div>
+        <div class="bg-kpi-subtitle">${envCount} pedidos vía Envíame</div>
       </div>
 
       <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
@@ -3005,8 +3768,15 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
 
     <!-- 4 Tarjetas de Almacenamiento Diario en 1 Sola Fila (Sobrio y Uniforme) -->
     <div style="margin-bottom: 0.5rem;">
-      <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.4rem;">
-        <i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario
+      <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <span style="display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-archive-line text-stocka-purple"></i> Métricas de Almacenamiento Diario
+        </span>
+        ${isStoreFiltered ? `
+          <span style="font-size: 0.72rem; background: rgba(95,6,250,0.08); color: #5f06fa; padding: 2px 8px; border-radius: 6px; font-weight: 600; text-transform: none;">
+            <i class="ri-information-line"></i> Almacenamiento contratado a nivel holding (${escapeHtml(b.currentCommerce)})
+          </span>
+        ` : ''}
       </h4>
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
@@ -3056,24 +3826,24 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     <!-- Métricas de Artículos Vendidos y Despachados -->
     <div style="margin-bottom: 0.5rem;">
       <h4 style="margin: 0 0 0.6rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.4rem;">
-        <i class="ri-shopping-bag-3-line text-stocka-purple"></i> Artículos Vendidos y Despachados
+        <i class="ri-shopping-bag-3-line text-stocka-purple"></i> Artículos Vendidos y Despachados ${isStoreFiltered ? `(${escapeHtml(activeStore)})` : ''}
       </h4>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">TOTAL ARTÍCULOS VENDIDOS</div>
-          <div class="bg-kpi-value">${(b.productsStats?.totalUnits || 0).toLocaleString('es-CL')} <span class="bg-kpi-unit">unidades</span></div>
+          <div class="bg-kpi-value">${(productsStats?.totalUnits || 0).toLocaleString('es-CL')} <span class="bg-kpi-unit">unidades</span></div>
           <div class="bg-kpi-subtitle">Unidades físicas procesadas</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">PROMEDIO POR PEDIDO</div>
-          <div class="bg-kpi-value">${b.productsStats?.avgUnitsPerOrder || 0} <span class="bg-kpi-unit">uds/pedido</span></div>
+          <div class="bg-kpi-value">${productsStats?.avgUnitsPerOrder || 0} <span class="bg-kpi-unit">uds/pedido</span></div>
           <div class="bg-kpi-subtitle">Artículos por orden despachada</div>
         </div>
 
         <div class="bg-kpi-card" style="border-top: 3px solid #5f06fa; border-left: 1px solid var(--color-border);">
           <div class="bg-kpi-title">SKUS DISTINTOS DESPACHADOS</div>
-          <div class="bg-kpi-value">${(b.productsStats?.allProducts || []).length} <span class="bg-kpi-unit">SKUs</span></div>
+          <div class="bg-kpi-value">${(productsStats?.allProducts || []).length} <span class="bg-kpi-unit">SKUs</span></div>
           <div class="bg-kpi-subtitle">Variedad de catálogo con rotación</div>
         </div>
       </div>
@@ -3086,11 +3856,11 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         <div class="bg-chart-header">
           <div>
             <h4 class="bg-chart-title">
-              Top 10 Productos Más Vendidos
+              Top 10 Productos Más Vendidos ${isStoreFiltered ? `(${escapeHtml(activeStore)})` : ''}
             </h4>
             <span style="font-size: 0.75rem; color: var(--color-text-muted);">Ranking por unidades físicas despachadas en el periodo</span>
           </div>
-          <span class="bg-share-badge">Top ${(b.productsStats?.topProducts || []).length}</span>
+          <span class="bg-share-badge">Top ${(productsStats?.topProducts || []).length}</span>
         </div>
         <div style="overflow-x: auto; max-height: 310px;">
           <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
@@ -3104,7 +3874,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
               </tr>
             </thead>
             <tbody>
-              ${(b.productsStats?.topProducts || []).map(p => `
+              ${(productsStats?.topProducts || []).map(p => `
                 <tr style="border-bottom: 1px solid var(--color-border);">
                   <td class="text-stocka-purple" style="padding: 7px 8px; font-weight: 700;">${p.rank}</td>
                   <td style="padding: 7px 8px; font-weight: 600; font-family: monospace; font-size: 0.75rem;">${p.sku}</td>
@@ -3237,6 +4007,87 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         </div>
       </div>
     </div>
+
+    <!-- Sección Conglomerado: Participación y Distribución por Tienda -->
+    ${b.isConglomerate && sBreakdown && sBreakdown.length > 0 ? `
+      <div style="margin-bottom: 2rem;">
+        <h4 style="margin: 0 0 0.8rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-building-line text-stocka-purple"></i> Distribución Consolidada por Tienda (${sBreakdown.length} Marcas / Comercios Agrupados)
+        </h4>
+
+        <div style="display: grid; grid-template-columns: 1.25fr 1fr; gap: 1.5rem; align-items: start;">
+          <!-- Tabla de Participación por Tienda -->
+          <div class="bg-chart-card">
+            <div class="bg-chart-header">
+              <div>
+                <h4 class="bg-chart-title">Detalle Operacional y Costos por Tienda</h4>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">Consolidado de pedidos, despachos y costos netos directos</span>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <span class="bg-share-badge">${sBreakdown.length} Tiendas</span>
+                ${activeStore ? `
+                  <button type="button" class="btn btn-xs btn-outline" onclick="window.setConglomerateStoreView(null)" style="font-size: 0.72rem; padding: 2px 7px; border-radius: 5px; border-color: rgba(95,6,250,0.35); color: #5f06fa; font-weight: 700; cursor: pointer;">
+                    <i class="ri-refresh-line"></i> Ver Todas
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+            <div style="overflow-x: auto; max-height: 280px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
+                    <th style="padding: 6px 8px;">Tienda</th>
+                    <th style="padding: 6px 8px; text-align: center;">Pedidos</th>
+                    <th style="padding: 6px 8px; text-align: center;">Envíos RM</th>
+                    <th style="padding: 6px 8px; text-align: right;">Costo Neto Op.</th>
+                    <th style="padding: 6px 8px; text-align: right;">% Part.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sBreakdown.map(s => {
+                    const isRowActive = activeStore && activeStore.toUpperCase() === s.storeName.toUpperCase();
+                    return `
+                      <tr style="border-bottom: 1px solid var(--color-border); ${isRowActive ? 'background: rgba(95,6,250,0.08);' : ''}">
+                        <td style="padding: 7px 8px; font-weight: 700; color: var(--color-text-main);">
+                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                            <span style="display: inline-flex; align-items: center; gap: 4px;">
+                              <i class="ri-store-2-line" style="color: #5f06fa;"></i> ${escapeHtml(s.storeName)}
+                            </span>
+                            <button type="button"
+                                    onclick="window.setConglomerateStoreView('${escapeHtml(s.storeName)}')"
+                                    class="btn btn-xs"
+                                    style="padding: 2px 7px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; border: 1px solid rgba(95,6,250,0.3); background: ${isRowActive ? '#5f06fa' : 'var(--color-surface)'}; color: ${isRowActive ? '#ffffff' : '#5f06fa'}; cursor: pointer;">
+                              ${isRowActive ? '<i class="ri-check-line"></i> Activa' : '<i class="ri-filter-line"></i> Filtrar'}
+                            </button>
+                          </div>
+                        </td>
+                        <td style="padding: 7px 8px; text-align: center; font-weight: 700;">${s.billableOrders}</td>
+                        <td style="padding: 7px 8px; text-align: center; color: var(--color-text-muted);">${s.shippingRmCount}</td>
+                        <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: var(--color-text-main);">${formatCLP(s.storeTotalNet)}</td>
+                        <td style="padding: 7px 8px; text-align: right;">
+                          <span class="bg-share-badge">${s.sharePct}%</span>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Gráfico Doughnut Participación por Tienda -->
+          <div class="bg-chart-card">
+            <div class="bg-chart-header">
+              <h4 class="bg-chart-title">Participación de Pedidos por Tienda</h4>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">% Volumen de Órdenes</span>
+            </div>
+            <div style="height: 250px; position: relative;">
+              <canvas id="chart-conglomerate-stores-donut"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : ''}
   `;
 
   // Detección dinámica de modo oscuro para Chart.js
@@ -3324,7 +4175,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   }
 
   // B. Gráfico de Barras de Top Productos Más Vendidos
-  const topProds = (b.productsStats?.topProducts || []).slice(0, 6);
+  const topProds = (productsStats?.topProducts || []).slice(0, 6);
   if (topProds.length > 0) {
     getCanvasAndInit('chart-top-products', {
       type: 'bar',
@@ -3459,14 +4310,20 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   });
 
   // 3. Chart Expense Breakdown
-  const expenseData = [
-    { label: 'Almacenamiento', val: t.storageNet || 0, color: '#5f06fa', darkColor: '#a855f7' },
-    { label: 'Preparación (Pick&Pack)', val: t.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
-    { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet || 0, color: '#6366f1', darkColor: '#818cf8' },
-    { label: 'Costo Fijo Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
-    { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981', darkColor: '#34d399' },
-    { label: 'Insumos de Embalaje', val: t.suppliesNet || 0, color: '#64748b', darkColor: '#94a3b8' }
-  ].filter(e => e.val > 0);
+  const expenseData = isStoreFiltered
+    ? [
+        { label: 'Preparación (Pick&Pack)', val: storeData?.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
+        { label: 'Flete Despacho', val: storeData?.shippingFreightNet || 0, color: '#6366f1', darkColor: '#818cf8' }
+      ].filter(e => e.val > 0)
+    : [
+        { label: 'Almacenamiento', val: t.storageNet || 0, color: '#5f06fa', darkColor: '#a855f7' },
+        { label: 'Preparación (Pick&Pack)', val: t.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
+        { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet || 0, color: '#6366f1', darkColor: '#818cf8' },
+        { label: 'Costo Fijo Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
+        { label: 'Punto de Venta (POS)', val: t.posFeeNet || 0, color: '#0ea5e9', darkColor: '#38bdf8' },
+        { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981', darkColor: '#34d399' },
+        { label: 'Insumos de Embalaje', val: t.suppliesNet || 0, color: '#64748b', darkColor: '#94a3b8' }
+      ].filter(e => e.val > 0);
 
   getCanvasAndInit('chart-expense-breakdown', {
     type: 'doughnut',
@@ -3496,7 +4353,8 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           callbacks: {
             label: function(context) {
               const val = context.raw || 0;
-              const pct = (t.totalNet || 0) > 0 ? ((val / t.totalNet) * 100).toFixed(1) : 0;
+              const totalRef = isStoreFiltered ? (storeData?.storeTotalNet || 0) : (t.totalNet || 0);
+              const pct = totalRef > 0 ? ((val / totalRef) * 100).toFixed(1) : 0;
               return ` ${context.label}: ${formatCLP(val)} (${pct}%)`;
             }
           }
@@ -3549,6 +4407,50 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     }
   });
 
+  // 5. Chart Conglomerado: Participación de Tiendas (si aplica)
+  if (b.isConglomerate && sBreakdown && sBreakdown.length > 0) {
+    const storeLabels = sBreakdown.map(s => s.storeName);
+    const storeOrders = sBreakdown.map(s => s.billableOrders);
+
+    getCanvasAndInit('chart-conglomerate-stores-donut', {
+      type: 'doughnut',
+      data: {
+        labels: storeLabels,
+        datasets: [{
+          data: storeOrders,
+          backgroundColor: corporatePalette.slice(0, storeLabels.length),
+          borderColor: chartBorderColor,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: {
+              boxWidth: 12,
+              color: chartTextColor,
+              font: { family: 'Outfit', size: 11, weight: '600' }
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const count = context.raw || 0;
+                const total = storeOrders.reduce((sum, v) => sum + v, 0);
+                const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                return ` ${context.label}: ${count} pedidos (${pct}%)`;
+              }
+            }
+          }
+        },
+        cutout: '55%'
+      }
+    });
+  }
+
   // Observer para re-renderizar los gráficos automáticamente al cambiar de tema (claro/oscuro)
   if (!container.__themeObserverAttached) {
     container.__themeObserverAttached = true;
@@ -3581,9 +4483,12 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     </div>
   `;
 
-  // Cargar lista de periodos y lista de comercios
+  // Cargar lista de periodos, lista de comercios y mapa de conglomerados
   let periods = [];
   let comercios = [];
+  let conglomeratesMap = {};
+  let childToConglomerateMap = {};
+  let canonicalDisplayList = [];
 
   try {
     const { data: pData } = await supabase.from('billing_periods').select('id, name, period_month, period_year, status').order('created_at', { ascending: false });
@@ -3591,20 +4496,44 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
 
     const { data: cData } = await supabase.from('v_comercios_config').select('nombre, sigla').order('nombre');
     comercios = cData || [];
+
+    const congData = await getConglomerateMappings();
+    conglomeratesMap = congData.conglomeratesMap || {};
+    childToConglomerateMap = congData.childToConglomerateMap || {};
+    canonicalDisplayList = congData.canonicalDisplayList || [];
   } catch (e) {
     console.error('Error cargando filtros iniciales:', e);
   }
 
   // Garantizar que initialCommerce esté en la lista si fue solicitado
-  if (initialCommerce && !comercios.some(c => String(c.nombre).toUpperCase() === String(initialCommerce).toUpperCase())) {
-    comercios.unshift({ nombre: initialCommerce, sigla: 'COM' });
+  if (initialCommerce) {
+    const upperInit = String(initialCommerce).toUpperCase();
+    if (!comercios.some(c => String(c.nombre).toUpperCase() === upperInit) && !conglomeratesMap[upperInit]) {
+      comercios.unshift({ nombre: initialCommerce, sigla: 'COM' });
+    }
   }
 
   const defaultPeriod = initialPeriodId 
-    ? (periods.find(p => p.id === initialPeriodId) || periods[0] || { id: initialPeriodId, name: 'AGOSTO 2026' })
-    : (periods[0] || { id: '', name: 'AGOSTO 2026' });
+    ? (periods.find(p => p.id === initialPeriodId) || periods.find(p => p.status === 'activo') || periods[0] || { id: initialPeriodId, name: 'SEPTIEMBRE 2026' })
+    : (periods.find(p => p.status === 'activo') || periods[0] || { id: '', name: 'SEPTIEMBRE 2026' });
 
-  const defaultCommerce = initialCommerce || (comercios[0]?.nombre || 'STREET GYM');
+  let defaultCommerce = initialCommerce;
+  if (!defaultCommerce) {
+    if (canonicalDisplayList.length > 0) defaultCommerce = canonicalDisplayList[0].name;
+    else if (conglomeratesMap['BIG BANG SPA']) defaultCommerce = 'BIG BANG SPA';
+    else defaultCommerce = comercios[0]?.nombre || 'STREET GYM';
+  }
+
+  const selUpper = String(defaultCommerce || '').trim().toUpperCase();
+  let hasSelectedCommerce = false;
+
+  // Filtrar comercios individuales para que no aparezcan nombres de holdings repetidos
+  const individualComerciosList = comercios.filter(c => {
+    const cUpper = String(c.nombre || '').trim().toUpperCase();
+    if (cUpper === 'BIG BANG' || cUpper === 'BIG BANG SPA' || cUpper.includes('BIG BANG') || cUpper.includes('HOLDING BIG BANG')) return false;
+    if (cUpper === 'SILVER FOX' || cUpper === 'SILVER FOX SPA' || cUpper.includes('SILVER FOX') || cUpper.includes('HOLDING SILVER FOX')) return false;
+    return true;
+  });
 
   container.innerHTML = `
     <div style="padding: 0.5rem 0;">
@@ -3615,12 +4544,34 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
               <i class="ri-store-2-line" style="color: #5f06fa;"></i> COMERCIO A FACTURAR:
             </label>
-            <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 230px; font-weight: 700; border-radius: 8px;">
-              ${comercios.length > 0 
-                ? comercios.map(c => `
-                    <option value="${escapeHtml(c.nombre)}" ${String(c.nombre).toUpperCase() === String(defaultCommerce).toUpperCase() ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>
-                  `).join('')
-                : `<option value="${escapeHtml(defaultCommerce)}" selected>${escapeHtml(defaultCommerce)}</option>`}
+            <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 250px; font-weight: 700; border-radius: 8px;">
+              ${canonicalDisplayList.length > 0 ? `
+                <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
+                  ${canonicalDisplayList.map(cg => {
+                    const children = cg.children || [];
+                    const cgUpper = String(cg.name).trim().toUpperCase();
+                    let isSel = false;
+                    if (!hasSelectedCommerce) {
+                      if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG SPA') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
+                        isSel = true;
+                        hasSelectedCommerce = true;
+                      }
+                    }
+                    return `<option value="${escapeHtml(cg.name)}" ${isSel ? 'selected' : ''}>🏢 ${escapeHtml(cg.name)} (Consolida: ${escapeHtml(children.join(', '))})</option>`;
+                  }).join('')}
+                </optgroup>
+              ` : ''}
+              <optgroup label="🏪 Tiendas / Comercios Individuales">
+                ${individualComerciosList.map(c => {
+                  const cUpper = String(c.nombre).trim().toUpperCase();
+                  let isSel = false;
+                  if (!hasSelectedCommerce && cUpper === selUpper) {
+                    isSel = true;
+                    hasSelectedCommerce = true;
+                  }
+                  return `<option value="${escapeHtml(c.nombre)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>`;
+                }).join('')}
+              </optgroup>
             </select>
           </div>
 
@@ -3662,6 +4613,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           </button>
         </div>
       </div>
+
+      <!-- Banner de Conglomerado Dinámico -->
+      <div id="bg-conglomerate-banner-container"></div>
 
       <!-- Resumen KPI en Vivo -->
       <div id="bg-kpis-container" class="bg-kpi-grid">
@@ -3755,6 +4709,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             </div>
           </div>
 
+          <!-- Banner Informativo de Tienda Seleccionada (Holding) -->
+          <div id="bg-store-active-filter-banner" style="display: none; margin-bottom: 0.85rem;"></div>
+
           <div class="bg-excel-table-container">
             <table class="bg-excel-table" id="bg-orders-excel-grid">
               <thead>
@@ -3803,6 +4760,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   <th style="padding: 3px 6px;">
                     <div style="display: flex; gap: 4px; align-items: center;">
                       <input type="text" id="bg-col-filter-order" class="bg-col-filter-input" placeholder="ID / Fecha..." oninput="window.applyBgColumnFilters()" style="flex: 1; min-width: 80px;">
+                      <select id="bg-col-filter-store" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 125px; text-overflow: ellipsis; font-weight: 700; color: #5f06fa; ${billingState.isConglomerate ? '' : 'display: none;'}" title="Filtrar por tienda del conglomerado">
+                        <option value="">Todas las Tiendas</option>
+                      </select>
                       <select id="bg-col-filter-agenda" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 125px; text-overflow: ellipsis;" title="Filtrar por agenda específica o estado">
                         <option value="">Todas las Agendas</option>
                         <option value="empty">⚠️ Sin Agenda</option>
@@ -3903,7 +4863,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   });
 
   document.getElementById('bg-btn-recalculate')?.addEventListener('click', () => {
-    executeCalculationFromUI();
+    executeCalculationFromUI({ forceFresh: true });
   });
 
   document.getElementById('bg-select-commerce')?.addEventListener('change', () => {
@@ -4010,6 +4970,9 @@ export async function executeCalculationFromUI(overrides = {}) {
     // Actualizar KPI Cards en pantalla
     renderKPIsUI();
 
+    // Actualizar Banner de Conglomerado
+    renderConglomerateBannerUI();
+
     // Actualizar Tabla Editable
     renderOrdersTableUI();
 
@@ -4070,6 +5033,220 @@ export async function executeCalculationFromUI(overrides = {}) {
 }
 window.executeCalculationFromUI = executeCalculationFromUI;
 
+// Renderizar Banner Dinámico de Conglomerados / Holdings
+export function renderConglomerateBannerUI() {
+  const container = document.getElementById('bg-conglomerate-banner-container');
+  if (!container) return;
+
+  const b = billingState;
+  if (!b) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // Caso 1: Se está facturando el conglomerado consolidado (ej: BIG BANG SPA)
+  if (b.isConglomerate && !b.selectedAsChildStore) {
+    const children = b.conglomerateChildren || [];
+    const breakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
+      ? b.storeBreakdown
+      : computeConglomerateStoreBreakdown(b.orders, b);
+    const activeStore = b.activeConglomerateStoreFilter;
+    const totalOrdersHolding = (b.orders || []).length;
+    const isAllSelected = !activeStore;
+
+    const storePills = children.map(childName => {
+      const storeData = breakdown.find(s => s.storeName.toUpperCase() === childName.toUpperCase());
+      const orderCount = storeData ? storeData.totalOrders : 0;
+      const netTotal = storeData ? storeData.storeTotalNet : 0;
+      const isSelected = activeStore && activeStore.toUpperCase() === childName.toUpperCase();
+
+      return `
+        <button type="button"
+                onclick="window.setConglomerateStoreView('${escapeHtml(childName)}')"
+                class="bg-conglom-store-tab ${isSelected ? 'active' : ''}"
+                style="font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; border: 1.5px solid ${isSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 6px; box-shadow: ${isSelected ? '0 3px 10px rgba(95,6,250,0.3)' : '0 1px 3px rgba(0,0,0,0.04)'}; cursor: pointer; transition: all 0.2s ease;">
+          <i class="ri-store-2-line" style="${isSelected ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
+          <span>${escapeHtml(childName)}</span>
+          <span style="background: ${isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 800;">
+            ${orderCount.toLocaleString('es-CL')} ped.
+          </span>
+          ${netTotal > 0 ? `
+            <span style="font-size: 0.68rem; opacity: ${isSelected ? '0.9' : '0.75'};">
+              (${formatCLP(netTotal)})
+            </span>
+          ` : ''}
+        </button>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="bg-conglomerate-banner" style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.05) 0%, rgba(124, 58, 237, 0.08) 100%); border: 1.5px solid rgba(95, 6, 250, 0.3); border-radius: 12px; padding: 0.9rem 1.25rem; margin-top: 0.85rem; margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.85rem;">
+            <div style="width: 42px; height: 42px; border-radius: 10px; background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0; box-shadow: 0 3px 8px rgba(95,6,250,0.3);">
+              <i class="ri-building-line"></i>
+            </div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.98rem; color: #5f06fa; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span>Conglomerado / Holding: ${escapeHtml(b.conglomerateName || b.currentCommerce)}</span>
+                <span class="badge" style="background: #5f06fa; color: white; font-size: 0.7rem; padding: 0.15rem 0.55rem; border-radius: 9999px;">${children.length} marcas vinculadas</span>
+                ${activeStore ? `
+                  <span class="badge" style="background: #10b981; color: white; font-size: 0.7rem; padding: 0.15rem 0.55rem; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;">
+                    <i class="ri-eye-line"></i> Filtrando: ${escapeHtml(activeStore)}
+                  </span>
+                ` : ''}
+              </div>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Cálculo unificado en memoria con <strong>${totalOrdersHolding.toLocaleString('es-CL')} pedidos</strong>. Selecciona una tienda para ver su tabla y analítica al instante sin re-consultar.
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap;">
+            <button type="button"
+                    onclick="window.setConglomerateStoreView(null)"
+                    class="bg-conglom-store-tab ${isAllSelected ? 'active' : ''}"
+                    style="font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; border: 1.5px solid ${isAllSelected ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isAllSelected ? '#5f06fa' : 'var(--color-surface)'}; color: ${isAllSelected ? '#ffffff' : 'var(--color-text-main)'}; display: inline-flex; align-items: center; gap: 6px; box-shadow: ${isAllSelected ? '0 3px 10px rgba(95,6,250,0.3)' : '0 1px 3px rgba(0,0,0,0.04)'}; cursor: pointer; transition: all 0.2s ease;">
+              <i class="ri-building-line" style="${isAllSelected ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
+              <span>🏢 Consolidado Holding</span>
+              <span style="background: ${isAllSelected ? 'rgba(255,255,255,0.25)' : 'rgba(95,6,250,0.1)'}; color: ${isAllSelected ? '#ffffff' : '#5f06fa'}; padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 800;">
+                ${totalOrdersHolding.toLocaleString('es-CL')}
+              </span>
+            </button>
+            ${storePills}
+          </div>
+        </div>
+      </div>
+    `;
+  } 
+  // Caso 2: El usuario seleccionó una tienda que pertenece a un conglomerado (ej: BACK IN TIME)
+  else if (b.selectedAsChildStore && b.conglomerateName) {
+    const parentName = b.conglomerateName;
+    const siblings = (b.conglomerateChildren || []).filter(c => c.toUpperCase() !== String(b.currentCommerce).toUpperCase());
+    container.innerHTML = `
+      <div style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 0.75rem 1.15rem; margin-top: 0.75rem; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; color: #b45309; font-size: 0.85rem;">
+          <i class="ri-information-line" style="font-size: 1.35rem; flex-shrink: 0; color: #d97706;"></i>
+          <div>
+            <strong>Atención:</strong> La tienda <strong>${escapeHtml(b.currentCommerce)}</strong> forma parte del conglomerado <strong>${escapeHtml(parentName)}</strong>${siblings.length > 0 ? ` (junto a ${escapeHtml(siblings.join(', '))})` : ''}.
+            <div style="font-size: 0.77rem; color: #92400e; margin-top: 0.1rem;">
+              En el Control de Facturación oficial, este cliente se factura consolidado como <strong>${escapeHtml(parentName)}</strong>.
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm" onclick="window.selectAndCalculateCommerce('${escapeHtml(parentName)}')" style="background: #5f06fa; color: white; border: none; font-weight: 700; font-size: 0.78rem; border-radius: 7px; padding: 0.35rem 0.85rem; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; box-shadow: 0 2px 6px rgba(95,6,250,0.25);">
+          <i class="ri-building-line"></i> Facturar Conglomerado Completo (${escapeHtml(parentName)})
+        </button>
+      </div>
+    `;
+  } else {
+    container.innerHTML = '';
+  }
+}
+window.renderConglomerateBannerUI = renderConglomerateBannerUI;
+
+// Función para alternar la visualización por tienda o consolidada dentro de un conglomerado
+export function setConglomerateStoreView(storeName = null) {
+  billingState.activeConglomerateStoreFilter = storeName ? storeName : null;
+
+  // 1. Re-renderizar banner para actualizar estilos visuales de las pastillas
+  renderConglomerateBannerUI();
+
+  // 2. Sincronizar selector de columna de tienda en la tabla editable
+  const storeSelect = document.getElementById('bg-col-filter-store');
+  if (storeSelect) {
+    storeSelect.value = storeName || '';
+  }
+  if (!window.bgFilterState) window.bgFilterState = {};
+  window.bgFilterState.store = (storeName || '').toLowerCase().trim();
+
+  // 3. Renderizar barra KPI informativa de la tienda activa sobre la tabla
+  updateActiveStoreFilterBannerUI();
+
+  // 4. Aplicar filtros a las filas de la tabla
+  if (typeof window.applyBgColumnFilters === 'function') {
+    window.applyBgColumnFilters();
+  }
+
+  // 5. Si la pestaña de Analítica está activa (o cuando se abra), re-renderizar los gráficos
+  const analyticsContent = document.getElementById('bg-content-analytics');
+  if (analyticsContent && analyticsContent.style.display !== 'none') {
+    renderBillingAnalyticsCharts();
+  }
+}
+window.setConglomerateStoreView = setConglomerateStoreView;
+
+// Renderizar o actualizar el mini-banner KPI de la tienda filtrada sobre la tabla editable
+export function updateActiveStoreFilterBannerUI() {
+  const banner = document.getElementById('bg-store-active-filter-banner');
+  if (!banner) return;
+
+  const activeStore = billingState.activeConglomerateStoreFilter;
+  if (!billingState.isConglomerate || !activeStore) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+    return;
+  }
+
+  const breakdown = (billingState.storeBreakdown && billingState.storeBreakdown.length > 0)
+    ? billingState.storeBreakdown
+    : computeConglomerateStoreBreakdown(billingState.orders, billingState);
+
+  const storeData = breakdown.find(s => s.storeName.toUpperCase() === activeStore.toUpperCase()) || {
+    storeName: activeStore,
+    totalOrders: 0,
+    billableOrders: 0,
+    pickPackNet: 0,
+    shippingFreightNet: 0,
+    storeTotalNet: 0,
+    sharePct: 0,
+    avgTicket: 0
+  };
+
+  banner.style.display = 'block';
+  banner.innerHTML = `
+    <div style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.08) 0%, rgba(124, 58, 237, 0.04) 100%); border: 1.5px solid rgba(95, 6, 250, 0.35); border-radius: 8px; padding: 0.65rem 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: 0 2px 6px rgba(95,6,250,0.06);">
+      <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+        <span style="background: #5f06fa; color: white; padding: 0.25rem 0.65rem; border-radius: 6px; font-weight: 800; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(95,6,250,0.25);">
+          <i class="ri-store-2-fill"></i> Tienda: ${escapeHtml(activeStore)}
+        </span>
+        <span style="font-size: 0.8rem; color: var(--color-text-main); font-weight: 600;">
+          Pedidos: <strong style="color: #5f06fa;">${storeData.totalOrders.toLocaleString('es-CL')}</strong> (${storeData.billableOrders.toLocaleString('es-CL')} facturables)
+        </span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.8rem; color: var(--color-text-main);">
+          Pick & Pack Neto: <strong>${formatCLP(storeData.pickPackNet)}</strong>
+        </span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.8rem; color: var(--color-text-main);">
+          Flete Despacho: <strong>${formatCLP(storeData.shippingFreightNet)}</strong>
+        </span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">•</span>
+        <span style="font-size: 0.82rem; color: #5f06fa; font-weight: 800;">
+          Subtotal Neto: ${formatCLP(storeData.storeTotalNet)}
+        </span>
+        <span style="font-size: 0.72rem; background: rgba(95, 6, 250, 0.12); color: #5f06fa; padding: 2px 7px; border-radius: 4px; font-weight: 700;">
+          ${storeData.sharePct}% del Holding
+        </span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline" onclick="window.setConglomerateStoreView(null)" style="font-size: 0.75rem; font-weight: 700; border-radius: 6px; border-color: rgba(95,6,250,0.4); color: #5f06fa; height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+        <i class="ri-close-line"></i> Quitar filtro de tienda
+      </button>
+    </div>
+  `;
+}
+window.updateActiveStoreFilterBannerUI = updateActiveStoreFilterBannerUI;
+
+window.selectAndCalculateCommerce = function(commerceName) {
+  const sel = document.getElementById('bg-select-commerce');
+  if (sel) {
+    sel.value = commerceName;
+    if (typeof executeCalculationFromUI === 'function') {
+      executeCalculationFromUI();
+    }
+  }
+};
+
 // Renderizar Tarjetas de KPI
 export function renderKPIsUI() {
   const container = document.getElementById('bg-kpis-container');
@@ -4117,6 +5294,16 @@ export function renderKPIsUI() {
       </div>
       <div class="bg-kpi-subtitle">${t.fixedFeeUF > 0 ? formatCLP(t.fixedFeeNet) : 'Metas de actividad alcanzadas'}</div>
     </div>
+
+    ${(t.posActive || t.posFeeUF > 0) ? `
+    <div class="bg-kpi-card" style="border-left: 4px solid #0ea5e9;">
+      <div class="bg-kpi-title"><i class="ri-store-3-line" style="color: #0ea5e9;"></i> PUNTO DE VENTA (POS)</div>
+      <div class="bg-kpi-value" style="color: #0ea5e9;">
+        ${t.posFeeUF > 0 ? `${formatDec(t.posFeeUF, 1)} UF` : 'EXENTO'}
+      </div>
+      <div class="bg-kpi-subtitle">${t.posFeeUF > 0 ? formatCLP(t.posFeeNet) : '$0'} · ${t.posIsStocka ? 'Equipo STOCKA' : 'Equipo Propio'}</div>
+    </div>
+    ` : ''}
   `;
 }
 window.renderKPIsUI = renderKPIsUI;
@@ -4176,6 +5363,7 @@ export function renderOrdersTableUI() {
     `;
     updateQuickPillCounts([]);
     updateAgendaFilterOptions([]);
+    updateStoreFilterOptions([]);
     updateDeliveryFilterOptions();
     const countBadge = document.getElementById('bg-filter-count-badge');
     if (countBadge) countBadge.textContent = 'Mostrando 0 de 0 pedidos';
@@ -4216,6 +5404,7 @@ export function renderOrdersTableUI() {
     return `
       <tr ${rowClass} id="bg-row-${o.id}" data-id="${o.id}"
           data-order="${escapeHtml((o.orderNumber || '').toLowerCase())}"
+          data-comercio="${escapeHtml((o.comercio || '').toLowerCase())}"
           data-date="${escapeHtml((o.date || '').toLowerCase())}"
           data-agenda="${escapeHtml(agendaText.toLowerCase())}"
           data-has-agenda="${hasAgenda ? '1' : '0'}"
@@ -4236,6 +5425,11 @@ export function renderOrdersTableUI() {
         <td>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
             <strong style="color: var(--color-text-main); font-size: 0.85rem;">${escapeHtml(o.orderNumber)}</strong>
+            ${billingState.isConglomerate && o.comercio ? `
+              <span class="bg-order-child-store-badge" title="Tienda del conglomerado: ${escapeHtml(o.comercio)}">
+                <i class="ri-store-2-line"></i> ${escapeHtml(o.comercio)}
+              </span>
+            ` : ''}
             ${agendaBadge}
             ${wmsStatusBadge}
           </div>
@@ -4303,6 +5497,7 @@ export function renderOrdersTableUI() {
   // 3. Actualizar conteos de filtros rápidos y opciones dinámicas de agendas y tipos de entrega
   updateQuickPillCounts(orders);
   updateAgendaFilterOptions(orders);
+  updateStoreFilterOptions(orders);
   updateDeliveryFilterOptions(orders);
 
   // 4. Restaurar valores en los inputs de filtros si estaban activos
@@ -4314,6 +5509,7 @@ export function renderOrdersTableUI() {
     setVal('bg-filter-order-input', window.bgFilterState.global);
     setVal('bg-col-filter-inc', window.bgFilterState.inc);
     setVal('bg-col-filter-order', window.bgFilterState.order);
+    setVal('bg-col-filter-store', window.bgFilterState.store);
     setVal('bg-col-filter-agenda', window.bgFilterState.agenda);
     setVal('bg-col-filter-dest', window.bgFilterState.dest);
     setVal('bg-col-filter-ticket-min', window.bgFilterState.ticketMin);
@@ -4323,6 +5519,9 @@ export function renderOrdersTableUI() {
     setVal('bg-col-filter-units', window.bgFilterState.units);
     setVal('bg-col-filter-mkt', window.bgFilterState.mkt);
   }
+
+  // 4b. Actualizar banner de tienda activa del holding si aplica
+  updateActiveStoreFilterBannerUI();
 
   // 5. Reaplicar filtros activos
   window.applyBgColumnFilters();
@@ -4765,7 +5964,8 @@ function recalculateFromCurrentState() {
   const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
 
   const inboundNet = b.totals.inboundNet || 0;
-  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
+  const posFeeCLP = (b.totals.posFeeNet !== undefined) ? b.totals.posFeeNet : (b.totals.posActive ? Math.round((b.totals.posFeeUF || 0.2) * b.ufValue) : 0);
+  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
 
@@ -4781,11 +5981,18 @@ function recalculateFromCurrentState() {
     fixedFeeUF,
     fixedFeeNet: fixedFeeCLP,
     fixedFeeReason,
+    posFeeNet: posFeeCLP,
     totalNet,
     iva: totalIVA,
     totalGross,
     totalToPay: totalGross
   };
+
+  if (b.isConglomerate) {
+    b.storeBreakdown = computeConglomerateStoreBreakdown(b.orders, b);
+    renderConglomerateBannerUI();
+    updateActiveStoreFilterBannerUI();
+  }
 
   renderKPIsUI();
   renderOrdersTableUI();
@@ -5164,7 +6371,8 @@ window.openEditFixedFeeModal = async function() {
     const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
     const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
     const inboundNet = b.totals.inboundNet || 0;
-    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet);
+    const posFeeNet = b.totals.posFeeNet || 0;
+    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + posFeeNet + totalSuppliesNet + totalAdjustmentsNet);
     const totalIVA = Math.round(totalNet * 0.19);
     const totalGross = totalNet + totalIVA;
 
@@ -5184,6 +6392,134 @@ window.openEditFixedFeeModal = async function() {
       position: 'top-end',
       icon: 'success',
       title: 'Costo fijo actualizado',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
+
+// Modal interactivo para editar o eximir Cobro Punto de Venta (POS)
+window.openEditPosFeeModal = async function() {
+  const b = billingState;
+  const t = b.totals;
+  const machine = t.posMachine || {};
+  const isStocka = t.posIsStocka;
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-store-3-line" style="color: #0ea5e9;"></i><span>Cobro Punto de Venta (POS)</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem;">Información del Equipo en Sucursal:</div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem;">
+            <span style="font-size: 0.8rem; font-weight: 600; color: #0f172a;">Propiedad:</span>
+            <span class="badge" style="background: ${isStocka ? '#ede9fe' : '#e0f2fe'}; color: ${isStocka ? '#6d28d9' : '#0284c7'}; font-weight: 700; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem;">
+              ${isStocka ? 'Equipo provisto por STOCKA' : 'Equipo Propio del Comercio'}
+            </span>
+          </div>
+          <div style="font-size: 0.775rem; color: #64748b; line-height: 1.4;">
+            ${machine.brand ? `<div><strong>Marca:</strong> ${escapeHtml(machine.brand)}</div>` : ''}
+            ${machine.model ? `<div><strong>N° Máquina/Terminal:</strong> #${escapeHtml(machine.model)}</div>` : ''}
+            ${machine.color ? `<div><strong>Color/Distintivo:</strong> ${escapeHtml(machine.color)}</div>` : ''}
+            ${machine.notes ? `<div><strong>Instrucciones Cajero:</strong> ${escapeHtml(machine.notes)}</div>` : ''}
+          </div>
+        </div>
+
+        <p style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 0.75rem;">
+          La tarifa oficial de servicio POS es de <strong>0,2 UF mensual</strong> (${formatCLP(0.2 * b.ufValue)}). Puedes modificar la condición o ingresar un monto personalizado.
+        </p>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONDICIÓN / TARIFA:</label>
+        <select id="swal-posfee-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.75rem 0; font-size: 0.85rem;">
+          <option value="0.2" ${t.posFeeUF === 0.2 ? 'selected' : ''}>0.2 UF mensual (${formatCLP(0.2 * b.ufValue)}) - Tarifa Oficial</option>
+          <option value="exento" ${t.posFeeUF === 0 ? 'selected' : ''}>Exento ($0) / Bonificado</option>
+          <option value="custom" ${t.posFeeUF > 0 && t.posFeeUF !== 0.2 ? 'selected' : ''}>Monto Personalizado ($ CLP)</option>
+        </select>
+
+        <div id="swal-posfee-custom-container" style="display: ${t.posFeeUF > 0 && t.posFeeUF !== 0.2 ? 'block' : 'none'}; margin-bottom: 0.75rem;">
+          <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO NETO ($ CLP):</label>
+          <input type="number" id="swal-posfee-custom-amount" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${t.posFeeNet || 0}">
+        </div>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">DETALLE O NOTA EN LA FACTURA:</label>
+        <input type="text" id="swal-posfee-reason" class="swal2-input" style="width: 100%; height: 38px; margin: 0; font-size: 0.85rem;" value="${escapeHtml(t.posFeeDetails || '')}">
+      </div>
+    `,
+    didOpen: () => {
+      const modeSelect = document.getElementById('swal-posfee-mode');
+      const customContainer = document.getElementById('swal-posfee-custom-container');
+      const reasonInput = document.getElementById('swal-posfee-reason');
+
+      modeSelect?.addEventListener('change', () => {
+        if (modeSelect.value === 'custom') {
+          customContainer.style.display = 'block';
+        } else {
+          customContainer.style.display = 'none';
+        }
+
+        if (modeSelect.value === 'exento') {
+          reasonInput.value = 'Exento ($0) por acuerdo comercial en Punto de Venta';
+        } else if (modeSelect.value === '0.2') {
+          const ownerLabel = isStocka ? 'Equipo provisto por STOCKA' : 'Equipo propio del comercio';
+          reasonInput.value = `Cobro mensual POS (0,2 UF) @ ${formatCLP(b.ufValue)}/UF. ${ownerLabel}`;
+        }
+      });
+    },
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#0ea5e9',
+    preConfirm: () => {
+      const mode = document.getElementById('swal-posfee-mode')?.value;
+      const customAmount = parseInt(document.getElementById('swal-posfee-custom-amount')?.value, 10) || 0;
+      const reason = document.getElementById('swal-posfee-reason')?.value?.trim() || '';
+
+      let clp = 0;
+      let uf = 0;
+      if (mode === 'exento') {
+        clp = 0;
+        uf = 0;
+      } else if (mode === '0.2') {
+        uf = 0.2;
+        clp = Math.round(0.2 * b.ufValue);
+      } else {
+        clp = customAmount;
+        uf = b.ufValue > 0 ? parseFloat((customAmount / b.ufValue).toFixed(2)) : 0;
+      }
+
+      return { clp, uf, reason };
+    }
+  });
+
+  if (formValues) {
+    b.totals.posFeeNet = formValues.clp;
+    b.totals.posFeeUF = formValues.uf;
+    b.totals.posFeeDetails = formValues.reason;
+
+    const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
+    const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+    const inboundNet = b.totals.inboundNet || 0;
+    const fixedFeeNet = b.totals.fixedFeeNet || 0;
+    const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet);
+    const totalIVA = Math.round(totalNet * 0.19);
+    const totalGross = totalNet + totalIVA;
+
+    b.totals.totalNet = totalNet;
+    b.totals.iva = totalIVA;
+    b.totals.totalGross = totalGross;
+    b.totals.totalToPay = totalGross;
+
+    b.isSaved = false;
+    renderKPIsUI();
+
+    const desgloseCont = document.getElementById('bg-desglose-view-container');
+    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Cobro de Punto de Venta actualizado',
       showConfirmButton: false,
       timer: 2500
     });
@@ -5812,6 +7148,52 @@ function updateQuickPillCounts(orders) {
   setElText('qf-count-mkt', mkt);
 }
 
+// Actualizar dinámicamente las opciones del selector de Tiendas del Conglomerado
+function updateStoreFilterOptions(orders = null) {
+  const select = document.getElementById('bg-col-filter-store');
+  if (!select) return;
+
+  if (!billingState.isConglomerate) {
+    select.style.display = 'none';
+    select.innerHTML = '<option value="">Todas las Tiendas</option>';
+    return;
+  }
+
+  select.style.display = '';
+  const currentVal = select.value || (window.bgFilterState?.store || '');
+  const ordersList = orders || billingState.orders || [];
+  const storeMap = {};
+
+  ordersList.forEach(o => {
+    const rawStore = String(o.comercio || '').trim();
+    if (rawStore) {
+      storeMap[rawStore] = (storeMap[rawStore] || 0) + 1;
+    }
+  });
+
+  // Asegurar que también aparezcan todas las tiendas hijas del conglomerado
+  (billingState.conglomerateChildren || []).forEach(child => {
+    if (storeMap[child] === undefined) {
+      storeMap[child] = 0;
+    }
+  });
+
+  const sortedStores = Object.keys(storeMap).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  let optionsHTML = '<option value="">🏢 Todas las Tiendas</option>';
+  sortedStores.forEach(st => {
+    const isSel = currentVal.toLowerCase() === st.toLowerCase();
+    const count = storeMap[st] || 0;
+    optionsHTML += `<option value="${escapeHtml(st)}" ${isSel ? 'selected' : ''}>🏪 ${escapeHtml(st)} (${count})</option>`;
+  });
+
+  select.innerHTML = optionsHTML;
+  if (currentVal) {
+    const matchOpt = Array.from(select.options).find(o => o.value.toLowerCase() === currentVal.toLowerCase());
+    if (matchOpt) select.value = matchOpt.value;
+  }
+}
+
 // Actualizar dinámicamente las opciones del selector de Agendas (ej: CENTRO DE ENVIOS, FLEX, RM, STK, etc.)
 function updateAgendaFilterOptions(orders) {
   const select = document.getElementById('bg-col-filter-agenda');
@@ -5892,6 +7274,7 @@ window.applyBgColumnFilters = function() {
   const globalInput = document.getElementById('bg-filter-order-input');
   const incSelect = document.getElementById('bg-col-filter-inc');
   const orderInput = document.getElementById('bg-col-filter-order');
+  const storeSelect = document.getElementById('bg-col-filter-store');
   const agendaSelect = document.getElementById('bg-col-filter-agenda');
   const destInput = document.getElementById('bg-col-filter-dest');
   const ticketMinInput = document.getElementById('bg-col-filter-ticket-min');
@@ -5904,7 +7287,22 @@ window.applyBgColumnFilters = function() {
   const globalQuery = (globalInput ? globalInput.value : (window.bgFilterState?.global || '')).toLowerCase().trim();
   const incFilter = incSelect ? incSelect.value : (window.bgFilterState?.inc || '');
   const orderQuery = (orderInput ? orderInput.value : (window.bgFilterState?.order || '')).toLowerCase().trim();
+  const storeFilter = (storeSelect ? storeSelect.value : (window.bgFilterState?.store || '')).toLowerCase().trim();
   const agendaFilter = agendaSelect ? agendaSelect.value : (window.bgFilterState?.agenda || '');
+
+  // Sincronizar estado de tienda seleccionada si cambió desde el dropdown
+  if (billingState.isConglomerate && storeSelect) {
+    const rawVal = storeSelect.value ? storeSelect.value.trim() : null;
+    if (billingState.activeConglomerateStoreFilter !== rawVal) {
+      billingState.activeConglomerateStoreFilter = rawVal;
+      renderConglomerateBannerUI();
+      updateActiveStoreFilterBannerUI();
+      const analyticsContent = document.getElementById('bg-content-analytics');
+      if (analyticsContent && analyticsContent.style.display !== 'none') {
+        renderBillingAnalyticsCharts();
+      }
+    }
+  }
   const destQuery = (destInput ? destInput.value : (window.bgFilterState?.dest || '')).toLowerCase().trim();
   const ticketMinVal = ticketMinInput ? ticketMinInput.value : (window.bgFilterState?.ticketMin || '');
   const ticketMaxVal = ticketMaxInput ? ticketMaxInput.value : (window.bgFilterState?.ticketMax || '');
@@ -5922,6 +7320,7 @@ window.applyBgColumnFilters = function() {
     global: globalQuery,
     inc: incFilter,
     order: orderQuery,
+    store: storeFilter,
     agenda: agendaFilter,
     dest: destQuery,
     ticketMin: ticketMinVal,
@@ -5951,6 +7350,12 @@ window.applyBgColumnFilters = function() {
                          (r.getAttribute('data-wms') || '') + ' ' +
                          (r.getAttribute('data-date') || '')).toLowerCase();
       if (!orderText.includes(orderQuery)) match = false;
+    }
+
+    // 2b. Tienda del Conglomerado
+    if (match && storeFilter) {
+      const rowStore = (r.getAttribute('data-comercio') || '').toLowerCase().trim();
+      if (!rowStore.includes(storeFilter) && !storeFilter.includes(rowStore)) match = false;
     }
 
     // 3. Estado o Nombre de Agenda (ej: 'empty', 'with', 'CENTRO DE ENVIOS', 'FLEX', 'RM', 'STK')
@@ -6024,7 +7429,11 @@ window.applyBgColumnFilters = function() {
   // Actualizar contador y botón de limpiar
   const countBadge = document.getElementById('bg-filter-count-badge');
   if (countBadge) {
-    countBadge.textContent = `Mostrando ${visibleCount} de ${totalCount} pedidos`;
+    if (billingState.isConglomerate && billingState.activeConglomerateStoreFilter) {
+      countBadge.innerHTML = `Mostrando <strong>${visibleCount}</strong> de <strong>${totalCount}</strong> pedidos <span style="background: rgba(95,6,250,0.12); color: #5f06fa; padding: 2px 7px; border-radius: 4px; font-weight: 800; font-size: 0.72rem; margin-left: 4px;"><i class="ri-store-2-line"></i> ${escapeHtml(billingState.activeConglomerateStoreFilter)}</span>`;
+    } else {
+      countBadge.textContent = `Mostrando ${visibleCount} de ${totalCount} pedidos`;
+    }
   }
 
   // Actualizar checkbox maestro de inclusión según el estado de las filas visibles
@@ -6045,7 +7454,7 @@ window.applyBgColumnFilters = function() {
     }
   }
 
-  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || agendaFilter || destQuery || !isNaN(ticketMin) || !isNaN(ticketMax) || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
+  const isAnyFilterActive = !!(globalQuery || incFilter || orderQuery || storeFilter || agendaFilter || destQuery || !isNaN(ticketMin) || !isNaN(ticketMax) || deliveryFilter || !isNaN(skusMin) || !isNaN(unitsMin) || mktFilter);
   const clearBtn = document.getElementById('bg-btn-clear-all-filters');
   if (clearBtn) {
     clearBtn.style.display = isAnyFilterActive ? 'inline-flex' : 'none';
@@ -6058,6 +7467,7 @@ window.clearBgTableFilters = function(resetQuickButtons = true) {
     'bg-filter-order-input',
     'bg-col-filter-inc',
     'bg-col-filter-order',
+    'bg-col-filter-store',
     'bg-col-filter-agenda',
     'bg-col-filter-dest',
     'bg-col-filter-ticket-min',
@@ -6076,6 +7486,19 @@ window.clearBgTableFilters = function(resetQuickButtons = true) {
     document.querySelectorAll('.bg-quick-filter-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById('qf-all')?.classList.add('active');
     window.bgFilterState = { quickFilter: 'all' };
+    if (billingState.isConglomerate) {
+      billingState.activeConglomerateStoreFilter = null;
+      renderConglomerateBannerUI();
+      updateActiveStoreFilterBannerUI();
+    }
+  } else {
+    // Si se activa un filtro rápido y hay una tienda seleccionada en el holding, preservar su selección
+    if (billingState.isConglomerate && billingState.activeConglomerateStoreFilter) {
+      const storeSelect = document.getElementById('bg-col-filter-store');
+      if (storeSelect) storeSelect.value = billingState.activeConglomerateStoreFilter;
+      if (!window.bgFilterState) window.bgFilterState = {};
+      window.bgFilterState.store = billingState.activeConglomerateStoreFilter.toLowerCase().trim();
+    }
   }
 
   window.applyBgColumnFilters();
@@ -7482,9 +8905,10 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
     const shippingNet = snapshot.totals.shippingRmFlexNet || 0;
     const inboundNet = snapshot.totals.inboundNet || 0;
     const fixedFeeNet = snapshot.totals.fixedFeeNet || 0;
+    const posFeeNet = snapshot.totals.posFeeNet || 0;
     const suppliesNet = Array.isArray(snapshot.supplies) ? snapshot.supplies.reduce((acc, s) => acc + (s.total || 0), 0) : 0;
     const adjustmentsNet = Array.isArray(snapshot.adjustments) ? snapshot.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0) : 0;
-    snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + suppliesNet + adjustmentsNet);
+    snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + posFeeNet + suppliesNet + adjustmentsNet);
     snapshot.totals.iva = Math.round(snapshot.totals.totalNet * 0.19);
     snapshot.totals.totalGross = snapshot.totals.totalNet + snapshot.totals.iva;
     snapshot.totals.totalToPay = snapshot.totals.totalGross;
@@ -7564,6 +8988,11 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
   // Garantizar que recargos Marketplace y totales sean consistentes
   sanitizeSnapshotOrdersMarketplace(snapshot);
 
+  // Asegurar desglose por tienda en snapshots si es conglomerado
+  if (snapshot.isConglomerate && (!snapshot.storeBreakdown || snapshot.storeBreakdown.length === 0)) {
+    snapshot.storeBreakdown = computeConglomerateStoreBreakdown(snapshot.orders, snapshot);
+  }
+
   // Enriquecer y sincronizar datos legales del cliente (RUT, Razón Social, Sigla)
   const commName = snapshot.comercio || rec.comercio;
   if (!snapshot.commerceInfo) snapshot.commerceInfo = {};
@@ -7605,10 +9034,18 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
     if (needsOrderEnrichment) {
       try {
         const orderIds = snapshot.orders.map(o => o.id);
-        const { data: dbOrders } = await supabase
-          .from('orders')
-          .select('id, external_order_number, external_platform, raw_shopify_data, raw_woocommerce_data, raw_meli_data')
-          .in('id', orderIds);
+        const BATCH_SIZE = 500;
+        let dbOrders = [];
+        for (let i = 0; i < orderIds.length; i += BATCH_SIZE) {
+          const chunk = orderIds.slice(i, i + BATCH_SIZE);
+          const { data: chunkData, error: chunkErr } = await supabase
+            .from('orders')
+            .select('id, external_order_number, external_platform, raw_shopify_data, raw_woocommerce_data, raw_meli_data')
+            .in('id', chunk);
+          if (!chunkErr && chunkData) {
+            dbOrders = dbOrders.concat(chunkData);
+          }
+        }
         if (dbOrders && dbOrders.length > 0) {
           const oMap = {};
           dbOrders.forEach(dbo => { oMap[dbo.id] = dbo; });
@@ -7766,7 +9203,14 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     <tr class="client-modal-order-row">
                       <td class="cm-cell-num">${idx + 1}</td>
                       <td class="cm-cell-id">
-                        <div style="font-weight: 800; font-size: 0.85rem; color: #a855f7;">${escapeHtml(refDisplay)}</div>
+                        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                          <span style="font-weight: 800; font-size: 0.85rem; color: #a855f7;">${escapeHtml(refDisplay)}</span>
+                          ${snapshot.isConglomerate && o.comercio ? `
+                            <span class="bg-order-child-store-badge" title="Tienda: ${escapeHtml(o.comercio)}">
+                              <i class="ri-store-2-line"></i> ${escapeHtml(o.comercio)}
+                            </span>
+                          ` : ''}
+                        </div>
                         <div style="font-size: 0.68rem; color: var(--color-text-muted); font-family: monospace; font-weight: 500;" title="ID WMS: ${escapeHtml(o.id || '')}">
                           ${escapeHtml((o.id || '').slice(0, 13))}...
                         </div>

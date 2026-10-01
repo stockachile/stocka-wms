@@ -237,7 +237,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const isCancelledInShopify = !!order.cancelled_at;
 
   // Preparamos los datos del pedido principal
-  const orderData = {
+  const orderData: Record<string, any> = {
     merchant_id: merchantId,
     comercio: comercio,
     external_order_number: finalOrderNumber,
@@ -260,12 +260,44 @@ async function handleOrderCreate(merchantId, comercio, order) {
     stock_descontado: false
   };
 
+  // Detección y categorización de pedidos POS (Punto de Venta / Shop Point)
+  const rawTags = String(order.tags || "").toLowerCase();
+  const rawShipMethod = String(order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : "").toLowerCase();
+  const rawSourceName = String(order.source_name || "").toLowerCase();
+  const rawName = String(order.name || "").toUpperCase();
+
+  const isPos = rawSourceName === "pos" ||
+                Boolean(order.device_id) ||
+                Boolean(order.location_id && rawSourceName === "pos") ||
+                rawTags.includes("pos-sale") ||
+                rawTags.includes("punto de venta") ||
+                rawTags.includes("shop-point") ||
+                rawShipMethod.includes("punto de venta") ||
+                rawShipMethod.includes("compra en bodega") ||
+                rawShipMethod.includes("venta presencial") ||
+                rawName.startsWith("POS-") ||
+                rawName.startsWith("VTA-");
+
+  if (isPos) {
+    orderData.categoria_entrega = "SHOP POINT (POS)";
+    orderData.origen = "Punto de Venta";
+    orderData.external_platform = "Punto de Venta";
+    orderData.agenda = "COMPRA EN BODEGA";
+    orderData.operador = "SUCURSAL ÑUÑOA";
+    orderData.courier = "STOCKA";
+    orderData.sucursal_pickeo = "Sucursal Ñuñoa";
+    if (isFulfilledInShopify && !isCancelledInShopify) {
+      orderData.status = "despachado";
+      orderData.estado_wms = "Despachado";
+    }
+  }
+
   // Verificamos que no exista
   const { data: existing } = await supabase
     .from("orders")
     .select("id")
     .eq("comercio", comercio)
-    .eq("external_platform", "Shopify")
+    .in("external_platform", ["Shopify", "Punto de Venta"])
     .in("external_order_number", [order.name, finalOrderNumber])
     .maybeSingle();
 
@@ -410,10 +442,10 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement")
+    .select("id, status, estado_wms, raw_shopify_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, categoria_entrega, origen, external_platform, agenda, operador, courier")
     .eq("comercio", comercio)
-    .eq("external_platform", "Shopify")
-    .eq("external_order_number", finalOrderNumber)
+    .in("external_platform", ["Shopify", "Punto de Venta"])
+    .in("external_order_number", [order.name, finalOrderNumber])
     .maybeSingle();
 
   if (findErr || !existingOrder) {
@@ -438,6 +470,33 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       ...(existingRaw.wms_manual_edits ? { wms_manual_edits: existingRaw.wms_manual_edits } : {})
     }
   };
+
+  // Si el pedido es detectado como POS y no tiene categoría asignada en WMS
+  const rawTags = String(order.tags || "").toLowerCase();
+  const rawShipMethod = String(order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : "").toLowerCase();
+  const rawSourceName = String(order.source_name || "").toLowerCase();
+  const rawName = String(order.name || "").toUpperCase();
+
+  const isPos = rawSourceName === "pos" ||
+                Boolean(order.device_id) ||
+                Boolean(order.location_id && rawSourceName === "pos") ||
+                rawTags.includes("pos-sale") ||
+                rawTags.includes("punto de venta") ||
+                rawTags.includes("shop-point") ||
+                rawShipMethod.includes("punto de venta") ||
+                rawShipMethod.includes("compra en bodega") ||
+                rawShipMethod.includes("venta presencial") ||
+                rawName.startsWith("POS-") ||
+                rawName.startsWith("VTA-");
+
+  if (isPos && !(existingOrder as any).categoria_entrega) {
+    updatedData.categoria_entrega = "SHOP POINT (POS)";
+    if (!(existingOrder as any).origen) updatedData.origen = "Punto de Venta";
+    if (!(existingOrder as any).external_platform) updatedData.external_platform = "Punto de Venta";
+    if (!(existingOrder as any).agenda) updatedData.agenda = "COMPRA EN BODEGA";
+    if (!(existingOrder as any).operador) updatedData.operador = "SUCURSAL ÑUÑOA";
+    if (!(existingOrder as any).courier) updatedData.courier = "STOCKA";
+  }
 
   if (!isWmsItemsEdited) {
     updatedData.total_value = order.current_total_price;

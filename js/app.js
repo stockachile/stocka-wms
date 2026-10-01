@@ -556,6 +556,22 @@ window.getOrderPaymentBadgeHtml = function(order) {
   return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
 };
 
+// Helper para badge amigable de categoría de entrega (Distribución, Retiro, Shop Point, Logística Inversa)
+window.getOrderCategoriaBadgeHtml = function(order) {
+  if (!order) return '-';
+  const cat = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
+  if (cat === 'SHOP POINT (POS)' || cat === 'SHOP POINT' || cat === 'POS') {
+    return `<span style="background: rgba(109, 40, 217, 0.12); color: #6d28d9; border: 1px solid rgba(109, 40, 217, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Shop Point (POS)</span>`;
+  }
+  if (cat === 'LOGÍSTICA INVERSA' || cat === 'LOGISTICA INVERSA') {
+    return `<span style="background: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-right-line"></i> Logística Inversa</span>`;
+  }
+  if (cat === 'RETIRO') {
+    return `<span style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line"></i> Retiro</span>`;
+  }
+  return `<span style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.2); padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-truck-line"></i> Distribución</span>`;
+};
+
 // Helper para verificar si un ítem de un pedido está eliminado/anulado/cancelado (ej. devuelto o reembolsado en Shopify)
 window.isOrderItemEliminated = function(order, item) {
   if (!order || !item) return false;
@@ -8697,9 +8713,13 @@ window.getClientOrderTags = function(order) {
   }
   const tags = new Set();
 
-  // 1. Categoría de Entrega (Distribución vs Retiro)
+  // 1. Categoría de Entrega (Distribución vs Retiro vs Shop Point vs Logística Inversa)
   const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
-  if (catDelivery === 'RETIRO') {
+  if (catDelivery === 'SHOP POINT (POS)' || catDelivery === 'SHOP POINT' || catDelivery === 'POS') {
+    tags.add('SHOP POINT (POS)');
+  } else if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
+    tags.add('LOGÍSTICA INVERSA');
+  } else if (catDelivery === 'RETIRO') {
     tags.add('RETIRO');
   } else {
     tags.add('DISTRIBUCIÓN');
@@ -8854,7 +8874,9 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
   // 2. Categoría de Entrega
   const deliveryTags = [
     { key: 'DISTRIBUCIÓN', label: 'Distribución' },
-    { key: 'RETIRO', label: 'Retiro en Tienda' }
+    { key: 'RETIRO', label: 'Retiro en Tienda' },
+    { key: 'SHOP POINT (POS)', label: 'Shop Point (POS)' },
+    { key: 'LOGÍSTICA INVERSA', label: 'Logística Inversa' }
   ];
 
   // 3. Despacho Courier
@@ -10256,12 +10278,16 @@ window.applyClientWmsFiltersAndRender = function() {
       `;
     }
 
-// 0. Tag de Categoría de Entrega (Distribución vs Retiro)
+// 0. Tag de Categoría de Entrega (Distribución vs Retiro vs Shop Point vs Logística Inversa)
     const catDelivery = String(order.categoria_entrega || 'DISTRIBUCIÓN').toUpperCase().trim();
     let categoryBadgeHtml = '';
     const catFilterTag = (catDelivery === 'DISTRIBUCION' ? 'DISTRIBUCIÓN' : catDelivery);
     const isCatActive = selectedTag === catFilterTag;
-    if (catDelivery === 'RETIRO') {
+    if (catDelivery === 'SHOP POINT (POS)' || catDelivery === 'SHOP POINT' || catDelivery === 'POS') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: rgba(109, 40, 217, 0.12); color: #6d28d9; border: 1px solid rgba(109, 40, 217, 0.25); font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #6d28d9; box-shadow: 0 0 6px rgba(109,40,217,0.4);' : ''}" title="Categoría de Entrega: Shop Point (POS) (Clic para filtrar)"><i class="ri-shopping-cart-2-line" style="color: #6d28d9;"></i> SHOP POINT (POS)</span>`;
+    } else if (catDelivery === 'LOGÍSTICA INVERSA' || catDelivery === 'LOGISTICA INVERSA') {
+      categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: rgba(126, 34, 206, 0.12); color: #7e22ce; border: 1px solid rgba(126, 34, 206, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #7e22ce; box-shadow: 0 0 6px rgba(126,34,206,0.4);' : ''}" title="Categoría de Entrega: Logística Inversa (Clic para filtrar)"><i class="ri-arrow-left-right-line" style="color: #7e22ce;"></i> LOGÍSTICA INVERSA</span>`;
+    } else if (catDelivery === 'RETIRO') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #ffd600; color: #000000; border: 1px solid #eab308; font-size: 0.65rem; font-weight: 800; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #000; box-shadow: 0 0 6px rgba(0,0,0,0.4);' : ''}" title="Categoría de Entrega: Retiro (Clic para filtrar)"><i class="ri-store-2-line" style="color: #000000;"></i> RETIRO</span>`;
     } else if (catDelivery === 'DISTRIBUCIÓN' || catDelivery === 'DISTRIBUCION') {
       categoryBadgeHtml = `<span id="cat-badge-${order.id}" class="badge wms-order-tag-badge ${isCatActive ? 'wms-tag-active' : ''}" onclick="window.filterByClientOrderTag('${catFilterTag}', event)" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px; cursor: pointer; ${isCatActive ? 'outline: 2px solid #0369a1; box-shadow: 0 0 6px rgba(3,105,161,0.4);' : ''}" title="Categoría de Entrega: Distribución (Clic para filtrar)"><i class="ri-truck-line" style="color: #0369a1;"></i> DISTRIBUCIÓN</span>`;
@@ -10757,7 +10783,7 @@ window.applyClientWmsFiltersAndRender = function() {
                 </div>
                 <div>
                   <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Categoría</span>
-                  <span style="font-size: 0.825rem; font-weight: 600; color: var(--color-text-main);">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span>
+                  <div style="margin-top: 0.1rem;">${window.getOrderCategoriaBadgeHtml ? window.getOrderCategoriaBadgeHtml(order) : (order.categoria_entrega || 'DISTRIBUCIÓN')}</div>
                 </div>
                 <div>
                   <span style="display: block; font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Pago</span>
@@ -14246,11 +14272,11 @@ async function renderIntegrations() {
         if (typeof window.fetchAllSupabaseRows === 'function') {
           products = await window.fetchAllSupabaseRows(
             'products',
-            'id, name, sku, price, volumen, weight, status',
+            'id, name, sku, price, volumen, weight, status, image_url',
             q => selectedCommerce ? q.eq('comercio', selectedCommerce).order('name') : q.eq('comercio', 'no asignado').order('name')
           );
         } else {
-          let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
+          let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status, image_url').order('name');
           if (selectedCommerce) {
             query = query.eq('comercio', selectedCommerce);
           } else {
@@ -14364,6 +14390,8 @@ async function renderIntegrations() {
       window.tempClientNewOrderItems = [];
       const form = document.getElementById('form-new-order');
       if (form) form.reset();
+      const catSelectEl = document.getElementById('order-categoria-entrega');
+      if (catSelectEl) catSelectEl.value = 'DISTRIBUCIÓN';
       const searchInput = document.getElementById('order-product-search');
       if (searchInput) searchInput.value = '';
       const hiddenInput = document.getElementById('order-product');
@@ -14937,6 +14965,16 @@ async function renderIntegrations() {
       const selectedCourier = selectedCourierRadio.value; // STARKEN, CHILEXPRESS, BLUEXPRESS, STOCKA
       const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
 
+      // Categoría de Entrega y Agenda
+      const catSelectEl = document.getElementById('order-categoria-entrega');
+      const selectedCategoria = catSelectEl ? catSelectEl.value : 
+        (window.currentOrderFlowType === 'shop_point' ? 'SHOP POINT (POS)' : 
+        (window.currentOrderFlowType === 'retiro' ? 'RETIRO' : 'DISTRIBUCIÓN'));
+
+      let finalAgenda = null;
+      let finalOperador = selectedCourier;
+      let finalSucursalPickeo = null;
+
       // Generate shipping method glosa
       let finalShippingMethod = '';
       if (shippingType === 'sucursal') {
@@ -14951,6 +14989,19 @@ async function renderIntegrations() {
       } else {
         const paymentText = paymentCondition === 'por_pagar' ? 'Por Pagar' : 'Pagado';
         finalShippingMethod = `Despacho Domicilio - ${selectedCourier} (${paymentText})`;
+      }
+
+      if (selectedCategoria === 'SHOP POINT (POS)') {
+        finalAgenda = 'COMPRA EN BODEGA';
+        finalOperador = 'SUCURSAL ÑUÑOA';
+        finalSucursalPickeo = 'Matriz Ñuñoa';
+        if (!finalShippingMethod || finalShippingMethod.startsWith('Despacho Domicilio') || finalShippingMethod.includes('Retiro en Punto STOCKA')) {
+          finalShippingMethod = 'Venta Presencial Sucursal Ñuñoa';
+        }
+      } else if (selectedCategoria === 'RETIRO') {
+        finalAgenda = 'RETIRO';
+        finalOperador = 'SUCURSAL ÑUÑOA';
+        finalSucursalPickeo = 'Matriz Ñuñoa';
       }
 
       // Generate or retrieve external order number
@@ -15040,7 +15091,10 @@ async function renderIntegrations() {
         shipping_city: shippingCity,
         shipping_complement: shippingComplement || null,
         shipping_method: finalShippingMethod,
-        operador: selectedCourier,
+        operador: finalOperador,
+        categoria_entrega: selectedCategoria,
+        agenda: finalAgenda,
+        sucursal_pickeo: finalSucursalPickeo,
         origen: origen || 'Manual',
         external_platform: origen || 'Manual',
         external_order_number: finalExternalId,
@@ -15091,6 +15145,14 @@ async function renderIntegrations() {
         }
       } else {
         insertedOrder = insertResult.data;
+      }
+
+      if (insertedOrder) {
+        insertedOrder.categoria_entrega = insertedOrder.categoria_entrega || selectedCategoria;
+        insertedOrder.agenda = insertedOrder.agenda !== undefined ? insertedOrder.agenda : finalAgenda;
+        insertedOrder.operador = insertedOrder.operador || finalOperador;
+        insertedOrder.sucursal_pickeo = insertedOrder.sucursal_pickeo || finalSucursalPickeo;
+        insertedOrder.shipping_method = insertedOrder.shipping_method || finalShippingMethod;
       }
 
       // 2. Determinar la mejor bodega para cada ítem y preparar inserciones
@@ -35591,12 +35653,19 @@ window.filterClientNewOrderProducts = function() {
     const stockText = isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`;
 
     html += `
-      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
-        <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
-          <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
-          <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; align-items: center; gap: 0.65rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        ${p.image_url ? `
+          <img src="${escapeHtml(p.image_url)}" alt="" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+        ` : `
+          <div style="width: 36px; height: 36px; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.1rem;"></i></div>
+        `}
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem;">
+          <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+          <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
+            <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
+            <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
+          </div>
         </div>
       </div>
     `;
@@ -35648,6 +35717,7 @@ window.addClientNewOrderItem = function() {
       sku: product.sku,
       name: product.name,
       price: product.price || 0,
+      image_url: product.image_url || '',
       volumen: product.volumen || 0,
       quantity: qty
     });
@@ -35710,7 +35780,14 @@ window.renderClientNewOrderItemsTable = function() {
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
         <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
-        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            ${item.image_url ? `
+              <img src="${escapeHtml(item.image_url)}" alt="" style="width: 34px; height: 34px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+            ` : ''}
+            <div>${item.name}</div>
+          </div>
+        </td>
         <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
         <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
@@ -43224,6 +43301,23 @@ window.initWizardOrder = function() {
     };
   });
 
+  const catSelectEl = document.getElementById('order-categoria-entrega');
+  if (catSelectEl) {
+    catSelectEl.onchange = function() {
+      const val = this.value;
+      if (val === 'SHOP POINT (POS)') {
+        window.updateOrderFlowType('shop_point');
+      } else if (val === 'RETIRO') {
+        window.updateOrderFlowType('retiro');
+      } else if (val === 'DISTRIBUCIÓN') {
+        window.updateOrderFlowType('despacho');
+      } else if (val === 'LOGÍSTICA INVERSA') {
+        const origenSelect = document.getElementById('order-cust-origen');
+        if (origenSelect) origenSelect.value = 'Logística Inversa';
+      }
+    };
+  }
+
   // Resetear flujo a despacho por defecto
   window.updateOrderFlowType('despacho');
   window.tempOrderOriginalData = null;
@@ -43255,7 +43349,11 @@ window.updateOrderFlowType = function(flowType) {
   // 2. Elementos DOM
   const cardDespacho = document.getElementById('card-flow-despacho');
   const cardRetiro = document.getElementById('card-flow-retiro');
+  const cardShopPoint = document.getElementById('card-flow-shop-point');
   const cardFull = document.getElementById('card-flow-full');
+
+  const catSelect = document.getElementById('order-categoria-entrega');
+  const origenSelect = document.getElementById('order-cust-origen');
 
   const inputName = document.getElementById('order-cust-name');
   const inputEmail = document.getElementById('order-cust-email');
@@ -43271,12 +43369,13 @@ window.updateOrderFlowType = function(flowType) {
   if (!cardDespacho || !cardRetiro || !cardFull) return;
 
   // Helper para aplicar estilos visuales a las tarjetas
-  const setCardActive = (card, active) => {
+  const setCardActive = (card, active, customColor = null, customBg = null) => {
+    if (!card) return;
     const icon = card.querySelector('i');
     if (active) {
-      card.style.borderColor = 'var(--color-primary)';
-      card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
-      if (icon) icon.style.color = 'var(--color-primary)';
+      card.style.borderColor = customColor || 'var(--color-primary)';
+      card.style.background = customBg || 'rgba(var(--color-primary-rgb), 0.04)';
+      if (icon) icon.style.color = customColor || 'var(--color-primary)';
     } else {
       card.style.borderColor = 'var(--color-border)';
       card.style.background = 'var(--color-surface)';
@@ -43286,6 +43385,7 @@ window.updateOrderFlowType = function(flowType) {
 
   setCardActive(cardDespacho, flowType === 'despacho');
   setCardActive(cardRetiro, flowType === 'retiro');
+  setCardActive(cardShopPoint, flowType === 'shop_point', '#6d28d9', '#ede9fe');
   setCardActive(cardFull, flowType === 'full');
 
   // Asegurar que el radio button correspondiente esté marcado
@@ -43317,6 +43417,19 @@ window.updateOrderFlowType = function(flowType) {
     }
     if (inputComplement) inputComplement.value = cache.complement || '';
 
+    if (catSelect && (catSelect.value === 'SHOP POINT (POS)' || catSelect.value === 'RETIRO')) {
+      catSelect.value = 'DISTRIBUCIÓN';
+    }
+    if (origenSelect && origenSelect.value === 'Punto de Venta') {
+      origenSelect.value = 'Manual';
+    }
+
+    const domRadio = document.querySelector('input[name="order-shipping-type"][value="domicilio"]');
+    if (domRadio && !domRadio.checked) {
+      domRadio.checked = true;
+      domRadio.dispatchEvent(new Event('change'));
+    }
+
   } else if (flowType === 'retiro') {
     // Visibilidad completa
     if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
@@ -43337,10 +43450,58 @@ window.updateOrderFlowType = function(flowType) {
     if (inputComplement) inputComplement.value = (window.currentOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
 
     // Autocompletar Dirección y Comuna
-    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes';
+    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes 405';
     if (inputCity) {
       inputCity.value = 'Ñuñoa';
       inputCity.dispatchEvent(new Event('change'));
+    }
+
+    if (catSelect && catSelect.value !== 'RETIRO') {
+      catSelect.value = 'RETIRO';
+    }
+    if (origenSelect && origenSelect.value === 'Punto de Venta') {
+      origenSelect.value = 'Manual';
+    }
+
+    const puntoStockaRadio = document.querySelector('input[name="order-shipping-type"][value="punto_stocka"]');
+    if (puntoStockaRadio && !puntoStockaRadio.checked) {
+      puntoStockaRadio.checked = true;
+      puntoStockaRadio.dispatchEvent(new Event('change'));
+    }
+
+  } else if (flowType === 'shop_point') {
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Cliente Sucursal (Venta Presencial)';
+    }
+
+    const cache = window.tempOrderOriginalData || {};
+    if (inputName) inputName.value = (window.currentOrderFlowType === 'full') ? (cache.name || '') : (inputName.value || '');
+    if (inputEmail) inputEmail.value = (window.currentOrderFlowType === 'full') ? (cache.email || '') : (inputEmail.value || '');
+    if (inputPhone) inputPhone.value = (window.currentOrderFlowType === 'full') ? (cache.phone || '') : (inputPhone.value || '');
+    if (inputComplement) inputComplement.value = (window.currentOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
+
+    if (inputAddress) inputAddress.value = 'Campo de Deportes 405 (Sucursal Ñuñoa)';
+    if (inputCity) {
+      inputCity.value = 'Ñuñoa';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+
+    if (catSelect && catSelect.value !== 'SHOP POINT (POS)') {
+      catSelect.value = 'SHOP POINT (POS)';
+    }
+    if (origenSelect) {
+      origenSelect.value = 'Punto de Venta';
+    }
+
+    const puntoStockaRadio = document.querySelector('input[name="order-shipping-type"][value="punto_stocka"]');
+    if (puntoStockaRadio && !puntoStockaRadio.checked) {
+      puntoStockaRadio.checked = true;
+      puntoStockaRadio.dispatchEvent(new Event('change'));
     }
 
   } else if (flowType === 'full') {
@@ -43364,6 +43525,10 @@ window.updateOrderFlowType = function(flowType) {
       inputCity.dispatchEvent(new Event('change'));
     }
     if (inputComplement) inputComplement.value = '';
+
+    if (catSelect && catSelect.value === 'SHOP POINT (POS)') {
+      catSelect.value = 'DISTRIBUCIÓN';
+    }
   }
 
   window.currentOrderFlowType = flowType;
@@ -43487,6 +43652,12 @@ window.populateWizardSummary = function() {
   document.getElementById('summary-city').textContent = city;
   document.getElementById('summary-origin').textContent = origin || 'Manual';
   document.getElementById('summary-external-id').textContent = finalExtId;
+  const sumCatEl = document.getElementById('summary-categoria');
+  if (sumCatEl) {
+    const catVal = document.getElementById('order-categoria-entrega')?.value || 
+      (window.currentOrderFlowType === 'shop_point' ? 'SHOP POINT (POS)' : (window.currentOrderFlowType === 'retiro' ? 'RETIRO' : 'DISTRIBUCIÓN'));
+    sumCatEl.innerHTML = window.getOrderCategoriaBadgeHtml ? window.getOrderCategoriaBadgeHtml({ categoria_entrega: catVal }) : catVal;
+  }
   document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
 
   // Populate items table
