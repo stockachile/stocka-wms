@@ -27744,6 +27744,16 @@ window.getClientResolvedCompanies = async function() {
     uniqueBillingNames.add(nameToUse);
   });
   
+  // Garantizar compatibilidad con conglomerados y sus alias conocidos
+  if (uniqueBillingNames.has('BIG BANG') || uniqueBillingNames.has('BIG BANG SPA')) {
+    uniqueBillingNames.add('BIG BANG');
+    uniqueBillingNames.add('BIG BANG SPA');
+  }
+  if (uniqueBillingNames.has('SILVER FOX') || uniqueBillingNames.has('SILVER FOX SPA')) {
+    uniqueBillingNames.add('SILVER FOX');
+    uniqueBillingNames.add('SILVER FOX SPA');
+  }
+  
   return Array.from(uniqueBillingNames);
 };
 

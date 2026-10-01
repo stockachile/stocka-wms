@@ -1077,6 +1077,9 @@
     // Helper: Format Date
     function formatDate(isoStr) {
       if (!isoStr) return 'Fecha reciente';
+      if (typeof isoStr === 'string' && /^\d{2}\/\d{2}\/\d{4}/.test(isoStr)) {
+        return isoStr;
+      }
       try {
         const d = new Date(isoStr);
         if (isNaN(d.getTime())) return String(isoStr);
@@ -1267,6 +1270,12 @@
                     <i class="ri-user-line"></i>
                     <span>Destinatario: ${escapeHtml(maskCustomerName(order.customer_name))}</span>
                   </div>
+                  ${order.delivered_at && step4Done ? `
+                    <div class="order-meta-item" style="color: #059669; font-weight: 700;">
+                      <i class="ri-checkbox-circle-fill"></i>
+                      <span>Entregado: ${formatDate(order.delivered_at)}</span>
+                    </div>
+                  ` : ''}
                 </div>
               </div>
 

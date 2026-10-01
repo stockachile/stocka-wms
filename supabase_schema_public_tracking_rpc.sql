@@ -1,5 +1,5 @@
 -- ========================================================
--- WMS STOCKA: RPC Segura con Coincidencia Flexible de Prefijos
+-- WMS STOCKA: RPC Segura con Resolución de Entrega en Tiempo Real
 -- ========================================================
 
 -- 1. Eliminar versiones anteriores sobrecargadas para evitar conflicto
@@ -7,7 +7,7 @@ DROP FUNCTION IF EXISTS public.get_customer_tracking(text, text);
 DROP FUNCTION IF EXISTS public.get_customer_tracking(text, text, text);
 DROP FUNCTION IF EXISTS public.get_customer_tracking;
 
--- 2. Crear la función actualizada con soporte de prefijos y validación cruzada
+-- 2. Crear la función actualizada con soporte de prefijos, validación cruzada y estado real de couriers
 CREATE OR REPLACE FUNCTION public.get_customer_tracking(
   p_email text DEFAULT NULL,
   p_order_number text DEFAULT NULL,
@@ -42,13 +42,57 @@ BEGIN
         'comercio', COALESCE(o.comercio, 'Tienda Asociada Stocka'),
         'customer_name', COALESCE(o.customer_name, 'Cliente'),
         'customer_email', o.customer_email,
-        'status', COALESCE(o.estado_wms, o.status, 'En Proceso'),
-        'tracking_number', o.tracking_number,
-        'tracking_url', o.tracking_url,
+        'status', CASE
+          -- 1. Si el courier ya confirmó entrega:
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' 
+            OR LOWER(COALESCE(o.raw_lightdata_data->>'status', '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
+            OR EXISTS (
+              SELECT 1 FROM public.envios_unificados eu
+              WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND eu.tracking = o.tracking_number))
+                AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            ) THEN 'Entregado'
+          -- 2. Si tiene incidencia reportada:
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%incidenc%' 
+            OR LOWER(COALESCE(o.lightdata_status, '')) LIKE '%incidenc%' THEN 'Incidencia'
+          -- 3. Si fue cancelado:
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%cancel%' 
+            OR LOWER(COALESCE(o.status, '')) LIKE '%cancel%' THEN 'Cancelado'
+          -- 4. Si es retiro en sucursal y está listo para retiro:
+          WHEN (o.categoria_entrega = 'RETIRO' OR o.operador ILIKE '%RETIRO%') 
+            AND LOWER(COALESCE(o.estado_wms, '')) LIKE '%listo%' THEN 'Listo para retiro'
+          -- 5. Estado normal de bodega (Despachado, En preparación, etc.)
+          ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
+        END,
+        'tracking_number', COALESCE(
+          NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          o.tracking_number
+        ),
+        'tracking_url', COALESCE(
+          o.tracking_url,
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+        ),
         'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
-        'created_at', o.created_at
+        'created_at', o.created_at,
+        'delivered_at', CASE
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          ELSE (
+            SELECT eu.updated_at::text 
+            FROM public.envios_unificados eu 
+            WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND eu.tracking = o.tracking_number))
+              AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            LIMIT 1
+          )
+        END
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results
@@ -76,13 +120,52 @@ BEGIN
         'comercio', COALESCE(o.comercio, 'Tienda Asociada Stocka'),
         'customer_name', COALESCE(o.customer_name, 'Cliente'),
         'customer_email', o.customer_email,
-        'status', COALESCE(o.estado_wms, o.status, 'En Proceso'),
-        'tracking_number', o.tracking_number,
-        'tracking_url', o.tracking_url,
+        'status', CASE
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' 
+            OR LOWER(COALESCE(o.raw_lightdata_data->>'status', '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
+            OR EXISTS (
+              SELECT 1 FROM public.envios_unificados eu
+              WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND eu.tracking = o.tracking_number))
+                AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            ) THEN 'Entregado'
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%incidenc%' 
+            OR LOWER(COALESCE(o.lightdata_status, '')) LIKE '%incidenc%' THEN 'Incidencia'
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%cancel%' 
+            OR LOWER(COALESCE(o.status, '')) LIKE '%cancel%' THEN 'Cancelado'
+          WHEN (o.categoria_entrega = 'RETIRO' OR o.operador ILIKE '%RETIRO%') 
+            AND LOWER(COALESCE(o.estado_wms, '')) LIKE '%listo%' THEN 'Listo para retiro'
+          ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
+        END,
+        'tracking_number', COALESCE(
+          NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          o.tracking_number
+        ),
+        'tracking_url', COALESCE(
+          o.tracking_url,
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+        ),
         'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
-        'created_at', o.created_at
+        'created_at', o.created_at,
+        'delivered_at', CASE
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          ELSE (
+            SELECT eu.updated_at::text 
+            FROM public.envios_unificados eu 
+            WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND eu.tracking = o.tracking_number))
+              AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            LIMIT 1
+          )
+        END
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results
@@ -99,13 +182,52 @@ BEGIN
         'comercio', COALESCE(o.comercio, 'Tienda Asociada Stocka'),
         'customer_name', COALESCE(o.customer_name, 'Cliente'),
         'customer_email', o.customer_email,
-        'status', COALESCE(o.estado_wms, o.status, 'En Proceso'),
-        'tracking_number', o.tracking_number,
-        'tracking_url', o.tracking_url,
+        'status', CASE
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' 
+            OR LOWER(COALESCE(o.raw_lightdata_data->>'status', '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.bluex_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
+            OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
+            OR EXISTS (
+              SELECT 1 FROM public.envios_unificados eu
+              WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND eu.tracking = o.tracking_number))
+                AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            ) THEN 'Entregado'
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%incidenc%' 
+            OR LOWER(COALESCE(o.lightdata_status, '')) LIKE '%incidenc%' THEN 'Incidencia'
+          WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%cancel%' 
+            OR LOWER(COALESCE(o.status, '')) LIKE '%cancel%' THEN 'Cancelado'
+          WHEN (o.categoria_entrega = 'RETIRO' OR o.operador ILIKE '%RETIRO%') 
+            AND LOWER(COALESCE(o.estado_wms, '')) LIKE '%listo%' THEN 'Listo para retiro'
+          ELSE COALESCE(o.estado_wms, o.status, 'En Proceso')
+        END,
+        'tracking_number', COALESCE(
+          NULLIF(NULLIF(o.tracking_number, 'No informado'), ''),
+          (SELECT eu.tracking FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking IS NOT NULL AND eu.tracking <> 'No informado' LIMIT 1),
+          o.tracking_number
+        ),
+        'tracking_url', COALESCE(
+          o.tracking_url,
+          (SELECT eu.tracking_url FROM public.envios_unificados eu WHERE eu.pedido_referencia = o.external_order_number AND eu.tracking_url IS NOT NULL AND eu.tracking_url <> '' LIMIT 1)
+        ),
         'courier', COALESCE(o.operador, o.courier, 'Stocka Same Day / Courier'),
         'categoria_entrega', COALESCE(o.categoria_entrega, 'DISTRIBUCIÓN'),
         'shipping_city', o.shipping_city,
-        'created_at', o.created_at
+        'created_at', o.created_at,
+        'delivered_at', CASE
+          WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          ELSE (
+            SELECT eu.updated_at::text 
+            FROM public.envios_unificados eu 
+            WHERE (eu.pedido_referencia = o.external_order_number OR (o.tracking_number IS NOT NULL AND eu.tracking = o.tracking_number))
+              AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
+            LIMIT 1
+          )
+        END
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results

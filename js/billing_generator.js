@@ -1102,7 +1102,7 @@ export async function getConglomerateMappings() {
   // Seed canónico por defecto de alta disponibilidad
   const canonicalConglomerates = [
     {
-      canonicalName: 'BIG BANG SPA',
+      canonicalName: 'BIG BANG',
       aliases: ['BIG BANG', 'BIG BANG SPA', 'HOLDING BIG BANG'],
       children: ['BACK IN TIME', 'DORMILONES', 'RELAJARTE']
     },
@@ -1138,7 +1138,7 @@ export async function getConglomerateMappings() {
         if (!parent || !child) return;
 
         // Normalizar alias canónicos
-        if (parent === 'BIG BANG' || parent === 'BIG BANG SPA') parent = 'BIG BANG SPA';
+        if (parent === 'BIG BANG' || parent === 'BIG BANG SPA') parent = 'BIG BANG';
         if (parent === 'SILVER FOX' || parent === 'SILVER FOX SPA') parent = 'SILVER FOX';
         
         if (!conglomeratesMap[parent]) conglomeratesMap[parent] = [];
@@ -1146,7 +1146,7 @@ export async function getConglomerateMappings() {
         childToConglomerateMap[child] = parent;
 
         // Mantener sincronizado el alias corto/largo
-        if (parent === 'BIG BANG SPA') conglomeratesMap['BIG BANG'] = conglomeratesMap['BIG BANG SPA'];
+        if (parent === 'BIG BANG') conglomeratesMap['BIG BANG SPA'] = conglomeratesMap['BIG BANG'];
         if (parent === 'SILVER FOX') conglomeratesMap['SILVER FOX SPA'] = conglomeratesMap['SILVER FOX'];
       });
     }
@@ -1171,7 +1171,7 @@ export async function getConglomerateMappings() {
       Object.entries(byRut).forEach(([rut, stores]) => {
         if (stores.length > 1) {
           let mainName = (stores[0].razon_social || stores[0].comercio || '').trim().toUpperCase();
-          if (mainName.includes('BIG BANG')) mainName = 'BIG BANG SPA';
+          if (mainName.includes('BIG BANG')) mainName = 'BIG BANG';
           if (mainName.includes('SILVER FOX')) mainName = 'SILVER FOX';
 
           if (mainName) {
@@ -1183,7 +1183,7 @@ export async function getConglomerateMappings() {
             });
 
             // Sincronizar alias
-            if (mainName === 'BIG BANG SPA') conglomeratesMap['BIG BANG'] = conglomeratesMap['BIG BANG SPA'];
+            if (mainName === 'BIG BANG') conglomeratesMap['BIG BANG SPA'] = conglomeratesMap['BIG BANG'];
             if (mainName === 'SILVER FOX') conglomeratesMap['SILVER FOX SPA'] = conglomeratesMap['SILVER FOX'];
           }
         }
@@ -1369,8 +1369,8 @@ export async function resolveCommerceGroup(commerceName) {
   
   // Detección directa y exhaustiva de Holdings conocidos
   if (upper === 'BIG BANG' || upper === 'BIG BANG SPA' || upper.includes('BIG BANG')) {
-    const list = conglomeratesMap['BIG BANG SPA'] || conglomeratesMap['BIG BANG'] || ['BACK IN TIME', 'DORMILONES', 'RELAJARTE'];
-    group = ['BIG BANG SPA', 'BIG BANG', ...list];
+    const list = conglomeratesMap['BIG BANG'] || conglomeratesMap['BIG BANG SPA'] || ['BACK IN TIME', 'DORMILONES', 'RELAJARTE'];
+    group = ['BIG BANG', 'BIG BANG SPA', ...list];
   } else if (upper === 'SILVER FOX' || upper === 'SILVER FOX SPA' || upper.includes('SILVER FOX')) {
     const list = conglomeratesMap['SILVER FOX'] || conglomeratesMap['SILVER FOX SPA'] || ['FORTE MAX', 'MENPRIME'];
     group = ['SILVER FOX', 'SILVER FOX SPA', ...list];
@@ -1670,7 +1670,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
     if (!savedSnapshot) {
       try {
-        const localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
+        let localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
+        if (!localStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
+          localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG SPA`) ||
+                     localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG`);
+        }
         if (localStr) savedSnapshot = JSON.parse(localStr);
       } catch (e) {}
     }
@@ -1715,11 +1719,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
   billingState.isConglomerate = isConglomerateName;
   billingState.conglomerateName = isConglomerateName 
-    ? (upperCommerce.includes('BIG BANG') ? 'BIG BANG SPA' : (upperCommerce.includes('SILVER FOX') ? 'SILVER FOX' : upperCommerce))
+    ? (upperCommerce.includes('BIG BANG') ? 'BIG BANG' : (upperCommerce.includes('SILVER FOX') ? 'SILVER FOX' : upperCommerce))
     : (parentConglomerate || upperCommerce);
 
   billingState.conglomerateChildren = (conglomeratesMap[billingState.conglomerateName] || conglomeratesMap[upperCommerce] || [])
-    .filter(c => c.toUpperCase() !== billingState.conglomerateName && c.toUpperCase() !== 'BIG BANG' && c.toUpperCase() !== 'SILVER FOX');
+    .filter(c => c.toUpperCase() !== billingState.conglomerateName && c.toUpperCase() !== 'BIG BANG' && c.toUpperCase() !== 'BIG BANG SPA' && c.toUpperCase() !== 'SILVER FOX' && c.toUpperCase() !== 'SILVER FOX SPA');
 
   billingState.selectedAsChildStore = !isConglomerateName && !!parentConglomerate;
 
@@ -2414,7 +2418,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     // Preservar abonos en memoria durante la sesión activa
   } else {
     try {
-      const localAbonosStr = localStorage.getItem(`stocka_billing_abonos_${currentSuppliesKey}`);
+      let localAbonosStr = localStorage.getItem(`stocka_billing_abonos_${currentSuppliesKey}`);
+      if (!localAbonosStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
+        localAbonosStr = localStorage.getItem(`stocka_billing_abonos_${billingState.currentPeriodId}_BIG BANG SPA`) ||
+                         localStorage.getItem(`stocka_billing_abonos_${billingState.currentPeriodId}_BIG BANG`);
+      }
       if (localAbonosStr) {
         billingState.abonos = JSON.parse(localAbonosStr);
       } else {
@@ -4760,7 +4768,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   let defaultCommerce = initialCommerce;
   if (!defaultCommerce) {
     if (canonicalDisplayList.length > 0) defaultCommerce = canonicalDisplayList[0].name;
-    else if (conglomeratesMap['BIG BANG SPA']) defaultCommerce = 'BIG BANG SPA';
+    else if (conglomeratesMap['BIG BANG']) defaultCommerce = 'BIG BANG';
     else defaultCommerce = comercios[0]?.nombre || 'STREET GYM';
   }
 
@@ -4792,7 +4800,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                     const cgUpper = String(cg.name).trim().toUpperCase();
                     let isSel = false;
                     if (!hasSelectedCommerce) {
-                      if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG SPA') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
+                      if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
                         isSel = true;
                         hasSelectedCommerce = true;
                       }
