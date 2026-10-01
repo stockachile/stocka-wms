@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Seguimiento de Pedidos | Stocka Logistics & WMS</title>
+  <meta name="description" content="Portal público de rastreo en tiempo real para compras y despachos operados por Stocka WMS. Consulta con tu número de pedido y correo.">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Remixicon -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root {
+      --primary: #5c24ff;
+      --primary-hover: #4b1cdb;
+      --primary-subtle: #f1f0fe;
+      --primary-border: #e0dcfe;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #10b981;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      --warning: #f59e0b;
+      --warning-bg: #fffbeb;
+      --warning-border: #fde68a;
+      --danger: #ef4444;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 20px;
+      --radius-sm: 12px;
+      --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 20px 40px -15px rgba(15, 23, 42, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navbar */
+    .tracking-nav {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 0.85rem 1.25rem;
+    }
+    .nav-container {
+      max-width: 980px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+    .nav-brand img {
+      height: 32px;
+      width: auto;
+      object-fit: contain;
+    }
+    .nav-brand-text {
+      display: flex;
+      flex-direction: column;
+    }
+    .nav-brand-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    .nav-brand-subtitle {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .nav-security-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--primary-subtle);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    /* Main Container */
+    .main-wrap {
+      flex: 1;
+      max-width: 880px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem 1.25rem;
+    }
+
+    /* Hero */
+    .hero-header {
+      text-align: center;
+      margin-bottom: 2.25rem;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: var(--primary-subtle);
+      border: 1.5px solid var(--primary-border);
+      color: var(--primary);
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.35rem 1rem;
+      border-radius: 9999px;
+      margin-bottom: 0.85rem;
+    }
+    .hero-title {
+      font-size: 2.15rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      color: var(--text-main);
+      margin-bottom: 0.75rem;
+    }
+    @media (min-width: 640px) {
+      .hero-title {
+        font-size: 2.65rem;
+      }
+    }
+    .hero-subtitle {
+      font-size: 0.98rem;
+      color: var(--text-muted);
+      max-width: 580px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* Search Form Card */
+    .search-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .search-card:focus-within {
+      border-color: #cbd5e1;
+      box-shadow: var(--shadow-lg);
+    }
+    .search-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .search-card-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .search-card-title i {
+      color: var(--primary);
+      font-size: 1.25rem;
+    }
+    .search-security-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #059669;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (min-width: 640px) {
+      .form-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .form-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .form-label-tag {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--primary);
+    }
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-icon {
+      position: absolute;
+      left: 1rem;
+      color: #94a3b8;
+      font-size: 1.15rem;
+      pointer-events: none;
+    }
+    .form-input {
+      width: 100%;
+      height: 48px;
+      padding: 0 1rem 0 2.85rem;
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border);
+      background: #f8fafc;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-main);
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    .form-input:focus {
+      background: #ffffff;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12);
+    }
+    .form-input::placeholder {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .form-hint {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .form-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    @media (min-width: 640px) {
+      .form-actions {
+        flex-direction: row;
+        align-items: center;
+      }
+    }
+
+    .btn-search {
+      flex: 1;
+      height: 50px;
+      border: none;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+      color: #ffffff;
+      font-size: 0.98rem;
+      font-weight: 800;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      box-shadow: 0 4px 14px rgba(92, 36, 255, 0.35);
+      transition: all 0.2s ease;
+    }
+    .btn-search:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(92, 36, 255, 0.45);
+    }
+    .btn-search:active:not(:disabled) {
+      transform: translateY(0);
+    }
+    .btn-search:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .btn-clear {
+      height: 50px;
+      padding: 0 1.25rem;
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+    }
+    .btn-clear:hover {
+      background: #f1f5f9;
+      color: var(--text-main);
+      border-color: #cbd5e1;
+    }
+
+    /* Notice Banner (when prefilled from URL without email) */
+    .prefill-notice {
+      display: none;
+      background: #fffbeb;
+      border: 1.5px solid #fde68a;
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.82rem;
+      color: #92400e;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      line-height: 1.45;
+    }
+    .prefill-notice i {
+      font-size: 1.15rem;
+      color: #d97706;
+      flex-shrink: 0;
+    }
+
+    /* Results Section */
+    .results-area {
+      display: none;
+      animation: fadeIn 0.3s ease;
+    }
+
+    /* Order Result Card */
+    .order-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 2rem 1.75rem;
+      margin-bottom: 1.75rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .order-card-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .order-header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .store-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      letter-spacing: 0.04em;
+      align-self: flex-start;
+    }
+    .order-title {
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: var(--text-main);
+      letter-spacing: -0.02em;
+    }
+    .order-meta {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .order-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    /* Status Pills */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      font-weight: 800;
+      padding: 0.45rem 1rem;
+      border-radius: 9999px;
+      border: 1.5px solid transparent;
+      box-shadow: var(--shadow-sm);
+    }
+    .status-badge.entregado {
+      background: var(--success-bg);
+      color: #065f46;
+      border-color: var(--success-border);
+    }
+    .status-badge.despachado, .status-badge.en_camino {
+      background: #eff6ff;
+      color: #1e40af;
+      border-color: #bfdbfe;
+    }
+    .status-badge.preparacion {
+      background: var(--warning-bg);
+      color: #92400e;
+      border-color: var(--warning-border);
+    }
+    .status-badge.recibido {
+      background: #f8fafc;
+      color: #475569;
+      border-color: #cbd5e1;
+    }
+    .status-badge.retiro {
+      background: #f5f3ff;
+      color: #5b21b6;
+      border-color: #ddd6fe;
+    }
+    .status-badge.incidencia {
+      background: var(--danger-bg);
+      color: #991b1b;
+      border-color: var(--danger-border);
+    }
+    .status-badge.cancelado {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: #cbd5e1;
+    }
+
+    /* Progress Stepper Timeline */
+    .timeline-container {
+      margin: 2.25rem 0 1.75rem 0;
+      position: relative;
+    }
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      position: relative;
+    }
+    @media (max-width: 640px) {
+      .stepper {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+      }
+    }
+
+    /* Horizontal line between steps on desktop */
+    @media (min-width: 641px) {
+      .stepper::before {
+        content: '';
+        position: absolute;
+        top: 20px;
+        left: 12%;
+        right: 12%;
+        height: 3px;
+        background: #e2e8f0;
+        z-index: 1;
+      }
+      .stepper-progress-line {
+        position: absolute;
+        top: 20px;
+        left: 12%;
+        height: 3px;
+        background: var(--success);
+        z-index: 2;
+        transition: width 0.4s ease;
+      }
+    }
+
+    .step-item {
+      text-align: center;
+      position: relative;
+      z-index: 3;
+      padding: 0 0.5rem;
+    }
+    @media (max-width: 640px) {
+      .step-item {
+        display: flex;
+        align-items: center;
+        text-align: left;
+        gap: 1rem;
+      }
+    }
+    .step-circle {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid #cbd5e1;
+      color: #94a3b8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+      transition: all 0.3s ease;
+    }
+    .step-item.done .step-circle {
+      background: var(--success);
+      border-color: var(--success);
+      color: #ffffff;
+    }
+    .step-item.active .step-circle {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 0 0 5px rgba(92, 36, 255, 0.2);
+    }
+    .step-item.incident .step-circle {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #ffffff;
+    }
+    .step-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .step-title {
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: #64748b;
+      line-height: 1.3;
+    }
+    .step-item.done .step-title {
+      color: var(--text-main);
+    }
+    .step-item.active .step-title {
+      color: var(--primary);
+      font-weight: 900;
+    }
+    .step-subtext {
+      font-size: 0.72rem;
+      color: #94a3b8;
+      line-height: 1.3;
+    }
+    .step-item.done .step-subtext, .step-item.active .step-subtext {
+      color: #475569;
+    }
+
+    /* Logistics Delivery / Pickup Info Box */
+    .delivery-box {
+      background: #f8fafc;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1.5rem;
+      margin-top: 1.75rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.25rem;
+    }
+    @media (min-width: 640px) {
+      .delivery-box {
+        grid-template-columns: 1.2fr 1fr;
+        align-items: center;
+      }
+    }
+    .delivery-info-left {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .delivery-carrier-name {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .tracking-code-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .tracking-code-pill {
+      font-family: monospace;
+      font-size: 0.95rem;
+      font-weight: 700;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      padding: 0.3rem 0.75rem;
+      border-radius: 8px;
+      color: var(--text-main);
+      letter-spacing: 0.05em;
+    }
+    .btn-copy {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      transition: all 0.2s ease;
+    }
+    .btn-copy:hover {
+      background: #f1f5f9;
+      color: var(--text-main);
+    }
+
+    .delivery-actions-right {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .btn-external-track {
+      background: var(--primary);
+      color: #ffffff;
+      text-decoration: none;
+      padding: 0.85rem 1.25rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);
+      transition: all 0.2s ease;
+    }
+    .btn-external-track:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 6px 16px rgba(92, 36, 255, 0.35);
+      transform: translateY(-1px);
+    }
+    .btn-external-track i {
+      font-size: 1.1rem;
+    }
+
+    /* Store Pickup Dedicated Box */
+    .pickup-card {
+      background: #faf5ff;
+      border: 1.5px solid #e9d5ff;
+      border-radius: var(--radius-sm);
+      padding: 1.5rem;
+      margin-top: 1.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .pickup-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      color: #6b21a8;
+      font-size: 1.05rem;
+      font-weight: 800;
+    }
+    .pickup-header i {
+      font-size: 1.35rem;
+    }
+    .pickup-details-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      color: #3b0764;
+    }
+    @media (min-width: 640px) {
+      .pickup-details-grid {
+        grid-template-columns: 1.5fr 1fr;
+      }
+    }
+    .pickup-detail-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      line-height: 1.45;
+    }
+    .pickup-detail-row i {
+      color: #9333ea;
+      margin-top: 2px;
+      font-size: 1rem;
+    }
+
+    /* Not Found Box */
+    .not-found-card {
+      display: none;
+      background: var(--surface);
+      border: 1.5px dashed #cbd5e1;
+      border-radius: var(--radius);
+      padding: 3rem 1.5rem;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .not-found-icon-wrap {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: #fef2f2;
+      color: #ef4444;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.85rem;
+      margin-bottom: 1.25rem;
+    }
+    .not-found-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 0.6rem;
+    }
+    .not-found-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      max-width: 520px;
+      margin: 0 auto 1.5rem auto;
+      line-height: 1.6;
+    }
+    .not-found-tips {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem;
+      max-width: 500px;
+      margin: 0 auto;
+      text-align: left;
+      font-size: 0.8rem;
+      color: #475569;
+    }
+    .not-found-tips ul {
+      padding-left: 1.2rem;
+      margin-top: 0.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    /* Help & Trust Section */
+    .trust-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.25rem;
+      margin-top: 2.5rem;
+    }
+    @media (min-width: 640px) {
+      .trust-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+    .trust-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .trust-card i {
+      font-size: 1.35rem;
+      color: var(--primary);
+      margin-bottom: 0.25rem;
+    }
+    .trust-card-title {
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: var(--text-main);
+    }
+    .trust-card-desc {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    .tracking-footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem 1.25rem;
+      background: var(--surface);
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+    .footer-content {
+      max-width: 880px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    /* Animations */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="tracking-nav">
+    <div class="nav-container">
+      <a href="https://stocka.cl" target="_blank" class="nav-brand" title="Stocka Logistics Chile">
+        <img src="assets/logo.png" alt="Stocka Logistics Logo" onerror="this.src='img/newlogotransp.png';">
+        <div class="nav-brand-text">
+          <span class="nav-brand-title">STOCKA</span>
+          <span class="nav-brand-subtitle">Tracking Portal</span>
+        </div>
+      </a>
+      <div class="nav-security-tag">
+        <i class="ri-shield-check-line"></i>
+        <span>Consulta Segura</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Wrap -->
+  <main class="main-wrap">
+    
+    <!-- Hero Header -->
+    <section class="hero-header">
+      <div class="hero-badge">
+        <i class="ri-radar-line"></i> Red de Distribución Stocka
+      </div>
+      <h1 class="hero-title">Seguimiento de tu Pedido</h1>
+      <p class="hero-subtitle">
+        Consulta el estado en vivo de tu compra, fechas de preparación y datos de despacho ingresando tu número de orden y correo.
+      </p>
+    </section>
+
+    <!-- Search Form Card -->
+    <section class="search-card">
+      <div class="search-card-header">
+        <div class="search-card-title">
+          <i class="ri-search-eye-line"></i>
+          <span>Buscar por Orden y Correo</span>
+        </div>
+        <div class="search-security-pill">
+          <i class="ri-lock-line"></i> Validación Doble Factor
+        </div>
+      </div>
+
+      <!-- Pre-fill banner (if URL provided only order number) -->
+      <div id="prefill-notice" class="prefill-notice" style="display: none;">
+        <i class="ri-information-fill"></i>
+        <div>
+          Detectamos tu pedido <strong id="notice-order-no">#</strong>. Por tu seguridad y privacidad, ingresa el <strong>correo electrónico</strong> con el que realizaste tu compra para visualizar los detalles.
+        </div>
+      </div>
+
+      <form id="tracking-form" autocomplete="on">
+        <div class="form-grid">
+          <!-- Order Number Input -->
+          <div class="form-group">
+            <label class="form-label" for="input-order">
+              <span>Número de Pedido</span>
+              <span class="form-label-tag">Ej: GLS27655 o 27655</span>
+            </label>
+            <div class="input-wrapper">
+              <i class="ri-file-list-3-line input-icon"></i>
+              <input 
+                type="text" 
+                id="input-order" 
+                name="order" 
+                class="form-input" 
+                placeholder="Ej: GLS27655 o 27655" 
+                required 
+                autocomplete="off"
+                spellcheck="false"
+              >
+            </div>
+            <span class="form-hint">El código de tu orden que recibiste al comprar.</span>
+          </div>
+
+          <!-- Customer Email Input -->
+          <div class="form-group">
+            <label class="form-label" for="input-email">
+              <span>Correo del Comprador</span>
+              <span class="form-label-tag">Doble Factor de Seguridad</span>
+            </label>
+            <div class="input-wrapper">
+              <i class="ri-mail-line input-icon"></i>
+              <input 
+                type="email" 
+                id="input-email" 
+                name="email" 
+                class="form-input" 
+                placeholder="tu-email@correo.com" 
+                required 
+                autocomplete="email"
+                spellcheck="false"
+              >
+            </div>
+            <span class="form-hint">El email registrado durante el pago de tu pedido.</span>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-submit" class="btn-search">
+            <i class="ri-search-line"></i>
+            <span id="btn-text">Consultar Estado</span>
+          </button>
+          <button type="button" id="btn-reset" class="btn-clear" style="display: none;">
+            <i class="ri-refresh-line"></i>
+            <span>Nueva Consulta</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Not Found State -->
+    <section id="not-found-card" class="not-found-card">
+      <div class="not-found-icon-wrap">
+        <i class="ri-file-search-line"></i>
+      </div>
+      <h3 class="not-found-title">No encontramos un pedido que coincida</h3>
+      <p class="not-found-desc">
+        No se encontró ningún registro para la orden <strong id="searched-order">-</strong> asociada al correo <strong id="searched-email">-</strong>.
+      </p>
+      <div class="not-found-tips">
+        <strong>💡 Consejos para la búsqueda:</strong>
+        <ul>
+          <li>Asegúrate de que no haya errores de escritura en el correo electrónico.</li>
+          <li>Puedes ingresar el número de pedido con o sin prefijo (ej: <code>GLS27655</code> o <code>27655</code> o <code>#27655</code>).</li>
+          <li>Si realizaste tu compra hace menos de 10 minutos, es posible que aún se esté sincronizando con la bodega.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Tracking Results Area -->
+    <section id="results-area" class="results-area">
+      <div id="results-container">
+        <!-- Injected dynamically via JS -->
+      </div>
+    </section>
+
+    <!-- Trust Cards Grid -->
+    <section class="trust-grid">
+      <div class="trust-card">
+        <i class="ri-shield-check-fill"></i>
+        <h4 class="trust-card-title">Privacidad Protegida</h4>
+        <p class="trust-card-desc">Tus datos personales y de compra están blindados mediante validación cruzada y encriptación segura.</p>
+      </div>
+      <div class="trust-card">
+        <i class="ri-time-line"></i>
+        <h4 class="trust-card-title">Actualización en Vivo</h4>
+        <p class="trust-card-desc">Sincronización en tiempo real directo desde las estaciones de preparación en bodega y couriers.</p>
+      </div>
+      <div class="trust-card">
+        <i class="ri-map-pin-user-line"></i>
+        <h4 class="trust-card-title">Punto Stocka Ñuñoa</h4>
+        <p class="trust-card-desc">Si elegiste retiro, puedes buscar tu pedido en Av. Campo de Deportes 405 de Lunes a Viernes.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="tracking-footer">
+    <div class="footer-content">
+      <p><strong>Stocka Logistics & WMS</strong> • Soluciones integrales de Fulfillment, Almacenamiento y Despachos 360°</p>
+      <p style="font-size: 0.72rem; color: #94a3b8;">
+        ¿Dudas con tu compra? Contacta directamente a la tienda donde realizaste el pedido para soporte sobre cambios, garantías o cancelaciones.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // Supabase Configuration
+    const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // DOM Elements
+    const form = document.getElementById('tracking-form');
+    const inputOrder = document.getElementById('input-order');
+    const inputEmail = document.getElementById('input-email');
+    const btnSubmit = document.getElementById('btn-submit');
+    const btnText = document.getElementById('btn-text');
+    const btnReset = document.getElementById('btn-reset');
+    const resultsArea = document.getElementById('results-area');
+    const resultsContainer = document.getElementById('results-container');
+    const notFoundCard = document.getElementById('not-found-card');
+    const searchedOrderEl = document.getElementById('searched-order');
+    const searchedEmailEl = document.getElementById('searched-email');
+    const prefillNotice = document.getElementById('prefill-notice');
+    const noticeOrderNo = document.getElementById('notice-order-no');
+
+    // Helper: Escape HTML
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Helper: Format Date
+    function formatDate(isoStr) {
+      if (!isoStr) return 'Fecha reciente';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return String(isoStr);
+        return d.toLocaleDateString('es-CL', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+        });
+      } catch (e) {
+        return String(isoStr);
+      }
+    }
+
+    // Helper: Mask name for privacy (e.g. "Paola Hernandez" -> "Paola H.")
+    function maskCustomerName(name) {
+      if (!name) return 'Cliente';
+      const parts = name.trim().split(/\s+/);
+      if (parts.length === 1) return parts[0];
+      return `${parts[0]} ${parts[1].charAt(0).toUpperCase()}.`;
+    }
+
+    // Query WMS via RPC
+    async function searchTracking(orderNumber, email) {
+      setLoading(true);
+      hideAllOutputs();
+
+      try {
+        const cleanOrder = (orderNumber || '').trim();
+        const cleanEmail = (email || '').trim().toLowerCase();
+
+        const { data, error } = await supabase.rpc('get_customer_tracking', {
+          p_order_number: cleanOrder,
+          p_email: cleanEmail
+        });
+
+        if (error) {
+          console.error('Error en RPC get_customer_tracking:', error);
+          showNotFound(cleanOrder, cleanEmail);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          showNotFound(cleanOrder, cleanEmail);
+          return;
+        }
+
+        renderTrackingResults(data);
+        btnReset.style.display = 'inline-flex';
+
+      } catch (err) {
+        console.error('Excepción consultando tracking:', err);
+        showNotFound(orderNumber, email);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function setLoading(isLoading) {
+      btnSubmit.disabled = isLoading;
+      if (isLoading) {
+        btnText.innerHTML = '<span class="spinner"></span> Verificando pedido...';
+      } else {
+        btnText.innerHTML = 'Consultar Estado';
+      }
+    }
+
+    function hideAllOutputs() {
+      resultsArea.style.display = 'none';
+      notFoundCard.style.display = 'none';
+      resultsContainer.innerHTML = '';
+    }
+
+    function showNotFound(order, email) {
+      searchedOrderEl.textContent = order || 'No especificada';
+      searchedEmailEl.textContent = email || 'No especificado';
+      notFoundCard.style.display = 'block';
+      notFoundCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      btnReset.style.display = 'inline-flex';
+    }
+
+    // Render Order Cards
+    function renderTrackingResults(orders) {
+      let cardsHtml = '';
+
+      orders.forEach(order => {
+        const rawStatus = (order.status || '').toLowerCase();
+        const isRetiro = (order.categoria_entrega || '').toUpperCase().includes('RETIRO') ||
+                         (order.courier || '').toUpperCase().includes('RETIRO') ||
+                         (order.courier || '').toUpperCase().includes('SUCURSAL');
+
+        // Status analysis
+        let statusBadgeClass = 'recibido';
+        let statusBadgeText = 'Pedido Recibido';
+        let statusBadgeIcon = 'ri-time-line';
+
+        let step1Done = true;
+        let step2Done = false;
+        let step3Active = false;
+        let step4Done = false;
+        let isIncident = false;
+
+        if (rawStatus.includes('entreg') || rawStatus.includes('retirado') || rawStatus.includes('complet')) {
+          statusBadgeClass = 'entregado';
+          statusBadgeText = isRetiro ? 'Retirado en Sucursal' : 'Entregado con Éxito';
+          statusBadgeIcon = 'ri-checkbox-circle-fill';
+          step2Done = true;
+          step3Active = true;
+          step4Done = true;
+        } else if (rawStatus.includes('listo para retiro')) {
+          statusBadgeClass = 'retiro';
+          statusBadgeText = '¡Listo para Retiro en Sucursal!';
+          statusBadgeIcon = 'ri-store-2-fill';
+          step2Done = true;
+          step3Active = true;
+        } else if (rawStatus.includes('despach') || rawStatus.includes('camino') || rawStatus.includes('ruta') || rawStatus.includes('reparto')) {
+          statusBadgeClass = 'despachado';
+          statusBadgeText = 'En Camino / En Reparto';
+          statusBadgeIcon = 'ri-truck-fill';
+          step2Done = true;
+          step3Active = true;
+        } else if (rawStatus.includes('prep') || rawStatus.includes('empaq') || rawStatus.includes('picking') || rawStatus.includes('proceso')) {
+          statusBadgeClass = 'preparacion';
+          statusBadgeText = 'En Preparación en Bodega';
+          statusBadgeIcon = 'ri-inbox-archive-fill';
+          step2Done = true;
+        } else if (rawStatus.includes('incidenc')) {
+          statusBadgeClass = 'incidencia';
+          statusBadgeText = 'En Gestión de Incidencia';
+          statusBadgeIcon = 'ri-alert-fill';
+          step2Done = true;
+          isIncident = true;
+        } else if (rawStatus.includes('cancel')) {
+          statusBadgeClass = 'cancelado';
+          statusBadgeText = 'Pedido Cancelado';
+          statusBadgeIcon = 'ri-close-circle-fill';
+        }
+
+        // Stepper Progress Line percentage
+        let progressWidth = '0%';
+        if (step4Done) progressWidth = '100%';
+        else if (step3Active) progressWidth = '66%';
+        else if (step2Done) progressWidth = '33%';
+
+        // Courier URL resolution
+        let courierUrl = order.tracking_url;
+        const trackingCode = order.tracking_number && order.tracking_number !== 'No informado' ? order.tracking_number : null;
+
+        if (!courierUrl && trackingCode && !isRetiro) {
+          const cUpper = (order.courier || '').toUpperCase();
+          if (cUpper.includes('STARKEN')) {
+            courierUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(trackingCode)}`;
+          } else if (cUpper.includes('BLUE')) {
+            courierUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(trackingCode)}`;
+          } else if (cUpper.includes('CHILEXPRESS')) {
+            courierUrl = `https://www.chilexpress.cl/tracking-resultado?nro=${encodeURIComponent(trackingCode)}`;
+          }
+        }
+
+        // Format Courier Name
+        let courierDisplay = order.courier || 'Stocka Express';
+        if (courierDisplay.toUpperCase().includes('CARRIER EXTERNO') || courierDisplay.toUpperCase().includes('ALPHA')) {
+          courierDisplay = 'Alpha Group (Carrier Oficial)';
+        } else if (courierDisplay.toUpperCase().includes('OPTIROUTE') || courierDisplay.toUpperCase().includes('STOCKA X')) {
+          courierDisplay = 'Stocka X (Entrega Express Directa)';
+        }
+
+        cardsHtml += `
+          <div class="order-card">
+            <!-- Header -->
+            <div class="order-card-header">
+              <div class="order-header-left">
+                <span class="store-badge">
+                  <i class="ri-store-line"></i> ${escapeHtml(order.comercio)}
+                </span>
+                <h2 class="order-title">Orden #${escapeHtml(order.order_number)}</h2>
+                <div class="order-meta">
+                  <div class="order-meta-item">
+                    <i class="ri-calendar-line"></i>
+                    <span>Comprado: ${formatDate(order.created_at)}</span>
+                  </div>
+                  ${order.shipping_city ? `
+                    <div class="order-meta-item">
+                      <i class="ri-map-pin-line"></i>
+                      <span>Destino: ${escapeHtml(order.shipping_city)}</span>
+                    </div>
+                  ` : ''}
+                  <div class="order-meta-item">
+                    <i class="ri-user-line"></i>
+                    <span>Destinatario: ${escapeHtml(maskCustomerName(order.customer_name))}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <span class="status-badge ${statusBadgeClass}">
+                  <i class="${statusBadgeIcon}"></i>
+                  ${escapeHtml(statusBadgeText)}
+                </span>
+              </div>
+            </div>
+
+            <!-- Stepper Timeline -->
+            <div class="timeline-container">
+              <div class="stepper">
+                <div class="stepper-progress-line" style="width: ${progressWidth};"></div>
+
+                <!-- Step 1 -->
+                <div class="step-item ${step1Done ? 'done' : ''}">
+                  <div class="step-circle">
+                    <i class="ri-check-line"></i>
+                  </div>
+                  <div class="step-details">
+                    <span class="step-title">1. Confirmado</span>
+                    <span class="step-subtext">Orden recibida en bodega</span>
+                  </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="step-item ${step2Done ? (step3Active ? 'done' : 'active') : ''}">
+                  <div class="step-circle">
+                    <i class="${step2Done ? 'ri-check-line' : 'ri-inbox-archive-line'}"></i>
+                  </div>
+                  <div class="step-details">
+                    <span class="step-title">2. Preparación</span>
+                    <span class="step-subtext">Picking y embalaje Stocka</span>
+                  </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="step-item ${step3Active ? (step4Done ? 'done' : 'active') : ''} ${isIncident ? 'incident' : ''}">
+                  <div class="step-circle">
+                    <i class="${step4Done ? 'ri-check-line' : (isRetiro ? 'ri-store-2-line' : 'ri-truck-line')}"></i>
+                  </div>
+                  <div class="step-details">
+                    <span class="step-title">${isRetiro ? '3. Listo para Retiro' : '3. En Despacho'}</span>
+                    <span class="step-subtext">${isRetiro ? 'Disponible en mesón' : 'En manos del transporte'}</span>
+                  </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="step-item ${step4Done ? 'done' : ''}">
+                  <div class="step-circle">
+                    <i class="ri-flag-2-line"></i>
+                  </div>
+                  <div class="step-details">
+                    <span class="step-title">4. Entregado</span>
+                    <span class="step-subtext">${isRetiro ? 'Retirado por cliente' : 'Recibido en destino'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Delivery or Pickup Card -->
+            ${isRetiro ? `
+              <div class="pickup-card">
+                <div class="pickup-header">
+                  <i class="ri-map-pin-2-fill"></i>
+                  <span>Instrucciones de Retiro en Tienda / Sucursal</span>
+                </div>
+                <div class="pickup-details-grid">
+                  <div class="pickup-detail-row">
+                    <i class="ri-map-pin-line"></i>
+                    <div>
+                      <strong>Dirección de Retiro:</strong><br>
+                      Punto STOCKA Ñuñoa • Avenida Campo de Deportes 405, Ñuñoa, Región Metropolitana.
+                    </div>
+                  </div>
+                  <div class="pickup-detail-row">
+                    <i class="ri-time-line"></i>
+                    <div>
+                      <strong>Horario de Atención:</strong><br>
+                      Lunes a Viernes de 09:00 a 18:00 hrs continuado.
+                    </div>
+                  </div>
+                </div>
+                <div style="font-size: 0.8rem; color: #581c87; background: rgba(255,255,255,0.7); padding: 0.6rem 0.85rem; border-radius: 8px; border: 1px solid #e9d5ff;">
+                  💡 <strong>¿Qué necesitas para retirar?</strong> Presentar tu cédula de identidad y el número de orden <strong>#${escapeHtml(order.order_number)}</strong>. Si retira un tercero, debe traer poder simple o copia de cédula del comprador.
+                </div>
+              </div>
+            ` : `
+              <div class="delivery-box">
+                <div class="delivery-info-left">
+                  <div class="delivery-carrier-name">
+                    <i class="ri-truck-line" style="color: var(--primary);"></i>
+                    <span>Transporte: ${escapeHtml(courierDisplay)}</span>
+                  </div>
+                  ${trackingCode ? `
+                    <div class="tracking-code-row">
+                      <span style="font-size: 0.82rem; color: var(--text-muted); font-weight: 600;">Código de Rastreo:</span>
+                      <span class="tracking-code-pill" id="track-code-${escapeHtml(order.id)}">${escapeHtml(trackingCode)}</span>
+                      <button type="button" class="btn-copy" onclick="copyTrackingCode('${escapeHtml(trackingCode)}', this)">
+                        <i class="ri-file-copy-line"></i> Copiar
+                      </button>
+                    </div>
+                  ` : `
+                    <div style="font-size: 0.82rem; color: var(--text-muted);">
+                      Tu guía de courier está en proceso de asignación y despacho.
+                    </div>
+                  `}
+                </div>
+
+                <div class="delivery-actions-right">
+                  ${courierUrl ? `
+                    <a href="${escapeHtml(courierUrl)}" target="_blank" rel="noopener noreferrer" class="btn-external-track">
+                      <span>Ver Rastreo Oficial en Vivo</span>
+                      <i class="ri-external-link-line"></i>
+                    </a>
+                  ` : `
+                    <div style="font-size: 0.78rem; text-align: center; color: var(--text-muted);">
+                      <i class="ri-information-line"></i> El enlace de seguimiento en vivo se habilitará una vez que el courier inicie ruta.
+                    </div>
+                  `}
+                </div>
+              </div>
+            `}
+
+          </div>
+        `;
+      });
+
+      resultsContainer.innerHTML = cardsHtml;
+      resultsArea.style.display = 'block';
+      resultsArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Helper: Copy Tracking Code
+    window.copyTrackingCode = function(text, btnElement) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        const origHtml = btnElement.innerHTML;
+        btnElement.innerHTML = '<i class="ri-check-line" style="color:#059669;"></i> ¡Copiado!';
+        setTimeout(() => {
+          btnElement.innerHTML = origHtml;
+        }, 2000);
+      }).catch(err => {
+        console.error('Error al copiar:', err);
+      });
+    };
+
+    // Form Submit Event
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const order = inputOrder.value.trim();
+      const email = inputEmail.value.trim();
+
+      if (!order || !email) {
+        alert('Por favor ingresa tanto el número de pedido como el correo electrónico.');
+        return;
+      }
+
+      // Update URL with search params for easy sharing/bookmarking
+      const currentUrl = new URL(window.location.href);
+      currentUrl.searchParams.set('pedido', order);
+      currentUrl.searchParams.set('email', email);
+      window.history.replaceState({}, '', currentUrl.toString());
+
+      searchTracking(order, email);
+    });
+
+    // Reset Form Event
+    btnReset.addEventListener('click', () => {
+      form.reset();
+      hideAllOutputs();
+      btnReset.style.display = 'none';
+      prefillNotice.style.display = 'none';
+      inputOrder.focus();
+
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.search = '';
+      window.history.replaceState({}, '', cleanUrl.toString());
+    });
+
+    // Auto-load from URL Query Parameters on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const urlOrder = params.get('pedido') || params.get('orden') || params.get('order') || params.get('n');
+      const urlEmail = params.get('email') || params.get('correo') || params.get('mail');
+
+      if (urlOrder) {
+        inputOrder.value = urlOrder.trim();
+      }
+
+      if (urlEmail) {
+        inputEmail.value = urlEmail.trim();
+      }
+
+      // If both parameters exist, auto-trigger search immediately
+      if (urlOrder && urlEmail) {
+        searchTracking(urlOrder, urlEmail);
+      } else if (urlOrder && !urlEmail) {
+        // Show notice requiring email for security
+        noticeOrderNo.textContent = `#${urlOrder.trim()}`;
+        prefillNotice.style.display = 'flex';
+        inputEmail.focus();
+      }
+    });
+  </script>
+
+</body>
+</html>

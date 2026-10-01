@@ -7299,7 +7299,7 @@ window.getWmsFilteredOrders = function(excludeColKey = null, forTab = null) {
 
     // 3. Pestaña activa
     if (targetTab && targetTab !== 'Todos') {
-      if (excludeColKey !== 'estado_wms' && order.estado_wms !== targetTab) {
+      if (order.estado_wms !== targetTab) {
         return false;
       }
     }

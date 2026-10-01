@@ -17,3 +17,8 @@ https://stocka-wms.netlify.app/* https://wms.stocka.cl/:splat 301!
 /cyber-2026 /cyber.html 200
 /planes-cyber /cyber.html 200
 /encuesta-cyber /cyber.html 200
+/seguimiento /seguimiento.html 200
+/tracking /seguimiento.html 200
+/rastreo /seguimiento.html 200
+/seguimiento.html /seguimiento.html 200
+/tracking.html /seguimiento.html 200

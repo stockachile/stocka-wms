@@ -436,6 +436,20 @@ export function injectBillingGeneratorStyles() {
       box-shadow: 0 0 0 2px rgba(95, 6, 250, 0.15);
     }
 
+    /* Ocultar botones de incremento/decremento (steppers) para que no tapen los números */
+    .bg-excel-input::-webkit-outer-spin-button,
+    .bg-excel-input::-webkit-inner-spin-button,
+    .bg-col-filter-input::-webkit-outer-spin-button,
+    .bg-col-filter-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .bg-excel-input[type=number],
+    .bg-col-filter-input[type=number] {
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+
     .bg-excel-select {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
@@ -1276,11 +1290,36 @@ export function computeProductsStatsFromOrders(orders = []) {
   let totalUnitsSold = 0;
 
   billableOrders.forEach(ord => {
-    const items = (ord.items && ord.items.length > 0) ? ord.items : [{
-      sku: String(ord.sku || 'S/SKU').trim(),
-      name: String(ord.item || ord.sku || 'Producto general').trim(),
-      quantity: parseInt(ord.unitsCount, 10) || 1
-    }];
+    let items = (ord.items && ord.items.length > 0) ? ord.items : null;
+
+    if (!items || items.length === 0) {
+      const rawSku = (ord.sku && ord.sku !== 'null') ? String(ord.sku).trim() : '';
+      const rawItem = (ord.item && ord.item !== 'null') ? String(ord.item).trim() : '';
+
+      if (rawSku.includes(',') || rawItem.includes(',')) {
+        const skus = rawSku ? rawSku.split(',').map(s => s.trim()) : [];
+        const names = rawItem ? rawItem.split(',').map(n => n.trim()) : [];
+        const maxLen = Math.max(skus.length, names.length);
+        items = [];
+        for (let i = 0; i < maxLen; i++) {
+          const s = skus[i] || skus[0] || 'S/SKU';
+          const n = names[i] || names[0] || s || 'Producto';
+          items.push({ sku: s, name: n, quantity: 1 });
+        }
+      } else if (rawSku || rawItem) {
+        items = [{
+          sku: rawSku || 'S/SKU',
+          name: rawItem || rawSku || 'Producto',
+          quantity: parseInt(ord.unitsCount || ord.cantidad, 10) || 1
+        }];
+      } else {
+        items = [{
+          sku: 'S/SKU',
+          name: `Pedido #${ord.orderNumber || ord.externalOrderNumber || (ord.id ? ord.id.slice(0, 8) : 'General')}`,
+          quantity: parseInt(ord.unitsCount || ord.cantidad, 10) || 1
+        }];
+      }
+    }
 
     items.forEach(it => {
       const key = it.sku && it.sku !== 'S/SKU' ? it.sku : (it.name || 'Desconocido');
@@ -1807,7 +1846,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   // 6. Consultar pedidos asignados al periodo en el Gestor de Pedidos con paginación keyset determinista
   let ordersList = [];
   try {
-    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion';
+    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,raw_shopify_data,raw_woocommerce_data,raw_meli_data';
 
     const step = 1000;
     let lastCreatedAt = null;
@@ -1940,6 +1979,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     if (ord.order_items && Array.isArray(ord.order_items) && ord.order_items.length > 0) {
       skuCount = ord.order_items.length;
       unitsCount = ord.order_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+    } else if (ord.raw_shopify_data?.line_items && Array.isArray(ord.raw_shopify_data.line_items) && ord.raw_shopify_data.line_items.length > 0) {
+      skuCount = ord.raw_shopify_data.line_items.length;
+      unitsCount = ord.raw_shopify_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+    } else if (ord.raw_woocommerce_data?.line_items && Array.isArray(ord.raw_woocommerce_data.line_items) && ord.raw_woocommerce_data.line_items.length > 0) {
+      skuCount = ord.raw_woocommerce_data.line_items.length;
+      unitsCount = ord.raw_woocommerce_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
     } else if (ord.sku && ord.sku.includes(',')) {
       skuCount = ord.sku.split(',').length;
     }
@@ -2120,48 +2165,94 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   let totalUnitsSold = 0;
 
   billableOrders.forEach(ord => {
-    const rawOrd = ordersList.find(o => o.id === ord.id) || ord;
+    const memOrd = (window.loadedOrders && Array.isArray(window.loadedOrders)) ? window.loadedOrders.find(o => o.id === ord.id) : null;
+    const rawOrd = ordersList.find(o => o.id === ord.id) || memOrd || ord;
     let items = [];
 
-    if (rawOrd.order_items && Array.isArray(rawOrd.order_items) && rawOrd.order_items.length > 0) {
-      items = rawOrd.order_items.map(oi => ({
-        sku: String(oi.products?.sku || 'S/SKU').trim(),
-        name: String(oi.products?.name || oi.products?.sku || 'Producto sin nombre').trim(),
+    // 1. Probar order_items (si viene cargado en rawOrd o memOrd)
+    const oItems = rawOrd.order_items || memOrd?.order_items;
+    if (oItems && Array.isArray(oItems) && oItems.length > 0) {
+      items = oItems.map(oi => ({
+        sku: String(oi.products?.sku || oi.sku || 'S/SKU').trim(),
+        name: String(oi.products?.name || oi.products?.sku || oi.item_name || 'Producto sin nombre').trim(),
         quantity: parseInt(oi.quantity, 10) || 1
       }));
-    } else if (rawOrd.raw_shopify_data?.line_items && Array.isArray(rawOrd.raw_shopify_data.line_items)) {
-      items = rawOrd.raw_shopify_data.line_items.map(li => ({
-        sku: String(li.sku || 'S/SKU').trim(),
-        name: String(li.name || li.title || 'Producto Shopify').trim(),
-        quantity: parseInt(li.quantity, 10) || 1
-      }));
-    } else if (rawOrd.raw_woocommerce_data?.line_items && Array.isArray(rawOrd.raw_woocommerce_data.line_items)) {
-      items = rawOrd.raw_woocommerce_data.line_items.map(li => ({
-        sku: String(li.sku || 'S/SKU').trim(),
-        name: String(li.name || 'Producto WooCommerce').trim(),
-        quantity: parseInt(li.quantity, 10) || 1
-      }));
-    } else if (rawOrd.raw_meli_data) {
-      const meliOrders = Array.isArray(rawOrd.raw_meli_data) ? rawOrd.raw_meli_data : [rawOrd.raw_meli_data];
-      meliOrders.forEach(mo => {
-        if (mo && Array.isArray(mo.order_items)) {
-          mo.order_items.forEach(mi => {
-            items.push({
-              sku: String(mi.item?.seller_sku || 'S/SKU').trim(),
-              name: String(mi.item?.title || 'Producto MercadoLibre').trim(),
-              quantity: parseInt(mi.quantity, 10) || 1
-            });
-          });
-        }
-      });
     }
 
+    // 2. Probar raw_shopify_data
     if (items.length === 0) {
-      items.push({
-        sku: String(rawOrd.sku || 'S/SKU').trim(),
-        name: String(rawOrd.item || rawOrd.sku || 'Producto general').trim(),
-        quantity: parseInt(rawOrd.cantidad, 10) || ord.unitsCount || 1
-      });
+      const shopifyData = rawOrd.raw_shopify_data || memOrd?.raw_shopify_data;
+      if (shopifyData?.line_items && Array.isArray(shopifyData.line_items) && shopifyData.line_items.length > 0) {
+        items = shopifyData.line_items.map(li => ({
+          sku: String(li.sku || 'S/SKU').trim(),
+          name: String(li.name || li.title || 'Producto Shopify').trim(),
+          quantity: parseInt(li.quantity, 10) || 1
+        }));
+      }
+    }
+
+    // 3. Probar raw_woocommerce_data
+    if (items.length === 0) {
+      const wooData = rawOrd.raw_woocommerce_data || memOrd?.raw_woocommerce_data;
+      if (wooData?.line_items && Array.isArray(wooData.line_items) && wooData.line_items.length > 0) {
+        items = wooData.line_items.map(li => ({
+          sku: String(li.sku || 'S/SKU').trim(),
+          name: String(li.name || 'Producto WooCommerce').trim(),
+          quantity: parseInt(li.quantity, 10) || 1
+        }));
+      }
+    }
+
+    // 4. Probar raw_meli_data
+    if (items.length === 0) {
+      const meliData = rawOrd.raw_meli_data || memOrd?.raw_meli_data;
+      if (meliData) {
+        const meliOrders = Array.isArray(meliData) ? meliData : [meliData];
+        meliOrders.forEach(mo => {
+          if (mo && Array.isArray(mo.order_items)) {
+            mo.order_items.forEach(mi => {
+              items.push({
+                sku: String(mi.item?.seller_sku || 'S/SKU').trim(),
+                name: String(mi.item?.title || 'Producto MercadoLibre').trim(),
+                quantity: parseInt(mi.quantity, 10) || 1
+              });
+            });
+          }
+        });
+      }
+    }
+
+    // 5. Probar campos planos sku / item (desglosando listas separadas por coma)
+    if (items.length === 0) {
+      const rawSku = (rawOrd.sku && rawOrd.sku !== 'null') ? String(rawOrd.sku).trim() : '';
+      const rawItem = (rawOrd.item && rawOrd.item !== 'null') ? String(rawOrd.item).trim() : '';
+
+      if (rawSku.includes(',') || rawItem.includes(',')) {
+        const skus = rawSku ? rawSku.split(',').map(s => s.trim()) : [];
+        const names = rawItem ? rawItem.split(',').map(n => n.trim()) : [];
+        const maxLen = Math.max(skus.length, names.length);
+        for (let i = 0; i < maxLen; i++) {
+          const s = skus[i] || skus[0] || 'S/SKU';
+          const n = names[i] || names[0] || s || 'Producto sin nombre';
+          items.push({
+            sku: s,
+            name: n,
+            quantity: 1
+          });
+        }
+      } else if (rawSku || rawItem) {
+        items.push({
+          sku: rawSku || 'S/SKU',
+          name: rawItem || rawSku || 'Producto',
+          quantity: parseInt(rawOrd.cantidad, 10) || ord.unitsCount || 1
+        });
+      } else {
+        items.push({
+          sku: 'S/SKU',
+          name: `Pedido #${ord.orderNumber || (ord.id ? ord.id.slice(0, 8) : 'General')}`,
+          quantity: parseInt(rawOrd.cantidad, 10) || ord.unitsCount || 1
+        });
+      }
     }
 
     ord.items = items;
@@ -2314,7 +2405,29 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
   const totalAdjustmentsNet = billingState.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
 
-  // 12.1 Restaurar checks de checklist si vienen en el snapshot guardado
+  // 12.2 Abonos a Cuenta (descuentan directamente del monto a pagar por el cliente)
+  if (customOverrides.abonos !== undefined) {
+    billingState.abonos = customOverrides.abonos;
+  } else if (savedSnapshot && Array.isArray(savedSnapshot.abonos)) {
+    billingState.abonos = savedSnapshot.abonos;
+  } else if (billingState.abonosSessionKey === currentSuppliesKey && Array.isArray(billingState.abonos)) {
+    // Preservar abonos en memoria durante la sesión activa
+  } else {
+    try {
+      const localAbonosStr = localStorage.getItem(`stocka_billing_abonos_${currentSuppliesKey}`);
+      if (localAbonosStr) {
+        billingState.abonos = JSON.parse(localAbonosStr);
+      } else {
+        billingState.abonos = [];
+      }
+    } catch (eAb) {
+      billingState.abonos = [];
+    }
+    billingState.abonosSessionKey = currentSuppliesKey;
+  }
+  const totalAbonos = (billingState.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+
+  // 12.3 Restaurar checks de checklist si vienen en el snapshot guardado
   if (savedSnapshot && savedSnapshot.checklist && savedSnapshot.checklist.checks) {
     if (typeof saveChecklistChecks === 'function') {
       const existingChecks = getChecklistChecks(billingState.currentPeriodId, commerceName);
@@ -2328,6 +2441,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
+  const totalToPay = Math.max(0, totalGross - totalAbonos);
 
   billingState.totals = {
     ordersCount: totalOrdersCount,
@@ -2358,7 +2472,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     totalNet,
     iva: totalIVA,
     totalGross,
-    totalToPay: totalGross
+    totalAbonos,
+    totalToPay
   };
 
   // 10. Desglose analítico por tienda si es un conglomerado
@@ -2550,7 +2665,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         ` : ''}
       </div>
 
-      <!-- Hero Card: Total a Pagar y Resumen Fiscal -->
+      <!-- Hero Card: Total a Facturar, Abonos y Monto a Pagar -->
       <div class="stocka-banner-hero">
         <div style="display: flex; gap: 2rem; align-items: center; flex-wrap: wrap;">
           <div>
@@ -2565,11 +2680,32 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
             <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85; font-weight: 600;">Descuentos / Ajustes</div>
             <div style="font-size: 1.15rem; font-weight: 800;">${t.adjustmentsNet ? formatCLP(t.adjustmentsNet) : '$0'}</div>
           </div>
+          ${t.totalAbonos > 0 ? `
+          <div style="border-left: 1px solid rgba(255,255,255,0.25); padding-left: 1.5rem;">
+            <div style="font-size: 0.725rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; font-weight: 700; color: #a7f3d0;">Abonos Registrados</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #6ee7b7;">-${formatCLP(t.totalAbonos)}</div>
+          </div>
+          ` : ''}
         </div>
 
         <div style="text-align: right;">
-          <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; opacity: 0.9;">TOTAL A FACTURAR / PAGAR</div>
-          <div style="font-size: 2.1rem; font-weight: 900; line-height: 1.1;">${formatCLP(t.totalToPay)}</div>
+          ${t.totalAbonos > 0 ? `
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px;">
+              <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; opacity: 0.9;">
+                MONTO A FACTURAR (CON IVA): <span style="font-weight: 800; font-size: 0.95rem; text-decoration: underline;">${formatCLP(t.totalGross)}</span>
+              </div>
+              <div style="font-size: 0.75rem; color: #a7f3d0; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                <i class="ri-checkbox-circle-fill"></i> Abonos a favor: -${formatCLP(t.totalAbonos)}
+              </div>
+              <div style="margin-top: 3px; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 4px; width: 100%;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 800; color: #fde047;">MONTO A PAGAR (SALDO)</div>
+                <div style="font-size: 2.1rem; font-weight: 900; line-height: 1.1; color: #ffffff;">${formatCLP(t.totalToPay)}</div>
+              </div>
+            </div>
+          ` : `
+            <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; opacity: 0.9;">TOTAL A FACTURAR / PAGAR</div>
+            <div style="font-size: 2.1rem; font-weight: 900; line-height: 1.1;">${formatCLP(t.totalToPay)}</div>
+          `}
         </div>
       </div>
 
@@ -2778,15 +2914,77 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               </tr>
             `).join('')}
 
-            <!-- Fila de Totales Finales -->
+            <!-- 8. Abonos Registrados a Cuenta (Descuentan directamente el total a pagar) -->
+            ${(b.abonos || []).map((ab, idx) => `
+              <tr style="background: rgba(16, 185, 129, 0.04); border-left: 3px solid #10b981;">
+                <td>
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="background: #10b981; color: #ffffff; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; display: inline-flex; align-items: center; gap: 3px;">
+                          <i class="ri-hand-coin-line"></i> Abono
+                        </span>
+                        <strong style="color: #0f172a; font-size: 0.85rem;">${escapeHtml(ab.reference || 'Abono a cuenta')}</strong>
+                        ${ab.voucher ? `<span style="font-size: 0.72rem; color: #047857; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(ab.voucher)}</span>` : ''}
+                      </div>
+                      <div style="font-size: 0.72rem; color: #047857; margin-top: 3px;">
+                        ${ab.date ? `Fecha: <strong>${escapeHtml(ab.date)}</strong>` : ''}
+                        ${ab.notes ? ` · Obs: ${escapeHtml(ab.notes)}` : ''}
+                        · <em>Descuenta directamente el saldo a pagar por el cliente</em>
+                      </div>
+                    </div>
+                    ${!isClient ? `
+                    <div class="no-print" style="display: flex; gap: 4px; align-items: center;">
+                      <button type="button" onclick="window.editManualAbonoItem('${ab.id || idx}')" title="Editar este abono" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #059669; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-edit-line"></i> Editar
+                      </button>
+                      <button type="button" onclick="window.deleteManualAbonoItem('${ab.id || idx}')" title="Eliminar este abono" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #dc2626; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="ri-delete-bin-line"></i> Eliminar
+                      </button>
+                    </div>` : ''}
+                  </div>
+                </td>
+                <td style="text-align: center; font-weight: 600; color: #64748b;">gl.</td>
+                <td style="text-align: center; font-weight: 700; color: #0f172a;">1</td>
+                <td style="text-align: right; color: #64748b;">—</td>
+                <td style="text-align: right; color: #64748b;">—</td>
+                <td style="text-align: right; font-weight: 800; color: #059669; font-size: 0.95rem;">
+                  -${formatCLP(ab.amount)}
+                </td>
+              </tr>
+            `).join('')}
+
+            <!-- Fila de Totales Finales (Monto a Facturar) -->
             <tr style="background: #f8fafc; font-weight: 800; border-top: 2px solid #5f06fa;">
               <td colspan="3" style="text-align: right; padding-right: 1.5rem; font-size: 0.9rem; color: #0f172a;">
-                TOTALES DEL PERIODO:
+                ${t.totalAbonos > 0 ? 'MONTO TOTAL A FACTURAR (CON IVA):' : 'TOTALES DEL PERIODO:'}
               </td>
               <td style="text-align: right; color: #5f06fa; font-size: 0.95rem;">${formatCLP(t.totalNet)}</td>
               <td style="text-align: right; color: #5f06fa; font-size: 0.95rem;">${formatCLP(t.iva)}</td>
               <td style="text-align: right; color: #5f06fa; font-size: 1.05rem; font-weight: 900;">${formatCLP(t.totalGross)}</td>
             </tr>
+
+            ${t.totalAbonos > 0 ? `
+            <!-- Fila Resumen de Abonos Registrados -->
+            <tr style="background: rgba(16, 185, 129, 0.05); font-weight: 800; border-top: 1px solid rgba(16, 185, 129, 0.25);">
+              <td colspan="5" style="text-align: right; padding-right: 1.5rem; font-size: 0.88rem; color: #047857;">
+                <i class="ri-checkbox-circle-line"></i> (-) TOTAL ABONOS REGISTRADOS:
+              </td>
+              <td style="text-align: right; color: #047857; font-size: 1.05rem; font-weight: 900;">
+                -${formatCLP(t.totalAbonos)}
+              </td>
+            </tr>
+
+            <!-- Fila Resumen Monto Final a Pagar -->
+            <tr style="background: #f5f3ff; font-weight: 900; border-top: 2px solid #5f06fa;">
+              <td colspan="5" style="text-align: right; padding-right: 1.5rem; font-size: 0.95rem; color: #5f06fa;">
+                MONTO FINAL A PAGAR POR EL CLIENTE (SALDO):
+              </td>
+              <td style="text-align: right; color: #5f06fa; font-size: 1.25rem; font-weight: 900;">
+                ${formatCLP(t.totalToPay)}
+              </td>
+            </tr>
+            ` : ''}
           </tbody>
         </table>
       </div>
@@ -3065,8 +3263,26 @@ export function exportBillingToExcel(customState = null) {
     ]);
   });
 
+  const abonosList = b.abonos || [];
+  const totalAbonos = t.totalAbonos !== undefined ? t.totalAbonos : abonosList.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+  const totalToPay = t.totalToPay !== undefined ? t.totalToPay : Math.max(0, t.totalGross - totalAbonos);
+
   summaryData.push([]);
-  summaryData.push(["TOTALES DEL PERIODO", "", "", t.totalNet, t.iva, t.totalGross]);
+  if (totalAbonos > 0) {
+    summaryData.push(["MONTO TOTAL A FACTURAR (CON IVA)", "", "", t.totalNet, t.iva, t.totalGross]);
+    summaryData.push([]);
+    summaryData.push(["ABONOS / PAGOS REGISTRADOS", "", "", "", "", ""]);
+    abonosList.forEach(ab => {
+      const docPart = ab.voucher ? `Comprobante ${ab.voucher}` : (ab.reference || 'Abono');
+      const datePart = ab.date ? `(${ab.date})` : '';
+      const notesPart = ab.notes ? `[${ab.notes}]` : '';
+      summaryData.push([`Abono: ${docPart} ${datePart} ${notesPart}`.trim(), "gl.", 1, "", "", -Math.abs(Math.round(Number(ab.amount)) || 0)]);
+    });
+    summaryData.push(["(-) TOTAL ABONOS REGISTRADOS", "", "", "", "", -totalAbonos]);
+    summaryData.push(["MONTO FINAL A PAGAR POR EL CLIENTE (SALDO)", "", "", "", "", totalToPay]);
+  } else {
+    summaryData.push(["TOTALES DEL PERIODO (A FACTURAR / A PAGAR)", "", "", t.totalNet, t.iva, t.totalGross]);
+  }
 
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
   XLSX.utils.book_append_sheet(wb, wsSummary, "Desglose Oficial");
@@ -3261,7 +3477,8 @@ export async function saveBillingRecordToSupabase() {
     });
 
     const payload = {
-      total_fulfillment: t.totalToPay,
+      total_fulfillment: t.totalGross || 0,
+      abono_fulfillment: t.totalAbonos || 0,
       desglose_fulfillment: 'Creado',
       updated_at: new Date().toISOString()
     };
@@ -3295,6 +3512,7 @@ export async function saveBillingRecordToSupabase() {
       orders: b.orders,
       supplies: b.supplies,
       adjustments: b.adjustments,
+      abonos: b.abonos || [],
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       generatedAt: new Date().toISOString()
     };
@@ -3341,7 +3559,7 @@ export async function saveBillingRecordToSupabase() {
     billingState.isSaved = true;
     billingState.savedRecordStatus = 'Creado';
     renderKPIsUI();
-    Swal.fire('¡Facturación Guardada!', `Se actualizó el monto total a ${formatCLP(t.totalToPay)} y el estado a "Creado" para ${b.currentCommerce}.`, 'success');
+    Swal.fire('¡Facturación Guardada!', `Se actualizó el monto facturado a ${formatCLP(t.totalGross || 0)}${(t.totalAbonos > 0) ? ` (Abonos: -${formatCLP(t.totalAbonos)} | Saldo a pagar: ${formatCLP(t.totalToPay)})` : ''} y el estado a "Creado" para ${b.currentCommerce}.`, 'success');
 
     if (typeof window.loadBillingPeriods === 'function') {
       window.loadBillingPeriods();
@@ -3409,9 +3627,19 @@ export async function confirmAndPublishBillingToCommerce() {
             <strong style="color: #0284c7;">${t.billableOrdersCount || 0} pedidos</strong>
           </div>
           <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 0.35rem; margin-top: 0.35rem;">
-            <span style="color: #0f172a; font-weight: 700;">Monto Total Facturado:</span>
-            <strong style="color: #5f06fa; font-size: 1.05rem;">${formatCLP(t.totalToPay || 0)}</strong>
+            <span style="color: #0f172a; font-weight: 700;">Monto a Facturar (con IVA):</span>
+            <strong style="color: #5f06fa; font-size: 1.08rem; font-weight: 800;">${formatCLP(t.totalGross || 0)}</strong>
           </div>
+          ${(t.totalAbonos > 0) ? `
+          <div style="display: flex; justify-content: space-between; margin-top: 0.25rem;">
+            <span style="color: #166534; font-weight: 600;">(-) Abonos Registrados:</span>
+            <strong style="color: #166534; font-size: 0.95rem;">-${formatCLP(t.totalAbonos)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-top: 1px dashed #cbd5e1; padding-top: 0.4rem; margin-top: 0.4rem; background: #eef2ff; margin-left: -1rem; margin-right: -1rem; padding-left: 1rem; padding-right: 1rem; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;">
+            <span style="color: #1e1b4b; font-weight: 800;">Monto a Pagar (Saldo Cliente):</span>
+            <strong style="color: #4338ca; font-size: 1.15rem; font-weight: 900;">${formatCLP(t.totalToPay || 0)}</strong>
+          </div>
+          ` : ''}
         </div>
         <div style="background: rgba(95, 6, 250, 0.06); border: 1px solid rgba(95, 6, 250, 0.2); border-radius: 6px; padding: 0.55rem 0.75rem; font-size: 0.78rem; color: #5f06fa; line-height: 1.4;">
           <i class="ri-information-line"></i> <strong>Efecto en el Portal del Cliente:</strong><br>
@@ -3462,6 +3690,7 @@ export async function confirmAndPublishBillingToCommerce() {
       orders: b.orders,
       supplies: b.supplies,
       adjustments: b.adjustments,
+      abonos: b.abonos || [],
       pricingConfig: b.pricingConfig,
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       publishedAt: new Date().toISOString()
@@ -3483,7 +3712,8 @@ export async function confirmAndPublishBillingToCommerce() {
 
     // 3. Actualizar o insertar registro en base de datos
     const updatePayload = {
-      total_fulfillment: t.totalToPay,
+      total_fulfillment: t.totalGross || 0,
+      abono_fulfillment: t.totalAbonos || 0,
       desglose_fulfillment: 'Enviado',
       updated_at: new Date().toISOString()
     };
@@ -3504,9 +3734,9 @@ export async function confirmAndPublishBillingToCommerce() {
       .maybeSingle();
 
     // Auto-transición de estados operativos: al publicar cobro, pasa a 'En espera' de pago y 'Facturar'
-    if (t.totalToPay > 0) {
+    if ((t.totalGross || 0) > 0) {
       if (!existingRec || !existingRec.pago_fulfillment || existingRec.pago_fulfillment === 'Por solicitar') {
-        updatePayload.pago_fulfillment = 'En espera';
+        updatePayload.pago_fulfillment = (t.totalToPay || 0) > 0 ? 'En espera' : 'Recibido';
       }
       if (!existingRec || !existingRec.factura_fulfillment || existingRec.factura_fulfillment === 'Esperando') {
         updatePayload.factura_fulfillment = 'Facturar';
@@ -3526,8 +3756,8 @@ export async function confirmAndPublishBillingToCommerce() {
         .insert({
           period_id: b.currentPeriodId,
           comercio: b.currentCommerce,
-          pago_fulfillment: t.totalToPay > 0 ? 'En espera' : 'Sin movimientos',
-          factura_fulfillment: t.totalToPay > 0 ? 'Facturar' : 'Sin movimientos',
+          pago_fulfillment: (t.totalToPay || 0) > 0 ? 'En espera' : ((t.totalGross || 0) > 0 ? 'Recibido' : 'Sin movimientos'),
+          factura_fulfillment: (t.totalGross || 0) > 0 ? 'Facturar' : 'Sin movimientos',
           ...updatePayload
         });
 
@@ -3560,7 +3790,13 @@ export async function confirmAndPublishBillingToCommerce() {
       html: `
         <div style="text-align: left; font-size: 0.85rem; line-height: 1.4;">
           <p>La facturación de <strong>${escapeHtml(b.currentCommerce)}</strong> para <strong>${escapeHtml(b.currentPeriodName)}</strong> ha sido confirmada y publicada.</p>
-          <p style="color: #10b981; font-weight: 700;"><i class="ri-checkbox-circle-line"></i> Monto cobrado: ${formatCLP(t.totalToPay)} (con IVA)</p>
+          <p style="color: #5f06fa; font-weight: 700; margin-bottom: 0.25rem;"><i class="ri-file-text-line"></i> Monto a Facturar: ${formatCLP(t.totalGross || 0)} (con IVA)</p>
+          ${(t.totalAbonos > 0) ? `
+          <p style="color: #166534; font-weight: 700; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Abonos Registrados: -${formatCLP(t.totalAbonos)}</p>
+          <p style="color: #4338ca; font-weight: 800; font-size: 0.95rem; margin-bottom: 0.5rem;"><i class="ri-wallet-3-line"></i> Monto a Pagar por Cliente: ${formatCLP(t.totalToPay || 0)}</p>
+          ` : `
+          <p style="color: #10b981; font-weight: 700; margin-bottom: 0.5rem;"><i class="ri-checkbox-circle-line"></i> Monto a Cobrar: ${formatCLP(t.totalToPay || 0)} (con IVA)</p>
+          `}
           <p style="color: #64748b; font-size: 0.78rem;">El cliente ya tiene acceso interactivo al Desglose Oficial, Registro tipo Excel y Panel de Métricas en su portal.</p>
           <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 0.5rem 0.75rem; margin-top: 0.75rem; font-size: 0.78rem; color: #334155;">
             ¿Deseas enviar el correo oficial de notificación con el enlace interactivo a los contactos del comercio ahora?
@@ -4180,7 +4416,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
     getCanvasAndInit('chart-top-products', {
       type: 'bar',
       data: {
-        labels: topProds.map(p => p.sku),
+        labels: topProds.map(p => (p.sku && p.sku !== 'S/SKU') ? (p.sku.length > 22 ? p.sku.slice(0, 20) + '...' : p.sku) : (p.name.length > 22 ? p.name.slice(0, 20) + '...' : p.name)),
         datasets: [{
           label: 'Unidades Vendidas',
           data: topProds.map(p => p.quantity),
@@ -4209,9 +4445,13 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
           legend: { display: false },
           tooltip: {
             callbacks: {
-              afterLabel: context => {
+              title: context => {
+                const prod = topProds[context[0]?.dataIndex];
+                return prod ? prod.name : '';
+              },
+              label: context => {
                 const prod = topProds[context.dataIndex];
-                return prod ? `Producto: ${prod.name}\nParticipación: ${prod.sharePct}%` : '';
+                return prod ? `SKU: ${prod.sku} — ${prod.quantity.toLocaleString('es-CL')} unidades (${prod.sharePct}% del total)` : '';
               }
             }
           }
@@ -4661,6 +4901,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               </div>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Insumo o Caja">+ Insumo</button>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Descuento / Ajuste">+ Ajuste Comercial</button>
+              <button class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="border-radius: 6px; font-weight: 600; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05);" title="Registrar abono comercial que descuenta el saldo a pagar por el cliente">
+                <i class="ri-hand-coin-line" style="color: #10b981;"></i> + Abono
+              </button>
               <button type="button" class="btn btn-primary btn-sm" onclick="window.openBulkEditOrdersModal()" style="background: #5f06fa; border-color: #5f06fa; border-radius: 6px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" title="Editar masivamente pedidos filtrados o seleccionados">
                 <i class="ri-edit-2-line"></i> Edición Masiva
               </button>
@@ -4731,8 +4974,8 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                       </button>
                     </div>
                   </th>
-                  <th style="width: 55px; text-align: center;">SKUs</th>
-                  <th style="width: 55px; text-align: center;">Unid.</th>
+                  <th style="width: 70px; min-width: 65px; text-align: center;">SKUs</th>
+                  <th style="width: 70px; min-width: 65px; text-align: center;">Unid.</th>
                   <th style="width: 55px; text-align: center;">Mkt?</th>
                   <th style="width: 85px; text-align: right;">Base ($)</th>
                   <th style="width: 80px; text-align: right;">Rec. SKU</th>
@@ -4785,11 +5028,11 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                       <option value="">Todos los tipos</option>
                     </select>
                   </th>
-                  <th style="padding: 3px 2px; text-align: center;">
-                    <input type="number" id="bg-col-filter-skus" class="bg-col-filter-input" placeholder="Min" style="width: 100%; text-align: center;" oninput="window.applyBgColumnFilters()">
+                  <th style="padding: 3px 3px; text-align: center;">
+                    <input type="number" id="bg-col-filter-skus" class="bg-col-filter-input" placeholder="Min" style="width: 100%; text-align: center; padding: 2px 2px;" oninput="window.applyBgColumnFilters()">
                   </th>
-                  <th style="padding: 3px 2px; text-align: center;">
-                    <input type="number" id="bg-col-filter-units" class="bg-col-filter-input" placeholder="Min" style="width: 100%; text-align: center;" oninput="window.applyBgColumnFilters()">
+                  <th style="padding: 3px 3px; text-align: center;">
+                    <input type="number" id="bg-col-filter-units" class="bg-col-filter-input" placeholder="Min" style="width: 100%; text-align: center; padding: 2px 2px;" oninput="window.applyBgColumnFilters()">
                   </th>
                   <th style="padding: 3px 2px; text-align: center;">
                     <select id="bg-col-filter-mkt" class="bg-col-filter-select" onchange="window.applyBgColumnFilters()" style="width: 100%;">
@@ -4826,6 +5069,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             </button>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: 6px;">
               <i class="ri-price-tag-3-line" style="color: #0284c7;"></i> + Ajuste Comercial
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05);" title="Registrar abono comercial que descuenta directamente el monto a pagar por el cliente">
+              <i class="ri-hand-coin-line" style="color: #10b981;"></i> + Registrar Abono
             </button>
             <button type="button" id="bg-btn-edit-desglose-header" class="btn btn-outline btn-sm" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700; border-color: rgba(95, 6, 250, 0.4); color: #5f06fa; border-radius: 6px;">
               <i class="ri-calendar-check-line"></i> Editar Fechas y Datos Legales
@@ -5258,7 +5504,7 @@ export function renderKPIsUI() {
   container.innerHTML = `
     <div class="bg-kpi-card" style="border-left: 4px solid #5f06fa;">
       <div class="bg-kpi-title" style="display: flex; align-items: center; justify-content: space-between;">
-        <span><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> TOTAL FACTURA (CON IVA)</span>
+        <span><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> ${t.totalAbonos > 0 ? 'MONTO A PAGAR (SALDO)' : 'TOTAL FACTURA (CON IVA)'}</span>
         ${b.isSaved 
           ? ((b.isPublished || b.savedRecordStatus === 'Publicado')
               ? '<span style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-send-plane-fill"></i> Publicado</span>'
@@ -5266,7 +5512,11 @@ export function renderKPIsUI() {
           : '<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.65rem; text-transform: none;"><i class="ri-time-line"></i> Borrador</span>'}
       </div>
       <div class="bg-kpi-value text-stocka-purple">${formatCLP(t.totalToPay)}</div>
-      <div class="bg-kpi-subtitle">Neto: ${formatCLP(t.totalNet)} + IVA: ${formatCLP(t.iva)}</div>
+      <div class="bg-kpi-subtitle">
+        ${t.totalAbonos > 0 
+          ? `Facturar: <strong>${formatCLP(t.totalGross)}</strong> · Abonos: <strong style="color: #10b981;">-${formatCLP(t.totalAbonos)}</strong>` 
+          : `Neto: ${formatCLP(t.totalNet)} + IVA: ${formatCLP(t.iva)}`}
+      </div>
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid #0284c7;">
@@ -5460,11 +5710,11 @@ export function renderOrdersTableUI() {
             `).join('')}
           </select>
         </td>
-        <td style="text-align: center;">
-          <input type="number" class="bg-excel-input" value="${o.skuCount}" min="1" style="text-align: center; font-weight: 700;" onchange="window.updateBgOrderCell('${o.id}', 'skuCount', this.value)">
+        <td style="text-align: center; padding: 3px 2px;">
+          <input type="number" class="bg-excel-input" value="${o.skuCount}" min="1" style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'skuCount', this.value)">
         </td>
-        <td style="text-align: center;">
-          <input type="number" class="bg-excel-input" value="${o.unitsCount}" min="1" style="text-align: center; font-weight: 700;" onchange="window.updateBgOrderCell('${o.id}', 'unitsCount', this.value)">
+        <td style="text-align: center; padding: 3px 2px;">
+          <input type="number" class="bg-excel-input" value="${o.unitsCount}" min="1" style="text-align: center; font-weight: 700; width: 100%; font-size: 0.88rem; padding: 2px 0;" onchange="window.updateBgOrderCell('${o.id}', 'unitsCount', this.value)">
         </td>
         <td style="text-align: center;">
           <input type="checkbox" ${o.isMarketplace ? 'checked' : ''} onchange="window.updateBgOrderCell('${o.id}', 'isMarketplace', this.checked)" style="accent-color: #5f06fa; cursor: pointer;">
@@ -5960,14 +6210,16 @@ function recalculateFromCurrentState() {
     fixedFeeReason = `Costo fijo 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
   }
 
-  const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
-  const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+  const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
+  const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
+  const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
 
   const inboundNet = b.totals.inboundNet || 0;
   const posFeeCLP = (b.totals.posFeeNet !== undefined) ? b.totals.posFeeNet : (b.totals.posActive ? Math.round((b.totals.posFeeUF || 0.2) * b.ufValue) : 0);
   const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
+  const totalToPay = Math.max(0, totalGross - totalAbonos);
 
   b.totals = {
     ...b.totals,
@@ -5982,10 +6234,13 @@ function recalculateFromCurrentState() {
     fixedFeeNet: fixedFeeCLP,
     fixedFeeReason,
     posFeeNet: posFeeCLP,
+    totalSuppliesNet,
+    totalAdjustmentsNet,
+    totalAbonos,
     totalNet,
     iva: totalIVA,
     totalGross,
-    totalToPay: totalGross
+    totalToPay
   };
 
   if (b.isConglomerate) {
@@ -6284,6 +6539,233 @@ window.deleteManualAdjustmentItem = function(adjIdOrIdx) {
   });
 };
 
+// --- GESTIÓN DE ABONOS A CUENTA (DESCUENTAN DIRECTAMENTE EL TOTAL A PAGAR) ---
+
+// Agregar Fila Manual de Abono a Cuenta
+window.addNewManualAbonoRow = async function() {
+  const b = billingState;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-hand-coin-line" style="color:#10b981;"></i><span>Registrar Abono a Cuenta</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 0.85rem;">
+          Registra un abono o anticipo comercial. Este monto <strong>descuenta directamente el saldo a pagar</strong> por el cliente, sin alterar la base imponible ni el IVA de la factura.
+        </p>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO ABONADO ($ CLP CON IVA / TOTAL):</label>
+        <input id="swal-abono-amount" type="number" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.95rem; font-weight: 700; color: #047857;" placeholder="Ej: 500000" min="1" step="1000">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">FECHA DEL ABONO:</label>
+            <input id="swal-abono-date" type="date" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${todayStr}">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">N° COMPROBANTE / VOUCHER:</label>
+            <input id="swal-abono-voucher" type="text" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: #TRF-98124">
+          </div>
+        </div>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONCEPTO O REFERENCIA:</label>
+        <input id="swal-abono-ref" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Abono 50% anticipado o Transferencia bancaria" value="Abono a cuenta">
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOTAS INTERNAS / OBSERVACIONES:</label>
+        <input id="swal-abono-notes" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" placeholder="Ej: Verificado en cartola bancaria">
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Registrar Abono',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#10b981',
+    preConfirm: () => {
+      const amountVal = document.getElementById('swal-abono-amount')?.value;
+      const amount = Math.abs(parseInt(amountVal, 10));
+      const date = document.getElementById('swal-abono-date')?.value?.trim();
+      const voucher = document.getElementById('swal-abono-voucher')?.value?.trim() || '';
+      const reference = document.getElementById('swal-abono-ref')?.value?.trim() || 'Abono a cuenta';
+      const notes = document.getElementById('swal-abono-notes')?.value?.trim() || '';
+
+      if (isNaN(amount) || amount <= 0) {
+        Swal.showValidationMessage('Ingresa un monto de abono válido mayor a $0.');
+        return false;
+      }
+
+      return { amount, date, voucher, reference, notes };
+    }
+  });
+
+  if (formValues && formValues.amount > 0) {
+    if (!Array.isArray(b.abonos)) b.abonos = [];
+
+    b.abonos.push({
+      id: 'abono_' + Date.now(),
+      amount: formValues.amount,
+      date: formValues.date,
+      voucher: formValues.voucher,
+      reference: formValues.reference,
+      notes: formValues.notes
+    });
+
+    b.isSaved = false;
+    b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+
+    const storageKey = `stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(b.abonos));
+    } catch (e) {}
+
+    recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Abono registrado',
+      text: `Se registró abono por ${formatCLP(formValues.amount)}.`,
+      showConfirmButton: false,
+      timer: 3000
+    });
+  }
+};
+
+// Editar un abono registrado
+window.editManualAbonoItem = async function(abonoIdOrIdx) {
+  const b = billingState;
+  if (!Array.isArray(b.abonos)) return;
+  const idx = b.abonos.findIndex((a, i) => String(a.id) === String(abonoIdOrIdx) || String(i) === String(abonoIdOrIdx));
+  if (idx === -1) return;
+
+  const ab = b.abonos[idx];
+
+  const { value: formValues } = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-edit-line" style="color:#10b981;"></i><span>Editar Abono</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">MONTO ABONADO ($ CLP CON IVA / TOTAL):</label>
+        <input id="swal-edit-abono-amount" type="number" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.95rem; font-weight: 700; color: #047857;" value="${ab.amount || 0}" min="1" step="1000">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">FECHA DEL ABONO:</label>
+            <input id="swal-edit-abono-date" type="date" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${ab.date || ''}">
+          </div>
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">N° COMPROBANTE / VOUCHER:</label>
+            <input id="swal-edit-abono-voucher" type="text" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(ab.voucher || '')}">
+          </div>
+        </div>
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONCEPTO O REFERENCIA:</label>
+        <input id="swal-edit-abono-ref" class="swal2-input" style="margin: 0 0 0.75rem 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(ab.reference || 'Abono a cuenta')}">
+
+        <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">NOTAS INTERNAS / OBSERVACIONES:</label>
+        <input id="swal-edit-abono-notes" class="swal2-input" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;" value="${escapeHtml(ab.notes || '')}">
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Guardar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#10b981',
+    preConfirm: () => {
+      const amountVal = document.getElementById('swal-edit-abono-amount')?.value;
+      const amount = Math.abs(parseInt(amountVal, 10));
+      const date = document.getElementById('swal-edit-abono-date')?.value?.trim();
+      const voucher = document.getElementById('swal-edit-abono-voucher')?.value?.trim() || '';
+      const reference = document.getElementById('swal-edit-abono-ref')?.value?.trim() || 'Abono a cuenta';
+      const notes = document.getElementById('swal-edit-abono-notes')?.value?.trim() || '';
+
+      if (isNaN(amount) || amount <= 0) {
+        Swal.showValidationMessage('Ingresa un monto de abono válido mayor a $0.');
+        return false;
+      }
+
+      return { amount, date, voucher, reference, notes };
+    }
+  });
+
+  if (formValues) {
+    ab.amount = formValues.amount;
+    ab.date = formValues.date;
+    ab.voucher = formValues.voucher;
+    ab.reference = formValues.reference;
+    ab.notes = formValues.notes;
+
+    b.isSaved = false;
+    b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+
+    const storageKey = `stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(b.abonos));
+    } catch (e) {}
+
+    recalculateFromCurrentState();
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Abono actualizado',
+      text: `Monto actualizado a ${formatCLP(formValues.amount)}.`,
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
+
+// Eliminar un abono registrado
+window.deleteManualAbonoItem = function(abonoIdOrIdx) {
+  const b = billingState;
+  if (!Array.isArray(b.abonos)) return;
+  const idx = b.abonos.findIndex((a, i) => String(a.id) === String(abonoIdOrIdx) || String(i) === String(abonoIdOrIdx));
+  if (idx === -1) return;
+
+  const ab = b.abonos[idx];
+  Swal.fire({
+    title: '¿Eliminar abono registrado?',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem; color: #334155;">
+        ¿Estás seguro de eliminar el abono <strong>${escapeHtml(ab.reference || 'Abono')}</strong> (${formatCLP(ab.amount)})?
+        <div style="margin-top: 0.75rem; padding: 0.6rem 0.85rem; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.8rem; color: #991b1b;">
+          El saldo a pagar por el cliente volverá a incrementarse en <strong>${formatCLP(ab.amount)}</strong>.
+        </div>
+      </div>
+    `,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar abono',
+    cancelButtonText: 'Cancelar'
+  }).then((result) => {
+    if (result.isConfirmed) {
+      b.abonos.splice(idx, 1);
+      b.isSaved = false;
+      b.abonosSessionKey = `${b.currentPeriodId}_${b.currentCommerce}`;
+
+      const storageKey = `stocka_billing_abonos_${b.currentPeriodId}_${b.currentCommerce}`;
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(b.abonos));
+      } catch (e) {}
+
+      recalculateFromCurrentState();
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: 'Abono eliminado',
+        text: `Se eliminó el abono de ${formatCLP(ab.amount)}.`,
+        showConfirmButton: false,
+        timer: 3000
+      });
+    }
+  });
+};
+
 // Modal interactivo para editar o eximir Costo Fijo Mensual
 window.openEditFixedFeeModal = async function() {
   const b = billingState;
@@ -6368,18 +6850,23 @@ window.openEditFixedFeeModal = async function() {
     b.totals.fixedFeeUF = formValues.uf;
     b.totals.fixedFeeReason = formValues.reason;
 
-    const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
-    const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+    const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
+    const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
+    const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
     const inboundNet = b.totals.inboundNet || 0;
     const posFeeNet = b.totals.posFeeNet || 0;
     const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + formValues.clp + posFeeNet + totalSuppliesNet + totalAdjustmentsNet);
     const totalIVA = Math.round(totalNet * 0.19);
     const totalGross = totalNet + totalIVA;
+    const totalToPay = Math.max(0, totalGross - totalAbonos);
 
+    b.totals.totalSuppliesNet = totalSuppliesNet;
+    b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
+    b.totals.totalAbonos = totalAbonos;
     b.totals.totalNet = totalNet;
     b.totals.iva = totalIVA;
     b.totals.totalGross = totalGross;
-    b.totals.totalToPay = totalGross;
+    b.totals.totalToPay = totalToPay;
 
     b.isSaved = false;
     renderKPIsUI();
@@ -6496,18 +6983,23 @@ window.openEditPosFeeModal = async function() {
     b.totals.posFeeUF = formValues.uf;
     b.totals.posFeeDetails = formValues.reason;
 
-    const totalSuppliesNet = b.supplies.reduce((acc, s) => acc + (s.total || 0), 0);
-    const totalAdjustmentsNet = b.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0);
+    const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
+    const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
+    const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
     const inboundNet = b.totals.inboundNet || 0;
     const fixedFeeNet = b.totals.fixedFeeNet || 0;
     const totalNet = Math.round(b.totals.storageNet + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + formValues.clp + totalSuppliesNet + totalAdjustmentsNet);
     const totalIVA = Math.round(totalNet * 0.19);
     const totalGross = totalNet + totalIVA;
+    const totalToPay = Math.max(0, totalGross - totalAbonos);
 
+    b.totals.totalSuppliesNet = totalSuppliesNet;
+    b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
+    b.totals.totalAbonos = totalAbonos;
     b.totals.totalNet = totalNet;
     b.totals.iva = totalIVA;
     b.totals.totalGross = totalGross;
-    b.totals.totalToPay = totalGross;
+    b.totals.totalToPay = totalToPay;
 
     b.isSaved = false;
     renderKPIsUI();
@@ -8908,10 +9400,12 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
     const posFeeNet = snapshot.totals.posFeeNet || 0;
     const suppliesNet = Array.isArray(snapshot.supplies) ? snapshot.supplies.reduce((acc, s) => acc + (s.total || 0), 0) : 0;
     const adjustmentsNet = Array.isArray(snapshot.adjustments) ? snapshot.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0) : 0;
+    const totalAbonos = Array.isArray(snapshot.abonos) ? snapshot.abonos.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0) : (snapshot.totals.totalAbonos || 0);
     snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + posFeeNet + suppliesNet + adjustmentsNet);
     snapshot.totals.iva = Math.round(snapshot.totals.totalNet * 0.19);
     snapshot.totals.totalGross = snapshot.totals.totalNet + snapshot.totals.iva;
-    snapshot.totals.totalToPay = snapshot.totals.totalGross;
+    snapshot.totals.totalAbonos = totalAbonos;
+    snapshot.totals.totalToPay = Math.max(0, snapshot.totals.totalGross - totalAbonos);
   }
 }
 
@@ -9111,7 +9605,10 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
               <span style="font-size: 0.75rem; background: rgba(95, 6, 250, 0.1); color: #5f06fa; padding: 2px 8px; border-radius: 50px; font-weight: 800;">${escapeHtml(snapshot.comercio)}</span>
             </h3>
             <p style="margin: 0.2rem 0 0 0; font-size: 0.775rem; color: var(--color-text-muted, #64748b);">
-              Periodo: <strong>${escapeHtml(snapshot.periodName || '')}</strong> • Total a Pagar: <strong style="color: #5f06fa; font-size: 0.85rem;">${formatCLP(totals.totalToPay || rec.total_fulfillment || 0)}</strong> (IVA incl.)
+              Periodo: <strong>${escapeHtml(snapshot.periodName || '')}</strong> • 
+              ${(totals.totalAbonos > 0)
+                ? `Monto a Facturar: <strong>${formatCLP(totals.totalGross || 0)}</strong> • Abonos: <strong style="color: #10b981;">-${formatCLP(totals.totalAbonos)}</strong> • Monto a Pagar: <strong style="color: #5f06fa; font-size: 0.88rem;">${formatCLP(totals.totalToPay || 0)}</strong> (IVA incl.)`
+                : `Total a Facturar / Pagar: <strong style="color: #5f06fa; font-size: 0.85rem;">${formatCLP(totals.totalGross || totals.totalToPay || rec.total_fulfillment || 0)}</strong> (IVA incl.)`}
             </p>
           </div>
         </div>
@@ -9188,8 +9685,8 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     <th style="min-width: 160px;">Destino / Comuna</th>
                     <th style="min-width: 110px;">Operador</th>
                     <th style="min-width: 130px;">Tipo Entrega</th>
-                    <th style="width: 55px; text-align: center;">SKUs</th>
-                    <th style="width: 55px; text-align: center;">Unid.</th>
+                    <th style="width: 70px; min-width: 65px; text-align: center;">SKUs</th>
+                    <th style="width: 70px; min-width: 65px; text-align: center;">Unid.</th>
                     <th style="width: 95px; text-align: right;">Prep. Total</th>
                     <th style="width: 95px; text-align: right;">Flete Envío</th>
                     <th class="th-total-order" style="width: 105px; text-align: right;">Total Pedido</th>
@@ -9446,6 +9943,9 @@ window.downloadClientBillingPdf = downloadClientBillingPdf;
 window.downloadClientBillingExcel = downloadClientBillingExcel;
 window.confirmAndPublishBillingToCommerce = confirmAndPublishBillingToCommerce;
 window.uploadBillingSnapshotToStorage = uploadBillingSnapshotToStorage;
+window.addNewManualAbonoRow = addNewManualAbonoRow;
+window.editManualAbonoItem = editManualAbonoItem;
+window.deleteManualAbonoItem = deleteManualAbonoItem;
 window.injectBillingGeneratorStyles = injectBillingGeneratorStyles;
 window.injectClientInteractiveModalStyles = injectClientInteractiveModalStyles;
 
