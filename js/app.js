@@ -27501,7 +27501,7 @@ window.getPremiumPaymentStatusBadgeHtml = function(statusText) {
 };
 
 window.getFulfillmentSplitDocsHtml = function(r) {
-  const isInteractive = (r.desglose_fulfillment && r.desglose_fulfillment.toLowerCase() === 'publicado') ||
+  const isInteractive = (r.desglose_fulfillment && (r.desglose_fulfillment.toLowerCase() === 'publicado' || r.desglose_fulfillment.toLowerCase() === 'enviado')) ||
     (r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
 
   if (!isInteractive) {
@@ -28549,8 +28549,8 @@ window.loadClientBillingData = async function(periodId) {
                 <span class="inner-card-label" style="margin: 0; display: flex; align-items: center; gap: 0.35rem;">
                   <i class="ri-pie-chart-2-line" style="color: var(--color-primary);"></i> Estado de Desglose
                 </span>
-                <span class="client-badge ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) ? 'client-badge-purple' : getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">
-                  ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) ? 'Publicado' : (r.desglose_fulfillment || '-')}
+                <span class="client-badge ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) || (r.desglose_fulfillment && r.desglose_fulfillment.toLowerCase() === 'enviado') ? 'client-badge-purple' : getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">
+                  ${(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))) || (r.desglose_fulfillment && r.desglose_fulfillment.toLowerCase() === 'enviado') ? 'Publicado' : (r.desglose_fulfillment || '-')}
                 </span>
               </div>
 

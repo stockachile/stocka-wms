@@ -517,11 +517,11 @@ export function calculateQuotation(inputs, customConfig = null) {
   } else if (storageVolumeM3 < 1.0 && monthlyOrders < 50) {
     fixedFeeUF = config.fixed_service_fee.tier1_fee_uf || 1.5;
     fixedFeeCLP = Math.round(fixedFeeUF * ufValue);
-    fixedFeeReason = `Costo fijo 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
+    fixedFeeReason = `Costo variable 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
   } else {
     fixedFeeUF = config.fixed_service_fee.tier2_fee_uf || 0.9;
     fixedFeeCLP = Math.round(fixedFeeUF * ufValue);
-    fixedFeeReason = `Costo fijo 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
+    fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
   }
 
   // 5. Despachos y Envíos Proyectados
@@ -843,7 +843,7 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
           </tr>
           <tr>
             <td>
-              <div class="item-title">🛡️ Costo Fijo Mensual de Servicio</div>
+              <div class="item-title">🛡️ Costo Variable Mensual de Servicio</div>
               <div class="item-desc">${quoteResult.fixedFee.reason}</div>
             </td>
             <td class="item-amount" style="color: ${quoteResult.fixedFee.isExempt ? '#10b981' : '#0f172a'}; font-weight: 700;">

@@ -43606,10 +43606,10 @@ window.renderCommerceDetailModalContent = function(r, periodId, periodName, alDi
           <div style="display: flex; flex-direction: column; gap: 0.85rem;">
             <div class="form-group" style="margin: 0;">
               <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.78rem; font-weight: 600; color: var(--color-text-muted);">Estado Desglose Operativo:</label>
-              <select id="modal-field-desglose-fulf-${r.id}" class="billing-select ${(r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment)}" onchange="window.saveModalSelectField(this, '${r.id}', 'desglose_fulfillment', '${periodId}', 'fulf')" style="width: 100%;">
+              <select id="modal-field-desglose-fulf-${r.id}" class="billing-select ${(r.desglose_fulfillment === 'Enviado' || (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots'))) ? 'status-purple' : getStatusClass(r.desglose_fulfillment)}" onchange="window.saveModalSelectField(this, '${r.id}', 'desglose_fulfillment', '${periodId}', 'fulf')" style="width: 100%;">
                 <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
                 <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
-                <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${(r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado'}</option>
+                <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Publicado (Enviado)</option>
                 <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
                 <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
               </select>
@@ -43842,7 +43842,11 @@ window.saveModalMoneyField = function(recordId, fieldName, inputEl, periodId) {
 
 window.saveModalSelectField = function(selectEl, recordId, fieldName, periodId, type) {
   const val = selectEl.value;
-  selectEl.className = 'billing-select ' + getStatusClass(val);
+  if (fieldName === 'desglose_fulfillment' && val === 'Enviado') {
+    selectEl.className = 'billing-select status-purple';
+  } else {
+    selectEl.className = 'billing-select ' + getStatusClass(val);
+  }
 
   if (val === 'Recibido') {
     const today = new Date().toLocaleDateString('sv-SE');
@@ -45025,10 +45029,10 @@ async function loadBillingRecords(periodId, bodyElement) {
             <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 230px;">
               <div style="display: flex; align-items: center; gap: 0.35rem;">
                 <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; min-width: 54px;">Desglose:</span>
-                <select class="billing-select ${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'status-purple' : getStatusClass(r.desglose_fulfillment) }" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')" style="flex: 1; min-width: 110px;">
+                <select class="billing-select ${ (r.desglose_fulfillment === 'Enviado' || (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots'))) ? 'status-purple' : getStatusClass(r.desglose_fulfillment) }" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')" style="flex: 1; min-width: 110px;">
                   <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
                   <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
-                  <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>${ (r.fulfillment_link && r.fulfillment_link.includes('billing_snapshots')) ? 'Publicado (Enviado)' : 'Enviado' }</option>
+                  <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Publicado (Enviado)</option>
                   <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
                   <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
                 </select>
@@ -46256,7 +46260,11 @@ window.exportBillingPeriodSummaryToExcel = async function(periodId, periodName) 
 
 window.updateSelectField = function(selectEl, recordId, fieldName) {
   const val = selectEl.value;
-  selectEl.className = 'billing-select ' + getStatusClass(val);
+  if (fieldName === 'desglose_fulfillment' && val === 'Enviado') {
+    selectEl.className = 'billing-select status-purple';
+  } else {
+    selectEl.className = 'billing-select ' + getStatusClass(val);
+  }
   
   const row = ['enviame', 'abono_enviame', 'pago_enviame', 'factura_enviame', 'num_factura_enviame', 'fecha_limite_enviame'].includes(fieldName)
     ? document.getElementById(`row-env-${recordId}`)

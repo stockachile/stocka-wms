@@ -1027,7 +1027,11 @@ export function injectBillingGeneratorStyles() {
 // --- FORMATEADORES ---
 export function formatCLP(val) {
   if (val === null || val === undefined || isNaN(val)) return '$0';
-  return '$' + Math.round(Number(val)).toLocaleString('es-CL');
+  const num = Math.round(Number(val));
+  if (num < 0) {
+    return '-$' + Math.abs(num).toLocaleString('es-CL');
+  }
+  return '$' + num.toLocaleString('es-CL');
 }
 
 export function formatDec(val, decimals = 2) {
@@ -1623,6 +1627,52 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.currentPeriodName = periodName;
   billingState.activeConglomerateStoreFilter = null;
 
+  if (customOverrides.forceFresh) {
+    billingState.suppliesSessionKey = null;
+    billingState.adjustmentsSessionKey = null;
+    billingState.abonosSessionKey = null;
+    billingState.supplies = [];
+    billingState.adjustments = [];
+    billingState.abonos = [];
+    billingState.orders = [];
+  }
+
+  // Reiniciar totales a valores limpios para evitar contaminación entre sesiones o comercios
+  billingState.totals = {
+    ordersCount: 0,
+    billableOrdersCount: 0,
+    storageGross: 0,
+    storageDiscountPct: 0,
+    storageDiscountLabel: '',
+    storageDiscountAmount: 0,
+    storageNet: 0,
+    pickPackNet: 0,
+    shippingRmFlexCount: 0,
+    shippingRmFlexNet: 0,
+    shippingEnviameCount: 0,
+    shippingEnviameNet: 0,
+    inboundTotalUF: 0,
+    inboundNet: 0,
+    fixedFeeNet: 0,
+    fixedFeeUF: 0,
+    fixedFeeReason: '',
+    posActive: false,
+    posFeeUF: 0,
+    posFeeNet: 0,
+    posFeeDetails: '',
+    posIsStocka: false,
+    posMachine: null,
+    suppliesNet: 0,
+    totalSuppliesNet: 0,
+    adjustmentsNet: 0,
+    totalAdjustmentsNet: 0,
+    totalNet: 0,
+    iva: 0,
+    totalGross: 0,
+    totalAbonos: 0,
+    totalToPay: 0
+  };
+
   // 1. Cargar tarifas oficiales desde pricing_manager
   const rawPricing = await loadPricingConfig(supabase);
   billingState.pricingConfig = sanitizeAndMergeConfig(rawPricing);
@@ -1951,23 +2001,31 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   };
 
   const savedOrderMap = {};
-  if (savedSnapshot && savedSnapshot.orders && Array.isArray(savedSnapshot.orders)) {
-    savedSnapshot.orders.forEach(so => {
-      if (so && so.id) {
-        // Sanear si en el snapshot previo venía con isMarketplace=true pero surchargeMarketplace=0
-        if (so.isMarketplace && (!so.surchargeMarketplace || so.surchargeMarketplace === 0)) {
-          const mktRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
-          so.surchargeMarketplace = mktRate;
-          so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + so.surchargeMarketplace;
-          so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
-        } else if (!so.isMarketplace && so.surchargeMarketplace > 0) {
-          so.surchargeMarketplace = 0;
-          so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0);
-          so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
+  if (!customOverrides.forceFresh) {
+    if (savedSnapshot && savedSnapshot.orders && Array.isArray(savedSnapshot.orders)) {
+      savedSnapshot.orders.forEach(so => {
+        if (so && so.id) {
+          // Sanear si en el snapshot previo venía con isMarketplace=true pero surchargeMarketplace=0
+          if (so.isMarketplace && (!so.surchargeMarketplace || so.surchargeMarketplace === 0)) {
+            const mktRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
+            so.surchargeMarketplace = mktRate;
+            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + so.surchargeMarketplace;
+            so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
+          } else if (!so.isMarketplace && so.surchargeMarketplace > 0) {
+            so.surchargeMarketplace = 0;
+            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0);
+            so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
+          }
+          savedOrderMap[so.id] = so;
         }
-        savedOrderMap[so.id] = so;
-      }
-    });
+      });
+    } else if (billingState.currentPeriodId && commerceName && billingState.currentCommerce === commerceName && Array.isArray(billingState.orders)) {
+      billingState.orders.forEach(bo => {
+        if (bo && bo.id) {
+          savedOrderMap[bo.id] = bo;
+        }
+      });
+    }
   }
 
   // 8. Procesar cada pedido: tarifa base, recargos y despacho
@@ -2297,11 +2355,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   } else if (billingState.volumeM3 < 1.0 && billableOrders.length < 50) {
     fixedFeeUF = cfg.fixed_service_fee.tier1_fee_uf || 1.5;
     fixedFeeCLP = Math.round(fixedFeeUF * billingState.ufValue);
-    fixedFeeReason = `Costo fijo 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
+    fixedFeeReason = `Costo variable 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
   } else {
     fixedFeeUF = cfg.fixed_service_fee.tier2_fee_uf || 0.9;
     fixedFeeCLP = Math.round(fixedFeeUF * billingState.ufValue);
-    fixedFeeReason = `Costo fijo 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
+    fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
   }
 
   // Permitir override del costo fijo si el admin lo modificó
@@ -2476,7 +2534,9 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     posIsStocka,
     posMachine,
     suppliesNet: totalSuppliesNet,
+    totalSuppliesNet,
     adjustmentsNet: totalAdjustmentsNet,
+    totalAdjustmentsNet,
     totalNet,
     iva: totalIVA,
     totalGross,
@@ -2495,6 +2555,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 export function renderStockaDesgloseHTML(snapshotState = null) {
   const b = snapshotState || billingState;
   const t = b.totals || {};
+
+  // Sincronizar ajustes con la lista real de ajustes para evitar estados huérfanos o desalineados
+  const realAdjustments = Array.isArray(b.adjustments) ? b.adjustments : [];
+  const realAdjustmentsNet = realAdjustments.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+  t.adjustmentsNet = realAdjustmentsNet;
+  t.totalAdjustmentsNet = realAdjustmentsNet;
   const c = b.commerceInfo ? { ...b.commerceInfo } : {};
   const invDates = b.invoiceDates || {};
   const isClient = Boolean(b.isClientView);
@@ -2659,7 +2725,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         </div>
 
         <div class="stocka-metric-card">
-          <div class="stocka-metric-title">Costo Fijo Mensual</div>
+          <div class="stocka-metric-title">Costo Variable Mensual</div>
           <div class="stocka-metric-value">${t.fixedFeeUF > 0 ? `${formatDec(t.fixedFeeUF, 1)} UF` : 'EXENTO'}</div>
           <div class="stocka-metric-sub">${t.fixedFeeUF > 0 ? formatCLP(t.fixedFeeNet) : '$0'}</div>
         </div>
@@ -2836,17 +2902,17 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               </tr>
             `).join('')}
 
-            <!-- 6. Costo Fijo Mensual -->
+            <!-- 6. Costo Variable Mensual -->
             <tr>
               <td>
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
                   <div>
-                    <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Costo Fijo Mensual Fulfillment ${t.fixedFeeUF > 0 ? (t.fixedFeeUF === 1.5 ? '- Rango 1' : '- Rango 2') : '(Exento)'}</div>
+                    <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Costo Variable Mensual Fulfillment ${t.fixedFeeUF > 0 ? (t.fixedFeeUF === 1.5 ? '- Rango 1' : '- Rango 2') : '(Exento)'}</div>
                     <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">${escapeHtml(t.fixedFeeReason || '')}</div>
                   </div>
                   ${!isClient ? `
                   <div class="no-print">
-                    <button type="button" onclick="window.openEditFixedFeeModal()" title="Editar o eximir costo fijo mensual" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                    <button type="button" onclick="window.openEditFixedFeeModal()" title="Editar o eximir costo variable mensual" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
                       <i class="ri-pencil-line"></i> Editar
                     </button>
                   </div>` : ''}
@@ -3237,9 +3303,9 @@ export function exportBillingToExcel(customState = null) {
     }
   });
 
-  // Costo Fijo
+  // Costo Variable
   summaryData.push([
-    `Costo Fijo Mensual Fulfillment (${t.fixedFeeReason})`,
+    `Costo Variable Mensual Fulfillment (${t.fixedFeeReason})`,
     "UF",
     t.fixedFeeUF,
     t.fixedFeeNet,
@@ -3962,14 +4028,15 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
                   style="border-radius: 6px; font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.8rem; border: 1.5px solid ${!activeStore ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${!activeStore ? '#5f06fa' : 'var(--color-surface)'}; color: ${!activeStore ? '#ffffff' : 'var(--color-text-main)'}; cursor: pointer; transition: all 0.2s;">
             <i class="ri-building-line"></i> 🏢 Consolidado Holding (${allOrders.length})
           </button>
-          ${(b.conglomerateChildren || []).map(ch => {
+          ${((b.conglomerateChildren && b.conglomerateChildren.length > 0) ? b.conglomerateChildren : sBreakdown.map(s => s.storeName)).map(ch => {
             const chData = sBreakdown.find(s => s.storeName.toUpperCase() === ch.toUpperCase());
             const chCount = chData ? chData.totalOrders : 0;
             const isChActive = activeStore && activeStore.toUpperCase() === ch.toUpperCase();
             return `
               <button type="button"
-                      onclick="window.setConglomerateStoreView('${escapeHtml(ch)}')"
+                      onclick="window.setConglomerateStoreView(${isChActive ? 'null' : `'${escapeHtml(ch)}'`})"
                       class="btn btn-sm"
+                      title="${isChActive ? 'Hacer clic para ver Consolidado Holding' : `Filtrar por ${escapeHtml(ch)}`}"
                       style="border-radius: 6px; font-size: 0.76rem; font-weight: 700; padding: 0.35rem 0.8rem; border: 1.5px solid ${isChActive ? '#5f06fa' : 'rgba(95,6,250,0.2)'}; background: ${isChActive ? '#5f06fa' : 'var(--color-surface)'}; color: ${isChActive ? '#ffffff' : 'var(--color-text-main)'}; cursor: pointer; transition: all 0.2s;">
                 <i class="ri-store-2-line" style="${isChActive ? 'color: #ffffff;' : 'color: #5f06fa;'}"></i>
                 <span>${escapeHtml(ch)}</span>
@@ -4280,7 +4347,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
               <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
-                    <th style="padding: 6px 8px;">Tienda</th>
+                    <th style="padding: 6px 8px; min-width: 190px;">Tienda</th>
                     <th style="padding: 6px 8px; text-align: center;">Pedidos</th>
                     <th style="padding: 6px 8px; text-align: center;">Envíos RM</th>
                     <th style="padding: 6px 8px; text-align: right;">Costo Neto Op.</th>
@@ -4293,16 +4360,26 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
                     return `
                       <tr style="border-bottom: 1px solid var(--color-border); ${isRowActive ? 'background: rgba(95,6,250,0.08);' : ''}">
                         <td style="padding: 7px 8px; font-weight: 700; color: var(--color-text-main);">
-                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;">
                             <span style="display: inline-flex; align-items: center; gap: 4px;">
                               <i class="ri-store-2-line" style="color: #5f06fa;"></i> ${escapeHtml(s.storeName)}
                             </span>
-                            <button type="button"
-                                    onclick="window.setConglomerateStoreView('${escapeHtml(s.storeName)}')"
-                                    class="btn btn-xs"
-                                    style="padding: 2px 7px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; border: 1px solid rgba(95,6,250,0.3); background: ${isRowActive ? '#5f06fa' : 'var(--color-surface)'}; color: ${isRowActive ? '#ffffff' : '#5f06fa'}; cursor: pointer;">
-                              ${isRowActive ? '<i class="ri-check-line"></i> Activa' : '<i class="ri-filter-line"></i> Filtrar'}
-                            </button>
+                            <div style="display: inline-flex; align-items: center; gap: 4px;">
+                              <button type="button"
+                                      onclick="window.setConglomerateStoreView(${isRowActive ? 'null' : `'${escapeHtml(s.storeName)}'`})"
+                                      class="btn btn-xs"
+                                      title="${isRowActive ? 'Restablecer a Consolidado Holding' : `Filtrar métricas de ${escapeHtml(s.storeName)}`}"
+                                      style="padding: 2px 7px; font-size: 0.7rem; font-weight: 700; border-radius: 4px; border: 1px solid rgba(95,6,250,0.3); background: ${isRowActive ? '#5f06fa' : 'var(--color-surface)'}; color: ${isRowActive ? '#ffffff' : '#5f06fa'}; cursor: pointer;">
+                                ${isRowActive ? '<i class="ri-check-line"></i> Activa' : '<i class="ri-filter-line"></i> Filtrar'}
+                              </button>
+                              <button type="button"
+                                      onclick="window.setConglomerateStoreView('${escapeHtml(s.storeName)}'); if(document.getElementById('client-billing-interactive-modal')?.style.display !== 'none'){ window.switchClientBillingTab('register'); } else if(typeof window.switchBgTab === 'function'){ window.switchBgTab('orders'); }"
+                                      class="btn btn-xs"
+                                      title="Ver los ${s.billableOrders} pedidos de ${escapeHtml(s.storeName)} en el Registro Excel"
+                                      style="padding: 2px 7px; font-size: 0.7rem; font-weight: 600; border-radius: 4px; border: 1px solid rgba(16,185,129,0.35); background: rgba(16,185,129,0.08); color: #10b981; cursor: pointer;">
+                                <i class="ri-table-line"></i> Ver Pedidos
+                              </button>
+                            </div>
                           </div>
                         </td>
                         <td style="padding: 7px 8px; text-align: center; font-weight: 700;">${s.billableOrders}</td>
@@ -4567,7 +4644,7 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
         { label: 'Almacenamiento', val: t.storageNet || 0, color: '#5f06fa', darkColor: '#a855f7' },
         { label: 'Preparación (Pick&Pack)', val: t.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
         { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet || 0, color: '#6366f1', darkColor: '#818cf8' },
-        { label: 'Costo Fijo Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
+        { label: 'Costo Variable Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
         { label: 'Punto de Venta (POS)', val: t.posFeeNet || 0, color: '#0ea5e9', darkColor: '#38bdf8' },
         { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981', darkColor: '#34d399' },
         { label: 'Insumos de Embalaje', val: t.suppliesNet || 0, color: '#64748b', darkColor: '#94a3b8' }
@@ -4715,6 +4792,57 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   }
 }
 
+// Agrupar y ordenar periodos por año calendario (Años descendente, meses en orden calendario Enero-Diciembre)
+export function groupAndSortBillingPeriods(periodsList) {
+  if (!periodsList || !Array.isArray(periodsList) || periodsList.length === 0) return [];
+
+  const getYear = (p) => {
+    if (p && p.period_year) return parseInt(p.period_year, 10);
+    const match = ((p && p.name) || '').match(/\b(20\d\d)\b/);
+    if (match) return parseInt(match[1], 10);
+    return new Date().getFullYear();
+  };
+
+  const getMonth = (p) => {
+    if (p && p.period_month) return parseInt(p.period_month, 10);
+    const parts = ((p && p.name) || '').trim().toUpperCase();
+    const monthMap = {
+      'ENERO': 1, 'ENE': 1,
+      'FEBRERO': 2, 'FEB': 2,
+      'MARZO': 3, 'MAR': 3,
+      'ABRIL': 4, 'ABR': 4,
+      'MAYO': 5, 'MAY': 5,
+      'JUNIO': 6, 'JUN': 6,
+      'JULIO': 7, 'JUL': 7,
+      'AGOSTO': 8, 'AGO': 8,
+      'SEPTIEMBRE': 9, 'SEP': 9, 'SETIEMBRE': 9,
+      'OCTUBRE': 10, 'OCT': 10,
+      'NOVIEMBRE': 11, 'NOV': 11,
+      'DICIEMBRE': 12, 'DIC': 12
+    };
+    for (const [key, val] of Object.entries(monthMap)) {
+      if (parts.includes(key)) return val;
+    }
+    return 1;
+  };
+
+  const groupsByYear = {};
+  periodsList.forEach(p => {
+    const y = getYear(p);
+    const m = getMonth(p);
+    if (!groupsByYear[y]) groupsByYear[y] = [];
+    groupsByYear[y].push({ ...p, _year: y, _month: m });
+  });
+
+  const sortedYears = Object.keys(groupsByYear).map(Number).sort((a, b) => b - a);
+
+  return sortedYears.map(year => ({
+    year,
+    periods: groupsByYear[year].sort((a, b) => a._month - b._month)
+  }));
+}
+window.groupAndSortBillingPeriods = groupAndSortBillingPeriods;
+
 // --- VISTA PRINCIPAL DEL MÓDULO DEL GESTOR DE FACTURACIÓN ---
 window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-generator-content', initialCommerce = null, initialPeriodId = null) {
   injectBillingGeneratorStyles();
@@ -4783,6 +4911,8 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     return true;
   });
 
+  const periodGroups = groupAndSortBillingPeriods(periods);
+
   container.innerHTML = `
     <div style="padding: 0.5rem 0;">
       <!-- Barra Superior de Control y Filtros -->
@@ -4792,47 +4922,58 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
             <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
               <i class="ri-store-2-line" style="color: #5f06fa;"></i> COMERCIO A FACTURAR:
             </label>
-            <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 250px; font-weight: 700; border-radius: 8px;">
-              ${canonicalDisplayList.length > 0 ? `
-                <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
-                  ${canonicalDisplayList.map(cg => {
-                    const children = cg.children || [];
-                    const cgUpper = String(cg.name).trim().toUpperCase();
-                    let isSel = false;
-                    if (!hasSelectedCommerce) {
-                      if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
-                        isSel = true;
-                        hasSelectedCommerce = true;
+            <div style="display: flex; align-items: center; gap: 0.5rem; position: relative;">
+              <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 250px; font-weight: 700; border-radius: 8px;">
+                ${canonicalDisplayList.length > 0 ? `
+                  <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
+                    ${canonicalDisplayList.map(cg => {
+                      const children = cg.children || [];
+                      const cgUpper = String(cg.name).trim().toUpperCase();
+                      let isSel = false;
+                      if (!hasSelectedCommerce) {
+                        if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
+                          isSel = true;
+                          hasSelectedCommerce = true;
+                        }
                       }
+                      return `<option value="${escapeHtml(cg.name)}" ${isSel ? 'selected' : ''}>🏢 ${escapeHtml(cg.name)} (Consolida: ${escapeHtml(children.join(', '))})</option>`;
+                    }).join('')}
+                  </optgroup>
+                ` : ''}
+                <optgroup label="🏪 Tiendas / Comercios Individuales">
+                  ${individualComerciosList.map(c => {
+                    const cUpper = String(c.nombre).trim().toUpperCase();
+                    let isSel = false;
+                    if (!hasSelectedCommerce && cUpper === selUpper) {
+                      isSel = true;
+                      hasSelectedCommerce = true;
                     }
-                    return `<option value="${escapeHtml(cg.name)}" ${isSel ? 'selected' : ''}>🏢 ${escapeHtml(cg.name)} (Consolida: ${escapeHtml(children.join(', '))})</option>`;
+                    return `<option value="${escapeHtml(c.nombre)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>`;
                   }).join('')}
                 </optgroup>
-              ` : ''}
-              <optgroup label="🏪 Tiendas / Comercios Individuales">
-                ${individualComerciosList.map(c => {
-                  const cUpper = String(c.nombre).trim().toUpperCase();
-                  let isSel = false;
-                  if (!hasSelectedCommerce && cUpper === selUpper) {
-                    isSel = true;
-                    hasSelectedCommerce = true;
-                  }
-                  return `<option value="${escapeHtml(c.nombre)}" ${isSel ? 'selected' : ''}>${escapeHtml(c.nombre)} (${escapeHtml(c.sigla || 'N/A')})</option>`;
-                }).join('')}
-              </optgroup>
-            </select>
+              </select>
+              <span id="bg-select-commerce-spinner" style="display: none; color: #5f06fa; font-size: 1.25rem; align-items: center;" title="Cargando comercio...">
+                <i class="ri-loader-4-line ri-spin"></i>
+              </span>
+            </div>
           </div>
 
           <div>
             <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
               <i class="ri-calendar-event-line" style="color: #5f06fa;"></i> PERIODO OFICIAL:
             </label>
-            <select id="bg-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 190px; font-weight: 700; border-radius: 8px;">
-              ${periods.length > 0
-                ? periods.map(p => `
-                    <option value="${p.id}" data-name="${escapeHtml(p.name)}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>
+            <select id="bg-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 220px; font-weight: 700; border-radius: 8px;">
+              ${periodGroups.length > 0
+                ? periodGroups.map(group => `
+                    <optgroup label="📅 Año ${group.year}">
+                      ${group.periods.map(p => `
+                        <option value="${p.id}" data-name="${escapeHtml(p.name)}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>
+                          ${escapeHtml(p.name)}${p.status === 'activo' ? ' (Activo)' : ''}
+                        </option>
+                      `).join('')}
+                    </optgroup>
                   `).join('')
-                : `<option value="${escapeHtml(defaultPeriod?.id || '')}" data-name="${escapeHtml(defaultPeriod?.name || 'AGOSTO 2026')}" selected>${escapeHtml(defaultPeriod?.name || 'AGOSTO 2026')}</option>`}
+                : `<option value="${escapeHtml(defaultPeriod?.id || '')}" data-name="${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}" selected>${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}</option>`}
             </select>
           </div>
 
@@ -5116,8 +5257,53 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     openEditDesgloseHeaderModal();
   });
 
-  document.getElementById('bg-btn-recalculate')?.addEventListener('click', () => {
-    executeCalculationFromUI({ forceFresh: true });
+  document.getElementById('bg-btn-recalculate')?.addEventListener('click', async () => {
+    const b = billingState;
+    const hasData = (b.orders && b.orders.length > 0) || b.isSaved;
+
+    if (hasData && typeof Swal !== 'undefined') {
+      const result = await Swal.fire({
+        title: 'Actualizar Facturación',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; color: #334155; line-height: 1.5;">
+            <p style="margin-bottom: 0.85rem;">¿Cómo deseas recalcular la facturación de <strong>${escapeHtml(b.currentCommerce || 'este comercio')}</strong>?</p>
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.85rem; margin-bottom: 0.65rem;">
+              <strong style="color: #5f06fa; display: flex; align-items: center; gap: 5px; font-size: 0.95rem;">
+                <i class="ri-refresh-line"></i> Actualizar manteniendo cambios
+              </strong>
+              <div style="font-size: 0.785rem; color: #64748b; margin-top: 4px;">
+                Recalcula con los datos más recientes de pedidos y tarifas, pero <strong>conserva tus ediciones manuales</strong> (tipos de despacho editados, insumos, abonos, ajustes y fechas).
+              </div>
+            </div>
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 0.85rem;">
+              <strong style="color: #dc2626; display: flex; align-items: center; gap: 5px; font-size: 0.95rem;">
+                <i class="ri-restart-line"></i> Restablecer a valores iniciales
+              </strong>
+              <div style="font-size: 0.785rem; color: #64748b; margin-top: 4px;">
+                Descarta todas las modificaciones manuales y vuelve a calcular todo automáticamente desde cero según los datos originales de la BD.
+              </div>
+            </div>
+          </div>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonColor: '#5f06fa',
+        denyButtonColor: '#dc2626',
+        cancelButtonColor: '#94a3b8',
+        confirmButtonText: '<i class="ri-check-line"></i> Mantener mis cambios',
+        denyButtonText: '<i class="ri-restart-line"></i> Restablecer desde cero',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (result.isConfirmed) {
+        executeCalculationFromUI({ forceFresh: false });
+      } else if (result.isDenied) {
+        executeCalculationFromUI({ forceFresh: true });
+      }
+    } else {
+      executeCalculationFromUI();
+    }
   });
 
   document.getElementById('bg-select-commerce')?.addEventListener('change', () => {
@@ -5195,7 +5381,11 @@ export async function executeCalculationFromUI(overrides = {}) {
     return;
   }
 
-  // Feedback visual inmediato en botón de cálculo
+  // Feedback visual inmediato en botón de cálculo y selector de comercio
+  const commerceSpinner = document.getElementById('bg-select-commerce-spinner');
+  if (commerceSpinner) commerceSpinner.style.display = 'inline-flex';
+  if (commerceSelect) commerceSelect.disabled = true;
+
   if (calcBtn) {
     calcBtn.disabled = true;
     calcBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Calculando...`;
@@ -5283,6 +5473,8 @@ export async function executeCalculationFromUI(overrides = {}) {
       calcBtn.disabled = false;
       calcBtn.innerHTML = `<i class="ri-refresh-line"></i> Calcular Facturación`;
     }
+    if (commerceSpinner) commerceSpinner.style.display = 'none';
+    if (commerceSelect) commerceSelect.disabled = false;
   }
 }
 window.executeCalculationFromUI = executeCalculationFromUI;
@@ -5399,33 +5591,60 @@ export function renderConglomerateBannerUI() {
 }
 window.renderConglomerateBannerUI = renderConglomerateBannerUI;
 
-// Función para alternar la visualización por tienda o consolidada dentro de un conglomerado
 export function setConglomerateStoreView(storeName = null) {
-  billingState.activeConglomerateStoreFilter = storeName ? storeName : null;
+  const normStore = storeName ? storeName : null;
+  billingState.activeConglomerateStoreFilter = normStore;
 
-  // 1. Re-renderizar banner para actualizar estilos visuales de las pastillas
-  renderConglomerateBannerUI();
+  // Si estamos en la vista interactiva del cliente:
+  if (window.__currentClientBillingSnapshot) {
+    window.__currentClientBillingSnapshot.activeConglomerateStoreFilter = normStore;
+  }
 
-  // 2. Sincronizar selector de columna de tienda en la tabla editable
+  // 1. Re-renderizar banner para actualizar estilos visuales de las pastillas (admin)
+  if (typeof renderConglomerateBannerUI === 'function') {
+    try { renderConglomerateBannerUI(); } catch (e) { console.warn(e); }
+  }
+
+  // 2. Sincronizar selector de columna de tienda en la tabla editable (admin)
   const storeSelect = document.getElementById('bg-col-filter-store');
   if (storeSelect) {
-    storeSelect.value = storeName || '';
+    storeSelect.value = normStore || '';
   }
   if (!window.bgFilterState) window.bgFilterState = {};
-  window.bgFilterState.store = (storeName || '').toLowerCase().trim();
+  window.bgFilterState.store = (normStore || '').toLowerCase().trim();
 
-  // 3. Renderizar barra KPI informativa de la tienda activa sobre la tabla
-  updateActiveStoreFilterBannerUI();
-
-  // 4. Aplicar filtros a las filas de la tabla
-  if (typeof window.applyBgColumnFilters === 'function') {
-    window.applyBgColumnFilters();
+  // 3. Renderizar barra KPI informativa de la tienda activa sobre la tabla (admin)
+  if (typeof updateActiveStoreFilterBannerUI === 'function') {
+    try { updateActiveStoreFilterBannerUI(); } catch (e) { console.warn(e); }
   }
 
-  // 5. Si la pestaña de Analítica está activa (o cuando se abra), re-renderizar los gráficos
+  // 4. Aplicar filtros a las filas de la tabla (admin)
+  if (typeof window.applyBgColumnFilters === 'function') {
+    try { window.applyBgColumnFilters(); } catch (e) { console.warn(e); }
+  }
+
+  // 5. Si la pestaña de Analítica Admin está activa, re-renderizar los gráficos
   const analyticsContent = document.getElementById('bg-content-analytics');
   if (analyticsContent && analyticsContent.style.display !== 'none') {
-    renderBillingAnalyticsCharts();
+    try { renderBillingAnalyticsCharts('bg-analytics-container'); } catch (e) { console.warn(e); }
+  }
+
+  // 6. Si estamos en el modal interactivo del CLIENTE, re-renderizar analítica si está visible
+  const clientAnalyticsMount = document.getElementById('client-modal-analytics-mount');
+  const clientAnalyticsContent = document.getElementById('client-modal-content-analytics');
+  if (clientAnalyticsMount && window.__currentClientBillingSnapshot) {
+    if (!clientAnalyticsContent || clientAnalyticsContent.style.display !== 'none') {
+      try { renderBillingAnalyticsCharts('client-modal-analytics-mount', window.__currentClientBillingSnapshot); } catch (e) { console.warn(e); }
+    }
+  }
+
+  // 7. Sincronizar selector de tienda y filtrar tabla de pedidos en modal de CLIENTE
+  const clientStoreSelect = document.getElementById('client-orders-store-filter');
+  if (clientStoreSelect) {
+    clientStoreSelect.value = normStore || '';
+  }
+  if (typeof window.filterClientOrdersTable === 'function') {
+    try { window.filterClientOrdersTable(false); } catch (e) { console.warn(e); }
   }
 }
 window.setConglomerateStoreView = setConglomerateStoreView;
@@ -5546,7 +5765,7 @@ export function renderKPIsUI() {
     </div>
 
     <div class="bg-kpi-card" style="border-left: 4px solid ${t.fixedFeeUF > 0 ? '#ef4444' : '#10b981'};">
-      <div class="bg-kpi-title"><i class="ri-shield-star-line" style="color: ${t.fixedFeeUF > 0 ? '#ef4444' : '#10b981'};"></i> COSTO FIJO MENSUAL</div>
+      <div class="bg-kpi-title"><i class="ri-shield-star-line" style="color: ${t.fixedFeeUF > 0 ? '#ef4444' : '#10b981'};"></i> COSTO VARIABLE MENSUAL</div>
       <div class="bg-kpi-value" style="color: ${t.fixedFeeUF > 0 ? '#ef4444' : '#10b981'};">
         ${t.fixedFeeUF > 0 ? `${formatDec(t.fixedFeeUF, 1)} UF` : 'EXENTO'}
       </div>
@@ -6211,11 +6430,11 @@ function recalculateFromCurrentState() {
   } else if (b.volumeM3 < 1.0 && billableOrders.length < 50) {
     fixedFeeUF = 1.5;
     fixedFeeCLP = Math.round(1.5 * b.ufValue);
-    fixedFeeReason = `Costo fijo 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
+    fixedFeeReason = `Costo variable 1.5 UF (${formatCLP(fixedFeeCLP)}) por operar con < 50 pedidos y < 1 m³`;
   } else {
     fixedFeeUF = 0.9;
     fixedFeeCLP = Math.round(0.9 * b.ufValue);
-    fixedFeeReason = `Costo fijo 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
+    fixedFeeReason = `Costo variable 0.9 UF (${formatCLP(fixedFeeCLP)}) por operar con < 75 pedidos y < 1.5 m³`;
   }
 
   const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
@@ -6242,7 +6461,9 @@ function recalculateFromCurrentState() {
     fixedFeeNet: fixedFeeCLP,
     fixedFeeReason,
     posFeeNet: posFeeCLP,
+    suppliesNet: totalSuppliesNet,
     totalSuppliesNet,
+    adjustmentsNet: totalAdjustmentsNet,
     totalAdjustmentsNet,
     totalAbonos,
     totalNet,
@@ -6774,17 +6995,17 @@ window.deleteManualAbonoItem = function(abonoIdOrIdx) {
   });
 };
 
-// Modal interactivo para editar o eximir Costo Fijo Mensual
+// Modal interactivo para editar o eximir Costo Variable Mensual
 window.openEditFixedFeeModal = async function() {
   const b = billingState;
   const t = b.totals;
 
   const { value: formValues } = await Swal.fire({
-    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-money-dollar-box-line" style="color: #5f06fa;"></i><span>Costo Fijo Mensual</span></div>',
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.4rem;"><i class="ri-money-dollar-box-line" style="color: #5f06fa;"></i><span>Costo Variable Mensual</span></div>',
     html: `
       <div style="text-align: left; font-size: 0.9rem;">
         <p style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 1rem;">
-          Modifica el costo fijo mensual para este periodo. Puedes seleccionar un rango estándar, ingresar un monto personalizado o dejarlo como <strong>Exento ($0)</strong>.
+          Modifica el costo variable mensual para este periodo. Puedes seleccionar un rango estándar, ingresar un monto personalizado o dejarlo como <strong>Exento ($0)</strong>.
         </p>
         <label style="font-size: 0.75rem; font-weight: 700; color: #475569; display: block; margin-bottom: 0.25rem;">CONDICIÓN / RANGO:</label>
         <select id="swal-fixedfee-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.75rem 0; font-size: 0.85rem;">
@@ -6818,9 +7039,9 @@ window.openEditFixedFeeModal = async function() {
         if (modeSelect.value === 'exento') {
           reasonInput.value = 'Exento ($0) por acuerdo comercial';
         } else if (modeSelect.value === '0.9') {
-          reasonInput.value = `Costo fijo 0.9 UF (${formatCLP(0.9 * b.ufValue)})`;
+          reasonInput.value = `Costo variable 0.9 UF (${formatCLP(0.9 * b.ufValue)})`;
         } else if (modeSelect.value === '1.5') {
-          reasonInput.value = `Costo fijo 1.5 UF (${formatCLP(1.5 * b.ufValue)})`;
+          reasonInput.value = `Costo variable 1.5 UF (${formatCLP(1.5 * b.ufValue)})`;
         }
       });
     },
@@ -6868,7 +7089,9 @@ window.openEditFixedFeeModal = async function() {
     const totalGross = totalNet + totalIVA;
     const totalToPay = Math.max(0, totalGross - totalAbonos);
 
+    b.totals.suppliesNet = totalSuppliesNet;
     b.totals.totalSuppliesNet = totalSuppliesNet;
+    b.totals.adjustmentsNet = totalAdjustmentsNet;
     b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
     b.totals.totalAbonos = totalAbonos;
     b.totals.totalNet = totalNet;
@@ -6886,7 +7109,7 @@ window.openEditFixedFeeModal = async function() {
       toast: true,
       position: 'top-end',
       icon: 'success',
-      title: 'Costo fijo actualizado',
+      title: 'Costo variable actualizado',
       showConfirmButton: false,
       timer: 2500
     });
@@ -7001,7 +7224,9 @@ window.openEditPosFeeModal = async function() {
     const totalGross = totalNet + totalIVA;
     const totalToPay = Math.max(0, totalGross - totalAbonos);
 
+    b.totals.suppliesNet = totalSuppliesNet;
     b.totals.totalSuppliesNet = totalSuppliesNet;
+    b.totals.adjustmentsNet = totalAdjustmentsNet;
     b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
     b.totals.totalAbonos = totalAbonos;
     b.totals.totalNet = totalNet;
@@ -8172,7 +8397,7 @@ export const DEFAULT_GLOBAL_CHECKLIST_ITEMS = [
   },
   {
     id: 'chk_fixed_fee',
-    title: 'Confirmar aplicación o exención del Costo Fijo Mensual',
+    title: 'Confirmar aplicación o exención del Costo Variable Mensual',
     description: 'Verificar si aplica exención (>= 75 pedidos o >= 1.5 m³) o cobro (0.9 UF / 1.5 UF).',
     category: 'Tarifas',
     isDefault: true
@@ -9490,7 +9715,17 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
   // Garantizar que recargos Marketplace y totales sean consistentes
   sanitizeSnapshotOrdersMarketplace(snapshot);
 
-  // Asegurar desglose por tienda en snapshots si es conglomerado
+  // Asegurar detección de conglomerado y desglose por tienda en snapshots
+  if (!snapshot.isConglomerate && snapshot.orders && snapshot.orders.length > 0) {
+    const distinctStores = Array.from(new Set(snapshot.orders.map(o => (o.comercio || '').trim()).filter(Boolean)));
+    if (distinctStores.length > 1) {
+      snapshot.isConglomerate = true;
+      if (!snapshot.conglomerateChildren || snapshot.conglomerateChildren.length === 0) {
+        snapshot.conglomerateChildren = distinctStores;
+      }
+    }
+  }
+
   if (snapshot.isConglomerate && (!snapshot.storeBreakdown || snapshot.storeBreakdown.length === 0)) {
     snapshot.storeBreakdown = computeConglomerateStoreBreakdown(snapshot.orders, snapshot);
   }
@@ -9599,6 +9834,10 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
 
   const totals = snapshot.totals || {};
   const orders = snapshot.orders || [];
+  const childStores = (snapshot.conglomerateChildren && snapshot.conglomerateChildren.length > 0)
+    ? snapshot.conglomerateChildren
+    : Array.from(new Set(orders.map(o => (o.comercio || '').trim()).filter(Boolean)));
+  const isConglomerateRecord = Boolean(snapshot.isConglomerate || childStores.length > 1);
 
   modalOverlay.innerHTML = `
     <div class="client-billing-modal-container">
@@ -9628,7 +9867,8 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
           <button type="button" class="btn btn-outline btn-sm" onclick="window.downloadClientBillingExcel('${rec.id}')" style="border-color: #10b981; color: #10b981; font-weight: 700; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;" title="Descargar Planilla Excel Completa con Auditoría">
             <i class="ri-file-excel-2-fill"></i> Descargar Excel (.xlsx)
           </button>
-          <button type="button" onclick="window.closeClientInteractiveBillingModal()" style="background: transparent; border: none; cursor: pointer; color: var(--color-text-muted, #64748b); font-size: 1.6rem; line-height: 1; padding: 2px 6px; border-radius: 6px;" title="Cerrar ventana">
+          <div style="height: 24px; width: 1px; background: var(--color-border, #e2e8f0); margin: 0 0.35rem;"></div>
+          <button type="button" class="client-modal-close-btn" onclick="window.closeClientInteractiveBillingModal()" style="background: var(--color-bg, #f1f5f9); border: 1.5px solid var(--color-border, #cbd5e1); cursor: pointer; color: var(--color-text-muted, #64748b); width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 1.35rem; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" title="Cerrar ventana" onmouseover="this.style.background='#e2e8f0'; this.style.color='#0f172a'" onmouseout="this.style.background='var(--color-bg, #f1f5f9)'; this.style.color='var(--color-text-muted, #64748b)'">
             <i class="ri-close-line"></i>
           </button>
         </div>
@@ -9670,12 +9910,28 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                 </p>
               </div>
 
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                ${isConglomerateRecord ? `
+                  <div style="display: flex; align-items: center; gap: 6px; position: relative;">
+                    <select id="client-orders-store-filter" class="form-select" onchange="window.filterClientOrdersTable(true)" style="height: 36px; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.75rem; border-radius: 8px; border: 1.5px solid rgba(95,6,250,0.35); background: var(--color-surface, #ffffff); color: var(--color-text-main, #0f172a); font-weight: 700; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); max-width: 230px;">
+                      <option value="">🏢 Todas las Tiendas (${orders.length})</option>
+                      ${childStores.map(st => {
+                        const count = orders.filter(o => (o.comercio || '').toUpperCase() === st.toUpperCase()).length;
+                        const isSel = (snapshot.activeConglomerateStoreFilter && snapshot.activeConglomerateStoreFilter.toUpperCase() === st.toUpperCase()) ? 'selected' : '';
+                        return `<option value="${escapeHtml(st)}" ${isSel}>🏪 ${escapeHtml(st)} (${count})</option>`;
+                      }).join('')}
+                    </select>
+                    <span id="client-orders-store-spinner" style="display: none; color: #5f06fa; font-size: 1.15rem; align-items: center;" title="Cargando comercio...">
+                      <i class="ri-loader-4-line ri-spin"></i>
+                    </span>
+                  </div>
+                ` : ''}
+
                 <div style="position: relative;">
-                  <input type="text" id="client-orders-filter-input" class="form-input" placeholder="Buscar por N° Pedido, Plataforma, Comuna u Operador..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 260px; padding-left: 2rem; border-radius: 8px;" oninput="window.filterClientOrdersTable()">
+                  <input type="text" id="client-orders-filter-input" class="form-input" placeholder="Buscar por N° Pedido, Plataforma, Comuna u Operador..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 260px; padding-left: 2rem; border-radius: 8px;" oninput="window.filterClientOrdersTable(false)">
                   <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted, #94a3b8);"></i>
                 </div>
-                <span id="client-orders-filter-count" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 5px 10px; border-radius: 6px;">
+                <span id="client-orders-filter-count" style="font-size: 0.75rem; font-weight: 700; color: #5f06fa; background: rgba(95, 6, 250, 0.08); padding: 5px 10px; border-radius: 6px; white-space: nowrap;">
                   Mostrando ${orders.length} pedidos
                 </span>
               </div>
@@ -9705,7 +9961,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     const refDisplay = o.orderNumber || o.externalOrderNumber || (o.id ? o.id.slice(0, 8) : '—');
                     const platformName = o.platform || o.externalPlatform || (o.isMarketplace ? 'Marketplace' : 'Shopify');
                     return `
-                    <tr class="client-modal-order-row">
+                    <tr class="client-modal-order-row" data-comercio="${escapeHtml((o.comercio || '').toUpperCase())}">
                       <td class="cm-cell-num">${idx + 1}</td>
                       <td class="cm-cell-id">
                         <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
@@ -9781,10 +10037,25 @@ export function switchClientBillingTab(tabKey) {
 
   if (tabKey === 'analytics') {
     if (window.__currentClientBillingSnapshot) {
-      renderBillingAnalyticsCharts('client-modal-analytics-mount', window.__currentClientBillingSnapshot);
+      try {
+        renderBillingAnalyticsCharts('client-modal-analytics-mount', window.__currentClientBillingSnapshot);
+      } catch (e) {
+        console.warn('Error renderizando analítica interactiva:', e);
+      }
+    }
+  }
+
+  if (tabKey === 'register') {
+    if (typeof window.filterClientOrdersTable === 'function') {
+      try {
+        window.filterClientOrdersTable(false);
+      } catch (e) {
+        console.warn('Error filtrando pedidos al cambiar a registro:', e);
+      }
     }
   }
 }
+window.switchClientBillingTab = switchClientBillingTab;
 
 // Cerrar el modal interactivo
 export function closeClientInteractiveBillingModal() {
@@ -9793,28 +10064,86 @@ export function closeClientInteractiveBillingModal() {
     modalOverlay.style.display = 'none';
   }
 }
+window.closeClientInteractiveBillingModal = closeClientInteractiveBillingModal;
 
 // Filtrar la tabla de pedidos dentro del modal del cliente
-export function filterClientOrdersTable() {
+export function filterClientOrdersTable(syncToAnalytics = false) {
   const query = (document.getElementById('client-orders-filter-input')?.value || '').toLowerCase().trim();
-  const rows = document.querySelectorAll('.client-modal-order-row');
-  let visible = 0;
-
-  rows.forEach(r => {
-    const text = r.innerText.toLowerCase();
-    if (!query || text.includes(query)) {
-      r.style.display = '';
-      visible++;
-    } else {
-      r.style.display = 'none';
-    }
-  });
-
+  const storeSelect = document.getElementById('client-orders-store-filter');
+  const storeSpinner = document.getElementById('client-orders-store-spinner');
   const countBadge = document.getElementById('client-orders-filter-count');
-  if (countBadge) {
-    countBadge.textContent = `Mostrando ${visible} de ${rows.length} pedidos`;
+
+  // Mostrar ícono de carga en el selector y en el badge de conteo inmediatamente
+  if (storeSpinner) storeSpinner.style.display = 'inline-flex';
+  if (countBadge && syncToAnalytics) {
+    countBadge.innerHTML = `<i class="ri-loader-4-line ri-spin" style="color: #5f06fa; margin-right: 4px;"></i> Cargando tienda...`;
   }
+
+  // Permitir que el navegador repinte la UI con el ícono de carga antes de filtrar filas y renderizar gráficos
+  setTimeout(() => {
+    try {
+      // Si no viene forzado desde el selector (ej: al cambiar de pestaña o desde un botón externo), sincronizar con snapshot
+      if (!syncToAnalytics && window.__currentClientBillingSnapshot && storeSelect) {
+        const activeFromSnap = window.__currentClientBillingSnapshot.activeConglomerateStoreFilter || '';
+        if (storeSelect.value.toUpperCase() !== activeFromSnap.toUpperCase()) {
+          storeSelect.value = activeFromSnap;
+        }
+      }
+
+      const selectedStore = (storeSelect?.value || '').toUpperCase().trim();
+
+      // Guardar en el snapshot para que la analítica y el registro queden sincronizados
+      if (window.__currentClientBillingSnapshot) {
+        window.__currentClientBillingSnapshot.activeConglomerateStoreFilter = selectedStore || null;
+      }
+
+      const rows = document.querySelectorAll('.client-modal-order-row');
+      let visible = 0;
+
+      rows.forEach(r => {
+        const rowComercio = (r.getAttribute('data-comercio') || '').toUpperCase().trim();
+        const text = r.innerText.toLowerCase();
+
+        // Validar coincidencia de texto
+        const matchesText = !query || text.includes(query);
+
+        // Validar coincidencia de tienda
+        const matchesStore = !selectedStore || (rowComercio === selectedStore || rowComercio.includes(selectedStore) || selectedStore.includes(rowComercio));
+
+        if (matchesText && matchesStore) {
+          r.style.display = '';
+          visible++;
+        } else {
+          r.style.display = 'none';
+        }
+      });
+
+      if (countBadge) {
+        if (selectedStore || query) {
+          countBadge.textContent = `Mostrando ${visible} de ${rows.length} pedidos${selectedStore ? ` (${selectedStore})` : ''}`;
+        } else {
+          countBadge.textContent = `Mostrando ${rows.length} pedidos`;
+        }
+      }
+
+      // Si el usuario cambió la tienda desde el select y la pestaña analítica está visible, re-renderizar gráficos
+      if (syncToAnalytics && window.__currentClientBillingSnapshot) {
+        const clientAnalyticsContent = document.getElementById('client-modal-content-analytics');
+        const clientAnalyticsMount = document.getElementById('client-modal-analytics-mount');
+        if (clientAnalyticsMount && (!clientAnalyticsContent || clientAnalyticsContent.style.display !== 'none')) {
+          try {
+            renderBillingAnalyticsCharts('client-modal-analytics-mount', window.__currentClientBillingSnapshot);
+          } catch (e) {
+            console.warn('Error re-renderizando analítica:', e);
+          }
+        }
+      }
+    } finally {
+      if (storeSpinner) storeSpinner.style.display = 'none';
+    }
+  }, 20);
 }
+window.filterClientOrdersTable = filterClientOrdersTable;
 
 // Descarga directa de PDF para el cliente
 export async function downloadClientBillingPdf(recordId) {
@@ -9951,9 +10280,9 @@ window.downloadClientBillingPdf = downloadClientBillingPdf;
 window.downloadClientBillingExcel = downloadClientBillingExcel;
 window.confirmAndPublishBillingToCommerce = confirmAndPublishBillingToCommerce;
 window.uploadBillingSnapshotToStorage = uploadBillingSnapshotToStorage;
-window.addNewManualAbonoRow = addNewManualAbonoRow;
-window.editManualAbonoItem = editManualAbonoItem;
-window.deleteManualAbonoItem = deleteManualAbonoItem;
+// window.addNewManualAbonoRow = addNewManualAbonoRow;
+// window.editManualAbonoItem = editManualAbonoItem;
+// window.deleteManualAbonoItem = deleteManualAbonoItem;
 window.injectBillingGeneratorStyles = injectBillingGeneratorStyles;
 window.injectClientInteractiveModalStyles = injectClientInteractiveModalStyles;
 
