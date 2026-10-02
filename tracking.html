@@ -1489,6 +1489,8 @@
                          (order.courier || '').toUpperCase().includes('RETIRO') ||
                          (order.courier || '').toUpperCase().includes('SUCURSAL');
 
+        const trackingCode = order.tracking_number && order.tracking_number !== 'No informado' ? order.tracking_number : null;
+
         // Status analysis
         let statusBadgeClass = 'recibido';
         let statusBadgeText = 'Pedido Recibido';
@@ -1519,11 +1521,19 @@
           statusBadgeIcon = 'ri-truck-fill';
           step2Done = true;
           step3Active = true;
-        } else if (rawStatus.includes('prep') || rawStatus.includes('empaq') || rawStatus.includes('picking') || rawStatus.includes('proceso')) {
+        } else if (rawStatus.includes('pick') || rawStatus.includes('preparado') || rawStatus.includes('listo')) {
+          statusBadgeClass = 'preparacion';
+          statusBadgeText = trackingCode ? 'Preparado / Esperando Retiro de Courier' : 'Empaque Listo en Bodega';
+          statusBadgeIcon = 'ri-inbox-archive-fill';
+          step2Done = true;
+          if (trackingCode) {
+            step3Active = true;
+          }
+        } else if (rawStatus.includes('prep') || rawStatus.includes('empaq') || rawStatus.includes('proceso')) {
           statusBadgeClass = 'preparacion';
           statusBadgeText = 'En Preparación en Bodega';
           statusBadgeIcon = 'ri-inbox-archive-fill';
-          step2Done = true;
+          step2Done = false;
         } else if (rawStatus.includes('incidenc')) {
           statusBadgeClass = 'incidencia';
           statusBadgeText = 'En Gestión de Incidencia';
@@ -1544,7 +1554,6 @@
 
         // Courier URL resolution
         let courierUrl = order.tracking_url;
-        const trackingCode = order.tracking_number && order.tracking_number !== 'No informado' ? order.tracking_number : null;
 
         if (!courierUrl && trackingCode && !isRetiro) {
           const cUpper = (order.courier || '').toUpperCase();

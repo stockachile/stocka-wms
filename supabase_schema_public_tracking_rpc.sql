@@ -107,8 +107,26 @@ BEGIN
           END,
           'picking_info', jsonb_build_object(
             'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
-            'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
-            'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+            'status', COALESCE(
+            o.picker_status,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
+              WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
+                OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
+              ELSE 'En proceso'
+            END
+          ),
+          'picked_at', COALESCE(
+            o.picker_last_synced_at::text,
+            o.stock_descontado_at::text,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado')
+              THEN COALESCE(o.raw_shopify_data->>'updated_at', o.created_at::text)
+              ELSE NULL
+            END
+          ),
             'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
             'items', (
               SELECT COALESCE(jsonb_agg(
@@ -218,8 +236,26 @@ BEGIN
           END,
           'picking_info', jsonb_build_object(
             'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
-            'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
-            'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+            'status', COALESCE(
+            o.picker_status,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
+              WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
+                OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
+              ELSE 'En proceso'
+            END
+          ),
+          'picked_at', COALESCE(
+            o.picker_last_synced_at::text,
+            o.stock_descontado_at::text,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado')
+              THEN COALESCE(o.raw_shopify_data->>'updated_at', o.created_at::text)
+              ELSE NULL
+            END
+          ),
             'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
             'items', (
               SELECT COALESCE(jsonb_agg(
@@ -339,8 +375,26 @@ BEGIN
         END,
         'picking_info', jsonb_build_object(
           'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
-          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
-          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'status', COALESCE(
+            o.picker_status,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
+              WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
+                OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
+              ELSE 'En proceso'
+            END
+          ),
+          'picked_at', COALESCE(
+            o.picker_last_synced_at::text,
+            o.stock_descontado_at::text,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado')
+              THEN COALESCE(o.raw_shopify_data->>'updated_at', o.created_at::text)
+              ELSE NULL
+            END
+          ),
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
@@ -456,8 +510,26 @@ BEGIN
         END,
         'picking_info', jsonb_build_object(
           'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
-          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
-          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'status', COALESCE(
+            o.picker_status,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
+              WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
+                OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
+              ELSE 'En proceso'
+            END
+          ),
+          'picked_at', COALESCE(
+            o.picker_last_synced_at::text,
+            o.stock_descontado_at::text,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado')
+              THEN COALESCE(o.raw_shopify_data->>'updated_at', o.created_at::text)
+              ELSE NULL
+            END
+          ),
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
@@ -566,8 +638,26 @@ BEGIN
         END,
         'picking_info', jsonb_build_object(
           'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
-          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
-          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'status', COALESCE(
+            o.picker_status,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
+              WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
+                OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
+              ELSE 'En proceso'
+            END
+          ),
+          'picked_at', COALESCE(
+            o.picker_last_synced_at::text,
+            o.stock_descontado_at::text,
+            CASE 
+              WHEN LOWER(COALESCE(o.estado_wms, '')) IN ('despachado', 'pickeado')
+                OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado')
+              THEN COALESCE(o.raw_shopify_data->>'updated_at', o.created_at::text)
+              ELSE NULL
+            END
+          ),
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
