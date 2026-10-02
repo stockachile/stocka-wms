@@ -3157,6 +3157,8 @@ async function init() {
     }
 
     userRole = profile.role || 'admin';
+    window.currentAdminProfile = profile;
+    window.currentAdminUser = session.user;
 
     // Auto-update admin profile if missing integrations or documentation_admin
     if (profile.allowed_modules && profile.allowed_modules !== 'all') {
@@ -35993,6 +35995,37 @@ function buildDeclarationRowHtml(dec) {
          <i class="ri-calendar-2-line"></i> Asignar Periodo
        </button>`;
 
+  const firstHist = Array.isArray(dec.history) && dec.history.length > 0 ? dec.history[0] : null;
+  const isAdminCreated = dec.created_by_role === 'admin' ||
+                         firstHist?.created_by_role === 'admin' ||
+                         firstHist?.type === 'created_by_admin' ||
+                         (firstHist?.comment && (firstHist.comment.includes('por Administración') || firstHist.comment.includes('creada por Administración')));
+
+  const creatorName = dec.created_by_name ||
+                      firstHist?.created_by_name ||
+                      firstHist?.user_name ||
+                      (firstHist?.created_by ? firstHist.created_by.split('(')[0].trim() : null) ||
+                      (isAdminCreated ? (firstHist?.author || 'Administración') : (dec.profiles?.full_name || dec.profiles?.email || 'Cliente'));
+
+  const creatorEmail = dec.created_by_email || firstHist?.created_by_email || firstHist?.user_email || '';
+  const dateFormatted = `${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
+
+  const creatorTraceabilityHtml = isAdminCreated
+    ? `
+      <div style="margin-top: 4px; display: inline-flex; align-items: center; gap: 4px; background: rgba(99, 102, 241, 0.12); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.28); border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; font-weight: 700;" title="Ingreso creado por Administración: ${creatorName} ${creatorEmail ? `(${creatorEmail})` : ''}">
+        <i class="ri-shield-user-fill" style="color: #6366f1;"></i> Creado por Admin: ${creatorName}
+      </div>
+      <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px;">
+        <i class="ri-calendar-line" style="font-size: 0.72rem;"></i> ${dateFormatted}
+      </div>
+    `
+    : `
+      <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Declarado por el comercio: ${creatorName} ${creatorEmail ? `(${creatorEmail})` : ''}">
+        <i class="ri-user-line" style="font-size: 0.75rem;"></i>
+        <span>${creatorName} (${dateFormatted})</span>
+      </div>
+    `;
+
   return `
     <tr style="transition: background-color 0.2s;">
       <td style="font-weight: 600; color: var(--color-primary);">
@@ -36000,10 +36033,7 @@ function buildDeclarationRowHtml(dec) {
         <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
           ${dec.profiles?.company_name || 'Desconocido'}
         </div>
-        <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
-          <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
-          <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
-        </div>
+        ${creatorTraceabilityHtml}
       </td>
       <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
         <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
@@ -36314,6 +36344,10 @@ window.filterAndRenderDeclarationsAdminTable = function() {
         );
       }
 
+      const firstH = Array.isArray(dec.history) && dec.history.length > 0 ? dec.history[0] : null;
+      const creatorStr = ((dec.created_by_name || '') + ' ' + (dec.created_by_email || '') + ' ' + (firstH?.created_by || '') + ' ' + (firstH?.author || '') + ' ' + (firstH?.user_name || '')).toLowerCase();
+      const isAdminCreated = dec.created_by_role === 'admin' || firstH?.created_by_role === 'admin' || firstH?.type === 'created_by_admin';
+
       const matches = id.includes(q) ||
         shortCode.includes(q) ||
         rawHex.includes(q) ||
@@ -36322,6 +36356,7 @@ window.filterAndRenderDeclarationsAdminTable = function() {
         com.includes(q) ||
         company.includes(q) ||
         user.includes(q) ||
+        creatorStr.includes(q) ||
         carrier.includes(q) ||
         method.includes(q) ||
         notes.includes(q) ||
@@ -36329,7 +36364,8 @@ window.filterAndRenderDeclarationsAdminTable = function() {
         billingNotes.includes(q) ||
         warehouse.includes(q) ||
         productsMatch ||
-        (q.includes('paralelo') && dec.parallel_count);
+        (q.includes('paralelo') && dec.parallel_count) ||
+        (q === 'admin' && isAdminCreated);
 
       if (!matches) return false;
     }
@@ -36425,9 +36461,14 @@ window.renderDeclarationsAdmin = async function(forceRefresh = true) {
               <h3>Gestión de Ingresos de Stock</h3>
               <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica, recepciona y audita la facturación de los ingresos declarados.</p>
             </div>
-            <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
-              <i class="ri-refresh-line"></i> Actualizar
-            </button>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button class="btn btn-primary" id="btn-admin-new-declaration" onclick="window.openAdminNewDeclarationModal()" style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.95rem; font-size: 0.85rem; font-weight: 600; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25); cursor: pointer;">
+                <i class="ri-add-circle-line" style="font-size: 1.1rem;"></i> Declarar Nuevo Ingreso
+              </button>
+              <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
+                <i class="ri-refresh-line"></i> Actualizar
+              </button>
+            </div>
           </div>
 
           <!-- Toolbar de Búsqueda y Filtros de Administración -->
@@ -37770,9 +37811,41 @@ window.manageDeclaration = async function(id) {
       });
     }
 
-    // Llenar campos informativos del modal
     document.getElementById('manage-dec-id').value = dec.id;
     document.getElementById('manage-dec-merchant').innerHTML = `<strong>${dec.comercio || 'no asignado'}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${dec.profiles?.company_name || 'Desconocido'})</span>`;
+    
+    // Trazabilidad del creador
+    const manageFirstHist = Array.isArray(dec.history) && dec.history.length > 0 ? dec.history[0] : null;
+    const isManageAdminCreated = dec.created_by_role === 'admin' ||
+                                 manageFirstHist?.created_by_role === 'admin' ||
+                                 manageFirstHist?.type === 'created_by_admin' ||
+                                 (manageFirstHist?.comment && (manageFirstHist.comment.includes('por Administración') || manageFirstHist.comment.includes('creada por Administración')));
+
+    const manageCreatorName = dec.created_by_name ||
+                              manageFirstHist?.created_by_name ||
+                              manageFirstHist?.user_name ||
+                              (manageFirstHist?.created_by ? manageFirstHist.created_by.split('(')[0].trim() : null) ||
+                              (isManageAdminCreated ? (manageFirstHist?.author || 'Administración') : (dec.profiles?.full_name || dec.profiles?.email || 'Cliente'));
+
+    const manageCreatorEmail = dec.created_by_email || manageFirstHist?.created_by_email || manageFirstHist?.user_email || '';
+    const manageCreatorEl = document.getElementById('manage-dec-creator-info');
+    if (manageCreatorEl) {
+      if (isManageAdminCreated) {
+        manageCreatorEl.innerHTML = `
+          <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 6px; padding: 4px 8px; color: #4338ca; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem;">
+            <i class="ri-shield-user-fill" style="color: #6366f1;"></i>
+            <span>Administración: <strong>${manageCreatorName}</strong> ${manageCreatorEmail ? `(${manageCreatorEmail})` : ''}</span>
+          </div>
+        `;
+      } else {
+        manageCreatorEl.innerHTML = `
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 4px 8px; color: var(--color-text-main); font-weight: 500; display: inline-flex; align-items: center; gap: 4px; font-size: 0.8rem;">
+            <i class="ri-user-line" style="color: var(--color-text-muted);"></i>
+            <span>Cliente / Comercio: <strong>${manageCreatorName}</strong> ${manageCreatorEmail ? `(${manageCreatorEmail})` : ''}</span>
+          </div>
+        `;
+      }
+    }
     document.getElementById('manage-dec-title').textContent = dec.title;
     
     let etaText = '';
@@ -40444,7 +40517,1408 @@ document.addEventListener('submit', async (e) => {
   }
 });
 
+// =========================================================================
+// CREACIÓN DE DECLARACIONES DE INGRESO POR ADMINISTRADOR (CON TRAZABILIDAD)
+// =========================================================================
+
+window.adminNewDecProducts = [];
+window.adminNewDecCatalogCache = [];
+window.adminNewDecCommerceMap = new Map();
+
+if (typeof window.downloadDeclarationsTemplate !== 'function') {
+  window.downloadDeclarationsTemplate = function() {
+    try {
+      const wb = XLSX.utils.book_new();
+      const headers = ['Nombre Producto', 'SKU', 'Código de barra', 'Cantidad declarada', 'Valor', 'Stock crítico (cantidad)', 'Fecha de vencimiento', 'Largo', 'Ancho', 'Alto', 'Peso'];
+      const sampleData = [
+        headers,
+        ['[EJEMPLO] Producto A (Editar)', 'SKU-EJEMPLO-001', '780000000001', '100', '15000', '10', '2027-12-31', '30', '20', '15', '0.5'],
+        ['[EJEMPLO] Producto B (Editar)', 'SKU-EJEMPLO-002', '780000000002', '250', '8990', '20', '', '25', '15', '2', '0.2']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(sampleData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Ingreso');
+      XLSX.writeFile(wb, 'plantilla_declaracion_ingreso.xlsx');
+    } catch (err) {
+      console.error('Error al generar la plantilla:', err);
+      alert('Error al descargar la plantilla.');
+    }
+  };
+}
+
+if (typeof window.calculateEntryCost !== 'function') {
+  window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arrivalDateStr, labelingQty = 0) {
+    let standardCost = 0;
+    let unloadingCost = requiresUnloading ? (0.1 * volume) : 0;
+    let surchargeCost = 0;
+    if (arrivalType === 'exact' && arrivalDateStr) {
+      const selectedDate = new Date(arrivalDateStr + 'T00:00:00');
+      const now = new Date();
+      const diffTime = selectedDate.getTime() - now.getTime();
+      if (diffTime < 24 * 60 * 60 * 1000) {
+        surchargeCost = 0.75 * volume;
+      }
+    }
+    const ufRate = window.currentUfValue || 38200;
+    const labelingCost = labelingQty * (100 / ufRate);
+    const totalCost = unloadingCost + surchargeCost + labelingCost;
+    return { standardCost, unloadingCost, surchargeCost, labelingCost, labelingQty, totalCost };
+  };
+}
+
+window.initAdminNewDeclarationModalDom = function() {
+  if (document.getElementById('modal-admin-new-declaration')) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-admin-new-declaration';
+  modal.className = 'modal-overlay';
+  modal.style.zIndex = '5000';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1260px; width: 96vw; max-height: 94vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; background: var(--color-surface); box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: var(--font-family);">
+      <!-- Modal Header -->
+      <div class="modal-header" style="padding: 1.15rem 1.75rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-inbox-archive-line" style="color: var(--color-primary);"></i> Crear Declaración de Ingreso de Stock
+            <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;"><i class="ri-shield-user-fill"></i> Modo Admin</span>
+          </h3>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Registra una nueva declaración de ingreso para cualquier comercio con trazabilidad completa de autoría.
+          </p>
+        </div>
+        <button type="button" class="modal-close" onclick="window.closeAdminNewDeclarationModal()">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem; background: var(--color-bg); display: flex; flex-direction: column; gap: 1.25rem;">
+        <div id="admin-new-dec-alert-container"></div>
+
+        <!-- Banner de Trazabilidad -->
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.75rem 1.15rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; font-size: 0.84rem; color: var(--color-text-main);">
+            <i class="ri-shield-check-fill" style="color: #6366f1; font-size: 1.35rem; flex-shrink: 0;"></i>
+            <div>
+              <strong>Trazabilidad y Auditoría:</strong> Este ingreso quedará registrado en el historial como creado por <strong id="admin-new-dec-author-name">Administración</strong> (<span id="admin-new-dec-author-email" style="color: var(--color-text-muted);">admin@stocka.cl</span>) para el comercio seleccionado.
+            </div>
+          </div>
+          <div style="font-size: 0.75rem; color: #4338ca; font-weight: 700; background: rgba(99, 102, 241, 0.15); padding: 3px 8px; border-radius: 4px;">
+            <i class="ri-history-line"></i> Trazable en BD y cliente
+          </div>
+        </div>
+
+        <!-- Formulario Superior: 2 Columnas -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem;">
+          
+          <!-- Columna 1: Comercio, Título y Logística -->
+          <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.9rem;">
+            <h4 style="margin: 0; font-size: 0.925rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-building-line" style="color: var(--color-primary);"></i> Comercio y Datos Logísticos
+            </h4>
+
+            <!-- Comercio Selector -->
+            <div>
+              <label class="form-label" style="font-weight: 700; font-size: 0.825rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center;">
+                <span>Comercio Asociado *</span>
+                <span id="admin-new-dec-commerce-catalog-badge" style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;"></span>
+              </label>
+              <select id="admin-new-dec-commerce" class="form-input" required style="width: 100%; font-size: 0.875rem; font-weight: 600; background: var(--color-bg); border-color: var(--color-primary);">
+                <option value="">-- Selecciona el Comercio Destino --</option>
+              </select>
+            </div>
+
+            <!-- Título / Descripción -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Título / Descripción del Ingreso *</label>
+              <input type="text" id="admin-new-dec-title" class="form-input" placeholder="Ej: Embarque Reposición Q3 - Calzado e Indumentaria" required style="width: 100%; font-size: 0.85rem;">
+            </div>
+
+            <!-- Bodega Asignada -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Bodega Asignada</label>
+              <select id="admin-new-dec-warehouse" class="form-input" style="width: 100%; font-size: 0.85rem;">
+                <option value="">-- Sin asignar (Estado inicial: Creada) --</option>
+              </select>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Si asignas bodega, el estado inicial será "Bodega Asignada".</span>
+            </div>
+
+            <!-- Fecha de Llegada (ETA) -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.35rem;">Fecha Estimada de Llegada (ETA) *</label>
+              <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <button type="button" id="admin-new-btn-date-exact" class="btn btn-sm" style="flex: 1; font-size: 0.8rem; background: var(--color-primary); color: white; border: 1px solid var(--color-primary); font-weight: 600;">Fecha Exacta</button>
+                <button type="button" id="admin-new-btn-date-estimate" class="btn btn-sm btn-outline" style="flex: 1; font-size: 0.8rem; border-color: var(--color-border); font-weight: 500;">Plazo Estimado</button>
+              </div>
+              
+              <div id="admin-new-group-date-exact">
+                <input type="date" id="admin-new-dec-date" class="form-input" style="width: 100%; font-size: 0.85rem;">
+              </div>
+              
+              <div id="admin-new-group-date-estimate" style="display: none; display: flex; gap: 0.5rem;">
+                <input type="number" id="admin-new-dec-period-qty" class="form-input" value="2" min="1" style="width: 80px; font-size: 0.85rem;">
+                <select id="admin-new-dec-period-unit" class="form-input" style="flex: 1; font-size: 0.85rem;">
+                  <option value="días">días</option>
+                  <option value="semanas" selected>semanas</option>
+                  <option value="meses">meses</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Método de Envío -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Método de Envío *</label>
+              <select id="admin-new-dec-delivery-method" class="form-input" required style="width: 100%; font-size: 0.85rem;">
+                <option value="Transporte particular">Transporte particular</option>
+                <option value="Transporte vía courier">Transporte vía courier</option>
+                <option value="Desde proveedor">Desde proveedor</option>
+                <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
+              </select>
+            </div>
+
+            <!-- Servicio de Descarga -->
+            <div style="background: var(--color-bg); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <div style="font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Servicio de Descarga en Bodega</div>
+                <div style="font-size: 0.725rem; color: var(--color-text-muted);">Aplica recargo estándar de 0.1 UF por m³</div>
+              </div>
+              <input type="checkbox" id="admin-new-dec-unloading" style="width: 18px; height: 18px; cursor: pointer;">
+            </div>
+          </div>
+
+          <!-- Columna 2: Carga, Bultos, Etiquetado y Contacto -->
+          <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.9rem;">
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 0.925rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Carga, Bultos y Contacto
+            </h4>
+
+            <!-- Tipo de Bulto y Total -->
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Tipo de Bulto *</label>
+                <select id="admin-new-dec-package-type" class="form-input" required style="width: 100%; font-size: 0.85rem;">
+                  <option value="Cajas">Cajas</option>
+                  <option value="Pallets">Pallets</option>
+                  <option value="Contenedores">Contenedores</option>
+                  <option value="Mixto">Mixto</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Total Bultos *</label>
+                <input type="number" id="admin-new-dec-package-count" class="form-input" min="0" value="0" required style="width: 100%; font-size: 0.85rem; font-weight: 700;">
+              </div>
+            </div>
+
+            <!-- Desglose de Bultos -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; color: var(--color-text-muted);">Desglose de Bultos</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+                <div>
+                  <span style="font-size: 0.725rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Contenedores</span>
+                  <input type="number" id="admin-new-dec-container-count" class="form-input" min="0" value="0" style="width: 100%; font-size: 0.85rem; text-align: center;">
+                </div>
+                <div>
+                  <span style="font-size: 0.725rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Pallets</span>
+                  <input type="number" id="admin-new-dec-pallet-count" class="form-input" min="0" value="0" style="width: 100%; font-size: 0.85rem; text-align: center;">
+                </div>
+                <div>
+                  <span style="font-size: 0.725rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Cajas</span>
+                  <input type="number" id="admin-new-dec-box-count" class="form-input" min="0" value="0" style="width: 100%; font-size: 0.85rem; text-align: center;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Volumen Declarado -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+                <span>Volumen Total Declarado (m³) *</span>
+                <span id="admin-new-dec-auto-vol-hint" style="font-size: 0.72rem; color: var(--color-success); font-weight: normal; cursor: pointer;"></span>
+              </label>
+              <input type="number" id="admin-new-dec-volume" class="form-input" step="any" min="0" value="0" required style="width: 100%; font-size: 0.85rem; font-weight: 700;">
+            </div>
+
+            <!-- Control de Etiquetado -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.25rem;">Servicio de Etiquetado</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <select id="admin-new-dec-labeling-type" class="form-input" style="font-size: 0.85rem;">
+                  <option value="completely">Completamente Etiquetado</option>
+                  <option value="partially">Parcialmente Etiquetado</option>
+                  <option value="none">Sin Etiquetado</option>
+                </select>
+                <input type="number" id="admin-new-dec-labeling-qty" class="form-input" min="0" value="0" placeholder="Cant. a etiquetar" style="font-size: 0.85rem;" title="Cantidad de unidades que requieren etiquetado">
+              </div>
+            </div>
+
+            <!-- Contacto y Transportista -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem;">Contacto Comercio</label>
+                <input type="text" id="admin-new-dec-contact" class="form-input" placeholder="Nombre / Tel" style="width: 100%; font-size: 0.8rem;">
+              </div>
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem;">Transportista</label>
+                <input type="text" id="admin-new-dec-carrier" class="form-input" placeholder="Empresa / Chofer" style="width: 100%; font-size: 0.8rem;">
+              </div>
+            </div>
+
+            <!-- Notas del Ingreso -->
+            <div>
+              <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem;">Notas del Ingreso / Comentarios</label>
+              <textarea id="admin-new-dec-notes" class="form-input" rows="2" placeholder="Observaciones generales o instrucciones para bodega..." style="width: 100%; font-size: 0.825rem;"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sección Inferior: Productos a Recibir -->
+        <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Productos a Declarar en este Ingreso *
+              </h4>
+              <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+                Agrega productos desde el catálogo del comercio seleccionado o importa una planilla Excel.
+              </p>
+            </div>
+            
+            <!-- Selector de Modalidad -->
+            <div style="display: flex; gap: 0.4rem; background: var(--color-bg); padding: 3px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <button type="button" id="admin-new-source-catalog-btn" class="btn btn-sm" style="background: var(--color-primary); color: white; font-weight: 600; font-size: 0.8rem; border-radius: 6px; padding: 0.35rem 0.75rem; display: flex; align-items: center; gap: 4px; border: none; cursor: pointer;">
+                <i class="ri-folder-open-line"></i> Catálogo
+              </button>
+              <button type="button" id="admin-new-source-excel-btn" class="btn btn-sm btn-outline" style="border: none; background: transparent; color: var(--color-text-muted); font-size: 0.8rem; border-radius: 6px; padding: 0.35rem 0.75rem; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                <i class="ri-file-excel-2-line"></i> Subir Planilla
+              </button>
+            </div>
+          </div>
+
+          <!-- Contenedor Modo Catálogo -->
+          <div id="admin-new-catalog-mode-container" style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <!-- Barra de búsqueda y botón producto personalizado -->
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <div style="position: relative; flex: 1; min-width: 280px;">
+                <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1rem;"></i>
+                <input type="text" id="admin-new-dec-prod-search" class="form-input" placeholder="Buscar producto en catálogo por SKU, Nombre o Código de barras..." style="padding-left: 2.35rem; width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); border-radius: 6px;" autocomplete="off">
+                <!-- Sugerencias autocomplete -->
+                <div id="admin-new-dec-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; max-height: 240px; overflow-y: auto; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,0.25);"></div>
+              </div>
+              <button type="button" class="btn btn-outline" id="btn-admin-new-custom-prod" onclick="window.adminNewDecAddCustomProductModal()" style="font-size: 0.825rem; font-weight: 600; padding: 0.45rem 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; border-color: var(--color-primary); color: var(--color-primary); cursor: pointer;">
+                <i class="ri-add-line"></i> + Producto Fuera de Catálogo
+              </button>
+            </div>
+
+            <!-- Tabla de Productos Seleccionados -->
+            <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); max-height: 320px; overflow-y: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.825rem; margin: 0;">
+                <thead>
+                  <tr style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; border-bottom: 2px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted);">
+                    <th style="padding: 8px 12px; text-align: left;">SKU y Medidas</th>
+                    <th style="padding: 8px 12px; text-align: left;">Producto</th>
+                    <th style="padding: 8px 12px; text-align: center; width: 110px;">Cant. Declarada</th>
+                    <th style="padding: 8px 12px; text-align: right; width: 110px;">Valor Unit.</th>
+                    <th style="padding: 8px 12px; text-align: right; width: 120px;">Subtotal</th>
+                    <th style="padding: 8px 12px; text-align: center; width: 45px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="admin-new-dec-products-tbody">
+                  <tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Selecciona un comercio arriba y busca productos para agregar.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Contenedor Modo Planilla Excel -->
+          <div id="admin-new-excel-mode-container" style="display: none; background: rgba(16, 185, 129, 0.04); border: 1.5px dashed rgba(16, 185, 129, 0.4); border-radius: 8px; padding: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <strong style="color: var(--color-text-main); font-size: 0.85rem;"><i class="ri-file-excel-2-line" style="color: #059669;"></i> Importar Planilla de Productos</strong>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Sube la planilla Excel (.xlsx, .xls) o CSV con el listado de productos a recibir.</p>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline" onclick="window.downloadDeclarationsTemplate()" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; border-color: rgba(16, 185, 129, 0.5); color: #059669; cursor: pointer;">
+                <i class="ri-download-cloud-line"></i> Descargar Planilla Tipo
+              </button>
+            </div>
+            <input type="file" id="admin-new-dec-file-input" class="form-input" accept=".xlsx, .xls, .csv" style="width: 100%; background: var(--color-surface); font-size: 0.85rem;">
+            <div id="admin-new-dec-file-info" style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--color-text-muted); font-style: italic;"></div>
+          </div>
+
+          <!-- Resumen de Totales al pie de la tabla -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; text-align: center;">
+            <div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase;">SKUs Únicos</div>
+              <strong id="admin-new-dec-total-skus" style="font-size: 1.1rem; color: var(--color-text-main);">0</strong>
+            </div>
+            <div style="border-left: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase;">Total Unidades</div>
+              <strong id="admin-new-dec-total-qty" style="font-size: 1.1rem; color: var(--color-primary);">0</strong>
+            </div>
+            <div style="border-left: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase;">Volumen Calculado</div>
+              <strong id="admin-new-dec-total-vol" style="font-size: 1.1rem; color: var(--color-text-main);">0.0000 m³</strong>
+            </div>
+            <div style="border-left: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); text-transform: uppercase;">Valor Declarado</div>
+              <strong id="admin-new-dec-total-val" style="font-size: 1.1rem; color: var(--color-success);">$ 0</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer" style="padding: 1.15rem 1.75rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; flex-shrink: 0;">
+        <div id="admin-new-dec-cost-summary" style="font-size: 0.85rem; color: var(--color-text-muted);">
+          Costo Estimado: <strong style="color: var(--color-text-main);" id="admin-new-dec-cost-uf">0.0000 UF</strong> <span id="admin-new-dec-cost-clp" style="font-size: 0.78rem;">(~ $0 CLP)</span>
+        </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <button type="button" class="btn btn-outline" onclick="window.closeAdminNewDeclarationModal()" style="padding: 0.55rem 1.25rem; font-size: 0.85rem; font-weight: 600;">
+            Cancelar
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-admin-submit-declaration" onclick="window.submitAdminNewDeclaration()" style="padding: 0.55rem 1.5rem; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; background: var(--color-success); border-color: var(--color-success); box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25); cursor: pointer;">
+            <i class="ri-check-line" style="font-size: 1.1rem;"></i> Crear y Registrar Declaración
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Event Listeners del Modal
+  // 1. Selector de fecha ETA
+  const btnExact = document.getElementById('admin-new-btn-date-exact');
+  const btnEstimate = document.getElementById('admin-new-btn-date-estimate');
+  const groupExact = document.getElementById('admin-new-group-date-exact');
+  const groupEstimate = document.getElementById('admin-new-group-date-estimate');
+
+  if (btnExact && btnEstimate) {
+    btnExact.addEventListener('click', () => {
+      btnExact.style.background = 'var(--color-primary)';
+      btnExact.style.color = 'white';
+      btnExact.style.border = '1px solid var(--color-primary)';
+      btnEstimate.style.background = 'transparent';
+      btnEstimate.style.color = 'var(--color-text-muted)';
+      btnEstimate.style.border = '1px solid var(--color-border)';
+      if (groupExact) groupExact.style.display = 'block';
+      if (groupEstimate) groupEstimate.style.display = 'none';
+      window.recalculateAdminNewDecCosts();
+    });
+
+    btnEstimate.addEventListener('click', () => {
+      btnEstimate.style.background = 'var(--color-primary)';
+      btnEstimate.style.color = 'white';
+      btnEstimate.style.border = '1px solid var(--color-primary)';
+      btnExact.style.background = 'transparent';
+      btnExact.style.color = 'var(--color-text-muted)';
+      btnExact.style.border = '1px solid var(--color-border)';
+      if (groupExact) groupExact.style.display = 'none';
+      if (groupEstimate) groupEstimate.style.display = 'flex';
+      window.recalculateAdminNewDecCosts();
+    });
+  }
+
+  // 2. Selector de modalidad de productos (Catálogo vs Excel)
+  const btnSrcCatalog = document.getElementById('admin-new-source-catalog-btn');
+  const btnSrcExcel = document.getElementById('admin-new-source-excel-btn');
+  const containerCatalog = document.getElementById('admin-new-catalog-mode-container');
+  const containerExcel = document.getElementById('admin-new-excel-mode-container');
+
+  if (btnSrcCatalog && btnSrcExcel) {
+    btnSrcCatalog.addEventListener('click', () => {
+      btnSrcCatalog.style.background = 'var(--color-primary)';
+      btnSrcCatalog.style.color = 'white';
+      btnSrcExcel.style.background = 'transparent';
+      btnSrcExcel.style.color = 'var(--color-text-muted)';
+      if (containerCatalog) containerCatalog.style.display = 'flex';
+      if (containerExcel) containerExcel.style.display = 'none';
+    });
+
+    btnSrcExcel.addEventListener('click', () => {
+      btnSrcExcel.style.background = 'var(--color-primary)';
+      btnSrcExcel.style.color = 'white';
+      btnSrcCatalog.style.background = 'transparent';
+      btnSrcCatalog.style.color = 'var(--color-text-muted)';
+      if (containerCatalog) containerCatalog.style.display = 'none';
+      if (containerExcel) containerExcel.style.display = 'block';
+    });
+  }
+
+  // 3. Autocomplete en buscador de catálogo
+  const searchInput = document.getElementById('admin-new-dec-prod-search');
+  const searchResults = document.getElementById('admin-new-dec-search-results');
+
+  if (searchInput && searchResults) {
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      if (!term) {
+        searchResults.innerHTML = '';
+        searchResults.style.display = 'none';
+        return;
+      }
+
+      const prods = window.adminNewDecCatalogCache || [];
+      const matches = prods.filter(p =>
+        (p.name && p.name.toLowerCase().includes(term)) ||
+        (p.sku && p.sku.toLowerCase().includes(term)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(term))
+      );
+
+      if (matches.length === 0) {
+        searchResults.innerHTML = '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center;">Sin coincidencias en este catálogo</div>';
+      } else {
+        searchResults.innerHTML = matches.slice(0, 30).map(p => {
+          const dimsText = (p.largo && p.ancho && p.alto) ? `${p.largo}×${p.ancho}×${p.alto} cm` : 'Sin medidas';
+          return `
+            <div class="admin-new-search-item" 
+                 data-sku="${p.sku}" 
+                 data-name="${(p.name || '').replace(/"/g, '&quot;')}" 
+                 data-vol="${p.volumen || 0}" 
+                 data-largo="${p.largo || ''}" 
+                 data-ancho="${p.ancho || ''}" 
+                 data-alto="${p.alto || ''}" 
+                 data-price="${p.price || 0}" 
+                 data-barcode="${p.barcode || ''}"
+                 style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background 0.15s;"
+                 onmouseover="this.style.background='var(--color-surface-hover)'"
+                 onmouseout="this.style.background='transparent'">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: var(--color-primary); font-family: monospace;">${p.sku}</span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">${dimsText}</span>
+              </div>
+              <div style="color: var(--color-text-main); font-weight: 500; font-size: 0.825rem;">${p.name || 'Sin nombre'}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      searchResults.style.display = 'block';
+    });
+
+    searchResults.addEventListener('click', (e) => {
+      const item = e.target.closest('.admin-new-search-item');
+      if (!item) return;
+
+      const sku = item.getAttribute('data-sku');
+      const name = item.getAttribute('data-name');
+      const vol = parseFloat(item.getAttribute('data-vol') || '0');
+      const largo = parseFloat(item.getAttribute('data-largo') || '') || null;
+      const ancho = parseFloat(item.getAttribute('data-ancho') || '') || null;
+      const alto = parseFloat(item.getAttribute('data-alto') || '') || null;
+      const price = parseFloat(item.getAttribute('data-price') || '0');
+      const barcode = item.getAttribute('data-barcode') || '';
+
+      const existing = window.adminNewDecProducts.find(p => p.sku === sku);
+      if (existing) {
+        existing.qty += 1;
+        existing.subtotal = existing.qty * existing.price;
+      } else {
+        window.adminNewDecProducts.push({
+          sku,
+          name,
+          qty: 1,
+          price,
+          subtotal: price * 1,
+          largo,
+          ancho,
+          alto,
+          vol,
+          barcode
+        });
+      }
+
+      searchInput.value = '';
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+
+      window.renderAdminNewDecProductsTable();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+        searchResults.style.display = 'none';
+      }
+    });
+  }
+
+  // 4. Cambio de comercio
+  const comSelect = document.getElementById('admin-new-dec-commerce');
+  if (comSelect) {
+    comSelect.addEventListener('change', async (e) => {
+      await window.handleAdminNewDecCommerceChange(e.target.value);
+    });
+  }
+
+  // 5. Cálculo automático de bultos
+  const cInp = document.getElementById('admin-new-dec-container-count');
+  const pInp = document.getElementById('admin-new-dec-pallet-count');
+  const bInp = document.getElementById('admin-new-dec-box-count');
+  const totalInp = document.getElementById('admin-new-dec-package-count');
+
+  const updatePkgSum = () => {
+    const c = parseInt(cInp.value, 10) || 0;
+    const p = parseInt(pInp.value, 10) || 0;
+    const b = parseInt(bInp.value, 10) || 0;
+    const sum = c + p + b;
+    if (sum > 0 || parseInt(totalInp.value, 10) === 0) {
+      totalInp.value = sum;
+    }
+  };
+
+  [cInp, pInp, bInp].forEach(el => {
+    if (el) el.addEventListener('input', updatePkgSum);
+  });
+
+  // 6. Recálculo de costos ante cambios en volumen, descarga o etiquetado
+  const volInp = document.getElementById('admin-new-dec-volume');
+  const unloadInp = document.getElementById('admin-new-dec-unloading');
+  const labelQtyInp = document.getElementById('admin-new-dec-labeling-qty');
+  const dateInp = document.getElementById('admin-new-dec-date');
+
+  [volInp, unloadInp, labelQtyInp, dateInp].forEach(el => {
+    if (el) el.addEventListener('input', () => window.recalculateAdminNewDecCosts());
+    if (el) el.addEventListener('change', () => window.recalculateAdminNewDecCosts());
+  });
+
+  // 7. Carga de archivo Excel
+  const fileInput = document.getElementById('admin-new-dec-file-input');
+  if (fileInput) {
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const fileInfo = document.getElementById('admin-new-dec-file-info');
+      if (fileInfo) fileInfo.innerHTML = `<i class="ri-loader-4-line animate-spin"></i> Leyendo planilla "${file.name}"...`;
+
+      try {
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          try {
+            const data = new Uint8Array(evt.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.SheetNames[0];
+            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { header: 1 });
+
+            if (!rows || rows.length <= 1) {
+              throw new Error('La planilla no contiene filas de datos.');
+            }
+
+            const headerRow = rows[0];
+            const skuIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('sku'));
+            const nameIdx = headerRow.findIndex(h => h && (h.toString().toLowerCase().includes('nombre') || h.toString().toLowerCase().includes('producto')));
+            const qtyIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('cantidad'));
+            const priceIdx = headerRow.findIndex(h => h && (h.toString().toLowerCase().includes('valor') || h.toString().toLowerCase().includes('precio')));
+            const barcodeIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('barra'));
+            const largoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('largo'));
+            const anchoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('ancho'));
+            const altoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('alto'));
+
+            if (skuIdx === -1 && nameIdx === -1) {
+              throw new Error('No se encontró la columna "SKU" o "Nombre Producto" en el encabezado de la planilla.');
+            }
+
+            const parsed = [];
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+              const isEmpty = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+              if (isEmpty) continue;
+
+              const sku = skuIdx !== -1 && row[skuIdx] ? row[skuIdx].toString().trim() : `ITEM-${i}`;
+              const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].toString().trim() : sku;
+              const qty = qtyIdx !== -1 ? (parseInt(row[qtyIdx], 10) || 0) : 1;
+              const price = priceIdx !== -1 ? (parseFloat(row[priceIdx]) || 0) : 0;
+              const barcode = barcodeIdx !== -1 && row[barcodeIdx] ? row[barcodeIdx].toString().trim() : '';
+              const largo = largoIdx !== -1 ? (parseFloat(row[largoIdx]) || null) : null;
+              const ancho = anchoIdx !== -1 ? (parseFloat(row[anchoIdx]) || null) : null;
+              const alto = altoIdx !== -1 ? (parseFloat(row[altoIdx]) || null) : null;
+              const vol = (largo && ancho && alto) ? ((largo * ancho * alto) / 1000000) : 0;
+
+              parsed.push({
+                sku,
+                name,
+                qty,
+                price,
+                subtotal: qty * price,
+                largo,
+                ancho,
+                alto,
+                vol,
+                barcode
+              });
+            }
+
+            window.adminNewDecProducts = parsed;
+            window.adminNewDecUploadedFileName = file.name;
+
+            // Convertir a base64
+            let binary = '';
+            for (let i = 0; i < data.byteLength; i++) {
+              binary += String.fromCharCode(data[i]);
+            }
+            window.adminNewDecUploadedFileBase64 = window.btoa(binary);
+
+            if (fileInfo) {
+              fileInfo.innerHTML = `<span style="color: var(--color-success); font-weight: 600;"><i class="ri-check-line"></i> ${file.name} cargado: ${parsed.length} productos detectados.</span>`;
+            }
+
+            window.renderAdminNewDecProductsTable();
+
+            // Si hay productos con volumen, auto-rellenar volumen
+            const totalVolFromProds = parsed.reduce((acc, p) => acc + ((p.vol || 0) * (p.qty || 1)), 0);
+            if (totalVolFromProds > 0 && parseFloat(volInp.value || '0') === 0) {
+              volInp.value = totalVolFromProds.toFixed(4);
+              window.recalculateAdminNewDecCosts();
+            }
+
+          } catch (pErr) {
+            console.error('Error parseando planilla Excel:', pErr);
+            if (fileInfo) fileInfo.innerHTML = `<span style="color: var(--color-danger); font-weight: 600;"><i class="ri-error-warning-line"></i> Error: ${pErr.message}</span>`;
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) {
+        console.error('Error leyendo archivo:', err);
+      }
+    });
+  }
+};
+
+window.openAdminNewDeclarationModal = async function() {
+  window.initAdminNewDeclarationModalDom();
+
+  const modal = document.getElementById('modal-admin-new-declaration');
+  if (!modal) return;
+
+  // 1. Limpiar estados previos
+  window.adminNewDecProducts = [];
+  window.adminNewDecCatalogCache = [];
+  window.adminNewDecUploadedFileBase64 = '';
+  window.adminNewDecUploadedFileName = '';
+  window.adminNewDecCommerceMap.clear();
+
+  const alertContainer = document.getElementById('admin-new-dec-alert-container');
+  if (alertContainer) alertContainer.innerHTML = '';
+
+  // 2. Información del Administrador Creador (Trazabilidad)
+  const sessionData = await supabase.auth.getSession();
+  const session = sessionData?.data?.session;
+  const adminName = (window.currentAdminProfile && window.currentAdminProfile.full_name) || session?.user?.user_metadata?.full_name || 'Administrador Stocka';
+  const adminEmail = session?.user?.email || 'admin@stocka.cl';
+
+  const authorNameEl = document.getElementById('admin-new-dec-author-name');
+  const authorEmailEl = document.getElementById('admin-new-dec-author-email');
+  if (authorNameEl) authorNameEl.textContent = adminName;
+  if (authorEmailEl) authorEmailEl.textContent = adminEmail;
+
+  // 3. Resetear formulario
+  document.getElementById('admin-new-dec-title').value = '';
+  document.getElementById('admin-new-dec-package-count').value = 0;
+  document.getElementById('admin-new-dec-container-count').value = 0;
+  document.getElementById('admin-new-dec-pallet-count').value = 0;
+  document.getElementById('admin-new-dec-box-count').value = 0;
+  document.getElementById('admin-new-dec-volume').value = 0;
+  document.getElementById('admin-new-dec-unloading').checked = false;
+  document.getElementById('admin-new-dec-labeling-type').value = 'completely';
+  document.getElementById('admin-new-dec-labeling-qty').value = 0;
+  document.getElementById('admin-new-dec-contact').value = '';
+  document.getElementById('admin-new-dec-carrier').value = '';
+  document.getElementById('admin-new-dec-notes').value = '';
+
+  const fileInput = document.getElementById('admin-new-dec-file-input');
+  if (fileInput) fileInput.value = '';
+  const fileInfo = document.getElementById('admin-new-dec-file-info');
+  if (fileInfo) fileInfo.innerHTML = '';
+
+  // Fecha por defecto: Mañana
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const dateInput = document.getElementById('admin-new-dec-date');
+  if (dateInput) dateInput.value = tomorrowStr;
+
+  // Activar botón Exacta
+  const btnExact = document.getElementById('admin-new-btn-date-exact');
+  if (btnExact) btnExact.click();
+
+  // 4. Cargar comercios desde Supabase (profiles y declaraciones)
+  const comSelect = document.getElementById('admin-new-dec-commerce');
+  if (comSelect) {
+    comSelect.innerHTML = '<option value="">Cargando comercios...</option>';
+    try {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, comercio, company_name, full_name, email')
+        .neq('role', 'admin');
+
+      if (profs) {
+        profs.forEach(p => {
+          if (p.comercio) {
+            const list = p.comercio.split(',').map(c => c.trim()).filter(Boolean);
+            list.forEach(com => {
+              if (com !== 'all' && !window.adminNewDecCommerceMap.has(com.toLowerCase())) {
+                window.adminNewDecCommerceMap.set(com.toLowerCase(), {
+                  comercio: com,
+                  company_name: p.company_name || p.full_name || com,
+                  merchant_id: p.id
+                });
+              }
+            });
+          }
+        });
+      }
+
+      // Incorporar comercios de la caché de declaraciones admin si faltaba alguno
+      (window._adminDeclarationsCache || []).forEach(d => {
+        const c = (d.comercio || '').trim();
+        if (c && !window.adminNewDecCommerceMap.has(c.toLowerCase())) {
+          window.adminNewDecCommerceMap.set(c.toLowerCase(), {
+            comercio: c,
+            company_name: d.profiles?.company_name || c,
+            merchant_id: d.merchant_id
+          });
+        }
+      });
+
+      const uniqueList = Array.from(window.adminNewDecCommerceMap.values())
+        .sort((a, b) => a.comercio.localeCompare(b.comercio, 'es', { sensitivity: 'base' }));
+
+      comSelect.innerHTML = `
+        <option value="">-- Selecciona el Comercio Destino (${uniqueList.length}) --</option>
+        ${uniqueList.map(item => `<option value="${item.comercio}">🏢 ${item.comercio} (${item.company_name})</option>`).join('')}
+      `;
+    } catch (errCom) {
+      console.error('Error cargando comercios para nueva declaración admin:', errCom);
+      comSelect.innerHTML = '<option value="">Error al cargar comercios</option>';
+    }
+  }
+
+  // 5. Cargar bodegas
+  const whSelect = document.getElementById('admin-new-dec-warehouse');
+  if (whSelect) {
+    whSelect.innerHTML = '<option value="">-- Sin asignar (Estado inicial: Creada) --</option>';
+    try {
+      const { data: warehouses } = await supabase
+        .from('warehouses')
+        .select('id, name, comuna')
+        .order('name');
+      if (warehouses) {
+        warehouses.forEach(w => {
+          whSelect.innerHTML += `<option value="${w.id}">🏭 ${w.name} (${w.comuna})</option>`;
+        });
+      }
+    } catch (wErr) {
+      console.warn('Aviso cargando bodegas:', wErr);
+    }
+  }
+
+  // 6. Renderizar tabla vacía
+  window.renderAdminNewDecProductsTable();
+  window.recalculateAdminNewDecCosts();
+
+  modal.classList.add('active');
+};
+
+window.closeAdminNewDeclarationModal = function() {
+  const modal = document.getElementById('modal-admin-new-declaration');
+  if (!modal) return;
+
+  const hasWork = window.adminNewDecProducts.length > 0 || (document.getElementById('admin-new-dec-title')?.value.trim().length > 0);
+  if (hasWork) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: '¿Descartar declaración?',
+        text: 'Hay datos y productos ingresados en el formulario que se perderán si cierras ahora.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Sí, salir y descartar',
+        cancelButtonText: 'Continuar editando'
+      }).then(res => {
+        if (res.isConfirmed) {
+          modal.classList.remove('active');
+        }
+      });
+      return;
+    }
+  }
+
+  modal.classList.remove('active');
+};
+
+window.handleAdminNewDecCommerceChange = async function(commerce) {
+  const badgeEl = document.getElementById('admin-new-dec-commerce-catalog-badge');
+  const searchInput = document.getElementById('admin-new-dec-prod-search');
+
+  if (!commerce) {
+    window.adminNewDecCatalogCache = [];
+    if (badgeEl) badgeEl.textContent = '';
+    if (searchInput) searchInput.placeholder = 'Selecciona un comercio primero...';
+    window.adminNewDecProducts = [];
+    window.renderAdminNewDecProductsTable();
+    return;
+  }
+
+  if (badgeEl) badgeEl.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Cargando catálogo...';
+  if (searchInput) searchInput.placeholder = `Buscando en catálogo de ${commerce}...`;
+
+  try {
+    const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode', q => q.eq('comercio', commerce).order('name'));
+    window.adminNewDecCatalogCache = prods || [];
+
+    if (badgeEl) {
+      badgeEl.innerHTML = `<span style="color: var(--color-primary); font-weight: 600;"><i class="ri-check-line"></i> ${window.adminNewDecCatalogCache.length} productos en catálogo</span>`;
+    }
+  } catch (err) {
+    console.error('Error fetching catalog for admin new dec:', err);
+    window.adminNewDecCatalogCache = [];
+    if (badgeEl) badgeEl.textContent = 'Catálogo no disponible';
+  }
+
+  // Si no hay productos agregados manualmente aún, sugerimos limpiar
+  if (window.adminNewDecProducts.length > 0) {
+    window.adminNewDecProducts = [];
+    window.renderAdminNewDecProductsTable();
+  }
+};
+
+window.renderAdminNewDecProductsTable = function() {
+  const tbody = document.getElementById('admin-new-dec-products-tbody');
+  if (!tbody) return;
+
+  if (!window.adminNewDecProducts || window.adminNewDecProducts.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 2.25rem 1rem; color: var(--color-text-muted);"><i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.35rem; opacity: 0.4;"></i>Ningún producto agregado aún. Usa el buscador superior o sube una planilla.</td></tr>`;
+    window.recalculateAdminNewDecTotals();
+    return;
+  }
+
+  tbody.innerHTML = window.adminNewDecProducts.map((p, idx) => {
+    const dimsText = (p.largo && p.ancho && p.alto) 
+      ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">${p.largo}×${p.ancho}×${p.alto} cm (${(parseFloat(p.vol || 0)).toFixed(4)} m³)</div>`
+      : ((p.vol && p.vol > 0) ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">${(parseFloat(p.vol)).toFixed(4)} m³</div>` : '<div style="font-size: 0.72rem; color: var(--color-text-muted);">Sin medidas</div>');
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.15s;">
+        <td style="padding: 8px 12px; vertical-align: middle;">
+          <span style="font-family: monospace; font-weight: 700; color: var(--color-primary); font-size: 0.84rem;">${p.sku}</span>
+          ${dimsText}
+        </td>
+        <td style="padding: 8px 12px; vertical-align: middle; font-weight: 500; color: var(--color-text-main); font-size: 0.85rem;">
+          ${p.name || 'Sin nombre'}
+        </td>
+        <td style="padding: 8px 12px; vertical-align: middle; text-align: center;">
+          <input type="number" min="1" value="${p.qty}" 
+                 style="width: 80px; height: 32px; text-align: center; font-weight: 700; font-size: 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);"
+                 onchange="window.updateAdminNewDecProductQty(${idx}, this.value)">
+        </td>
+        <td style="padding: 8px 12px; vertical-align: middle; text-align: right; color: var(--color-text-muted); font-size: 0.84rem;">
+          $ ${(p.price || 0).toLocaleString('es-CL')}
+        </td>
+        <td style="padding: 8px 12px; vertical-align: middle; text-align: right; font-weight: 700; color: var(--color-text-main); font-size: 0.86rem;">
+          $ ${(p.subtotal || 0).toLocaleString('es-CL')}
+        </td>
+        <td style="padding: 8px 12px; vertical-align: middle; text-align: center;">
+          <button type="button" class="btn btn-sm" onclick="window.removeAdminNewDecProduct(${idx})" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 4px; font-size: 1.1rem;" title="Eliminar producto">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  window.recalculateAdminNewDecTotals();
+};
+
+window.updateAdminNewDecProductQty = function(idx, val) {
+  const qty = parseInt(val, 10);
+  if (isNaN(qty) || qty <= 0) {
+    window.removeAdminNewDecProduct(idx);
+    return;
+  }
+  if (window.adminNewDecProducts[idx]) {
+    window.adminNewDecProducts[idx].qty = qty;
+    window.adminNewDecProducts[idx].subtotal = qty * (window.adminNewDecProducts[idx].price || 0);
+  }
+  window.renderAdminNewDecProductsTable();
+};
+
+window.removeAdminNewDecProduct = function(idx) {
+  if (window.adminNewDecProducts[idx]) {
+    window.adminNewDecProducts.splice(idx, 1);
+  }
+  window.renderAdminNewDecProductsTable();
+};
+
+window.adminNewDecAddCustomProductModal = async function() {
+  const commerce = document.getElementById('admin-new-dec-commerce')?.value;
+  if (!commerce) {
+    Swal.fire('Atención', 'Primero selecciona el comercio asociado arriba.', 'warning');
+    return;
+  }
+
+  const { value: formVals } = await Swal.fire({
+    title: 'Agregar Producto Fuera de Catálogo',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 2px;">SKU *</label>
+          <input id="swal-new-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO-001" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; box-sizing: border-box;">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 2px;">Nombre / Descripción *</label>
+          <input id="swal-new-name" class="swal2-input" placeholder="Ej: Chaqueta impermeable negra" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; box-sizing: border-box;">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 2px;">Largo (cm) *</label>
+            <input id="swal-new-largo" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; text-align: center; box-sizing: border-box;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 2px;">Ancho (cm) *</label>
+            <input id="swal-new-ancho" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; text-align: center; box-sizing: border-box;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 2px;">Alto (cm) *</label>
+            <input id="swal-new-alto" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; text-align: center; box-sizing: border-box;">
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 2px;">Cantidad a Declarar *</label>
+            <input id="swal-new-qty" type="number" min="1" value="10" class="swal2-input" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; text-align: center; box-sizing: border-box;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 2px;">Valor Unitario ($ CLP)</label>
+            <input id="swal-new-price" type="number" min="0" value="0" class="swal2-input" style="width: 100%; margin: 0; height: 36px; font-size: 0.85rem; text-align: right; box-sizing: border-box;">
+          </div>
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Agregar Producto',
+    cancelButtonText: 'Cancelar',
+    focusConfirm: false,
+    preConfirm: () => {
+      const sku = document.getElementById('swal-new-sku').value.trim();
+      const name = document.getElementById('swal-new-name').value.trim();
+      const largo = parseFloat(document.getElementById('swal-new-largo').value);
+      const ancho = parseFloat(document.getElementById('swal-new-ancho').value);
+      const alto = parseFloat(document.getElementById('swal-new-alto').value);
+      const qty = parseInt(document.getElementById('swal-new-qty').value, 10);
+      const price = parseFloat(document.getElementById('swal-new-price').value) || 0;
+
+      if (!sku || !name) {
+        Swal.showValidationMessage('SKU y Nombre son obligatorios.');
+        return false;
+      }
+      if (isNaN(qty) || qty <= 0) {
+        Swal.showValidationMessage('Ingresa una cantidad válida mayor a 0.');
+        return false;
+      }
+      return { sku, name, largo: isNaN(largo) ? null : largo, ancho: isNaN(ancho) ? null : ancho, alto: isNaN(alto) ? null : alto, qty, price };
+    }
+  });
+
+  if (formVals) {
+    const vol = (formVals.largo && formVals.ancho && formVals.alto) 
+      ? ((formVals.largo * formVals.ancho * formVals.alto) / 1000000) 
+      : 0;
+
+    const existing = window.adminNewDecProducts.find(p => p.sku.toLowerCase() === formVals.sku.toLowerCase());
+    if (existing) {
+      existing.qty += formVals.qty;
+      existing.subtotal = existing.qty * existing.price;
+    } else {
+      window.adminNewDecProducts.push({
+        sku: formVals.sku,
+        name: formVals.name,
+        qty: formVals.qty,
+        price: formVals.price,
+        subtotal: formVals.qty * formVals.price,
+        largo: formVals.largo,
+        ancho: formVals.ancho,
+        alto: formVals.alto,
+        vol: vol,
+        barcode: ''
+      });
+    }
+
+    window.renderAdminNewDecProductsTable();
+  }
+};
+
+window.recalculateAdminNewDecTotals = function() {
+  const prods = window.adminNewDecProducts || [];
+  const uniqueSkus = new Set(prods.map(p => (p.sku || '').trim().toUpperCase())).size;
+  const totalQty = prods.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
+  const totalVal = prods.reduce((acc, p) => acc + (parseFloat(p.subtotal) || 0), 0);
+  const totalVol = prods.reduce((acc, p) => acc + ((parseFloat(p.vol) || 0) * (parseInt(p.qty, 10) || 0)), 0);
+
+  const skusEl = document.getElementById('admin-new-dec-total-skus');
+  const qtyEl = document.getElementById('admin-new-dec-total-qty');
+  const volEl = document.getElementById('admin-new-dec-total-vol');
+  const valEl = document.getElementById('admin-new-dec-total-val');
+
+  if (skusEl) skusEl.textContent = uniqueSkus;
+  if (qtyEl) qtyEl.textContent = totalQty.toLocaleString('es-CL');
+  if (volEl) volEl.textContent = `${totalVol.toFixed(4)} m³`;
+  if (valEl) valEl.textContent = `$ ${Math.round(totalVal).toLocaleString('es-CL')}`;
+
+  // Si el input de volumen declarado está en 0 y hay volumen calculado, actualizarlo o mostrar enlace
+  const volInput = document.getElementById('admin-new-dec-volume');
+  const hintEl = document.getElementById('admin-new-dec-auto-vol-hint');
+  if (volInput && hintEl) {
+    if (totalVol > 0) {
+      hintEl.textContent = `(Usar calculado: ${totalVol.toFixed(4)} m³)`;
+      hintEl.onclick = () => {
+        volInput.value = totalVol.toFixed(4);
+        window.recalculateAdminNewDecCosts();
+      };
+      if (parseFloat(volInput.value || '0') === 0) {
+        volInput.value = totalVol.toFixed(4);
+      }
+    } else {
+      hintEl.textContent = '';
+      hintEl.onclick = null;
+    }
+  }
+
+  window.recalculateAdminNewDecCosts();
+};
+
+window.recalculateAdminNewDecCosts = async function() {
+  const volInput = document.getElementById('admin-new-dec-volume');
+  const unloadInput = document.getElementById('admin-new-dec-unloading');
+  const dateInput = document.getElementById('admin-new-dec-date');
+  const groupExact = document.getElementById('admin-new-group-date-exact');
+  const labelQtyInput = document.getElementById('admin-new-dec-labeling-qty');
+
+  const volume = parseFloat(volInput?.value || '0') || 0;
+  const requiresUnloading = !!unloadInput?.checked;
+  const isExact = groupExact && groupExact.style.display !== 'none';
+  const arrivalDateStr = isExact ? dateInput?.value : null;
+  const labelingQty = parseInt(labelQtyInput?.value || '0', 10) || 0;
+
+  const cost = window.calculateEntryCost(volume, requiresUnloading, isExact ? 'exact' : 'estimate', arrivalDateStr, labelingQty);
+
+  const ufRate = window.currentUfValue || 38200;
+  const totalClp = cost.totalCost * ufRate;
+
+  const costUfEl = document.getElementById('admin-new-dec-cost-uf');
+  const costClpEl = document.getElementById('admin-new-dec-cost-clp');
+
+  if (costUfEl) costUfEl.textContent = `${cost.totalCost.toFixed(4)} UF`;
+  if (costClpEl) costClpEl.textContent = `(~ $${Math.round(totalClp).toLocaleString('es-CL')} CLP)`;
+};
+
+window.submitAdminNewDeclaration = async function() {
+  const alertContainer = document.getElementById('admin-new-dec-alert-container');
+  if (alertContainer) alertContainer.innerHTML = '';
+
+  const comSelect = document.getElementById('admin-new-dec-commerce');
+  const commerce = comSelect ? comSelect.value.trim() : '';
+  const title = document.getElementById('admin-new-dec-title')?.value.trim();
+  const warehouseId = document.getElementById('admin-new-dec-warehouse')?.value || null;
+
+  const groupExact = document.getElementById('admin-new-group-date-exact');
+  const isExact = groupExact && groupExact.style.display !== 'none';
+  const etaDate = isExact ? document.getElementById('admin-new-dec-date')?.value : null;
+  const etaPeriod = !isExact ? `${document.getElementById('admin-new-dec-period-qty')?.value} ${document.getElementById('admin-new-dec-period-unit')?.value}` : null;
+
+  const deliveryMethod = document.getElementById('admin-new-dec-delivery-method')?.value || 'Transporte particular';
+  const requiresUnloading = !!document.getElementById('admin-new-dec-unloading')?.checked;
+  const packageType = document.getElementById('admin-new-dec-package-type')?.value || 'Cajas';
+  const packageCount = parseInt(document.getElementById('admin-new-dec-package-count')?.value, 10) || 0;
+  const containerCount = parseInt(document.getElementById('admin-new-dec-container-count')?.value, 10) || 0;
+  const palletCount = parseInt(document.getElementById('admin-new-dec-pallet-count')?.value, 10) || 0;
+  const boxCount = parseInt(document.getElementById('admin-new-dec-box-count')?.value, 10) || 0;
+  const volumeDeclared = parseFloat(document.getElementById('admin-new-dec-volume')?.value) || 0;
+
+  const labelingType = document.getElementById('admin-new-dec-labeling-type')?.value || 'completely';
+  const labelingQty = (labelingType === 'completely') ? 0 : (parseInt(document.getElementById('admin-new-dec-labeling-qty')?.value, 10) || 0);
+
+  const contactInfo = document.getElementById('admin-new-dec-contact')?.value.trim();
+  const carrierInfo = document.getElementById('admin-new-dec-carrier')?.value.trim();
+  const notes = document.getElementById('admin-new-dec-notes')?.value.trim();
+
+  // Validaciones
+  const errors = [];
+  if (!commerce) errors.push('Debes seleccionar el comercio asociado.');
+  if (!title) errors.push('El título o descripción del ingreso es obligatorio.');
+  if (isExact && !etaDate) errors.push('Debes seleccionar la fecha estimada de llegada (ETA).');
+  if (volumeDeclared <= 0) errors.push('El volumen declarado debe ser mayor a 0 m³.');
+  if (packageCount <= 0) errors.push('El total de bultos declarados debe ser mayor a 0.');
+  if (window.adminNewDecProducts.length === 0) {
+    errors.push('Debes agregar al menos un producto a la lista o subir una planilla Excel.');
+  }
+
+  if (errors.length > 0) {
+    if (alertContainer) {
+      alertContainer.innerHTML = `
+        <div class="alert alert-error" style="display:block; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.45;">
+          <strong><i class="ri-error-warning-line"></i> Corrige los siguientes campos:</strong>
+          <ul style="margin: 0.35rem 0 0 1.25rem; padding: 0;">
+            ${errors.map(e => `<li>${e}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  const submitBtn = document.getElementById('btn-admin-submit-declaration');
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Registrando declaración...';
+
+  try {
+    // 1. Resolver información del Administrador (Trazabilidad)
+    const sessionData = await supabase.auth.getSession();
+    const session = sessionData?.data?.session;
+    const adminUserId = session?.user?.id;
+    const adminEmail = session?.user?.email || 'administracion@stocka.cl';
+    const adminName = (window.currentAdminProfile && window.currentAdminProfile.full_name) || session?.user?.user_metadata?.full_name || 'Administración Stocka';
+
+    // 2. Resolver merchant_id del comercio
+    let targetMerchantId = null;
+    try {
+      targetMerchantId = await resolveMerchantId(commerce);
+    } catch (mErr) {
+      console.warn('Aviso resolviendo merchantId:', mErr);
+    }
+
+    if (!targetMerchantId) {
+      const match = window.adminNewDecCommerceMap.get(commerce.toLowerCase());
+      if (match && match.merchant_id) {
+        targetMerchantId = match.merchant_id;
+      } else {
+        targetMerchantId = adminUserId;
+      }
+    }
+
+    // 3. Cantidad total de unidades y cálculo de costos
+    const totalQtyDeclared = window.adminNewDecProducts.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
+    const costCalc = window.calculateEntryCost(volumeDeclared, requiresUnloading, isExact ? 'exact' : 'estimate', etaDate, labelingQty);
+
+    // 4. Generar planilla virtual Excel si no se subió un archivo físico
+    let fileBase64 = window.adminNewDecUploadedFileBase64;
+    let fileName = window.adminNewDecUploadedFileName;
+
+    if (!fileBase64 && typeof XLSX !== 'undefined') {
+      try {
+        const ws = XLSX.utils.json_to_sheet(window.adminNewDecProducts.map(p => ({
+          'Nombre Producto': p.name || p.sku,
+          'SKU': p.sku,
+          'Cantidad declarada': p.qty,
+          'Valor': p.price || 0,
+          'Volumen (m3)': p.vol || 0,
+          'Código de barra': p.barcode || ''
+        })));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Productos");
+        fileBase64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        fileName = `Ingreso_${commerce.replace(/[^a-zA-Z0-9_-]/g, '_')}_Admin.xlsx`;
+      } catch (xlsxErr) {
+        console.warn('Aviso generando Excel virtual Base64:', xlsxErr);
+      }
+    }
+
+    // 5. Entrada inicial en el Historial con Trazabilidad Completa
+    const initialStatus = warehouseId ? 'Bodega Asignada' : 'Creada';
+    const historyEntry = {
+      status: initialStatus,
+      timestamp: new Date().toISOString(),
+      type: 'created_by_admin',
+      author: `${adminName} (${adminEmail})`,
+      created_by: `${adminName} (${adminEmail}) [Administración]`,
+      created_by_email: adminEmail,
+      created_by_name: adminName,
+      created_by_role: 'admin',
+      user_id: adminUserId,
+      comment: `Declaración de ingreso de stock creada por Administración (${adminName} - ${adminEmail}) para el comercio "${commerce}".`
+    };
+
+    // 6. Preparar Payload para Supabase
+    const insertPayload = {
+      merchant_id: targetMerchantId,
+      comercio: commerce,
+      title: title,
+      estimated_arrival_type: isExact ? 'exact' : 'estimate',
+      estimated_arrival_date: etaDate,
+      estimated_arrival_period: etaPeriod,
+      warehouse_id: warehouseId,
+      status: initialStatus,
+      quantity_declared: totalQtyDeclared,
+      quantity_received: 0,
+      quantity_incidents: 0,
+      package_count: packageCount,
+      package_type: packageType,
+      container_count: containerCount,
+      pallet_count: palletCount,
+      box_count: boxCount,
+      requires_unloading: requiresUnloading,
+      delivery_method: deliveryMethod,
+      contact_info: contactInfo,
+      carrier_info: carrierInfo,
+      notes: notes,
+      admin_notes: `[CREADO POR ADMINISTRACIÓN] Registrado por ${adminName} (${adminEmail})`,
+      volume_declared: volumeDeclared,
+      volume_confirmed: 0,
+      estimated_cost: costCalc.totalCost,
+      products_list: window.adminNewDecProducts,
+      labeling_type: labelingType,
+      labeling_qty_requested: labelingQty,
+      history: [historyEntry],
+      file_name: fileName || `declaracion_ingreso_${Date.now()}.xlsx`,
+      file_base64: fileBase64 || '',
+      created_by_email: adminEmail,
+      created_by_name: adminName,
+      created_by_role: 'admin'
+    };
+
+    // 7. Inserción con tolerancia a fallos (Resilient Retry)
+    let newDecId = null;
+    let res = await supabase
+      .from('stock_declarations')
+      .insert([insertPayload])
+      .select('id')
+      .single();
+
+    if (res.error) {
+      console.warn('Primer intento de inserción con columnas de trazabilidad falló:', res.error);
+      const fallbackPayload = { ...insertPayload };
+      
+      // Si el error es por columna que aún no existe en PostgreSQL
+      if (res.error.message && (res.error.message.includes('column') || res.error.message.includes('created_by'))) {
+        delete fallbackPayload.created_by_email;
+        delete fallbackPayload.created_by_name;
+        delete fallbackPayload.created_by_role;
+      }
+      
+      // Si el error es por RLS (merchant_id no igual a auth.uid)
+      if (res.error.message && res.error.message.includes('row-level security')) {
+        fallbackPayload.merchant_id = adminUserId;
+      }
+
+      const res2 = await supabase
+        .from('stock_declarations')
+        .insert([fallbackPayload])
+        .select('id')
+        .single();
+
+      if (res2.error) {
+        // Segundo intento con fallback completo
+        if (res2.error.message && res2.error.message.includes('row-level security')) {
+          fallbackPayload.merchant_id = adminUserId;
+          delete fallbackPayload.created_by_email;
+          delete fallbackPayload.created_by_name;
+          delete fallbackPayload.created_by_role;
+
+          const res3 = await supabase
+            .from('stock_declarations')
+            .insert([fallbackPayload])
+            .select('id')
+            .single();
+
+          if (res3.error) throw res3.error;
+          newDecId = res3.data?.id;
+        } else {
+          throw res2.error;
+        }
+      } else {
+        newDecId = res2.data?.id;
+      }
+    } else {
+      newDecId = res.data?.id;
+    }
+
+    if (!newDecId) {
+      throw new Error('No se pudo obtener el identificador del ingreso creado.');
+    }
+
+    // 8. Intentar generar el comprobante PDF oficial
+    if (typeof window.generateDeclarationPDFBase64 === 'function') {
+      try {
+        const pdfBase64 = await window.generateDeclarationPDFBase64({
+          id: newDecId,
+          title: title,
+          comercio: commerce,
+          created_at: new Date().toISOString(),
+          estimated_arrival_type: isExact ? 'exact' : 'estimate',
+          estimated_arrival_date: etaDate,
+          estimated_arrival_period: etaPeriod,
+          volume_declared: volumeDeclared,
+          package_count: packageCount,
+          package_type: packageType,
+          container_count: containerCount,
+          pallet_count: palletCount,
+          box_count: boxCount,
+          delivery_method: deliveryMethod,
+          requires_unloading: requiresUnloading,
+          estimated_cost: costCalc.totalCost,
+          contact_info: contactInfo,
+          carrier_info: carrierInfo,
+          notes: notes,
+          products_list: window.adminNewDecProducts
+        });
+
+        await supabase
+          .from('stock_declarations')
+          .update({
+            file_base64: pdfBase64,
+            file_name: `comprobante_ingreso_${newDecId.substring(0, 8).toUpperCase()}.pdf`
+          })
+          .eq('id', newDecId);
+      } catch (pdfErr) {
+        console.warn('Aviso generando PDF de comprobante:', pdfErr);
+      }
+    }
+
+    // 9. Notificar a los usuarios del comercio
+    try {
+      if (typeof notifyCommerceUsers === 'function') {
+        const notifTitle = 'Nuevo Ingreso de Stock Registrado por Administración';
+        const notifMsg = `Administración ha declarado un nuevo ingreso de stock para tu comercio: "${title}" (#ING-${newDecId.substring(0, 8).toUpperCase()}). Revisa los detalles en la sección de Declaraciones.`;
+        await notifyCommerceUsers(commerce, notifTitle, notifMsg);
+      }
+    } catch (notifErr) {
+      console.warn('Aviso notificando usuarios del comercio:', notifErr);
+    }
+
+    // 10. Cerrar modal y refrescar tabla
+    document.getElementById('modal-admin-new-declaration').classList.remove('active');
+    window.adminNewDecProducts = [];
+
+    // Invalidar caché y forzar refresh
+    window._adminDeclarationsCache = null;
+    if (typeof window.renderDeclarationsAdmin === 'function') {
+      await window.renderDeclarationsAdmin(true);
+    }
+
+    Swal.fire({
+      title: '¡Declaración Creada con Éxito!',
+      html: `
+        <div style="font-size: 0.9rem; line-height: 1.5; text-align: left;">
+          Se ha generado la declaración de ingreso <strong>#ING-${newDecId.substring(0, 8).toUpperCase()}</strong> para el comercio <strong>${commerce}</strong>.<br><br>
+          <div style="background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 6px; padding: 0.6rem 0.85rem; font-size: 0.825rem; color: #4338ca;">
+            <i class="ri-shield-user-fill" style="color: #6366f1;"></i> <strong>Trazabilidad registrada:</strong> Creado por ${adminName} (${adminEmail}).
+          </div>
+        </div>
+      `,
+      icon: 'success',
+      confirmButtonText: 'Entendido',
+      confirmButtonColor: '#2563eb'
+    });
+
+  } catch (err) {
+    console.error('Error creando declaración por administración:', err);
+    if (alertContainer) {
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al crear la declaración: ${err.message || err}</div>`;
+    }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i class="ri-check-line" style="font-size: 1.1rem;"></i> Crear y Registrar Declaración';
+  }
+};
+
 // --- GESTIÓN DE BODEGAS ---
+
 
 window.renderWarehousesAdmin = async function() {
   const appContent = document.getElementById('app-content');
@@ -55654,6 +57128,11 @@ window.renderMerchantEditContactsList = function(comercioName) {
 
   const contacts = commerce.billingContacts || [];
 
+  const badge = document.getElementById('merchant-tab-contacts-badge');
+  if (badge) {
+    badge.textContent = contacts.length;
+  }
+
   if (contacts.length === 0) {
     container.innerHTML = `
       <div style="padding: 1.25rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">
@@ -55715,6 +57194,244 @@ window.updateMerchantTableRow = function(comercioName) {
   if (btn) {
     btn.innerHTML = `<i class="ri-contacts-book-line"></i> ${commerce.billingContacts.length} Contactos`;
   }
+};
+
+// ====== HELPERS VISUALES PARA COLOR Y MÁQUINA DE PUNTO DE VENTA (POS) ======
+window.getPosColorLuminance = function(hex) {
+  if (!hex) return 0.5;
+  let c = String(hex).replace('#', '').trim();
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  if (c.length !== 6) return 0.5;
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return 0.5;
+  const r = ((num >> 16) & 255) / 255;
+  const g = ((num >> 8) & 255) / 255;
+  const b = (num & 255) / 255;
+  const a = [r, g, b].map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+};
+
+window.getPosContrastTextColor = function(hex) {
+  const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(hex) : 0.5;
+  return lum > 0.38 ? '#0f172a' : '#ffffff';
+};
+
+window.getPosReadableTextColor = function(hex) {
+  if (!hex) return '#2563eb';
+  const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(hex) : 0.5;
+  if (lum < 0.30) return hex;
+
+  let c = String(hex).replace('#', '').trim();
+  if (c.length === 3) c = c.split('').map(x => x + x).join('');
+  if (c.length !== 6) return '#1e293b';
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return '#1e293b';
+  let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+
+  const rawDiff = Math.max(r, g, b) - Math.min(r, g, b);
+  if (rawDiff <= 25) return '#334155';
+
+  const rNorm = r / 255, gNorm = g / 255, bNorm = b / 255;
+  const max = Math.max(rNorm, gNorm, bNorm), min = Math.min(rNorm, gNorm, bNorm);
+  const d = max - min;
+  let h = 0;
+  if (d > 0) {
+    if (max === rNorm) h = ((gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0)) / 6;
+    else if (max === gNorm) h = ((bNorm - rNorm) / d + 2) / 6;
+    else h = ((rNorm - gNorm) / d + 4) / 6;
+  }
+
+  let targetL = 0.30;
+  if (h > 0.10 && h < 0.45) targetL = 0.24;
+
+  const s = 0.85;
+  const q = targetL < 0.5 ? targetL * (1 + s) : targetL + s - targetL * s;
+  const p = 2 * targetL - q;
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  const rFinal = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+  const gFinal = Math.round(hue2rgb(p, q, h) * 255);
+  const bFinal = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+
+  return '#' + [rFinal, gFinal, bFinal].map(x => x.toString(16).padStart(2, '0')).join('');
+};
+
+window.getPosMachineSvg = function(colorHex = '#2563eb', size = 36) {
+  const safeColor = colorHex || '#2563eb';
+  const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(safeColor) : 0.5;
+  const isLight = lum > 0.40;
+  
+  const strokeColor = isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(15, 23, 42, 0.85)';
+  const slotColor = isLight ? '#0f172a' : '#ffffff';
+  const slotOpacity = isLight ? '0.35' : '0.6';
+  const keypadDotFill = isLight ? '#0f172a' : '#ffffff';
+  const keypadDotOpacity = isLight ? '0.75' : '0.9';
+  const bottomSlotOpacity = isLight ? '0.30' : '0.5';
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: inline-block; vertical-align: middle; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18)); flex-shrink: 0;">
+    <!-- POS Terminal Main Body with chosen color -->
+    <rect x="4.5" y="1.5" width="15" height="21" rx="2.8" fill="${safeColor}" stroke="${strokeColor}" stroke-width="0.8" />
+    
+    <!-- Top Receipt/Card slot indicator -->
+    <rect x="7" y="2.5" width="10" height="0.8" rx="0.4" fill="${slotColor}" fill-opacity="${slotOpacity}" />
+    
+    <!-- Digital Screen -->
+    <rect x="6.8" y="4.2" width="10.4" height="6.6" rx="1.2" fill="#0f172a" />
+    <!-- Screen Glass Shine / Reflection -->
+    <rect x="7.4" y="4.8" width="9.2" height="5.4" rx="0.8" fill="#1e293b" />
+    <!-- Screen Content: Amount line & Card reader indicator -->
+    <rect x="8.5" y="5.8" width="4.5" height="1.1" rx="0.55" fill="#38bdf8" />
+    <rect x="8.5" y="7.5" width="7" height="1.6" rx="0.6" fill="#10b981" />
+    
+    <!-- Keypad Matrix (3x3 numeric keypad) -->
+    <circle cx="8.2" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="8.2" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="8.2" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    
+    <!-- POS Function Buttons (Red Cancel, Yellow Clear, Green OK/Enter) -->
+    <rect x="7.2" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#ef4444" />
+    <rect x="10.7" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#eab308" />
+    <rect x="14.2" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#22c55e" />
+    
+    <!-- Bottom Chip Card Insertion Slot -->
+    <rect x="8" y="20.7" width="8" height="0.7" rx="0.35" fill="${slotColor}" fill-opacity="${bottomSlotOpacity}" />
+  </svg>`;
+};
+
+window.POS_COLOR_PRESETS = [
+  { name: 'Rojo', hex: '#dc2626' },
+  { name: 'Azul', hex: '#2563eb' },
+  { name: 'Naranja', hex: '#ea580c' },
+  { name: 'Negro', hex: '#1e293b' },
+  { name: 'Verde', hex: '#16a34a' },
+  { name: 'Amarillo', hex: '#ca8a04' },
+  { name: 'Morado', hex: '#7c3aed' },
+  { name: 'Celeste', hex: '#0284c7' },
+  { name: 'Rosa', hex: '#db2777' },
+  { name: 'Gris', hex: '#64748b' },
+  { name: 'Blanco', hex: '#f8fafc' }
+];
+
+window.resolvePosMachineColor = function(colorStr, colorHexStr) {
+  if (colorHexStr && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorHexStr.trim())) {
+    return colorHexStr.trim();
+  }
+  if (colorStr && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorStr.trim())) {
+    return colorStr.trim();
+  }
+  const clean = (colorStr || '').trim().toLowerCase();
+  if (!clean) return '#2563eb';
+
+  const colorMap = [
+    { keys: ['rojo', 'red', 'granate', 'carmesi'], hex: '#dc2626' },
+    { keys: ['azul', 'blue', 'marino', 'navy'], hex: '#2563eb' },
+    { keys: ['celeste', 'cyan', 'turquesa', 'sky'], hex: '#0284c7' },
+    { keys: ['naranja', 'orange', 'anaranjado'], hex: '#ea580c' },
+    { keys: ['negro', 'black', 'oscuro'], hex: '#1e293b' },
+    { keys: ['verde', 'green', 'oliva', 'lima'], hex: '#16a34a' },
+    { keys: ['amarillo', 'yellow', 'dorado', 'gold'], hex: '#ca8a04' },
+    { keys: ['morado', 'purple', 'violeta', 'purpura', 'lila'], hex: '#7c3aed' },
+    { keys: ['rosa', 'rosado', 'pink', 'fucsia', 'magenta'], hex: '#db2777' },
+    { keys: ['gris', 'plomo', 'gray', 'grey', 'plateado', 'silver'], hex: '#64748b' },
+    { keys: ['blanco', 'white', 'crema', 'claro'], hex: '#f8fafc' }
+  ];
+
+  for (const entry of colorMap) {
+    if (entry.keys.some(k => clean === k || clean.includes(k))) {
+      return entry.hex;
+    }
+  }
+
+  return '#2563eb';
+};
+
+window.selectPosMachinePresetColor = function(prefix, name, hex) {
+  const textInput = document.getElementById(`${prefix}-pos-color`);
+  const pickerInput = document.getElementById(`${prefix}-pos-color-picker`);
+  const previewIcon = document.getElementById(`${prefix}-pos-preview-icon`);
+  const previewText = document.getElementById(`${prefix}-pos-preview-text`);
+
+  const readableColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(hex) : hex;
+
+  if (textInput) {
+    textInput.value = name;
+    textInput.setAttribute('data-color-hex', hex);
+  }
+  if (pickerInput) {
+    pickerInput.value = hex;
+  }
+  if (previewIcon) {
+    previewIcon.innerHTML = window.getPosMachineSvg(hex, 20);
+  }
+  if (previewText) {
+    previewText.textContent = name;
+    previewText.style.color = readableColor;
+  }
+};
+
+window.setupPosColorSelector = function(prefix) {
+  const textInput = document.getElementById(`${prefix}-pos-color`);
+  const pickerInput = document.getElementById(`${prefix}-pos-color-picker`);
+  const previewIcon = document.getElementById(`${prefix}-pos-preview-icon`);
+  const previewText = document.getElementById(`${prefix}-pos-preview-text`);
+
+  const updateFromInput = () => {
+    const val = textInput?.value || '';
+    const hex = window.resolvePosMachineColor(val, textInput?.getAttribute('data-color-hex'));
+    const readableColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(hex) : hex;
+    if (pickerInput && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) {
+      pickerInput.value = hex;
+    }
+    if (textInput) {
+      textInput.setAttribute('data-color-hex', hex);
+    }
+    if (previewIcon) {
+      previewIcon.innerHTML = window.getPosMachineSvg(hex, 20);
+    }
+    if (previewText) {
+      previewText.textContent = val.trim() || 'Color';
+      previewText.style.color = readableColor;
+    }
+  };
+
+  if (textInput) {
+    textInput.addEventListener('input', updateFromInput);
+    textInput.addEventListener('change', updateFromInput);
+  }
+
+  if (pickerInput) {
+    pickerInput.addEventListener('input', (e) => {
+      const hex = e.target.value;
+      const readableColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(hex) : hex;
+      if (textInput) {
+        textInput.setAttribute('data-color-hex', hex);
+        const match = window.POS_COLOR_PRESETS.find(p => p.hex.toLowerCase() === hex.toLowerCase());
+        textInput.value = match ? match.name : hex.toUpperCase();
+      }
+      if (previewIcon) {
+        previewIcon.innerHTML = window.getPosMachineSvg(hex, 20);
+      }
+      if (previewText) {
+        previewText.textContent = textInput?.value || hex;
+        previewText.style.color = readableColor;
+      }
+    });
+  }
+
+  // Initial update
+  updateFromInput();
 };
 
 // Modal de Creación de Comercio
@@ -55951,8 +57668,22 @@ window.showMerchantCreateModal = function() {
               </div>
 
               <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Color / Distintivo Visual</label>
-                <input type="text" id="merchant-create-pos-color" class="form-input" placeholder="Ej: Azul, Naranja, Negro..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin: 0; display: block;">Color / Distintivo Visual</label>
+                  <div id="merchant-create-pos-color-preview-badge" style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.08);">
+                    <span id="merchant-create-pos-preview-icon"></span>
+                    <span id="merchant-create-pos-preview-text">Azul</span>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="color" id="merchant-create-pos-color-picker" value="#2563eb" style="width: 38px; height: 32px; padding: 2px; border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; background: transparent; flex-shrink: 0;" title="Elige un color con el selector">
+                  <input type="text" id="merchant-create-pos-color" class="form-input" placeholder="Ej: Azul, Naranja, Rojo..." style="flex: 1; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                </div>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px;">
+                  ${window.POS_COLOR_PRESETS.map(p => `
+                    <button type="button" onclick="window.selectPosMachinePresetColor('merchant-create', '${p.name}', '${p.hex}')" title="${p.name}" style="border: 1px solid rgba(0,0,0,0.2); background: ${p.hex}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: transform 0.15s;" onmouseover="this.style.transform='scale(1.25)'" onmouseout="this.style.transform='scale(1)'"></button>
+                  `).join('')}
+                </div>
               </div>
             </div>
 
@@ -55972,6 +57703,78 @@ window.showMerchantCreateModal = function() {
               <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Instrucciones de Cobro para Cajero</label>
               <input type="text" id="merchant-create-pos-notes" class="form-input" placeholder="Ej: Cobro en terminal TUU directo del comercio, verificar cuenta corriente..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
             </div>
+
+            <hr style="border: 0; border-top: 1px dashed var(--color-border); margin: 0.85rem 0;">
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+              <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-exchange-dollar-line" style="color: #6366f1;"></i> Datos de Transferencia Bancaria (POS Sucursal)
+              </h4>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">Para cobros presenciales con Transferencia</span>
+            </div>
+            <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">
+              Configura la cuenta bancaria donde este comercio recibe pagos. En el POS se mostrarán estos datos y un código QR para que el cliente los copie fácilmente.
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem; margin-bottom: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Banco Destino</label>
+                <input type="text" id="merchant-create-pos-bank" class="form-input" list="pos-banks-list-options" placeholder="Ej: Banco Santander, Banco Estado..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Tipo de Cuenta</label>
+                <select id="merchant-create-pos-bank-type" class="form-input" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0 0.5rem;">
+                  <option value="Cuenta Corriente" selected>Cuenta Corriente</option>
+                  <option value="Cuenta Vista / RUT">Cuenta Vista / RUT</option>
+                  <option value="Cuenta de Ahorro">Cuenta de Ahorro</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Número de Cuenta</label>
+                <input type="text" id="merchant-create-pos-bank-number" class="form-input" placeholder="Ej: 00-12345-67" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">RUT Titular</label>
+                <input type="text" id="merchant-create-pos-bank-rut" class="form-input" placeholder="Ej: 76.123.456-7" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.65rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre o Razón Social Titular</label>
+                <input type="text" id="merchant-create-pos-bank-holder" class="form-input" placeholder="Ej: CROMO SpA" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo para Comprobantes</label>
+                <input type="email" id="merchant-create-pos-bank-email" class="form-input" placeholder="pagos@comercio.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Instrucción o Glosa Adicional (Opcional)</label>
+              <input type="text" id="merchant-create-pos-bank-notes" class="form-input" placeholder="Ej: Indicar código de venta en el asunto..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+            </div>
+
+            <datalist id="pos-banks-list-options">
+              <option value="Banco de Chile / Edwards">
+              <option value="Banco Santander">
+              <option value="Banco Estado">
+              <option value="BCI (Banco de Crédito e Inversiones)">
+              <option value="Banco Falabella">
+              <option value="Scotiabank">
+              <option value="Banco Itaú">
+              <option value="Banco BICE">
+              <option value="Banco Security">
+              <option value="Banco Consorcio">
+              <option value="Banco Internacional">
+              <option value="Mercado Pago">
+              <option value="Tenpo">
+              <option value="MACH">
+              <option value="Coopeuch">
+            </datalist>
           </div>
 
           <div class="form-group" style="margin: 0;">
@@ -56032,6 +57835,7 @@ window.showMerchantCreateModal = function() {
   `;
 
   document.body.appendChild(modal);
+  window.setupPosColorSelector('merchant-create');
 
   // Gestión de contactos en creación de comercio
   const pendingCreateContacts = [];
@@ -56264,9 +58068,19 @@ window.showMerchantCreateModal = function() {
               pos_machine: {
                 brand: document.getElementById('merchant-create-pos-brand')?.value.trim() || '',
                 color: document.getElementById('merchant-create-pos-color')?.value.trim() || '',
+                color_hex: document.getElementById('merchant-create-pos-color')?.getAttribute('data-color-hex') || document.getElementById('merchant-create-pos-color-picker')?.value || '',
                 model: document.getElementById('merchant-create-pos-model')?.value.trim() || '',
                 owner: document.getElementById('merchant-create-pos-owner')?.value.trim() || '',
                 notes: document.getElementById('merchant-create-pos-notes')?.value.trim() || ''
+              },
+              pos_bank_transfer: {
+                bank: document.getElementById('merchant-create-pos-bank')?.value.trim() || '',
+                account_type: document.getElementById('merchant-create-pos-bank-type')?.value || 'Cuenta Corriente',
+                account_number: document.getElementById('merchant-create-pos-bank-number')?.value.trim() || '',
+                holder_name: document.getElementById('merchant-create-pos-bank-holder')?.value.trim() || '',
+                holder_rut: document.getElementById('merchant-create-pos-bank-rut')?.value.trim() || '',
+                email: document.getElementById('merchant-create-pos-bank-email')?.value.trim() || '',
+                notes: document.getElementById('merchant-create-pos-bank-notes')?.value.trim() || ''
               }
             }
           });
@@ -56377,405 +58191,899 @@ window.showMerchantEditModal = async function(comercioName) {
     : '';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 650px; width: 90%;">
-      <form id="form-edit-merchant" style="margin: 0;">
-        <div class="modal-header">
-          <h3 style="margin: 0;"><i class="ri-edit-line"></i> Configurar Comercio: ${comercioName}</h3>
-          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+    <style>
+      #${modalId} .modal-content {
+        max-width: 1040px !important;
+        width: 95% !important;
+        height: 88vh !important;
+        max-height: 860px !important;
+        min-height: 560px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+        border-radius: var(--radius-lg, 12px) !important;
+        box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.25) !important;
+        background: var(--color-surface, #ffffff) !important;
+        animation: merchantModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      @keyframes merchantModalFadeIn {
+        from { opacity: 0; transform: translateY(12px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .merchant-nav-tabs {
+        display: flex;
+        gap: 0.35rem;
+        padding: 0.6rem 1.5rem 0.6rem 1.5rem;
+        background: var(--color-bg, #f1f5f9);
+        border-bottom: 1px solid var(--color-border, #cbd5e1);
+        overflow-x: auto;
+        flex-shrink: 0;
+      }
+
+      .merchant-nav-tab-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.55rem 0.95rem;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--color-text-muted, #64748b);
+        transition: all 0.15s ease-in-out;
+        white-space: nowrap;
+        user-select: none;
+      }
+
+      .merchant-nav-tab-btn:hover {
+        color: var(--color-primary, #2563eb);
+        background: rgba(37, 99, 235, 0.06);
+      }
+
+      .merchant-nav-tab-btn.active {
+        color: var(--color-primary, #2563eb);
+        background: var(--color-surface, #ffffff);
+        border-color: var(--color-border, #cbd5e1);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        font-weight: 700;
+      }
+
+      [data-theme="dark"] .merchant-nav-tab-btn.active,
+      html[data-theme="dark"] .merchant-nav-tab-btn.active {
+        background: #1e293b !important;
+        border-color: #334155 !important;
+        color: #60a5fa !important;
+      }
+
+      .merchant-section-card {
+        background: var(--color-surface, #ffffff);
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: var(--radius-md, 8px);
+        padding: 1.15rem 1.25rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+      }
+
+      [data-theme="dark"] .merchant-section-card,
+      html[data-theme="dark"] .merchant-section-card {
+        background: #1e293b;
+        border-color: #334155;
+      }
+
+      .merchant-card-title {
+        margin: 0 0 1rem 0;
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: var(--color-text-main, #0f172a);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .merchant-card-title span.title-text {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+
+      .merchant-toggle-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.85rem;
+        background: var(--color-surface, #ffffff);
+        border: 1px solid var(--color-border, #e2e8f0);
+        border-radius: var(--radius-md, 8px);
+        padding: 1rem 1.15rem;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+
+      .merchant-toggle-card:hover {
+        border-color: rgba(37, 99, 235, 0.35);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+      }
+
+      [data-theme="dark"] .merchant-toggle-card,
+      html[data-theme="dark"] .merchant-toggle-card {
+        background: #1e293b;
+        border-color: #334155;
+      }
+
+      .merchant-form-label {
+        display: block;
+        font-size: 0.76rem;
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+        color: var(--color-text-main, #1e293b);
+      }
+
+      .merchant-form-hint {
+        font-size: 0.71rem;
+        color: var(--color-text-muted, #64748b);
+        margin: 0.25rem 0 0 0;
+        line-height: 1.35;
+      }
+
+      .merchant-edit-tab-pane {
+        display: none;
+        animation: merchantTabFade 0.15s ease-out;
+      }
+
+      .merchant-edit-tab-pane.active {
+        display: flex;
+        flex-direction: column;
+        gap: 1.15rem;
+      }
+
+      @keyframes merchantTabFade {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .merchant-grid-2 {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      .merchant-grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      @media (max-width: 768px) {
+        #${modalId} .modal-content {
+          width: 98% !important;
+          height: 94vh !important;
+          max-height: 94vh !important;
+          margin: auto !important;
+        }
+        .merchant-nav-tabs {
+          padding: 0.4rem 0.75rem !important;
+        }
+        .merchant-grid-2, .merchant-grid-3 {
+          grid-template-columns: 1fr !important;
+        }
+      }
+    </style>
+
+    <div class="modal-content">
+      <form id="form-edit-merchant" style="margin: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden;">
+        
+        <!-- Header del Modal -->
+        <div class="modal-header" style="padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+              <i class="ri-settings-4-line"></i>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.4rem;">
+                  Configurar Comercio: ${comercioName}
+                </h3>
+                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; background: rgba(37,99,235,0.08); color: var(--color-primary); border: 1px solid rgba(37,99,235,0.2); letter-spacing: 0.5px;">${commerce.sigla || 'SIN SIGLA'}</span>
+                <span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 600; ${commerce.al_dia ? 'background: rgba(16,185,129,0.1); color: var(--color-success); border: 1px solid rgba(16,185,129,0.25);' : 'background: rgba(239,68,68,0.1); color: var(--color-danger); border: 1px solid rgba(239,68,68,0.25);'}">
+                  ${commerce.al_dia ? '● Facturación Activa' : '● Suspendido'}
+                </span>
+              </div>
+              <p style="margin: 0.15rem 0 0 0; font-size: 0.74rem; color: var(--color-text-muted);">
+                Ajustes operativos, facturación, datos legales, integraciones y punto de venta del cliente.
+              </p>
+            </div>
+          </div>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.4rem; color: var(--color-text-muted); cursor: pointer; background: transparent; border: none; padding: 0.25rem; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: all 0.15s;" title="Cerrar">&times;</button>
         </div>
-        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+
+        <!-- Barra de Navegación por Pestañas (Subnav) -->
+        <div class="merchant-nav-tabs">
+          <button type="button" id="btn-merchant-tab-general" class="merchant-nav-tab-btn active" onclick="window.switchMerchantEditTab('general')">
+            <i class="ri-building-line"></i> Empresa y Facturación
+          </button>
+          <button type="button" id="btn-merchant-tab-contacts" class="merchant-nav-tab-btn" onclick="window.switchMerchantEditTab('contacts')">
+            <i class="ri-contacts-book-line"></i> Contactos
+            <span id="merchant-tab-contacts-badge" style="font-size: 0.68rem; padding: 1px 6px; border-radius: 10px; background: rgba(0,0,0,0.08); font-weight: 700; color: var(--color-text-main);">${(commerce.billingContacts || []).length}</span>
+          </button>
+          <button type="button" id="btn-merchant-tab-operations" class="merchant-nav-tab-btn" onclick="window.switchMerchantEditTab('operations')">
+            <i class="ri-box-3-line"></i> Operaciones e Inventario
+          </button>
+          <button type="button" id="btn-merchant-tab-integrations" class="merchant-nav-tab-btn" onclick="window.switchMerchantEditTab('integrations')">
+            <i class="ri-links-line"></i> Integraciones y Prefijos
+          </button>
+          <button type="button" id="btn-merchant-tab-pos" class="merchant-nav-tab-btn" onclick="window.switchMerchantEditTab('pos')">
+            <i class="ri-bank-card-line"></i> Punto de Venta (POS)
+            <span id="merchant-tab-pos-indicator" style="font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; font-weight: 700; ${commerce.onboarding_checklist?.pos_active ? 'background: rgba(16,185,129,0.15); color: var(--color-success);' : 'background: rgba(100,116,139,0.12); color: var(--color-text-muted);'}">
+              ${commerce.onboarding_checklist?.pos_active ? 'HABILITADO' : 'DESACTIVADO'}
+            </span>
+          </button>
+        </div>
+
+        <!-- Cuerpo del Modal (Scrollable con pestañas) -->
+        <div class="modal-body" style="padding: 1.25rem 1.5rem; background: var(--color-bg); overflow-y: auto; flex: 1; min-height: 0;">
           
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Sigla del Comercio *</label>
-            <input type="text" id="merchant-edit-sigla" class="form-input" value="${commerce.sigla}" placeholder="Ej: BIT" maxlength="10" required style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador corto usado para despachos y reportes (máx 10 letras).</p>
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Razón Social de la Empresa</label>
-            <input type="text" id="merchant-edit-razon-social" class="form-input" value="${commerce.razon_social || ''}" placeholder="Ej: IMPORTADORA SOCIEDAD ANONIMA" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">RUT de la Empresa</label>
-            <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
-          </div>
-
-          <!-- Datos del Representante Legal -->
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
-            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-government-line"></i> Representante Legal</h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo</label>
-                <input type="text" id="merchant-edit-rep-legal-nombre" class="form-input" value="${commerce.rep_legal_nombre || ''}" placeholder="Juan Pérez" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+          <!-- TAB 1: EMPRESA Y FACTURACIÓN -->
+          <div id="merchant-edit-tab-general" class="merchant-edit-tab-pane active">
+            
+            <!-- Identificación Comercial -->
+            <div class="merchant-section-card">
+              <div class="merchant-card-title">
+                <span class="title-text">
+                  <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                  Identificación y Estado Comercial
+                </span>
               </div>
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">RUT</label>
-                <input type="text" id="merchant-edit-rep-legal-rut" class="form-input" value="${commerce.rep_legal_rut || ''}" placeholder="12.345.678-9" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono</label>
-                <input type="tel" id="merchant-edit-rep-legal-telefono" class="form-input" value="${commerce.rep_legal_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo</label>
-                <input type="email" id="merchant-edit-rep-legal-email" class="form-input" value="${commerce.rep_legal_email || ''}" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-            </div>
-          </div>
+              <div class="merchant-grid-3">
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">Sigla del Comercio *</label>
+                  <input type="text" id="merchant-edit-sigla" class="form-input" value="${commerce.sigla}" placeholder="Ej: BIT" maxlength="10" required style="text-transform: uppercase; width: 100%; box-sizing: border-box; font-weight: 600;">
+                  <p class="merchant-form-hint">Identificador corto para despachos y reportes (máx 10 letras).</p>
+                </div>
 
-          <!-- Contactos del Comercio (Operaciones / Finanzas / Notificaciones) -->
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.65rem; margin: 0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-              <div>
-                <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                  <i class="ri-contacts-book-line" style="color: var(--color-primary);"></i> Contactos del Comercio
-                </h4>
-                <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0;">
-                  Correos que reciben avisos operacionales, comunicados masivos y notificaciones del WMS.
-                </p>
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">Estado de Facturación (Cobranza)</label>
+                  <select id="merchant-edit-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
+                    <option value="activo" ${commerce.al_dia ? 'selected' : ''}>🟢 Activo (Servicio habilitado)</option>
+                    <option value="suspendido" ${!commerce.al_dia ? 'selected' : ''}>🔴 Suspendido (Servicio pausado)</option>
+                  </select>
+                  <p class="merchant-form-hint">Los comercios suspendidos verán advertencia y no procesarán pedidos.</p>
+                </div>
+
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">Bodega por Defecto</label>
+                  <select id="merchant-edit-default-warehouse" class="form-input" style="width: 100%; box-sizing: border-box;">
+                    <option value="">Ninguna (Usar Bodega Central)</option>
+                    ${allWhs.map(wh => `<option value="${wh.id}" ${commerce.default_warehouse_id === wh.id ? 'selected' : ''}>${wh.name}</option>`).join('')}
+                  </select>
+                  <p class="merchant-form-hint">Bodega asignada inicialmente a las órdenes de este cliente.</p>
+                </div>
+              </div>
+
+              <div class="merchant-grid-2" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--color-border);">
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">Razón Social de la Empresa</label>
+                  <input type="text" id="merchant-edit-razon-social" class="form-input" value="${commerce.razon_social || ''}" placeholder="Ej: IMPORTADORA SOCIEDAD ANONIMA" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+                  <p class="merchant-form-hint">Razón social legal registrada ante el SII.</p>
+                </div>
+
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">RUT de la Empresa</label>
+                  <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+                  <p class="merchant-form-hint">RUT comercial de la empresa.</p>
+                </div>
               </div>
             </div>
 
-            <!-- Formulario Rápido para Agregar Contacto -->
-            <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr auto; gap: 0.5rem; align-items: flex-end; background: var(--color-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-              <div>
-                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Nombre</label>
-                <input type="text" id="merchant-edit-contact-nombre" class="form-input" placeholder="Nombre completo" style="height: 30px; font-size: 0.75rem; padding: 0.2rem 0.5rem; width: 100%; box-sizing: border-box;">
-              </div>
-              <div>
-                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Correo Electrónico</label>
-                <input type="email" id="merchant-edit-contact-email" class="form-input" placeholder="correo@comercio.cl" style="height: 30px; font-size: 0.75rem; padding: 0.2rem 0.5rem; width: 100%; box-sizing: border-box;">
-              </div>
-              <div>
-                <label style="display: block; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--color-text-main);">Área / Rol</label>
-                <select id="merchant-edit-contact-rol" class="form-input" style="height: 30px; font-size: 0.75rem; padding: 0 0.5rem; width: 100%; box-sizing: border-box;">
-                  <option value="Operaciones" selected>Operaciones</option>
-                  <option value="Notificaciones">Notificaciones / General</option>
-                  <option value="Finanzas">Finanzas / Cobranza</option>
-                  <option value="Gerencia">Gerencia / Administración</option>
-                  <option value="Comercial">Comercial</option>
-                </select>
-              </div>
-              <div>
-                <button type="button" id="btn-merchant-edit-add-contact" class="btn btn-primary btn-sm" style="height: 30px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; background: var(--color-primary); color: #ffffff; border: none; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
-                  <i class="ri-add-line"></i> Agregar
-                </button>
-              </div>
-            </div>
-            <div id="merchant-edit-contact-msg" style="display: none; font-size: 0.75rem; margin-top: -0.25rem;"></div>
-
-            <!-- Lista de Contactos Actuales -->
-            <div id="merchant-edit-contacts-list-body" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface);">
-              <!-- Renderizado dinámicamente -->
-            </div>
-          </div>
-
-          <!-- Datos del Ejecutivo de Cuentas (KAM) -->
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
-            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-user-star-line" style="color: var(--color-primary);"></i> Ejecutivo de Cuentas (KAM)</h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo KAM</label>
-                <input type="text" id="merchant-edit-kam-nombre" class="form-input" value="${commerce.kam_nombre || ''}" placeholder="Ej: María Paz González" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo KAM</label>
-                <input type="email" id="merchant-edit-kam-email" class="form-input" value="${commerce.kam_email || ''}" placeholder="kam@stocka.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono / WhatsApp KAM</label>
-                <input type="tel" id="merchant-edit-kam-telefono" class="form-input" value="${commerce.kam_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Observaciones</label>
-                <input type="text" id="merchant-edit-kam-notas" class="form-input" value="${commerce.kam_notas || ''}" placeholder="Horarios de atención, notas..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-            </div>
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
-            <input type="email" id="merchant-edit-email-colaborador" class="form-input" value="${commerce.email_colaborador || ''}" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Correo de la cuenta de colaborador utilizada en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">ID Enviame</label>
-            <input type="text" id="merchant-edit-enviame-id" class="form-input" value="${commerce.enviame_id && String(commerce.enviame_id).trim().toLowerCase() !== 'null' ? commerce.enviame_id : ''}" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador del comercio en Enviame (número o ID).</p>
-          </div>
-
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.25rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-send-e3">
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-send-e3" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block;">Enviar Instrucciones de Integración Enviame - Shopify (Correo E3)</label>
-              <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.3;">Envía un correo explicativo con el manual de webhook de Shopify y tarifarios al email del comercio.</p>
-            </div>
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
-            <select id="merchant-edit-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
-              <option value="activo" ${commerce.al_dia ? 'selected' : ''}>Activo (Servicio habilitado)</option>
-              <option value="suspendido" ${!commerce.al_dia ? 'selected' : ''}>Suspendido (Servicio pausado/bloqueado)</option>
-            </select>
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Los comercios suspendidos verán un banner de advertencia y no podrán procesar pedidos.</p>
-          </div>
-
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Bodega por Defecto</label>
-            <select id="merchant-edit-default-warehouse" class="form-input" style="width: 100%; box-sizing: border-box;">
-              <option value="">Ninguna (Usar Bodega Central por defecto)</option>
-              ${allWhs.map(wh => `<option value="${wh.id}" ${commerce.default_warehouse_id === wh.id ? 'selected' : ''}>${wh.name}</option>`).join('')}
-            </select>
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Bodega inicial asignada a los ítems cuando ingresen pedidos de este comercio.</p>
-          </div>
-
-          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
-
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-inventory" ${commerce.inventario_seguimiento ? 'checked' : ''} ${disabledAttr}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-inventory" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Seguimiento de Inventario</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la sincronización y control automático del stock físico.</p>
-              ${migrationTip}
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-picking-strict" ${commerce.picking_match_strict ? 'checked' : ''}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-picking-strict" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Lectura Estricta en Picker</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Fuerza a que todos los escaneos de este comercio sean de coincidencia estricta en el sistema de picking, impidiendo la lectura parcial.</p>
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-onboarding-active" ${(() => {
-                const ob = commerce.onboarding_checklist;
-                if (!ob) return false;
-                if (ob.enabled !== undefined) return ob.enabled ? 'checked' : '';
-                return ob.dismissed ? '' : 'checked';
-              })()}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-onboarding-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Mostrar Guía de Inicio (Onboarding)</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la guía paso a paso en el dashboard del cliente. Ideal para habilitarlo en clientes nuevos y deshabilitarlo en clientes antiguos o que ya operan.</p>
-            </div>
-          </div>
-
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-catalog-ready" ${(commerce.onboarding_checklist && commerce.onboarding_checklist.catalog_ready) || commerce.inventario_seguimiento ? 'checked' : ''}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-catalog-ready" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Catálogo Inicial Configurado (Onboarding)</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Marca esta opción en cuanto el catálogo base de productos haya sido configurado e importado por operaciones de Stocka. Esto enviará un correo automático de notificación al comercio.</p>
-            </div>
-          </div>
-
-          <!-- Configuración de Punto de Venta (POS) y Máquina de Cobro -->
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-pos-active" ${commerce.onboarding_checklist?.pos_active === true ? 'checked' : ''} onchange="document.getElementById('merchant-edit-pos-details-container').style.display = this.checked ? 'block' : 'none';">
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-pos-active" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Habilitar Punto de Venta (POS)</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Permite registrar ventas presenciales en sucursal física para este comercio.</p>
-            </div>
-          </div>
-
-          <div id="merchant-edit-pos-details-container" style="display: ${commerce.onboarding_checklist?.pos_active === true ? 'block' : 'none'}; margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.85rem 1rem; background: var(--color-bg);">
-            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-bank-card-line" style="color: var(--color-primary);"></i> Máquina de Pago Asignada para Ventas POS
-            </h4>
-            <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">
-              Define las características de la máquina POS física que debe usar el cajero para recibir pagos con tarjeta de este comercio.
-            </p>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Marca / Proveedor Máquina</label>
-                <input type="text" id="merchant-edit-pos-brand" class="form-input" list="pos-brands-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.brand || '').replace(/"/g, '&quot;')}" placeholder="Ej: TUU, Transbank, SumUp..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-                <datalist id="pos-brands-list-edit">
-                  <option value="TUU">
-                  <option value="Transbank">
-                  <option value="SumUp">
-                  <option value="Redelcom">
-                  <option value="Compraquí">
-                  <option value="Mercado Pago">
-                  <option value="STOCKA POS">
-                </datalist>
-              </div>
-
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Color / Distintivo Visual</label>
-                <input type="text" id="merchant-edit-pos-color" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.color || '').replace(/"/g, '&quot;')}" placeholder="Ej: Azul, Naranja, Negro..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">N° Máquina / Terminal</label>
-                <input type="text" id="merchant-edit-pos-model" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.model || '').replace(/"/g, '&quot;')}" placeholder="Ej: N001, POS-01..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-              </div>
-
-              <div class="form-group" style="margin: 0;">
-                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Propiedad del Equipo</label>
-                <input type="text" id="merchant-edit-pos-owner" class="form-input" list="pos-owners-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.owner || '').replace(/"/g, '&quot;')}" placeholder="Ej: Propiedad de ${commerce.nombre} / Propiedad de STOCKA" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-                <datalist id="pos-owners-list-edit">
-                  <option value="Propiedad de ${commerce.nombre}">
-                  <option value="Propiedad de STOCKA">
-                </datalist>
-              </div>
-            </div>
-
-            <div class="form-group" style="margin: 0;">
-              <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Instrucciones de Cobro para Cajero</label>
-              <input type="text" id="merchant-edit-pos-notes" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.notes || '').replace(/"/g, '&quot;')}" placeholder="Ej: Cobro en terminal TUU directo del comercio, verificar cuenta corriente..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
-            </div>
-          </div>
-
-          <!-- Configuración de Inicio de Inventario por Canal -->
-          <div id="merchant-edit-inventory-start-container" style="display: ${commerce.inventario_seguimiento ? 'block' : 'none'}; margin-top: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; background: var(--color-bg);">
-            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Pedido Inicial para Descuento de Stock</h4>
-            <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">Ingresa el número o ID de orden desde el cual este comercio comenzará a descontar stock. Si se deja en blanco, descontará todos.</p>
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;" id="merchant-edit-inventory-start-fields">
-              ${(() => {
-                const activeInts = (commerce.integrations || []).filter(i => i.is_active);
-                const startObj = commerce.inventario_inicio_pedidos || {};
-                let html = '';
-                
-                // Input para Manual siempre visible
-                const manualVal = startObj.Manual?.external_order_number || '';
-                const manualIncluir = startObj.Manual?.incluir !== false; // Por defecto es true
-                html += `
-                  <div>
-                    <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
-                      <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">Manual / WMS:</span>
-                      <div style="position: relative; display: flex; align-items: center; width: 100%;">
-                        <input type="text" class="form-input start-order-input" data-platform="Manual" value="${manualVal}" placeholder="Ej: 1000" style="padding: 0.35rem 2rem 0.35rem 0.6rem; font-size: 0.8rem; height: 32px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
-                        <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.5rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
-                      </div>
+            <!-- Representante Legal & KAM Stocka en 2 columnas -->
+            <div class="merchant-grid-2">
+              
+              <!-- Representante Legal -->
+              <div class="merchant-section-card" style="margin: 0;">
+                <div class="merchant-card-title">
+                  <span class="title-text">
+                    <i class="ri-government-line" style="color: var(--color-primary); font-size: 1.05rem;"></i>
+                    Representante Legal
+                  </span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Nombre Completo</label>
+                      <input type="text" id="merchant-edit-rep-legal-nombre" class="form-input" value="${commerce.rep_legal_nombre || ''}" placeholder="Juan Pérez" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
                     </div>
-                    <div style="margin-left: 125px; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                      <label style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: normal; margin: 0; user-select: none;">
-                        <input type="checkbox" class="start-order-include" data-platform="Manual" ${manualIncluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
-                        Incluir este pedido
-                      </label>
-                      <div class="validation-message" data-platform="Manual" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">RUT</label>
+                      <input type="text" id="merchant-edit-rep-legal-rut" class="form-input" value="${commerce.rep_legal_rut || ''}" placeholder="12.345.678-9" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
                     </div>
                   </div>
-                `;
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Teléfono</label>
+                      <input type="tel" id="merchant-edit-rep-legal-telefono" class="form-input" value="${commerce.rep_legal_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Correo</label>
+                      <input type="email" id="merchant-edit-rep-legal-email" class="form-input" value="${commerce.rep_legal_email || ''}" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                activeInts.forEach(i => {
-                  const platform = i.platform;
-                  const val = startObj[platform]?.external_order_number || '';
-                  const incluir = startObj[platform]?.incluir !== false; // Por defecto es true
+              <!-- Ejecutivo de Cuentas (KAM) -->
+              <div class="merchant-section-card" style="margin: 0;">
+                <div class="merchant-card-title">
+                  <span class="title-text">
+                    <i class="ri-user-star-line" style="color: var(--color-primary); font-size: 1.05rem;"></i>
+                    Ejecutivo de Cuentas (KAM Stocka)
+                  </span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Nombre KAM</label>
+                      <input type="text" id="merchant-edit-kam-nombre" class="form-input" value="${commerce.kam_nombre || ''}" placeholder="Ej: María Paz González" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Correo KAM</label>
+                      <input type="email" id="merchant-edit-kam-email" class="form-input" value="${commerce.kam_email || ''}" placeholder="kam@stocka.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Teléfono / WhatsApp</label>
+                      <input type="tel" id="merchant-edit-kam-telefono" class="form-input" value="${commerce.kam_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Notas / Observaciones</label>
+                      <input type="text" id="merchant-edit-kam-notas" class="form-input" value="${commerce.kam_notas || ''}" placeholder="Horarios de atención, notas..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- TAB 2: CONTACTOS DEL COMERCIO -->
+          <div id="merchant-edit-tab-contacts" class="merchant-edit-tab-pane">
+            <div class="merchant-section-card">
+              <div class="merchant-card-title">
+                <div>
+                  <span class="title-text">
+                    <i class="ri-contacts-book-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                    Directorio de Contactos del Comercio
+                  </span>
+                  <p style="font-size: 0.73rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0; font-weight: normal;">
+                    Correos autorizados para recibir avisos operacionales, comunicados masivos, cobranza y notificaciones del WMS.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Formulario Rápido para Agregar Contacto -->
+              <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 1rem;">
+                <div style="font-size: 0.74rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-user-add-line" style="color: var(--color-primary);"></i> Añadir Nuevo Contacto
+                </div>
+                <div style="display: grid; grid-template-columns: 1.2fr 1.5fr 1.2fr auto; gap: 0.65rem; align-items: flex-end;">
+                  <div>
+                    <label class="merchant-form-label">Nombre Completo</label>
+                    <input type="text" id="merchant-edit-contact-nombre" class="form-input" placeholder="Nombre completo" style="height: 32px; font-size: 0.78rem; padding: 0.25rem 0.55rem; width: 100%; box-sizing: border-box;">
+                  </div>
+                  <div>
+                    <label class="merchant-form-label">Correo Electrónico</label>
+                    <input type="email" id="merchant-edit-contact-email" class="form-input" placeholder="correo@comercio.cl" style="height: 32px; font-size: 0.78rem; padding: 0.25rem 0.55rem; width: 100%; box-sizing: border-box;">
+                  </div>
+                  <div>
+                    <label class="merchant-form-label">Área / Rol</label>
+                    <select id="merchant-edit-contact-rol" class="form-input" style="height: 32px; font-size: 0.78rem; padding: 0 0.5rem; width: 100%; box-sizing: border-box;">
+                      <option value="Operaciones" selected>Operaciones</option>
+                      <option value="Notificaciones">Notificaciones / General</option>
+                      <option value="Finanzas">Finanzas / Cobranza</option>
+                      <option value="Gerencia">Gerencia / Administración</option>
+                      <option value="Comercial">Comercial</option>
+                    </select>
+                  </div>
+                  <div>
+                    <button type="button" id="btn-merchant-edit-add-contact" class="btn btn-primary" style="height: 32px; font-size: 0.78rem; padding: 0 0.95rem; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; background: var(--color-primary); color: #ffffff; border: none; cursor: pointer; border-radius: var(--radius-sm); font-weight: 600;">
+                      <i class="ri-add-line"></i> Agregar
+                    </button>
+                  </div>
+                </div>
+                <div id="merchant-edit-contact-msg" style="display: none; font-size: 0.75rem; margin-top: 0.5rem;"></div>
+              </div>
+
+              <!-- Lista de Contactos Actuales -->
+              <div id="merchant-edit-contacts-list-body" style="min-height: 200px; max-height: 360px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface);">
+                <!-- Renderizado dinámicamente -->
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: OPERACIONES E INVENTARIO -->
+          <div id="merchant-edit-tab-operations" class="merchant-edit-tab-pane">
+            
+            <!-- Políticas Operacionales en Grid 2x2 -->
+            <div class="merchant-section-card">
+              <div class="merchant-card-title">
+                <span class="title-text">
+                  <i class="ri-settings-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                  Políticas de Inventario y Operación
+                </span>
+              </div>
+              <div class="merchant-grid-2">
+                
+                <!-- Seguimiento Inventario -->
+                <div class="merchant-toggle-card">
+                  <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                    <input type="checkbox" id="merchant-edit-inventory" ${commerce.inventario_seguimiento ? 'checked' : ''} ${disabledAttr}>
+                    <span class="merchant-slider"></span>
+                  </label>
+                  <div>
+                    <label for="merchant-edit-inventory" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Seguimiento de Inventario</label>
+                    <p class="merchant-form-hint">Activa o desactiva la sincronización y control automático del stock físico en bodega.</p>
+                    ${migrationTip}
+                  </div>
+                </div>
+
+                <!-- Lectura Estricta Picker -->
+                <div class="merchant-toggle-card">
+                  <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                    <input type="checkbox" id="merchant-edit-picking-strict" ${commerce.picking_match_strict ? 'checked' : ''}>
+                    <span class="merchant-slider"></span>
+                  </label>
+                  <div>
+                    <label for="merchant-edit-picking-strict" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Lectura Estricta en Picker</label>
+                    <p class="merchant-form-hint">Fuerza a que todos los escaneos sean de coincidencia estricta en el sistema de picking, impidiendo lecturas parciales.</p>
+                  </div>
+                </div>
+
+                <!-- Guía de Inicio (Onboarding) -->
+                <div class="merchant-toggle-card">
+                  <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                    <input type="checkbox" id="merchant-edit-onboarding-active" ${(() => {
+                      const ob = commerce.onboarding_checklist;
+                      if (!ob) return false;
+                      if (ob.enabled !== undefined) return ob.enabled ? 'checked' : '';
+                      return ob.dismissed ? '' : 'checked';
+                    })()}>
+                    <span class="merchant-slider"></span>
+                  </label>
+                  <div>
+                    <label for="merchant-edit-onboarding-active" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Mostrar Guía de Inicio (Onboarding)</label>
+                    <p class="merchant-form-hint">Muestra la guía paso a paso en el dashboard del cliente. Recomendado para clientes nuevos en inducción.</p>
+                  </div>
+                </div>
+
+                <!-- Catálogo Inicial Configurado -->
+                <div class="merchant-toggle-card">
+                  <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                    <input type="checkbox" id="merchant-edit-catalog-ready" ${(commerce.onboarding_checklist && commerce.onboarding_checklist.catalog_ready) || commerce.inventario_seguimiento ? 'checked' : ''}>
+                    <span class="merchant-slider"></span>
+                  </label>
+                  <div>
+                    <label for="merchant-edit-catalog-ready" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Catálogo Inicial Configurado</label>
+                    <p class="merchant-form-hint">Marca esta opción al importar el catálogo base de productos. Esto enviará un correo automático al comercio.</p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Configuración de Inicio de Inventario por Canal -->
+            <div id="merchant-edit-inventory-start-container" class="merchant-section-card" style="display: ${commerce.inventario_seguimiento ? 'block' : 'none'};">
+              <div class="merchant-card-title">
+                <div>
+                  <span class="title-text">
+                    <i class="ri-history-line" style="color: var(--color-primary); font-size: 1.05rem;"></i>
+                    Pedido Inicial para Descuento de Stock por Canal
+                  </span>
+                  <p style="font-size: 0.73rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0; font-weight: normal;">
+                    Ingresa el número o ID de orden desde el cual este comercio comenzará a descontar stock. Si se deja en blanco, descontará todos.
+                  </p>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 0.75rem;" id="merchant-edit-inventory-start-fields">
+                ${(() => {
+                  const activeInts = (commerce.integrations || []).filter(i => i.is_active);
+                  const startObj = commerce.inventario_inicio_pedidos || {};
+                  let html = '';
+                  
+                  // Input para Manual siempre visible
+                  const manualVal = startObj.Manual?.external_order_number || '';
+                  const manualIncluir = startObj.Manual?.incluir !== false; // Por defecto es true
                   html += `
-                    <div>
-                      <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
-                        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">${platform}:</span>
+                    <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                          <i class="ri-draft-line" style="color: var(--color-primary);"></i> Manual / WMS:
+                        </span>
                         <div style="position: relative; display: flex; align-items: center; width: 100%;">
-                          <input type="text" class="form-input start-order-input" data-platform="${platform}" value="${val}" placeholder="Ej: 1024 o ID" style="padding: 0.35rem 2rem 0.35rem 0.6rem; font-size: 0.8rem; height: 32px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
-                          <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.5rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
+                          <input type="text" class="form-input start-order-input" data-platform="Manual" value="${manualVal}" placeholder="Ej: 1000" style="padding: 0.35rem 2rem 0.35rem 0.65rem; font-size: 0.8rem; height: 34px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
+                          <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.65rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
                         </div>
                       </div>
-                      <div style="margin-left: 125px; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-                        <label style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: normal; margin: 0; user-select: none;">
-                          <input type="checkbox" class="start-order-include" data-platform="${platform}" ${incluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
+                      <div style="margin-left: 148px; margin-top: 0.35rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <label style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: 600; margin: 0; user-select: none;">
+                          <input type="checkbox" class="start-order-include" data-platform="Manual" ${manualIncluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
                           Incluir este pedido
                         </label>
-                        <div class="validation-message" data-platform="${platform}" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                        <div class="validation-message" data-platform="Manual" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
                       </div>
                     </div>
                   `;
-                });
-                return html;
-              })()}
-            </div>
-          </div>
 
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Configuración de Prefijos por Plataforma</label>
-            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
-              <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
-                <thead>
-                  <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
-                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Plataforma</th>
-                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; text-align: center; width: 90px; color: var(--color-text-main);">Añadir Sigla</th>
-                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Quitar Prefijo Origen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${(() => {
-                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart', 'Manual'];
-                    return platformsList.map(plat => {
-                      const conf = (commerce.plat_siglas_config || {})[plat] || {
-                        agregar_prefijo: !commerce.pedido_trae_sigla,
-                        prefijo_origen: ''
-                      };
-                      const checked = conf.agregar_prefijo ? 'checked' : '';
-                      const disabled = isMigration ? 'disabled' : '';
-                      return `
-                        <tr style="border-bottom: 1px solid var(--color-border);">
-                          <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; border: none;">
+                  activeInts.forEach(i => {
+                    const platform = i.platform;
+                    const val = startObj[platform]?.external_order_number || '';
+                    const incluir = startObj[platform]?.incluir !== false; // Por defecto es true
+                    html += `
+                      <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 0.75rem;">
+                          <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
                             <i class="${
-                              plat === 'Shopify' ? 'ri-shopping-bag-3-line' :
-                              plat === 'WooCommerce' ? 'ri-wordpress-line' :
-                              plat === 'MercadoLibre' ? 'ri-hand-heart-line' :
-                              plat === 'Manual' ? 'ri-draft-line' : 'ri-store-2-line'
-                            }"></i> ${plat}
-                          </td>
-                          <td style="padding: 0.5rem 0.75rem; text-align: center; border: none;">
-                            <label class="merchant-switch">
-                              <input type="checkbox" class="plat-prefix-toggle" data-platform="${plat}" ${checked} ${disabled}>
-                              <span class="merchant-slider"></span>
-                            </label>
-                          </td>
-                          <td style="padding: 0.5rem 0.75rem; border: none;">
-                            <input type="text" class="form-input plat-prefix-origin" data-platform="${plat}" value="${conf.prefijo_origen || ''}" placeholder="Ej: # o WEB-" ${disabled} style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: auto; margin: 0; width: 100%; box-sizing: border-box; text-transform: uppercase;">
-                          </td>
-                        </tr>
-                      `;
-                    }).join('');
-                  })()}
-                </tbody>
-              </table>
+                              platform === 'Shopify' ? 'ri-shopping-bag-3-line' :
+                              platform === 'WooCommerce' ? 'ri-wordpress-line' :
+                              platform === 'MercadoLibre' ? 'ri-hand-heart-line' : 'ri-store-2-line'
+                            }" style="color: var(--color-primary);"></i> ${platform}:
+                          </span>
+                          <div style="position: relative; display: flex; align-items: center; width: 100%;">
+                            <input type="text" class="form-input start-order-input" data-platform="${platform}" value="${val}" placeholder="Ej: 1024 o ID" style="padding: 0.35rem 2rem 0.35rem 0.65rem; font-size: 0.8rem; height: 34px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box;">
+                            <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.65rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
+                          </div>
+                        </div>
+                        <div style="margin-left: 148px; margin-top: 0.35rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                          <label style="display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: 600; margin: 0; user-select: none;">
+                            <input type="checkbox" class="start-order-include" data-platform="${platform}" ${incluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
+                            Incluir este pedido
+                          </label>
+                          <div class="validation-message" data-platform="${platform}" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                        </div>
+                      </div>
+                    `;
+                  });
+                  return html;
+                })()}
+              </div>
             </div>
-            ${migrationTip}
+
           </div>
 
-          <div id="edit-merchant-alert-container" style="margin: 0;"></div>
+          <!-- TAB 4: INTEGRACIONES Y PREFIJOS -->
+          <div id="merchant-edit-tab-integrations" class="merchant-edit-tab-pane">
+            
+            <!-- Cuentas y Envíos -->
+            <div class="merchant-section-card">
+              <div class="merchant-card-title">
+                <span class="title-text">
+                  <i class="ri-global-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                  Cuentas y Conexiones de Envíos
+                </span>
+              </div>
+              <div class="merchant-grid-2">
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">ID Enviame</label>
+                  <input type="text" id="merchant-edit-enviame-id" class="form-input" value="${commerce.enviame_id && String(commerce.enviame_id).trim().toLowerCase() !== 'null' ? commerce.enviame_id : ''}" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
+                  <p class="merchant-form-hint">Identificador oficial del comercio en Enviame (número o ID).</p>
+                </div>
+
+                <div class="form-group" style="margin: 0;">
+                  <label class="merchant-form-label">Correo de Colaborador Marketplaces</label>
+                  <input type="email" id="merchant-edit-email-colaborador" class="form-input" value="${commerce.email_colaborador || ''}" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
+                  <p class="merchant-form-hint">Correo utilizado en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
+                </div>
+              </div>
+
+              <!-- Switch Correo E3 -->
+              <div class="merchant-toggle-card" style="margin-top: 1rem;">
+                <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                  <input type="checkbox" id="merchant-edit-send-e3">
+                  <span class="merchant-slider"></span>
+                </label>
+                <div>
+                  <label for="merchant-edit-send-e3" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Enviar Instrucciones de Integración Enviame - Shopify (Correo E3)</label>
+                  <p class="merchant-form-hint">Envía un correo explicativo con el manual de webhook de Shopify y tarifarios al email del comercio al guardar los cambios.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Configuración de Prefijos por Plataforma -->
+            <div class="merchant-section-card">
+              <div class="merchant-card-title">
+                <div>
+                  <span class="title-text">
+                    <i class="ri-price-tag-3-line" style="color: var(--color-primary); font-size: 1.05rem;"></i>
+                    Configuración de Prefijos por Plataforma
+                  </span>
+                  <p style="font-size: 0.73rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0; font-weight: normal;">
+                    Personaliza si se debe añadir la sigla del comercio y remover prefijos de origen (ej: # o WEB-) en cada canal.
+                  </p>
+                </div>
+              </div>
+
+              <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                  <thead>
+                    <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                      <th style="padding: 0.6rem 0.85rem; font-weight: 700; color: var(--color-text-main);">Plataforma</th>
+                      <th style="padding: 0.6rem 0.85rem; font-weight: 700; text-align: center; width: 110px; color: var(--color-text-main);">Añadir Sigla</th>
+                      <th style="padding: 0.6rem 0.85rem; font-weight: 700; color: var(--color-text-main);">Quitar Prefijo Origen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${(() => {
+                      const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart', 'Manual'];
+                      return platformsList.map(plat => {
+                        const conf = (commerce.plat_siglas_config || {})[plat] || {
+                          agregar_prefijo: !commerce.pedido_trae_sigla,
+                          prefijo_origen: ''
+                        };
+                        const checked = conf.agregar_prefijo ? 'checked' : '';
+                        const disabled = isMigration ? 'disabled' : '';
+                        return `
+                          <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+                            <td style="padding: 0.55rem 0.85rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem; border: none;">
+                              <i class="${
+                                plat === 'Shopify' ? 'ri-shopping-bag-3-line' :
+                                plat === 'WooCommerce' ? 'ri-wordpress-line' :
+                                plat === 'MercadoLibre' ? 'ri-hand-heart-line' :
+                                plat === 'Manual' ? 'ri-draft-line' : 'ri-store-2-line'
+                              }" style="color: var(--color-primary);"></i> ${plat}
+                            </td>
+                            <td style="padding: 0.55rem 0.85rem; text-align: center; border: none;">
+                              <label class="merchant-switch">
+                                <input type="checkbox" class="plat-prefix-toggle" data-platform="${plat}" ${checked} ${disabled}>
+                                <span class="merchant-slider"></span>
+                              </label>
+                            </td>
+                            <td style="padding: 0.55rem 0.85rem; border: none;">
+                              <input type="text" class="form-input plat-prefix-origin" data-platform="${plat}" value="${conf.prefijo_origen || ''}" placeholder="Ej: # o WEB-" ${disabled} style="font-size: 0.78rem; padding: 0.3rem 0.6rem; height: 32px; margin: 0; width: 100%; box-sizing: border-box; text-transform: uppercase;">
+                            </td>
+                          </tr>
+                        `;
+                      }).join('');
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              ${migrationTip}
+            </div>
+
+          </div>
+
+          <!-- TAB 5: PUNTO DE VENTA (POS) -->
+          <div id="merchant-edit-tab-pos" class="merchant-edit-tab-pane">
+            
+            <!-- Habilitar POS Master Toggle -->
+            <div class="merchant-toggle-card">
+              <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+                <input type="checkbox" id="merchant-edit-pos-active" ${commerce.onboarding_checklist?.pos_active === true ? 'checked' : ''}>
+                <span class="merchant-slider"></span>
+              </label>
+              <div>
+                <label for="merchant-edit-pos-active" style="font-weight: 700; font-size: 0.9rem; cursor: pointer; user-select: none; display: block; color: var(--color-text-main);">Habilitar Punto de Venta (POS)</label>
+                <p class="merchant-form-hint">Permite registrar ventas presenciales en sucursal física para este comercio, asociando pagos con tarjeta o transferencias bancarias directas.</p>
+              </div>
+            </div>
+
+            <!-- Detalles del POS en 2 Columnas -->
+            <div id="merchant-edit-pos-details-container" style="display: ${commerce.onboarding_checklist?.pos_active === true ? 'block' : 'none'};">
+              <div class="merchant-grid-2">
+                
+                <!-- Columna 1: Máquina POS -->
+                <div class="merchant-section-card" style="margin: 0;">
+                  <div class="merchant-card-title">
+                    <div>
+                      <span class="title-text">
+                        <i class="ri-bank-card-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                        Máquina de Pago Asignada para Ventas POS
+                      </span>
+                      <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0.2rem 0 0 0; font-weight: normal;">
+                        Características de la máquina física para el cajero.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Marca / Proveedor</label>
+                        <input type="text" id="merchant-edit-pos-brand" class="form-input" list="pos-brands-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.brand || '').replace(/"/g, '&quot;')}" placeholder="Ej: TUU, Transbank..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                        <datalist id="pos-brands-list-edit">
+                          <option value="TUU">
+                          <option value="Transbank">
+                          <option value="SumUp">
+                          <option value="Redelcom">
+                          <option value="Compraquí">
+                          <option value="Mercado Pago">
+                          <option value="STOCKA POS">
+                        </datalist>
+                      </div>
+
+                      <div class="form-group" style="margin: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                          <label class="merchant-form-label" style="margin: 0;">Color / Distintivo</label>
+                          <div id="merchant-edit-pos-color-preview-badge" style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.08);">
+                            <span id="merchant-edit-pos-preview-icon">${window.getPosMachineSvg(window.resolvePosMachineColor(commerce.onboarding_checklist?.pos_machine?.color, commerce.onboarding_checklist?.pos_machine?.color_hex), 20)}</span>
+                            <span id="merchant-edit-pos-preview-text" style="color: ${window.getPosReadableTextColor(window.resolvePosMachineColor(commerce.onboarding_checklist?.pos_machine?.color, commerce.onboarding_checklist?.pos_machine?.color_hex))};">${(commerce.onboarding_checklist?.pos_machine?.color || 'Color')}</span>
+                          </div>
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                          <input type="color" id="merchant-edit-pos-color-picker" value="${window.resolvePosMachineColor(commerce.onboarding_checklist?.pos_machine?.color, commerce.onboarding_checklist?.pos_machine?.color_hex)}" style="width: 38px; height: 32px; padding: 2px; border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer; background: transparent; flex-shrink: 0;" title="Elige un color con el selector">
+                          <input type="text" id="merchant-edit-pos-color" class="form-input" data-color-hex="${window.resolvePosMachineColor(commerce.onboarding_checklist?.pos_machine?.color, commerce.onboarding_checklist?.pos_machine?.color_hex)}" value="${(commerce.onboarding_checklist?.pos_machine?.color || '').replace(/"/g, '&quot;')}" placeholder="Ej: Rojo, Azul..." style="flex: 1; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                        </div>
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px;">
+                          ${window.POS_COLOR_PRESETS.map(p => `
+                            <button type="button" onclick="window.selectPosMachinePresetColor('merchant-edit', '${p.name}', '${p.hex}')" title="${p.name}" style="border: 1px solid rgba(0,0,0,0.2); background: ${p.hex}; width: 18px; height: 18px; border-radius: 50%; cursor: pointer; padding: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: transform 0.15s;" onmouseover="this.style.transform='scale(1.25)'" onmouseout="this.style.transform='scale(1)'"></button>
+                          `).join('')}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">N° Máquina / Terminal</label>
+                        <input type="text" id="merchant-edit-pos-model" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.model || '').replace(/"/g, '&quot;')}" placeholder="Ej: N001, POS-01..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                      </div>
+
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Propiedad del Equipo</label>
+                        <input type="text" id="merchant-edit-pos-owner" class="form-input" list="pos-owners-list-edit" value="${(commerce.onboarding_checklist?.pos_machine?.owner || '').replace(/"/g, '&quot;')}" placeholder="Ej: Propiedad de ${commerce.nombre}" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                        <datalist id="pos-owners-list-edit">
+                          <option value="Propiedad de ${commerce.nombre}">
+                          <option value="Propiedad de STOCKA">
+                        </datalist>
+                      </div>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Notas / Instrucciones de Cobro para Cajero</label>
+                      <input type="text" id="merchant-edit-pos-notes" class="form-input" value="${(commerce.onboarding_checklist?.pos_machine?.notes || '').replace(/"/g, '&quot;')}" placeholder="Ej: Cobro en terminal TUU directo del comercio..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Columna 2: Datos Bancarios -->
+                <div class="merchant-section-card" style="margin: 0;">
+                  <div class="merchant-card-title">
+                    <div>
+                      <span class="title-text">
+                        <i class="ri-funds-box-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                        Datos Bancarios (Transferencia POS)
+                      </span>
+                      <p style="font-size: 0.72rem; color: var(--color-text-muted); margin: 0.2rem 0 0 0; font-weight: normal;">
+                        Se mostrarán con un código QR en el POS para pagos inmediatos.
+                      </p>
+                    </div>
+                    <span style="font-size: 0.68rem; padding: 2px 7px; border-radius: 4px; background: rgba(37,99,235,0.08); color: var(--color-primary); font-weight: 600;">
+                      Pagos QR
+                    </span>
+                  </div>
+
+                  <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Banco Destino</label>
+                        <input type="text" id="merchant-edit-pos-bank" class="form-input" list="pos-banks-list-options" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.bank || '').replace(/"/g, '&quot;')}" placeholder="Ej: Banco Santander..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                        <datalist id="pos-banks-list-options">
+                          <option value="Banco de Chile / Edwards">
+                          <option value="Banco Santander">
+                          <option value="Banco Estado">
+                          <option value="BCI (Banco de Crédito e Inversiones)">
+                          <option value="Banco Falabella">
+                          <option value="Scotiabank">
+                          <option value="Itaú">
+                          <option value="Banco BICE">
+                          <option value="Banco Security">
+                          <option value="Banco Consorcio">
+                          <option value="Tenpo">
+                          <option value="Mercado Pago">
+                          <option value="MACH (BCI)">
+                        </datalist>
+                      </div>
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Tipo de Cuenta</label>
+                        <select id="merchant-edit-pos-bank-type" class="form-input" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0 0.5rem;">
+                          <option value="Cuenta Corriente" ${(commerce.onboarding_checklist?.pos_bank_transfer?.account_type || 'Cuenta Corriente') === 'Cuenta Corriente' ? 'selected' : ''}>Cuenta Corriente</option>
+                          <option value="Cuenta Vista / RUT" ${(commerce.onboarding_checklist?.pos_bank_transfer?.account_type) === 'Cuenta Vista / RUT' ? 'selected' : ''}>Cuenta Vista / RUT</option>
+                          <option value="Cuenta de Ahorro" ${(commerce.onboarding_checklist?.pos_bank_transfer?.account_type) === 'Cuenta de Ahorro' ? 'selected' : ''}>Cuenta de Ahorro</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Número de Cuenta</label>
+                        <input type="text" id="merchant-edit-pos-bank-number" class="form-input" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.account_number || '').replace(/"/g, '&quot;')}" placeholder="Ej: 00-12345-67" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                      </div>
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">RUT Titular</label>
+                        <input type="text" id="merchant-edit-pos-bank-rut" class="form-input" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.holder_rut || commerce.rut || '').replace(/"/g, '&quot;')}" placeholder="Ej: 76.123.456-7" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                      </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Nombre o Razón Social Titular</label>
+                        <input type="text" id="merchant-edit-pos-bank-holder" class="form-input" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.holder_name || commerce.razon_social || commerce.nombre || '').replace(/"/g, '&quot;')}" placeholder="Ej: CROMO SpA" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                      </div>
+                      <div class="form-group" style="margin: 0;">
+                        <label class="merchant-form-label">Correo para Comprobantes</label>
+                        <input type="email" id="merchant-edit-pos-bank-email" class="form-input" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.email || commerce.email || commerce.rep_legal_email || '').replace(/"/g, '&quot;')}" placeholder="pagos@comercio.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                      </div>
+                    </div>
+
+                    <div class="form-group" style="margin: 0;">
+                      <label class="merchant-form-label">Instrucción o Glosa Adicional (Opcional)</label>
+                      <input type="text" id="merchant-edit-pos-bank-notes" class="form-input" value="${(commerce.onboarding_checklist?.pos_bank_transfer?.notes || '').replace(/"/g, '&quot;')}" placeholder="Ej: Indicar código de venta en el asunto..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
 
         </div>
-        <div class="modal-footer" style="padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
-          <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-merchant-edit" style="background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">Guardar Cambios</button>
+
+        <!-- Footer del Modal -->
+        <div class="modal-footer" style="padding: 0.9rem 1.5rem; background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-shrink: 0;">
+          <div id="edit-merchant-alert-container" style="flex: 1; margin: 0; min-width: 0;"></div>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-shrink: 0;">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.55rem 1.25rem; font-weight: 600;">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-merchant-edit" style="background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer; padding: 0.55rem 1.5rem; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 2px 6px rgba(37,99,235,0.25);">
+              <i class="ri-save-3-line"></i> Guardar Cambios
+            </button>
+          </div>
         </div>
+
       </form>
     </div>
   `;
 
   document.body.appendChild(modal);
+
+  // Helper para alternar entre pestañas del modal de edición
+  window.switchMerchantEditTab = function(tabName) {
+    const m = document.getElementById(modalId);
+    if (!m) return;
+    m.querySelectorAll('.merchant-edit-tab-pane').forEach(p => {
+      p.classList.remove('active');
+      p.style.display = 'none';
+    });
+    m.querySelectorAll('.merchant-nav-tab-btn').forEach(b => {
+      b.classList.remove('active');
+    });
+    const targetPane = document.getElementById(`merchant-edit-tab-${tabName}`);
+    const targetBtn = document.getElementById(`btn-merchant-tab-${tabName}`);
+    if (targetPane) {
+      targetPane.classList.add('active');
+      targetPane.style.display = 'flex';
+    }
+    if (targetBtn) {
+      targetBtn.classList.add('active');
+    }
+  };
+
+  // Escuchar cambios en switch POS para actualizar indicador en la pestaña y contenedor
+  const posToggle = document.getElementById('merchant-edit-pos-active');
+  if (posToggle) {
+    posToggle.addEventListener('change', function() {
+      const details = document.getElementById('merchant-edit-pos-details-container');
+      if (details) details.style.display = this.checked ? 'block' : 'none';
+      const ind = document.getElementById('merchant-tab-pos-indicator');
+      if (ind) {
+        ind.textContent = this.checked ? 'HABILITADO' : 'DESACTIVADO';
+        ind.style.background = this.checked ? 'rgba(16,185,129,0.15)' : 'rgba(100,116,139,0.12)';
+        ind.style.color = this.checked ? 'var(--color-success)' : 'var(--color-text-muted)';
+      }
+    });
+  }
+
+  window.setupPosColorSelector('merchant-edit');
 
   // Inicializar lista y eventos de Contactos del Comercio en Modal de Edición
   window.renderMerchantEditContactsList(comercioName);
@@ -56875,6 +59183,7 @@ window.showMerchantEditModal = async function(comercioName) {
 
   setupRutFormatter('merchant-edit-rut');
   setupRutFormatter('merchant-edit-rep-legal-rut');
+  setupRutFormatter('merchant-edit-pos-bank-rut');
 
   // Escuchar cambios en checkbox de seguimiento para mostrar/ocultar los inputs de inicio
   const inventoryCheckbox = document.getElementById('merchant-edit-inventory');
@@ -57009,7 +59318,25 @@ window.showMerchantEditModal = async function(comercioName) {
     btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Guardando...';
     alertContainer.innerHTML = '';
 
-    const newSigla = document.getElementById('merchant-edit-sigla').value.trim().toUpperCase();
+    const newSigla = document.getElementById('merchant-edit-sigla')?.value.trim().toUpperCase() || '';
+    if (!newSigla) {
+      if (typeof window.switchMerchantEditTab === 'function') {
+        window.switchMerchantEditTab('general');
+      }
+      const siglaInput = document.getElementById('merchant-edit-sigla');
+      if (siglaInput) {
+        siglaInput.focus();
+        siglaInput.style.borderColor = 'var(--color-danger)';
+      }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios';
+      alertContainer.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.45rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-error-warning-line"></i> <span>La Sigla del Comercio es obligatoria.</span>
+        </div>
+      `;
+      return;
+    }
     const newBilling = document.getElementById('merchant-edit-billing').value;
     const newRazonSocial = document.getElementById('merchant-edit-razon-social').value.trim().toUpperCase();
     const newRut = document.getElementById('merchant-edit-rut').value.trim().toUpperCase();
@@ -57041,9 +59368,18 @@ window.showMerchantEditModal = async function(comercioName) {
     const newPosActive = posActiveInput ? posActiveInput.checked : false;
     const newPosBrand = document.getElementById('merchant-edit-pos-brand')?.value.trim() || '';
     const newPosColor = document.getElementById('merchant-edit-pos-color')?.value.trim() || '';
+    const newPosColorHex = document.getElementById('merchant-edit-pos-color')?.getAttribute('data-color-hex') || document.getElementById('merchant-edit-pos-color-picker')?.value || '';
     const newPosModel = document.getElementById('merchant-edit-pos-model')?.value.trim() || '';
     const newPosOwner = document.getElementById('merchant-edit-pos-owner')?.value.trim() || '';
     const newPosNotes = document.getElementById('merchant-edit-pos-notes')?.value.trim() || '';
+
+    const newPosBank = document.getElementById('merchant-edit-pos-bank')?.value.trim() || '';
+    const newPosBankType = document.getElementById('merchant-edit-pos-bank-type')?.value || 'Cuenta Corriente';
+    const newPosBankNumber = document.getElementById('merchant-edit-pos-bank-number')?.value.trim() || '';
+    const newPosBankHolder = document.getElementById('merchant-edit-pos-bank-holder')?.value.trim() || '';
+    const newPosBankRut = document.getElementById('merchant-edit-pos-bank-rut')?.value.trim() || '';
+    const newPosBankEmail = document.getElementById('merchant-edit-pos-bank-email')?.value.trim() || '';
+    const newPosBankNotes = document.getElementById('merchant-edit-pos-bank-notes')?.value.trim() || '';
 
     const updatedChecklist = {
       ...oldChecklist,
@@ -57055,9 +59391,19 @@ window.showMerchantEditModal = async function(comercioName) {
       pos_machine: {
         brand: newPosBrand,
         color: newPosColor,
+        color_hex: newPosColorHex,
         model: newPosModel,
         owner: newPosOwner,
         notes: newPosNotes
+      },
+      pos_bank_transfer: {
+        bank: newPosBank,
+        account_type: newPosBankType,
+        account_number: newPosBankNumber,
+        holder_name: newPosBankHolder,
+        holder_rut: newPosBankRut,
+        email: newPosBankEmail,
+        notes: newPosBankNotes
       }
     };
 
@@ -57261,7 +59607,7 @@ window.showMerchantEditModal = async function(comercioName) {
     } catch (err) {
       console.error('Error al guardar cambios del comercio:', err);
       btn.disabled = false;
-      btn.innerHTML = 'Guardar Cambios';
+      btn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios';
       alertContainer.innerHTML = `
         <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-error-warning-line"></i> <span>Error: ${err.message || JSON.stringify(err)}</span>

@@ -42,6 +42,162 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// ====== HELPERS VISUALES Y CONTRASTE PARA COLOR Y MÁQUINA DE PUNTO DE VENTA (POS) ======
+if (!window.getPosColorLuminance) {
+  window.getPosColorLuminance = function(hex) {
+    if (!hex) return 0.5;
+    let c = String(hex).replace('#', '').trim();
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    if (c.length !== 6) return 0.5;
+    const num = parseInt(c, 16);
+    if (isNaN(num)) return 0.5;
+    const r = ((num >> 16) & 255) / 255;
+    const g = ((num >> 8) & 255) / 255;
+    const b = (num & 255) / 255;
+    const a = [r, g, b].map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+  };
+}
+
+if (!window.getPosContrastTextColor) {
+  window.getPosContrastTextColor = function(hex) {
+    const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(hex) : 0.5;
+    return lum > 0.38 ? '#0f172a' : '#ffffff';
+  };
+}
+
+if (!window.getPosReadableTextColor) {
+  window.getPosReadableTextColor = function(hex) {
+    if (!hex) return '#2563eb';
+    const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(hex) : 0.5;
+    if (lum < 0.30) return hex;
+
+    let c = String(hex).replace('#', '').trim();
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    if (c.length !== 6) return '#1e293b';
+    const num = parseInt(c, 16);
+    if (isNaN(num)) return '#1e293b';
+    let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+
+    const rawDiff = Math.max(r, g, b) - Math.min(r, g, b);
+    if (rawDiff <= 25) return '#334155';
+
+    const rNorm = r / 255, gNorm = g / 255, bNorm = b / 255;
+    const max = Math.max(rNorm, gNorm, bNorm), min = Math.min(rNorm, gNorm, bNorm);
+    const d = max - min;
+    let h = 0;
+    if (d > 0) {
+      if (max === rNorm) h = ((gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0)) / 6;
+      else if (max === gNorm) h = ((bNorm - rNorm) / d + 2) / 6;
+      else h = ((rNorm - gNorm) / d + 4) / 6;
+    }
+
+    let targetL = 0.30;
+    if (h > 0.10 && h < 0.45) targetL = 0.24;
+
+    const s = 0.85;
+    const q = targetL < 0.5 ? targetL * (1 + s) : targetL + s - targetL * s;
+    const p = 2 * targetL - q;
+    const hue2rgb = (p, q, t) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    const rFinal = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+    const gFinal = Math.round(hue2rgb(p, q, h) * 255);
+    const bFinal = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+
+    return '#' + [rFinal, gFinal, bFinal].map(x => x.toString(16).padStart(2, '0')).join('');
+  };
+}
+
+// Helper para generar icono SVG de máquina POS con color dinámico y contraste automático
+window.getPosMachineSvg = function(colorHex = '#2563eb', size = 24) {
+  const safeColor = (colorHex || '#2563eb').trim();
+  const lum = (typeof window.getPosColorLuminance === 'function') ? window.getPosColorLuminance(safeColor) : 0.5;
+  const isLight = lum > 0.40;
+
+  const strokeColor = isLight ? 'rgba(0, 0, 0, 0.28)' : 'rgba(15, 23, 42, 0.85)';
+  const slotColor = isLight ? '#0f172a' : '#ffffff';
+  const slotOpacity = isLight ? '0.35' : '0.6';
+  const keypadDotFill = isLight ? '#0f172a' : '#ffffff';
+  const keypadDotOpacity = isLight ? '0.75' : '0.9';
+  const bottomSlotOpacity = isLight ? '0.30' : '0.5';
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: inline-block; vertical-align: middle; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18)); flex-shrink: 0;">
+    <!-- POS Terminal Main Body with chosen color -->
+    <rect x="4.5" y="1.5" width="15" height="21" rx="2.8" fill="${safeColor}" stroke="${strokeColor}" stroke-width="0.8" />
+    
+    <!-- Top Receipt/Card slot indicator -->
+    <rect x="7" y="2.5" width="10" height="0.8" rx="0.4" fill="${slotColor}" fill-opacity="${slotOpacity}" />
+    
+    <!-- Digital Screen -->
+    <rect x="6.8" y="4.2" width="10.4" height="6.6" rx="1.2" fill="#0f172a" />
+    <!-- Screen Glass Shine / Reflection -->
+    <rect x="7.4" y="4.8" width="9.2" height="5.4" rx="0.8" fill="#1e293b" />
+    <!-- Screen Content: Amount line & Card reader indicator -->
+    <rect x="8.5" y="5.8" width="4.5" height="1.1" rx="0.55" fill="#38bdf8" />
+    <rect x="8.5" y="7.5" width="7" height="1.6" rx="0.6" fill="#10b981" />
+    
+    <!-- Keypad Matrix (3x3 numeric keypad) -->
+    <circle cx="8.2" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="12.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="8.2" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="14.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="8.2" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="12" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    <circle cx="15.8" cy="16.6" r="0.75" fill="${keypadDotFill}" fill-opacity="${keypadDotOpacity}" />
+    
+    <!-- POS Function Buttons (Red Cancel, Yellow Clear, Green OK/Enter) -->
+    <rect x="7.2" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#ef4444" />
+    <rect x="10.7" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#eab308" />
+    <rect x="14.2" y="18.4" width="2.6" height="1.1" rx="0.5" fill="#22c55e" />
+    
+    <!-- Bottom Chip Card Insertion Slot -->
+    <rect x="8" y="20.7" width="8" height="0.7" rx="0.35" fill="${slotColor}" fill-opacity="${bottomSlotOpacity}" />
+  </svg>`;
+};
+
+// Helper para resolver color de máquina POS
+if (!window.resolvePosMachineColor) {
+  window.resolvePosMachineColor = function(colorStr, colorHexStr) {
+    if (colorHexStr && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorHexStr.trim())) {
+      return colorHexStr.trim();
+    }
+    if (colorStr && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorStr.trim())) {
+      return colorStr.trim();
+    }
+    const clean = (colorStr || '').trim().toLowerCase();
+    if (!clean) return '#2563eb';
+
+    const colorMap = [
+      { keys: ['rojo', 'red', 'granate', 'carmesi'], hex: '#dc2626' },
+      { keys: ['azul', 'blue', 'marino', 'navy'], hex: '#2563eb' },
+      { keys: ['celeste', 'cyan', 'turquesa', 'sky'], hex: '#0284c7' },
+      { keys: ['naranja', 'orange', 'anaranjado'], hex: '#ea580c' },
+      { keys: ['negro', 'black', 'oscuro'], hex: '#1e293b' },
+      { keys: ['verde', 'green', 'oliva', 'lima'], hex: '#16a34a' },
+      { keys: ['amarillo', 'yellow', 'dorado', 'gold'], hex: '#ca8a04' },
+      { keys: ['morado', 'purple', 'violeta', 'purpura', 'lila'], hex: '#7c3aed' },
+      { keys: ['rosa', 'rosado', 'pink', 'fucsia', 'magenta'], hex: '#db2777' },
+      { keys: ['gris', 'plomo', 'gray', 'grey', 'plateado', 'silver'], hex: '#64748b' },
+      { keys: ['blanco', 'white', 'crema', 'claro'], hex: '#f8fafc' }
+    ];
+
+    for (const entry of colorMap) {
+      if (entry.keys.some(k => clean === k || clean.includes(k))) {
+        return entry.hex;
+      }
+    }
+    return '#2563eb';
+  };
+}
+
 // Helper para generar código único de venta
 window.generatePosSaleCode = function(prefix) {
   const cleanPrefix = (prefix || 'POS').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase();
@@ -65,6 +221,9 @@ window.regeneratePosCode = function() {
   const codeInput = document.getElementById('pos-codigo-venta');
   if (codeInput) {
     codeInput.value = window.generatePosSaleCode(sigla);
+  }
+  if (document.getElementById('pos-modo-pago')?.value === 'Transferencia') {
+    window.updatePosPaymentMachineBanner();
   }
 };
 
@@ -618,6 +777,25 @@ window.openCreatePosSaleModal = async function() {
   setVal('pos-customer-name', '');
   setVal('pos-customer-email', '');
   setVal('pos-customer-phone', '');
+  setVal('pos-customer-phone-number', '');
+  const phoneCountrySel = document.getElementById('pos-customer-phone-country');
+  if (phoneCountrySel) {
+    phoneCountrySel.value = '+56';
+    if (typeof window.handlePosPhoneCountryChange === 'function') {
+      window.handlePosPhoneCountryChange();
+    }
+  }
+  const phoneNumInput = document.getElementById('pos-customer-phone-number');
+  if (phoneNumInput) {
+    phoneNumInput.oninput = () => {
+      if (typeof window.handlePosPhoneInput === 'function') {
+        window.handlePosPhoneInput();
+      }
+    };
+  }
+  const phoneValMsg = document.getElementById('pos-phone-validation-msg');
+  if (phoneValMsg) phoneValMsg.style.display = 'none';
+
   setVal('pos-comments', '');
   setVal('pos-factura-rut', '');
   setVal('pos-factura-razon-social', '');
@@ -681,6 +859,16 @@ window.openCreatePosSaleModal = async function() {
       window.calculatePosTotals();
     };
   }
+
+  // 10. Configurar listener para actualizar banner de transferencia si cambia el código
+  const codeInput = document.getElementById('pos-codigo-venta');
+  if (codeInput) {
+    codeInput.oninput = () => {
+      if (document.getElementById('pos-modo-pago')?.value === 'Transferencia') {
+        window.updatePosPaymentMachineBanner();
+      }
+    };
+  }
 };
 
 // Navegación entre pasos del Wizard
@@ -734,6 +922,21 @@ window.goToPosStep = function(targetStep) {
         });
         document.getElementById('pos-customer-email')?.focus();
         return;
+      }
+
+      // Validar formato del teléfono según el país seleccionado (si se ingresó)
+      if (typeof window.validatePosCustomerPhone === 'function') {
+        const phoneValidation = window.validatePosCustomerPhone();
+        if (!phoneValidation.isValid) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Teléfono Inválido',
+            text: phoneValidation.message,
+            confirmButtonColor: 'var(--color-primary)'
+          });
+          document.getElementById('pos-customer-phone-number')?.focus();
+          return;
+        }
       }
 
       // Validar datos de factura si corresponde
@@ -897,6 +1100,16 @@ window.goToPosStep = function(targetStep) {
 
 // Delegación de eventos global para controles del modal y wizard POS
 document.addEventListener('click', (e) => {
+  // Cerrar menús de búsqueda de productos al hacer clic fuera
+  if (!e.target.closest('.pos-product-search-wrapper')) {
+    document.querySelectorAll('.pos-product-dropdown-list').forEach(d => {
+      d.style.display = 'none';
+    });
+    document.querySelectorAll('.pos-dropdown-arrow').forEach(a => {
+      a.style.transform = 'rotate(0deg)';
+    });
+  }
+
   // 1. Abrir modal registrar venta
   if (e.target.closest('#btn-open-create-pos-sale')) {
     e.preventDefault();
@@ -949,12 +1162,90 @@ document.addEventListener('click', (e) => {
     return;
   }
 
-  // 7. Cerrar modales al hacer clic fuera del contenido
-  if (e.target.id === 'modal-pos-sale' || e.target.id === 'modal-pos-detail') {
+  // 7. Cerrar modales al hacer clic fuera del contenido o en botón de cierre
+  const isPosSaleCloseBtn = e.target.closest('#btn-close-pos-sale') || e.target.closest('[data-close="modal-pos-sale"]');
+  if (isPosSaleCloseBtn || e.target.id === 'modal-pos-sale') {
+    e.preventDefault();
+    e.stopPropagation();
+    window.confirmAndClosePosModal();
+    return;
+  }
+
+  if (e.target.id === 'modal-pos-detail') {
     e.target.classList.remove('active');
     return;
   }
 });
+
+// Helper para verificar si hay trabajo o datos sin guardar en el modal POS
+window.hasPosSaleWorkInProgress = function() {
+  const modal = document.getElementById('modal-pos-sale');
+  if (!modal || !modal.classList.contains('active')) return false;
+
+  // 1. Comercio seleccionado
+  const commerce = document.getElementById('pos-select-commerce')?.value;
+  if (commerce) return true;
+
+  // 2. Datos de cliente ingresados
+  const custName = document.getElementById('pos-customer-name')?.value.trim();
+  const custEmail = document.getElementById('pos-customer-email')?.value.trim();
+  const custPhone = document.getElementById('pos-customer-phone')?.value.trim();
+  if (custName || custEmail || custPhone) return true;
+
+  // 3. Productos en la tabla
+  const rows = document.querySelectorAll('#pos-products-tbody tr');
+  for (const r of rows) {
+    if (r.dataset.productId || r.dataset.sku) return true;
+    const catalogInput = r.querySelector('.pos-row-catalog-input')?.value.trim();
+    if (catalogInput) return true;
+    const sku = r.querySelector('.pos-row-sku')?.value.trim();
+    const name = r.querySelector('.pos-row-name')?.value.trim();
+    if (sku || name) return true;
+    const price = r.querySelector('.pos-row-price')?.value.trim();
+    if (price && price !== '0') return true;
+  }
+
+  // 4. Datos factura o comentarios
+  const fRut = document.getElementById('pos-factura-rut')?.value.trim();
+  const comments = document.getElementById('pos-comments')?.value.trim();
+  if (fRut || comments) return true;
+
+  return false;
+};
+
+// Cierre seguro con confirmación para evitar pérdida involuntaria de trabajo
+window.confirmAndClosePosModal = async function() {
+  const modal = document.getElementById('modal-pos-sale');
+  if (!modal) return;
+
+  if (window.hasPosSaleWorkInProgress()) {
+    const result = await Swal.fire({
+      title: '¿Deseas salir del Punto de Venta?',
+      html: `
+        <div style="text-align: center; font-size: 0.92rem; color: var(--color-text-main); line-height: 1.5;">
+          <p style="margin-bottom: 0.6rem;">Tienes una venta en progreso con información ingresada.</p>
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; padding: 0.75rem; color: #dc2626; font-size: 0.84rem; font-weight: 600;">
+            <i class="ri-alert-line"></i> Si sales ahora, se perderán los productos cargados y los datos de la venta.
+          </div>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Sí, Salir y Descartar',
+      cancelButtonText: 'Continuar con la Venta',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#2563eb',
+      reverseButtons: true,
+      focusCancel: true
+    });
+
+    if (result.isConfirmed) {
+      modal.classList.remove('active');
+    }
+  } else {
+    modal.classList.remove('active');
+  }
+};
 
 // Listener global para envío del formulario
 document.addEventListener('submit', (e) => {
@@ -1033,6 +1324,543 @@ window.selectPosModoPago = function(modo) {
   window.updatePosPaymentMachineBanner();
 };
 
+// ====== HELPERS PARA TRANSFERENCIAS BANCARIAS Y WHATSAPP EN POS ======
+
+window.posBankQrMode = 'whatsapp';
+
+window.handlePosPhoneCountryChange = function() {
+  const select = document.getElementById('pos-customer-phone-country');
+  const input = document.getElementById('pos-customer-phone-number');
+  const hint = document.getElementById('pos-phone-format-hint');
+  if (!select || !input) return;
+
+  const opt = select.options[select.selectedIndex];
+  const ph = opt?.getAttribute('data-placeholder') || '9 1234 5678';
+  const hintText = opt?.getAttribute('data-hint') || '';
+  input.placeholder = ph;
+  if (hint) hint.textContent = hintText;
+
+  window.handlePosPhoneInput();
+};
+
+window.handlePosPhoneInput = function() {
+  const select = document.getElementById('pos-customer-phone-country');
+  const input = document.getElementById('pos-customer-phone-number');
+  const hidden = document.getElementById('pos-customer-phone');
+  const msg = document.getElementById('pos-phone-validation-msg');
+  if (!select || !input || !hidden) return;
+
+  const country = select.value || '';
+  let raw = input.value;
+  let digits = raw.replace(/\D/g, '');
+
+  if (!digits) {
+    hidden.value = '';
+    if (msg) msg.style.display = 'none';
+    input.style.borderColor = '';
+    return;
+  }
+
+  if (country === '+56') {
+    if (digits.startsWith('56') && digits.length > 9) {
+      digits = digits.slice(2);
+    }
+    digits = digits.slice(0, 9);
+    if (digits.length > 5) {
+      input.value = `${digits.slice(0, 1)} ${digits.slice(1, 5)} ${digits.slice(5)}`;
+    } else if (digits.length > 1) {
+      input.value = `${digits.slice(0, 1)} ${digits.slice(1)}`;
+    } else {
+      input.value = digits;
+    }
+    hidden.value = `+56 ${input.value}`;
+
+    if (digits.length === 9 && digits.startsWith('9')) {
+      input.style.borderColor = 'var(--color-success, #10b981)';
+      if (msg) msg.style.display = 'none';
+    } else if (digits.length === 9 && !digits.startsWith('9')) {
+      input.style.borderColor = 'var(--color-danger, #ef4444)';
+      if (msg) {
+        msg.style.display = 'block';
+        msg.style.color = '#ef4444';
+        msg.textContent = 'En Chile el número móvil debe comenzar con el dígito 9.';
+      }
+    } else {
+      input.style.borderColor = '';
+      if (msg) msg.style.display = 'none';
+    }
+  } else if (country) {
+    hidden.value = `${country} ${digits}`;
+    input.style.borderColor = '';
+    if (msg) msg.style.display = 'none';
+  } else {
+    hidden.value = raw.trim();
+    input.style.borderColor = '';
+    if (msg) msg.style.display = 'none';
+  }
+};
+
+window.validatePosCustomerPhone = function() {
+  const select = document.getElementById('pos-customer-phone-country');
+  const input = document.getElementById('pos-customer-phone-number');
+  const hidden = document.getElementById('pos-customer-phone');
+  if (!input) return { isValid: true, phone: '' };
+
+  const raw = input.value.trim();
+  if (!raw) {
+    if (hidden) hidden.value = '';
+    return { isValid: true, phone: '' };
+  }
+
+  const country = select?.value || '+56';
+  let digits = raw.replace(/\D/g, '');
+
+  if (country === '+56') {
+    if (digits.startsWith('56') && digits.length > 9) digits = digits.slice(2);
+    if (digits.length !== 9) {
+      return {
+        isValid: false,
+        message: 'El teléfono para Chile debe contener exactamente 9 dígitos (ej: 9 1234 5678).'
+      };
+    }
+    if (!digits.startsWith('9')) {
+      return {
+        isValid: false,
+        message: 'En Chile los números móviles deben comenzar con el dígito 9 (ej: 9 1234 5678).'
+      };
+    }
+    const formatted = `+56 ${digits.slice(0, 1)} ${digits.slice(1, 5)} ${digits.slice(5)}`;
+    if (hidden) hidden.value = formatted;
+    return { isValid: true, phone: formatted };
+  }
+
+  const opt = select?.options[select?.selectedIndex];
+  const expDigits = opt?.getAttribute('data-digits');
+  if (expDigits && expDigits !== 'any') {
+    const expected = parseInt(expDigits, 10);
+    if (digits.length !== expected) {
+      return {
+        isValid: false,
+        message: `El número de teléfono para ${opt.text} debe tener ${expected} dígitos.`
+      };
+    }
+  } else {
+    if (digits.length < 7) {
+      return {
+        isValid: false,
+        message: 'Por favor ingresa un número de teléfono válido.'
+      };
+    }
+  }
+
+  const finalFormatted = country ? `${country} ${digits}` : raw;
+  if (hidden) hidden.value = finalFormatted;
+  return { isValid: true, phone: finalFormatted };
+};
+
+window.getPosCustomerFormattedPhone = function() {
+  const hiddenVal = document.getElementById('pos-customer-phone')?.value || '';
+  const numInputVal = document.getElementById('pos-customer-phone-number')?.value || '';
+  const selectVal = document.getElementById('pos-customer-phone-country')?.value || '+56';
+
+  let raw = hiddenVal || numInputVal;
+  if (!raw) return '';
+
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+
+  const countryCode = selectVal.replace(/\D/g, '');
+  if (digits.startsWith(countryCode) && digits.length > 9) {
+    return digits;
+  }
+  return `${countryCode}${digits}`;
+};
+
+window.copyPosText = async function(text, label = 'Dato') {
+  if (!text) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    if (typeof Swal !== 'undefined') {
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 1800,
+        timerProgressBar: true
+      });
+      Toast.fire({
+        icon: 'success',
+        title: `${label} copiado`
+      });
+    }
+  } catch (err) {
+    console.error('Error al copiar:', err);
+  }
+};
+
+window.renderPosBankQrToCanvas = function(canvasEl, text, sizePx = 130) {
+  if (!canvasEl || !text) return;
+  try {
+    if (typeof qrcode === 'function') {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      const count = qr.getModuleCount();
+      const margin = 2;
+      const cellSize = Math.max(2, Math.floor(sizePx / (count + margin * 2)));
+      const actualSize = (count + margin * 2) * cellSize;
+
+      canvasEl.width = actualSize;
+      canvasEl.height = actualSize;
+      const ctx = canvasEl.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, actualSize, actualSize);
+      ctx.fillStyle = '#1e293b';
+
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
+          }
+        }
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn('Error con qrcode-generator:', e);
+  }
+
+  // Fallback a API de códigos QR
+  try {
+    const ctx = canvasEl.getContext('2d');
+    canvasEl.width = sizePx;
+    canvasEl.height = sizePx;
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, sizePx, sizePx);
+    };
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${sizePx}x${sizePx}&data=${encodeURIComponent(text)}`;
+  } catch (err) {
+    console.error('Error generando fallback QR:', err);
+  }
+};
+
+window.getPosBankTransferData = function() {
+  const commerceName = (document.getElementById('pos-select-commerce')?.value || '').trim();
+  let config = window.posSelectedCommerceConfig;
+  if (!config && window.loadedCommerceConfigsMap) {
+    const foundKey = Object.keys(window.loadedCommerceConfigsMap).find(k => k.trim().toLowerCase() === commerceName.toLowerCase());
+    if (foundKey) config = window.loadedCommerceConfigsMap[foundKey];
+  }
+  if (!config && window.cachedAdminMerchants) {
+    const foundM = window.cachedAdminMerchants.find(m => (m.nombre || '').trim().toLowerCase() === commerceName.toLowerCase());
+    if (foundM) {
+      config = {
+        comercio: foundM.nombre,
+        inventario_seguimiento: Boolean(foundM.inventario_seguimiento),
+        onboarding_checklist: foundM.onboarding_checklist || {}
+      };
+    }
+  }
+
+  const ob = config?.onboarding_checklist || {};
+  const bt = ob.pos_bank_transfer || {};
+  const saleCode = (document.getElementById('pos-codigo-venta')?.value || '').trim();
+  const totalAmount = (document.getElementById('pos-confirm-total')?.textContent || document.getElementById('pos-summary-total')?.textContent || '$0').trim();
+
+  return {
+    commerceName,
+    bank: bt.bank || '',
+    accountType: bt.account_type || 'Cuenta Corriente',
+    accountNumber: bt.account_number || '',
+    holderName: bt.holder_name || commerceName,
+    holderRut: bt.holder_rut || '',
+    email: bt.email || '',
+    notes: bt.notes || '',
+    saleCode,
+    totalAmount
+  };
+};
+
+window.getPosBankFormattedText = function() {
+  const d = window.getPosBankTransferData();
+  const lines = [
+    `DATOS DE TRANSFERENCIA BANCARIA`,
+    `Comercio: ${d.commerceName}`,
+    d.bank ? `Banco: ${d.bank}` : null,
+    d.accountType ? `Tipo de Cuenta: ${d.accountType}` : null,
+    d.accountNumber ? `N° Cuenta: ${d.accountNumber}` : null,
+    d.holderRut ? `RUT: ${d.holderRut}` : null,
+    d.holderName ? `Titular: ${d.holderName}` : null,
+    d.email ? `Correo: ${d.email}` : null,
+    d.totalAmount && d.totalAmount !== '$0' ? `Monto a Transferir: ${d.totalAmount}` : null,
+    d.saleCode ? `Referencia / Asunto: ${d.saleCode}` : null,
+    d.notes ? `Nota: ${d.notes}` : null
+  ].filter(Boolean);
+
+  return lines.join('\n');
+};
+
+window.getPosBankWhatsAppMessage = function() {
+  const d = window.getPosBankTransferData();
+  const lines = [
+    `*DATOS DE TRANSFERENCIA BANCARIA*`,
+    `🏪 *Comercio:* ${d.commerceName}`,
+    ``,
+    d.bank ? `🏦 *Banco:* ${d.bank}` : null,
+    d.accountType ? `💳 *Tipo de Cuenta:* ${d.accountType}` : null,
+    d.accountNumber ? `🔢 *N° de Cuenta:* \`${d.accountNumber}\`` : null,
+    d.holderRut ? `🆔 *RUT Titular:* \`${d.holderRut}\`` : null,
+    d.holderName ? `👤 *Titular:* ${d.holderName}` : null,
+    d.email ? `✉️ *Correo:* ${d.email}` : null,
+    ``,
+    d.totalAmount && d.totalAmount !== '$0' ? `💰 *Total a Transferir:* *${d.totalAmount}*` : null,
+    d.saleCode ? `🏷️ *Referencia / Asunto:* \`${d.saleCode}\`` : null,
+    d.notes ? `ℹ️ *Nota:* _${d.notes}_` : null,
+    ``,
+    `_Por favor envía el comprobante a este correo o muéstralo al cajero para completar tu compra._`
+  ].filter(l => l !== null);
+
+  return lines.join('\n');
+};
+
+window.posBankQrMode = 'whatsapp';
+
+window.getPosBankQrPayload = function(mode = window.posBankQrMode || 'whatsapp') {
+  if (mode === 'whatsapp') {
+    const phone = window.getPosCustomerFormattedPhone();
+    const msg = window.getPosBankWhatsAppMessage();
+    const encoded = encodeURIComponent(msg);
+    if (phone) {
+      return `https://api.whatsapp.com/send?phone=${phone}&text=${encoded}`;
+    }
+    return `https://api.whatsapp.com/send?text=${encoded}`;
+  }
+  return window.getPosBankFormattedText();
+};
+
+window.setPosBankQrMode = function(mode, context = 'banner') {
+  window.posBankQrMode = mode;
+  const isWa = mode === 'whatsapp';
+
+  const btnWa = document.getElementById('pos-qr-toggle-wa');
+  const btnTxt = document.getElementById('pos-qr-toggle-txt');
+  const caption = document.getElementById('pos-qr-caption');
+  if (btnWa && btnTxt) {
+    btnWa.style.background = isWa ? '#25D366' : 'transparent';
+    btnWa.style.color = isWa ? '#ffffff' : 'var(--color-text-muted)';
+    btnTxt.style.background = !isWa ? '#4f46e5' : 'transparent';
+    btnTxt.style.color = !isWa ? '#ffffff' : 'var(--color-text-muted)';
+  }
+  if (caption) {
+    caption.textContent = isWa ? 'Abre mensaje en WhatsApp' : 'Copia texto al escanear';
+    caption.style.color = isWa ? '#059669' : '#4f46e5';
+  }
+
+  const mBtnWa = document.getElementById('pos-modal-qr-toggle-wa');
+  const mBtnTxt = document.getElementById('pos-modal-qr-toggle-txt');
+  const mCaption = document.getElementById('pos-modal-qr-caption');
+  if (mBtnWa && mBtnTxt) {
+    mBtnWa.style.background = isWa ? '#25D366' : 'transparent';
+    mBtnWa.style.color = isWa ? '#ffffff' : 'var(--color-text-muted)';
+    mBtnTxt.style.background = !isWa ? '#4f46e5' : 'transparent';
+    mBtnTxt.style.color = !isWa ? '#ffffff' : 'var(--color-text-muted)';
+  }
+  if (mCaption) {
+    mCaption.textContent = isWa ? 'Al escanear abre todos los datos en WhatsApp' : 'Al escanear copia el texto en el teléfono';
+    mCaption.style.color = isWa ? '#059669' : '#4f46e5';
+  }
+
+  const payload = window.getPosBankQrPayload(mode);
+  const canvas = document.getElementById('pos-bank-qr-canvas');
+  if (canvas) {
+    window.renderPosBankQrToCanvas(canvas, payload, 125);
+  }
+  const modalCanvas = document.getElementById('pos-bank-qr-modal-canvas');
+  if (modalCanvas) {
+    window.renderPosBankQrToCanvas(modalCanvas, payload, 220);
+  }
+};
+
+window.sendPosBankViaWhatsApp = function() {
+  const phone = window.getPosCustomerFormattedPhone();
+  const msg = window.getPosBankWhatsAppMessage();
+  const encodedText = encodeURIComponent(msg);
+
+  if (phone) {
+    const url = `https://api.whatsapp.com/send?phone=${phone}&text=${encodedText}`;
+    window.open(url, '_blank');
+    if (typeof Swal !== 'undefined') {
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2500,
+        timerProgressBar: true
+      });
+      Toast.fire({
+        icon: 'success',
+        title: `Abriendo WhatsApp para +${phone}`
+      });
+    }
+  } else {
+    Swal.fire({
+      title: '<span style="font-size: 1.15rem; font-weight: 700; color: #1e293b;"><i class="ri-whatsapp-line" style="color: #25D366; vertical-align: middle;"></i> Enviar Datos por WhatsApp</span>',
+      html: `
+        <div style="text-align: left; font-size: 0.85rem; padding: 0.25rem 0;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-main); line-height: 1.4;">
+            No se ingresó teléfono en el Paso 1. Ingresa el número de WhatsApp del cliente para enviarle los datos directamente:
+          </p>
+          <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.75rem;">
+            <select id="swal-wa-country" class="form-input" style="width: 105px; height: 38px; padding: 0.3rem 0.5rem; font-size: 0.82rem;">
+              <option value="+56" selected>🇨🇱 +56</option>
+              <option value="+54">🇦🇷 +54</option>
+              <option value="+51">🇵🇪 +51</option>
+              <option value="+57">🇨🇴 +57</option>
+              <option value="+52">🇲🇽 +52</option>
+              <option value="+1">🇺🇸 +1</option>
+              <option value="+34">🇪🇸 +34</option>
+              <option value="">🌍 Otro</option>
+            </select>
+            <input type="tel" id="swal-wa-phone" class="form-input" placeholder="9 1234 5678" style="flex: 1; height: 38px; font-size: 0.9rem;">
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-send-plane-fill"></i> Enviar al Cliente',
+      cancelButtonText: '<i class="ri-share-forward-line"></i> Elegir Contacto',
+      confirmButtonColor: '#25D366',
+      cancelButtonColor: '#4f46e5',
+      focusConfirm: false,
+      didOpen: () => {
+        const swalInput = document.getElementById('swal-wa-phone');
+        if (swalInput) {
+          swalInput.focus();
+          swalInput.addEventListener('input', () => {
+            const raw = swalInput.value.replace(/\D/g, '');
+            if (raw.length > 5) {
+              swalInput.value = `${raw.slice(0,1)} ${raw.slice(1,5)} ${raw.slice(5,9)}`;
+            } else if (raw.length > 1) {
+              swalInput.value = `${raw.slice(0,1)} ${raw.slice(1)}`;
+            }
+          });
+        }
+      },
+      preConfirm: () => {
+        const country = (document.getElementById('swal-wa-country')?.value || '').replace(/\D/g, '');
+        const num = (document.getElementById('swal-wa-phone')?.value || '').replace(/\D/g, '');
+        if (!num) {
+          Swal.showValidationMessage('Ingresa un número o haz clic en "Elegir Contacto"');
+          return false;
+        }
+        return `${country}${num}`;
+      }
+    }).then((result) => {
+      if (result.isConfirmed && result.value) {
+        window.open(`https://api.whatsapp.com/send?phone=${result.value}&text=${encodedText}`, '_blank');
+      } else if (result.dismiss === Swal.DismissReason.cancel) {
+        window.open(`https://api.whatsapp.com/send?text=${encodedText}`, '_blank');
+      }
+    });
+  }
+};
+
+window.copyPosBankField = function(field, label) {
+  const d = window.getPosBankTransferData();
+  let val = '';
+  switch(field) {
+    case 'bank': val = d.bank; break;
+    case 'account_type': val = d.accountType; break;
+    case 'account_number': val = d.accountNumber; break;
+    case 'holder_rut': val = d.holderRut; break;
+    case 'holder_name': val = d.holderName; break;
+    case 'email': val = d.email; break;
+    case 'total_amount': val = (d.totalAmount || '').replace(/[^0-9]/g, '') || d.totalAmount; break;
+    case 'sale_code': val = d.saleCode; break;
+    default: val = '';
+  }
+  if (val) {
+    window.copyPosText(val, label || 'Dato');
+  }
+};
+
+window.copyPosBankDetails = function() {
+  const text = window.getPosBankFormattedText();
+  window.copyPosText(text, 'Datos de transferencia');
+};
+
+window.openPosBankQrModal = function() {
+  const d = window.getPosBankTransferData();
+  const isWa = (window.posBankQrMode === 'whatsapp');
+
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      title: `<span style="font-size: 1.15rem; font-weight: 700; color: #1e293b;"><i class="ri-qr-code-line" style="color: #4f46e5; vertical-align: middle;"></i> Código QR de Pago</span>`,
+      html: `
+        <div style="text-align: center; padding: 0.25rem 0;">
+          <div style="font-size: 0.95rem; font-weight: 700; color: #4f46e5; margin-bottom: 0.25rem;">
+            ${escapeHtml(d.commerceName)}
+          </div>
+          <div style="font-size: 1.25rem; font-weight: 800; color: #065f46; margin-bottom: 0.65rem; background: rgba(16,185,129,0.1); padding: 0.35rem 0.8rem; border-radius: 6px; display: inline-block;">
+            Total: ${escapeHtml(d.totalAmount)}
+          </div>
+
+          <div style="display: flex; justify-content: center; margin-bottom: 0.65rem;">
+            <div style="display: inline-flex; background: rgba(0,0,0,0.06); border-radius: 20px; padding: 2px; font-size: 0.72rem; font-weight: 700;">
+              <button type="button" id="pos-modal-qr-toggle-wa" onclick="window.setPosBankQrMode('whatsapp', 'modal')" style="border: none; border-radius: 16px; padding: 4px 12px; cursor: pointer; background: ${isWa ? '#25D366' : 'transparent'}; color: ${isWa ? '#ffffff' : 'var(--color-text-muted)'}; display: flex; align-items: center; gap: 4px; font-weight: 700; transition: all 0.2s;">
+                <i class="ri-whatsapp-line"></i> WhatsApp QR
+              </button>
+              <button type="button" id="pos-modal-qr-toggle-txt" onclick="window.setPosBankQrMode('texto', 'modal')" style="border: none; border-radius: 16px; padding: 4px 12px; cursor: pointer; background: ${!isWa ? '#4f46e5' : 'transparent'}; color: ${!isWa ? '#ffffff' : 'var(--color-text-muted)'}; display: flex; align-items: center; gap: 4px; font-weight: 700; transition: all 0.2s;">
+                <i class="ri-file-text-line"></i> Texto Directo
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: center; margin-bottom: 0.65rem;">
+            <canvas id="pos-bank-qr-modal-canvas" style="background: #ffffff; padding: 10px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); border: 1.5px solid rgba(99, 102, 241, 0.25);"></canvas>
+          </div>
+
+          <p id="pos-modal-qr-caption" style="font-size: 0.78rem; color: #059669; font-weight: 600; max-width: 340px; margin: 0 auto 0.85rem auto; line-height: 1.35;">
+            ${isWa ? 'Al escanear abre todos los datos en WhatsApp' : 'Al escanear copia el texto en el teléfono'}
+          </p>
+
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm" onclick="window.sendPosBankViaWhatsApp()" style="background: #25D366; color: #ffffff; border: none; font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(37, 211, 102, 0.3);">
+              <i class="ri-whatsapp-line"></i> Enviar por WhatsApp
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.copyPosBankDetails()" style="background: #4f46e5; color: #ffffff; border: none; font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.9rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">
+              <i class="ri-file-copy-line"></i> Copiar datos
+            </button>
+          </div>
+        </div>
+      `,
+      showConfirmButton: true,
+      confirmButtonText: 'Cerrar',
+      confirmButtonColor: '#64748b',
+      didOpen: () => {
+        const modalCanvas = document.getElementById('pos-bank-qr-modal-canvas');
+        if (modalCanvas) {
+          const payload = window.getPosBankQrPayload(window.posBankQrMode || 'whatsapp');
+          window.renderPosBankQrToCanvas(modalCanvas, payload, 220);
+        }
+      }
+    });
+  }
+};
+
 // Actualización del recuadro notorio de Máquina de Pagos para Tarjetas (Paso 3)
 window.updatePosPaymentMachineBanner = function() {
   const banner = document.getElementById('pos-payment-machine-banner');
@@ -1066,6 +1894,7 @@ window.updatePosPaymentMachineBanner = function() {
   const ob = config?.onboarding_checklist || {};
   const isPosActive = ob.pos_active === true;
   const machine = ob.pos_machine || {};
+  const bankTransfer = ob.pos_bank_transfer || {};
   const isCard = (modoPago === 'Tarjeta de Débito' || modoPago === 'Tarjeta de Crédito');
 
   if (!isPosActive) {
@@ -1087,38 +1916,32 @@ window.updatePosPaymentMachineBanner = function() {
     const hasMachineConfig = Boolean(machine.brand || machine.model || machine.color || machine.owner);
 
     if (hasMachineConfig) {
-      const colorMap = {
-        azul: '#2563eb', blue: '#2563eb',
-        naranja: '#f97316', orange: '#f97316',
-        negro: '#1e293b', black: '#1e293b',
-        rojo: '#dc2626', red: '#dc2626',
-        verde: '#16a34a', green: '#16a34a',
-        amarillo: '#ca8a04', yellow: '#ca8a04',
-        blanco: '#e2e8f0', white: '#e2e8f0',
-        morado: '#7c3aed', violeta: '#7c3aed', purple: '#7c3aed',
-        rosa: '#db2777', rosado: '#db2777', pink: '#db2777',
-        gris: '#64748b', plomo: '#64748b', gray: '#64748b'
-      };
-      const rawColor = (machine.color || '').trim().toLowerCase();
-      const dotColor = colorMap[rawColor] || '#3b82f6';
+      const dotColor = window.resolvePosMachineColor(machine.color, machine.color_hex);
+      const isLightColor = (typeof window.getPosColorLuminance === 'function') ? (window.getPosColorLuminance(dotColor) > 0.38) : false;
+      const badgeTextColor = (typeof window.getPosContrastTextColor === 'function') ? window.getPosContrastTextColor(dotColor) : '#ffffff';
+      const readableTextColor = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(dotColor) : dotColor;
+      const borderAccentColor = isLightColor ? readableTextColor : dotColor;
+
+      const posSvgIconLarge = window.getPosMachineSvg(dotColor, 44);
+      const posSvgIconMini = window.getPosMachineSvg(dotColor, 18);
 
       banner.innerHTML = `
-        <div style="background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); border: 2px solid #2563eb; border-radius: var(--radius-md); padding: 1.15rem 1.35rem; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.12); position: relative; overflow: hidden;">
-          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #2563eb;"></div>
+        <div style="background: linear-gradient(135deg, ${dotColor}12 0%, #ffffff 100%); border: 2.5px solid ${borderAccentColor}; border-radius: var(--radius-md); padding: 1.15rem 1.35rem; box-shadow: 0 4px 16px ${isLightColor ? 'rgba(0,0,0,0.10)' : dotColor + '25'}; position: relative; overflow: hidden;">
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: ${borderAccentColor};"></div>
           
-          <div style="display: flex; align-items: flex-start; gap: 1rem;">
-            <div style="width: 48px; height: 48px; border-radius: 12px; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; flex-shrink: 0; box-shadow: 0 4px 8px rgba(37, 99, 235, 0.35);">
-              <i class="ri-bank-card-fill"></i>
+          <div style="display: flex; align-items: flex-start; gap: 1.1rem;">
+            <div style="width: 52px; height: 52px; border-radius: 12px; background: rgba(255, 255, 255, 0.95); border: 2px solid ${borderAccentColor}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 12px ${isLightColor ? 'rgba(0,0,0,0.08)' : dotColor + '35'}; padding: 2px;">
+              ${posSvgIconLarge}
             </div>
             
             <div style="flex: 1; min-width: 0;">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.45rem;">
                 <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                  <span style="background: #2563eb; color: #ffffff; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; padding: 0.22rem 0.6rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.3rem;">
-                    <i class="ri-bank-card-line"></i> MÁQUINA DE PAGO OBLIGATORIA
+                  <span style="background: ${dotColor}; color: ${badgeTextColor}; border: ${isLightColor ? '1px solid rgba(0,0,0,0.22)' : 'none'}; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; padding: 0.22rem 0.6rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px ${isLightColor ? 'rgba(0,0,0,0.12)' : dotColor + '40'};">
+                    ${window.getPosMachineSvg(badgeTextColor, 13)} MÁQUINA DE PAGO OBLIGATORIA
                   </span>
                   <span style="font-size: 0.92rem; font-weight: 700; color: var(--color-text-main);">
-                    Cobro con Tarjeta para <span style="color: #2563eb;">${escapeHtml(commerceName)}</span>
+                    Cobro con Tarjeta para <span style="color: ${readableTextColor}; font-weight: 800;">${escapeHtml(commerceName)}</span>
                   </span>
                 </div>
               </div>
@@ -1128,29 +1951,31 @@ window.updatePosPaymentMachineBanner = function() {
               </div>
               
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: ${machine.notes ? '0.65rem' : '0'};">
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Marca / Proveedor</span>
                   <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
-                    <i class="ri-terminal-box-line" style="color: #2563eb;"></i> ${escapeHtml(machine.brand || 'No asignada')}
+                    <i class="ri-terminal-box-line" style="color: ${readableTextColor};"></i> ${escapeHtml(machine.brand || 'No asignada')}
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1.5px solid ${isLightColor ? readableTextColor + '55' : dotColor + '66'}; border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Color / Distintivo</span>
-                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.35rem; margin-top: 0.15rem;">
-                    <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background-color: ${dotColor}; border: 1px solid rgba(0,0,0,0.25);"></span>
-                    ${escapeHtml(machine.color || 'No especificado')}
+                  <strong style="font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.15rem;">
+                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: ${dotColor}25; border: 1px solid ${isLightColor ? 'rgba(0,0,0,0.18)' : dotColor + '40'};">
+                      ${posSvgIconMini}
+                    </span>
+                    <span style="color: ${readableTextColor}; font-weight: 800;">${escapeHtml(machine.color || 'No especificado')}</span>
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">N° Máquina / Terminal</span>
-                  <strong style="font-size: 0.95rem; font-family: monospace; color: #2563eb; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
+                  <strong style="font-size: 0.95rem; font-family: monospace; color: ${readableTextColor}; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
                     <i class="ri-hashtag"></i> ${escapeHtml(machine.model || 'S/N')}
                   </strong>
                 </div>
 
-                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid ${borderAccentColor}; border-radius: 8px; padding: 0.5rem 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
                   <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Propiedad</span>
                   <strong style="font-size: 0.85rem; color: #1e293b; display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem;">
                     <i class="ri-building-line" style="color: #7c3aed;"></i> ${escapeHtml(machine.owner || 'STOCKA')}
@@ -1170,8 +1995,8 @@ window.updatePosPaymentMachineBanner = function() {
     } else {
       banner.innerHTML = `
         <div style="background: rgba(245, 158, 11, 0.08); border: 2px dashed #f59e0b; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
-          <div style="width: 40px; height: 40px; border-radius: 10px; background: #f59e0b; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
-            <i class="ri-bank-card-line"></i>
+          <div style="width: 46px; height: 46px; border-radius: 10px; background: rgba(245, 158, 11, 0.15); border: 1.5px solid #f59e0b; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 2px;">
+            ${window.getPosMachineSvg('#f59e0b', 38)}
           </div>
           <div>
             <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #d97706; margin-bottom: 0.15rem;">
@@ -1201,21 +2026,166 @@ window.updatePosPaymentMachineBanner = function() {
       </div>
     `;
   } else if (modoPago === 'Transferencia') {
-    banner.innerHTML = `
-      <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px solid rgba(99, 102, 241, 0.3); border-radius: var(--radius-md); padding: 0.85rem 1.15rem; display: flex; align-items: center; gap: 0.75rem;">
-        <div style="width: 36px; height: 36px; border-radius: 8px; background: #6366f1; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
-          <i class="ri-exchange-dollar-fill"></i>
-        </div>
-        <div>
-          <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #4f46e5; margin-bottom: 0.15rem;">
-            Transferencia Bancaria
+    const hasBankData = Boolean(bankTransfer.bank || bankTransfer.account_number || bankTransfer.holder_rut);
+    const saleCode = (document.getElementById('pos-codigo-venta')?.value || '').trim();
+    const totalAmount = (document.getElementById('pos-confirm-total')?.textContent || document.getElementById('pos-summary-total')?.textContent || '$0').trim();
+    const isWa = (window.posBankQrMode !== 'texto');
+
+    if (hasBankData) {
+      banner.innerHTML = `
+        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, #ffffff 100%); border: 2.5px solid #6366f1; border-radius: var(--radius-md); padding: 1.15rem 1.35rem; box-shadow: 0 4px 16px rgba(99, 102, 241, 0.12); position: relative; overflow: hidden;">
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #6366f1;"></div>
+          
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.85rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <span style="background: #6366f1; color: #ffffff; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; padding: 0.25rem 0.65rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);">
+                <i class="ri-bank-card-line"></i> DATOS DE TRANSFERENCIA BANCARIA
+              </span>
+              <span style="font-size: 0.92rem; font-weight: 700; color: var(--color-text-main);">
+                Cuenta de destino para <span style="color: #4f46e5; font-weight: 800;">${escapeHtml(commerceName)}</span>
+              </span>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-sm" onclick="window.sendPosBankViaWhatsApp()" style="background: #25D366; color: #ffffff; border: none; font-size: 0.78rem; font-weight: 700; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px; box-shadow: 0 2px 4px rgba(37, 211, 102, 0.25);" title="Enviar datos de pago por WhatsApp">
+                <i class="ri-whatsapp-line"></i> Enviar por WhatsApp
+              </button>
+              <button type="button" class="btn btn-sm btn-primary" onclick="window.copyPosBankDetails()" style="background: #4f46e5; color: #ffffff; border: none; font-size: 0.78rem; font-weight: 600; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25);">
+                <i class="ri-file-copy-line"></i> Copiar todo
+              </button>
+            </div>
           </div>
-          <div style="font-size: 0.83rem; color: var(--color-text-main);">
-            Verifica la acreditación bancaria y anota el número de operación o comprobante en el campo de comentarios antes de registrar la venta.
+
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 1.15rem; align-items: center;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.55rem;">
+              
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Banco Destino</span>
+                  <strong style="font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.bank || 'No especificado')}</strong>
+                </div>
+                ${bankTransfer.bank ? `<button type="button" onclick="window.copyPosBankField('bank', 'Banco')" title="Copiar Banco" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Tipo de Cuenta</span>
+                  <strong style="font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.account_type || 'Cuenta Corriente')}</strong>
+                </div>
+                ${bankTransfer.account_type ? `<button type="button" onclick="window.copyPosBankField('account_type', 'Tipo de cuenta')" title="Copiar Tipo de Cuenta" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1.5px solid rgba(99, 102, 241, 0.4); border-top: 2.5px solid #4f46e5; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: #4f46e5; font-weight: 800; display: block;">N° de Cuenta</span>
+                  <strong style="font-size: 0.92rem; font-family: monospace; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.account_number || 'No especificado')}</strong>
+                </div>
+                ${bankTransfer.account_number ? `<button type="button" onclick="window.copyPosBankField('account_number', 'N° de cuenta')" title="Copiar N° de cuenta" style="background: none; border: none; color: #4f46e5; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">RUT Titular</span>
+                  <strong style="font-size: 0.85rem; font-family: monospace; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.holder_rut || 'No especificado')}</strong>
+                </div>
+                ${bankTransfer.holder_rut ? `<button type="button" onclick="window.copyPosBankField('holder_rut', 'RUT')" title="Copiar RUT" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Nombre / Razón Social</span>
+                  <strong style="font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.holder_name || commerceName)}</strong>
+                </div>
+                <button type="button" onclick="window.copyPosBankField('holder_name', 'Titular')" title="Copiar Titular" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Correo Comprobantes</span>
+                  <strong style="font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(bankTransfer.email || 'No especificado')}</strong>
+                </div>
+                ${bankTransfer.email ? `<button type="button" onclick="window.copyPosBankField('email', 'Correo')" title="Copiar Correo" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.4); border-top: 2.5px solid #10b981; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: #047857; font-weight: 800; display: block;">Monto a Transferir</span>
+                  <strong style="font-size: 0.95rem; color: #065f46; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(totalAmount)}</strong>
+                </div>
+                <button type="button" onclick="window.copyPosBankField('total_amount', 'Monto numérico')" title="Copiar Monto numérico" style="background: none; border: none; color: #047857; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>
+              </div>
+
+              <div style="background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(0,0,0,0.08); border-top: 2.5px solid #6366f1; border-radius: 6px; padding: 0.45rem 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                <div style="min-width: 0;">
+                  <span style="font-size: 0.65rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; display: block;">Referencia / Asunto</span>
+                  <strong style="font-size: 0.85rem; font-family: monospace; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;">${escapeHtml(saleCode || '-')}</strong>
+                </div>
+                ${saleCode ? `<button type="button" onclick="window.copyPosBankField('sale_code', 'Código de venta')" title="Copiar Código" style="background: none; border: none; color: #6366f1; cursor: pointer; padding: 2px 4px; font-size: 0.9rem;"><i class="ri-file-copy-line"></i></button>` : ''}
+              </div>
+
+            </div>
+
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #ffffff; border: 1.5px solid rgba(99, 102, 241, 0.25); border-radius: 10px; padding: 0.65rem 0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); min-width: 155px; text-align: center;">
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 0.35rem;">
+                <span style="font-size: 0.68rem; font-weight: 700; color: #4f46e5; text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-qr-code-line"></i> QR para pago
+                </span>
+                <span id="pos-qr-caption" style="font-size: 0.62rem; color: ${isWa ? '#059669' : '#4f46e5'}; font-weight: 700;">
+                  ${isWa ? 'Abre WhatsApp' : 'Texto directo'}
+                </span>
+              </div>
+              
+              <div style="display: inline-flex; background: rgba(0,0,0,0.06); border-radius: 14px; padding: 2px; font-size: 0.66rem; font-weight: 700; margin-bottom: 0.4rem; width: 100%;">
+                <button type="button" id="pos-qr-toggle-wa" onclick="window.setPosBankQrMode('whatsapp')" style="flex: 1; border: none; border-radius: 12px; padding: 2px 6px; cursor: pointer; background: ${isWa ? '#25D366' : 'transparent'}; color: ${isWa ? '#ffffff' : 'var(--color-text-muted)'}; display: flex; align-items: center; justify-content: center; gap: 3px; font-weight: 700; transition: all 0.2s;">
+                  <i class="ri-whatsapp-line"></i> WhatsApp
+                </button>
+                <button type="button" id="pos-qr-toggle-txt" onclick="window.setPosBankQrMode('texto')" style="flex: 1; border: none; border-radius: 12px; padding: 2px 6px; cursor: pointer; background: ${!isWa ? '#4f46e5' : 'transparent'}; color: ${!isWa ? '#ffffff' : 'var(--color-text-muted)'}; display: flex; align-items: center; justify-content: center; gap: 3px; font-weight: 700; transition: all 0.2s;">
+                  <i class="ri-file-text-line"></i> Texto
+                </button>
+              </div>
+
+              <div style="background: #ffffff; padding: 3px; border-radius: 6px; cursor: pointer;" onclick="window.openPosBankQrModal()" title="Clic para agrandar QR">
+                <canvas id="pos-bank-qr-canvas" style="display: block; border-radius: 4px;"></canvas>
+              </div>
+              <button type="button" onclick="window.openPosBankQrModal()" class="btn btn-outline btn-sm" style="margin-top: 0.45rem; font-size: 0.7rem; padding: 0.2rem 0.5rem; width: 100%; border-color: rgba(99, 102, 241, 0.3); color: #4f46e5; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem;">
+                <i class="ri-fullscreen-line"></i> Agrandar
+              </button>
+            </div>
+          </div>
+
+          ${bankTransfer.notes ? `
+            <div style="margin-top: 0.75rem; background: rgba(255, 255, 255, 0.95); border-left: 4px solid #6366f1; border: 1px solid rgba(99, 102, 241, 0.25); border-left-width: 4px; border-left-color: #6366f1; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.8rem; color: var(--color-text-main);">
+              <strong style="color: #4f46e5;"><i class="ri-information-line"></i> Nota de Transferencia:</strong> ${escapeHtml(bankTransfer.notes)}
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      setTimeout(() => {
+        const canvas = document.getElementById('pos-bank-qr-canvas');
+        if (canvas) {
+          const payload = window.getPosBankQrPayload(window.posBankQrMode || 'whatsapp');
+          window.renderPosBankQrToCanvas(canvas, payload, 125);
+        }
+      }, 30);
+
+    } else {
+      banner.innerHTML = `
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1.5px dashed #6366f1; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(99, 102, 241, 0.15); border: 1.5px solid #6366f1; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #4f46e5; flex-shrink: 0;">
+            <i class="ri-bank-card-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: #4f46e5; margin-bottom: 0.15rem;">
+              TRANSFERENCIA BANCARIA - SIN CUENTA CONFIGURADA
+            </div>
+            <div style="font-size: 0.84rem; color: var(--color-text-main); line-height: 1.4;">
+              El comercio <strong>${escapeHtml(commerceName)}</strong> no tiene registrada su cuenta bancaria para el POS. Puedes configurarla en <strong>Administración > Comercios > Editar Comercio > Datos de Transferencia Bancaria</strong>.
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   } else {
     banner.innerHTML = '';
   }
@@ -1278,7 +2248,7 @@ window.loadPosCommerceCatalog = async function(commerceName) {
     // 2. Obtener productos del catálogo con su inventario en Matriz Ñuñoa e imagen
     const { data: products, error: prodErr } = await supabase
       .from('products')
-      .select('id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, warehouse_id)')
+      .select('id, sku, name, price, image_url, is_pack, is_virtual, inventory(quantity, committed_quantity, reserved_quantity, warehouse_id)')
       .eq('comercio', commerceName)
       .neq('status', 'archived')
       .order('name');
@@ -1287,16 +2257,19 @@ window.loadPosCommerceCatalog = async function(commerceName) {
 
     const rawProds = (products || []).filter(p => !p.is_pack && !p.is_virtual);
 
-    // Mapear productos calculando stock disponible en Matriz Ñuñoa
+    // Mapear productos calculando stock disponible en Matriz Ñuñoa y desglose completo
     window.posCatalogProducts = rawProds.map(p => {
-      const nunoaInv = (p.inventory || []).find(inv => inv.warehouse_id === SUCURSAL_NUNOA_WH_ID);
+      const invList = p.inventory || [];
+      const nunoaInv = invList.find(inv => inv.warehouse_id === SUCURSAL_NUNOA_WH_ID);
       const nunoaQty = nunoaInv ? (nunoaInv.quantity || 0) : 0;
       const nunoaCommitted = nunoaInv ? (nunoaInv.committed_quantity || 0) : 0;
-      const availableInNunoa = Math.max(0, nunoaQty - nunoaCommitted);
+      const nunoaReserved = nunoaInv ? (nunoaInv.reserved_quantity || 0) : 0;
+      const availableInNunoa = Math.max(0, nunoaQty - nunoaCommitted - nunoaReserved);
 
-      const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
-        return acc + Math.max(0, (inv.quantity || 0) - (inv.committed_quantity || 0));
-      }, 0);
+      const totalPhysical = invList.reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+      const totalCommitted = invList.reduce((acc, inv) => acc + (inv.committed_quantity || 0), 0);
+      const totalReserved = invList.reduce((acc, inv) => acc + (inv.reserved_quantity || 0), 0);
+      const totalAvailable = Math.max(0, totalPhysical - totalCommitted - totalReserved);
 
       return {
         id: p.id,
@@ -1304,7 +2277,13 @@ window.loadPosCommerceCatalog = async function(commerceName) {
         name: p.name || '',
         price: p.price || 0,
         image_url: p.image_url || '',
+        nunoa_physical: nunoaQty,
+        nunoa_committed: nunoaCommitted,
+        nunoa_reserved: nunoaReserved,
         available_nunoa: availableInNunoa,
+        total_physical: totalPhysical,
+        total_committed: totalCommitted,
+        total_reserved: totalReserved,
         available_total: totalAvailable
       };
     });
@@ -1315,12 +2294,16 @@ window.loadPosCommerceCatalog = async function(commerceName) {
     if (badgesContainer) {
       const isPosActive = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_active === true;
       const machineInfo = window.posSelectedCommerceConfig?.onboarding_checklist?.pos_machine;
+      const mColor = window.resolvePosMachineColor(machineInfo?.color, machineInfo?.color_hex);
+      const mReadable = (typeof window.getPosReadableTextColor === 'function') ? window.getPosReadableTextColor(mColor) : mColor;
       const machineSnippet = (machineInfo?.brand || machineInfo?.model) 
         ? ` (${escapeHtml(machineInfo.brand || '')}${machineInfo.color ? ' ' + escapeHtml(machineInfo.color) : ''}${machineInfo.model ? ' - ' + escapeHtml(machineInfo.model) : ''})` 
         : '';
 
       const posBadge = isPosActive
-        ? `<span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.75rem;"><i class="ri-store-3-line"></i> POS Activo${machineSnippet}</span>`
+        ? `<span class="badge" style="background: ${mColor}18; color: ${mReadable}; border: 1.5px solid ${mColor}55; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            ${window.getPosMachineSvg(mColor, 16)} POS Activo${machineSnippet}
+          </span>`
         : `<span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.75rem;"><i class="ri-forbid-line"></i> POS Deshabilitado</span>`;
 
       const catalogBadge = (hasCatalogItems || isCatalogConfigured)
@@ -1380,6 +2363,182 @@ window.openPosImageLightbox = function(imageUrl, productName) {
 
 // ====== 5. TABLA DINÁMICA DE PRODUCTOS ======
 
+// Renderizador del buscador interactivo con desglose de stock (Físico, Mesa/Reservado, Comprometido, Disp. Ñuñoa)
+window.renderPosRowDropdown = function(tr, query = '') {
+  const dropdown = tr.querySelector('.pos-product-dropdown-list');
+  if (!dropdown) return;
+
+  const catalog = window.posCatalogProducts || [];
+  const q = (query || '').toLowerCase().trim();
+
+  let filtered = [];
+  if (!q) {
+    filtered = catalog.slice(0, 40);
+  } else {
+    const tokens = q.split(/\s+/).filter(Boolean);
+    filtered = catalog.filter(p => {
+      const target = `${p.sku || ''} ${p.name || ''}`.toLowerCase();
+      return tokens.every(tok => target.includes(tok));
+    }).slice(0, 40);
+  }
+
+  if (filtered.length === 0) {
+    dropdown.innerHTML = `
+      <div style="padding: 1.25rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
+        <i class="ri-search-line" style="font-size: 1.4rem; display: block; margin-bottom: 0.35rem; color: #94a3b8;"></i>
+        No se encontraron productos para "<strong>${escapeHtml(query)}</strong>"
+      </div>
+    `;
+    dropdown.style.display = 'block';
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(p => {
+    const isOutOfStock = (p.available_nunoa || 0) <= 0;
+    const availBadge = isOutOfStock
+      ? `<span style="background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 1.5px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-alert-line"></i> Disp Ñuñoa: 0 un
+        </span>`
+      : `<span style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 1.5px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-checkbox-circle-line"></i> Disp Ñuñoa: ${p.available_nunoa} un
+        </span>`;
+
+    html += `
+      <div class="pos-product-search-item" data-id="${p.id}" style="padding: 0.6rem 0.8rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.3rem;" onmouseover="this.style.backgroundColor='var(--color-bg, #f8fafc)'" onmouseout="this.style.backgroundColor='transparent'">
+        <div style="display: flex; gap: 0.65rem; align-items: center;">
+          ${p.image_url ? `
+            <img src="${escapeHtml(p.image_url)}" alt="" style="width: 38px; height: 38px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+          ` : `
+            <div style="width: 38px; height: 38px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>
+          `}
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
+              <span style="font-weight: 700; color: var(--color-primary, #2563eb); font-size: 0.88rem; font-family: monospace;">${escapeHtml(p.sku)}</span>
+              <span style="color: var(--color-text-muted); font-weight: 600; font-size: 0.82rem;">${formatCLP(p.price || 0)}</span>
+            </div>
+            <div style="font-size: 0.82rem; color: var(--color-text-main); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(p.name)}">
+              ${escapeHtml(p.name)}
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem; font-size: 0.73rem; background: rgba(0,0,0,0.025); padding: 0.3rem 0.55rem; border-radius: 4px; border: 1px dashed var(--color-border);">
+          <div style="display: flex; gap: 0.6rem; color: var(--color-text-muted); align-items: center; font-size: 0.73rem;">
+            <span title="Stock físico total en Ñuñoa" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Fís: <strong style="color: var(--color-text-main);">${p.nunoa_physical}</strong>
+            </span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock en mesa de preparación / reservado" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-archive-drawer-line" style="color: #f59e0b; font-size: 0.85rem;"></i> Mesa: <strong style="color: #d97706;">${p.nunoa_reserved}</strong>
+            </span>
+            <span style="opacity: 0.35;">|</span>
+            <span title="Stock comprometido en pedidos en proceso" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line" style="color: #3b82f6; font-size: 0.85rem;"></i> Comp: <strong style="color: #3b82f6;">${p.nunoa_committed}</strong>
+            </span>
+            ${p.available_total > p.available_nunoa ? `
+              <span style="opacity: 0.35;">|</span>
+              <span title="Stock disponible en toda la red STOCKA" style="color: var(--color-text-muted);">
+                Red: <strong style="color: var(--color-text-main);">${p.available_total}</strong>
+              </span>
+            ` : ''}
+          </div>
+          <div>
+            ${availBadge}
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  dropdown.innerHTML = html;
+  dropdown.style.display = 'block';
+
+  dropdown.querySelectorAll('.pos-product-search-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pid = item.getAttribute('data-id');
+      window.selectPosRowProduct(tr, pid);
+    });
+  });
+};
+
+// Selección de producto en la fila POS
+window.selectPosRowProduct = function(tr, productId) {
+  const p = (window.posCatalogProducts || []).find(prod => prod.id === productId);
+  if (!p) return;
+
+  tr.dataset.productId = p.id;
+  tr.dataset.sku = p.sku;
+  tr.dataset.name = p.name;
+  tr.dataset.stock = p.available_nunoa;
+  tr.dataset.nunoaPhysical = p.nunoa_physical;
+  tr.dataset.nunoaReserved = p.nunoa_reserved;
+  tr.dataset.nunoaCommitted = p.nunoa_committed;
+  tr.dataset.imageUrl = p.image_url || '';
+
+  const input = tr.querySelector('.pos-row-catalog-input');
+  if (input) input.value = `${p.sku} - ${p.name}`;
+
+  const dropdown = tr.querySelector('.pos-product-dropdown-list');
+  if (dropdown) dropdown.style.display = 'none';
+
+  const arrow = tr.querySelector('.pos-dropdown-arrow');
+  if (arrow) arrow.style.transform = 'rotate(0deg)';
+
+  // Vista previa de imagen
+  const imgPreview = tr.querySelector('.pos-product-img-preview');
+  if (imgPreview) {
+    if (p.image_url) {
+      imgPreview.innerHTML = `
+        <img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" 
+             style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px;" 
+             onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'color:var(--color-text-muted);font-size:1.25rem;\\'></i>'">
+      `;
+      imgPreview.style.borderColor = 'var(--color-primary)';
+      imgPreview.style.cursor = 'pointer';
+      imgPreview.title = `${p.name} (Click para ampliar)`;
+      imgPreview.onclick = () => window.openPosImageLightbox(p.image_url, p.name);
+    } else {
+      imgPreview.innerHTML = `<i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>`;
+      imgPreview.style.borderColor = 'var(--color-border)';
+      imgPreview.style.cursor = 'default';
+      imgPreview.title = 'Sin imagen disponible';
+      imgPreview.onclick = null;
+    }
+  }
+
+  // Actualizar columna de stock con badges y niveles de stock idéntico a pedido manual
+  const stockContainer = tr.querySelector('.pos-row-stock-container') || tr.querySelector('td:nth-child(2)');
+  if (stockContainer) {
+    const isOutOfStock = (p.available_nunoa <= 0);
+    stockContainer.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+        <span class="pos-row-stock-badge badge ${isOutOfStock ? 'badge-danger' : 'badge-success'}" style="font-size: 0.78rem; font-weight: 700;">
+          <i class="${isOutOfStock ? 'ri-close-line' : 'ri-check-line'}"></i> ${p.available_nunoa} un
+        </span>
+        <div style="font-size: 0.68rem; color: var(--color-text-muted); white-space: nowrap; line-height: 1.2;" title="Stock Físico en Ñuñoa: ${p.nunoa_physical} | En Mesa (Reservado): ${p.nunoa_reserved} | Comprometido: ${p.nunoa_committed}">
+          Fís:${p.nunoa_physical} · Mesa:${p.nunoa_reserved} · Comp:${p.nunoa_committed}
+        </div>
+      </div>
+    `;
+  }
+
+  // Si el comercio tiene seguimiento estricto, limitar max
+  if (window.posSelectedCommerceConfig?.inventario_seguimiento) {
+    const qtyInput = tr.querySelector('.pos-row-qty');
+    if (qtyInput) qtyInput.max = p.available_nunoa;
+  }
+
+  window.calculatePosTotals();
+
+  // Enfocar precio unitario para agilizar el cobro
+  const priceInput = tr.querySelector('.pos-row-price');
+  if (priceInput) {
+    priceInput.focus();
+  }
+};
+
 window.addPosRow = function(isManual) {
   const tbody = document.getElementById('pos-products-tbody');
   if (!tbody) return;
@@ -1405,21 +2564,18 @@ window.addPosRow = function(isManual) {
     `;
   } else {
     tr.dataset.manual = 'false';
-    const datalistId = `pos-datalist-${rowId}`;
-    const options = (window.posCatalogProducts || []).map(p => {
-      return `<option value="${escapeHtml(p.sku)} - ${escapeHtml(p.name)}" data-id="${p.id}" data-sku="${escapeHtml(p.sku)}" data-name="${escapeHtml(p.name)}" data-price="${p.price}" data-stock="${p.available_nunoa}" data-image="${escapeHtml(p.image_url || '')}"></option>`;
-    }).join('');
-
     prodCellHtml = `
       <div style="display: flex; align-items: center; gap: 0.65rem;">
         <div class="pos-product-img-preview" style="width: 44px; height: 44px; min-width: 44px; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); background: var(--color-bg); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; box-shadow: var(--shadow-sm); transition: all 0.2s;" title="Vista previa del producto">
           <i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>
         </div>
-        <div style="flex: 1; min-width: 0;">
-          <input type="text" class="form-input pos-row-catalog-input" list="${datalistId}" placeholder="Escribe para buscar SKU o nombre..." required style="width: 100%;">
-          <datalist id="${datalistId}">
-            ${options}
-          </datalist>
+        <div style="flex: 1; min-width: 0; position: relative;" class="pos-product-search-wrapper">
+          <div style="position: relative; display: flex; align-items: center;">
+            <input type="text" class="form-input pos-row-catalog-input" placeholder="🔍 Escribe para buscar SKU o nombre..." autocomplete="off" required style="width: 100%; padding-right: 2rem;">
+            <i class="ri-arrow-down-s-line pos-dropdown-arrow" style="position: absolute; right: 0.65rem; color: var(--color-text-muted); pointer-events: none; transition: transform 0.2s;"></i>
+          </div>
+          <div class="pos-product-dropdown-list" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 440px; max-width: 600px; max-height: 290px; overflow-y: auto; background: var(--color-surface, #ffffff); border: 1px solid var(--color-border); border-radius: var(--radius-sm, 6px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15); z-index: 1200;">
+          </div>
         </div>
       </div>
     `;
@@ -1427,10 +2583,12 @@ window.addPosRow = function(isManual) {
 
   tr.innerHTML = `
     <td>${prodCellHtml}</td>
-    <td style="text-align: center;">
-      <span class="pos-row-stock-badge badge badge-neutral" style="font-size: 0.78rem;">
-        ${isManual ? 'Manual' : '-'}
-      </span>
+    <td style="text-align: center; vertical-align: middle;">
+      <div class="pos-row-stock-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;">
+        <span class="pos-row-stock-badge badge badge-neutral" style="font-size: 0.78rem;">
+          ${isManual ? 'Manual' : '-'}
+        </span>
+      </div>
     </td>
     <td style="text-align: center;">
       <input type="number" class="form-input pos-row-qty" min="1" value="1" required style="width: 100%; text-align: center;">
@@ -1456,74 +2614,48 @@ window.addPosRow = function(isManual) {
   // Listener para autocomplete de catálogo y actualización de vista previa de imagen
   if (!isManual) {
     const input = tr.querySelector('.pos-row-catalog-input');
-    const updateProductDetails = () => {
-      const val = input.value.trim().toLowerCase();
-      const matched = (window.posCatalogProducts || []).find(p => {
-        const full = `${p.sku} - ${p.name}`.toLowerCase();
-        return full === val || p.sku.toLowerCase() === val || p.name.toLowerCase() === val;
+    const dropdown = tr.querySelector('.pos-product-dropdown-list');
+    const arrow = tr.querySelector('.pos-dropdown-arrow');
+
+    input.addEventListener('focus', () => {
+      document.querySelectorAll('.pos-product-dropdown-list').forEach(d => {
+        if (d !== dropdown) d.style.display = 'none';
       });
+      document.querySelectorAll('.pos-dropdown-arrow').forEach(a => {
+        if (a !== arrow) a.style.transform = 'rotate(0deg)';
+      });
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+      window.renderPosRowDropdown(tr, input.value);
+    });
 
-      const imgPreview = tr.querySelector('.pos-product-img-preview');
+    input.addEventListener('input', () => {
+      if (arrow) arrow.style.transform = 'rotate(180deg)';
+      window.renderPosRowDropdown(tr, input.value);
+    });
 
-      if (matched) {
-        tr.dataset.productId = matched.id;
-        tr.dataset.sku = matched.sku;
-        tr.dataset.name = matched.name;
-        tr.dataset.stock = matched.available_nunoa;
-        tr.dataset.imageUrl = matched.image_url || '';
-
-        // Actualizar foto del producto para confirmación visual
-        if (imgPreview) {
-          if (matched.image_url) {
-            imgPreview.innerHTML = `
-              <img src="${escapeHtml(matched.image_url)}" alt="${escapeHtml(matched.name)}" 
-                   style="width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 4px;" 
-                   onerror="this.outerHTML='<i class=\\'ri-image-line\\' style=\\'color:var(--color-text-muted);font-size:1.25rem;\\'></i>'">
-            `;
-            imgPreview.style.borderColor = 'var(--color-primary)';
-            imgPreview.style.cursor = 'pointer';
-            imgPreview.title = `${matched.name} (Click para ampliar)`;
-            imgPreview.onclick = () => window.openPosImageLightbox(matched.image_url, matched.name);
-          } else {
-            imgPreview.innerHTML = `<i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>`;
-            imgPreview.style.borderColor = 'var(--color-border)';
-            imgPreview.style.cursor = 'default';
-            imgPreview.title = 'Sin imagen disponible';
-            imgPreview.onclick = null;
-          }
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (dropdown) dropdown.style.display = 'none';
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = dropdown?.querySelector('.pos-product-search-item');
+        if (first) {
+          first.click();
         }
+      }
+    });
 
-        // NO autocompletar precio: exigir ingreso manual según web oficial para evitar errores
-        const priceInput = tr.querySelector('.pos-row-price');
-        if (priceInput) {
-          priceInput.placeholder = 'Ingresa $';
-          priceInput.title = 'Ingresa estrictamente el valor vigente dado por el comercio en su web o autorizado';
-        }
-
-        // Badge de stock disponible
-        const stockBadge = tr.querySelector('.pos-row-stock-badge');
-        if (stockBadge) {
-          if (matched.available_nunoa > 0) {
-            stockBadge.className = 'pos-row-stock-badge badge badge-success';
-            stockBadge.innerHTML = `<i class="ri-check-line"></i> ${matched.available_nunoa} un`;
-          } else {
-            stockBadge.className = 'pos-row-stock-badge badge badge-danger';
-            stockBadge.innerHTML = `<i class="ri-close-line"></i> 0 un`;
-          }
-        }
-
-        // Si el comercio tiene seguimiento estricto, limitar max
-        if (window.posSelectedCommerceConfig?.inventario_seguimiento) {
-          const qtyInput = tr.querySelector('.pos-row-qty');
-          if (qtyInput) qtyInput.max = matched.available_nunoa;
-        }
-      } else {
+    input.addEventListener('change', () => {
+      const val = input.value.trim();
+      if (!val) {
         delete tr.dataset.productId;
         delete tr.dataset.sku;
         delete tr.dataset.name;
         delete tr.dataset.stock;
         delete tr.dataset.imageUrl;
 
+        const imgPreview = tr.querySelector('.pos-product-img-preview');
         if (imgPreview) {
           imgPreview.innerHTML = `<i class="ri-image-line" style="color: var(--color-text-muted); font-size: 1.25rem;"></i>`;
           imgPreview.style.borderColor = 'var(--color-border)';
@@ -1532,17 +2664,13 @@ window.addPosRow = function(isManual) {
           imgPreview.onclick = null;
         }
 
-        const stockBadge = tr.querySelector('.pos-row-stock-badge');
-        if (stockBadge) {
-          stockBadge.className = 'pos-row-stock-badge badge badge-neutral';
-          stockBadge.innerHTML = isManual ? 'Manual' : '-';
+        const stockContainer = tr.querySelector('.pos-row-stock-container');
+        if (stockContainer) {
+          stockContainer.innerHTML = `<span class="pos-row-stock-badge badge badge-neutral" style="font-size: 0.78rem;">-</span>`;
         }
+        window.calculatePosTotals();
       }
-      window.calculatePosTotals();
-    };
-
-    input.addEventListener('change', updateProductDetails);
-    input.addEventListener('input', updateProductDetails);
+    });
   }
 
   // Listeners de cálculo en tiempo real

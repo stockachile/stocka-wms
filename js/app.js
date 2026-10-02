@@ -25184,6 +25184,18 @@ async function fetchAndRenderClientDeclarations() {
       ` : '';
 
       const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+      let isAdminCreated = dec.created_by_role === 'admin';
+      let creatorDisplayName = dec.profiles?.full_name || dec.profiles?.email || 'Comercio';
+      if (!isAdminCreated && Array.isArray(dec.history) && dec.history.length > 0) {
+        const firstH = dec.history[0];
+        if (firstH && (firstH.created_by_role === 'admin' || (firstH.comment && firstH.comment.toLowerCase().includes('administración')))) {
+          isAdminCreated = true;
+          if (firstH.by) creatorDisplayName = firstH.by;
+        }
+      }
+      if (isAdminCreated && dec.created_by_name) {
+        creatorDisplayName = dec.created_by_name;
+      }
 
       html += `
         <tr style="transition: background-color 0.2s;">
@@ -25207,9 +25219,16 @@ async function fetchAndRenderClientDeclarations() {
             <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
               <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
             </div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;" title="Creado por y fecha">
               <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
-              <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
+              ${isAdminCreated ? `
+                <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Ingreso generado por Administración">
+                  <i class="ri-shield-user-line"></i> Declarado por Admin: ${window.escapeHtml ? window.escapeHtml(creatorDisplayName) : creatorDisplayName}
+                </span>
+              ` : `
+                <span>${window.escapeHtml ? window.escapeHtml(creatorDisplayName) : creatorDisplayName}</span>
+              `}
+              <span style="color: var(--color-text-muted); font-size: 0.68rem;">(${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
             </div>
             ${dec.warehouses ? `
             <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
@@ -25310,6 +25329,19 @@ window.viewDeclarationDetail = async function(id) {
 
     const createdDateObj = new Date(dec.created_at || new Date());
     const formattedCreatedDate = `${String(createdDateObj.getDate()).padStart(2, '0')}/${String(createdDateObj.getMonth() + 1).padStart(2, '0')}/${createdDateObj.getFullYear()} ${String(createdDateObj.getHours()).padStart(2, '0')}:${String(createdDateObj.getMinutes()).padStart(2, '0')}`;
+
+    let isAdminCreatedDetail = dec.created_by_role === 'admin';
+    let creatorDisplayNameDetail = dec.profiles?.full_name || dec.profiles?.email || 'Comercio';
+    if (!isAdminCreatedDetail && Array.isArray(dec.history) && dec.history.length > 0) {
+      const firstH = dec.history[0];
+      if (firstH && (firstH.created_by_role === 'admin' || (firstH.comment && firstH.comment.toLowerCase().includes('administración')))) {
+        isAdminCreatedDetail = true;
+        if (firstH.by) creatorDisplayNameDetail = firstH.by;
+      }
+    }
+    if (isAdminCreatedDetail && dec.created_by_name) {
+      creatorDisplayNameDetail = dec.created_by_name;
+    }
 
     // 2. Extracción de productos (de products_list o de file_base64 vía SheetJS)
     let products = [];
@@ -25846,6 +25878,12 @@ window.viewDeclarationDetail = async function(id) {
                 <span><i class="ri-calendar-line"></i> ${formattedCreatedDate}</span>
                 <span>•</span>
                 <span><i class="ri-store-2-line"></i> Comercio: <strong>${dec.comercio || 'STOCKA'}</strong></span>
+                ${isAdminCreatedDetail ? `
+                  <span>•</span>
+                  <span class="badge" style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;" title="Ingreso generado por el equipo de administración de Stocka">
+                    <i class="ri-shield-user-line"></i> Declarado por Admin: <strong>${window.escapeHtml ? window.escapeHtml(creatorDisplayNameDetail) : creatorDisplayNameDetail}</strong>
+                  </span>
+                ` : ''}
               </div>
             </div>
           </div>

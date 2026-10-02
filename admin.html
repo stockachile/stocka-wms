@@ -1991,6 +1991,11 @@
               </div>
 
               <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Origen / Creador</span>
+                <div id="manage-dec-creator-info"></div>
+              </div>
+
+              <div>
                 <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Título / Descripción</span>
                 <div id="manage-dec-title" style="color: var(--color-text-main); font-weight: 500;"></div>
               </div>
@@ -3404,10 +3409,10 @@
         <h3 id="pos-modal-title" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
           <i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i> Registrar Venta en Sucursal (POS Ñuñoa)
         </h3>
-        <button type="button" class="modal-close" data-close="modal-pos-sale">&times;</button>
+        <button type="button" class="modal-close" id="btn-close-pos-sale" title="Cerrar ventana">&times;</button>
       </div>
       <form id="form-pos-sale" novalidate>
-        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
+        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem; padding-bottom: 6rem;">
           
           <!-- Wizard Step Indicator -->
           <div class="pos-wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
@@ -3472,8 +3477,33 @@
                   <input type="email" id="pos-customer-email" class="form-input" required placeholder="Ej: cliente@correo.com">
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label">Teléfono (Opcional)</label>
-                  <input type="text" id="pos-customer-phone" class="form-input" placeholder="Ej: +56912345678">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <label class="form-label" style="margin: 0;">Teléfono / WhatsApp (Opcional)</label>
+                    <span id="pos-phone-format-hint" style="font-size: 0.7rem; color: var(--color-text-muted);">9 dígitos (ej: 9 1234 5678)</span>
+                  </div>
+                  <div style="display: flex; gap: 0.4rem; align-items: center;">
+                    <select id="pos-customer-phone-country" class="form-input" style="width: 105px; flex-shrink: 0; padding: 0.35rem 0.5rem; font-size: 0.8rem; height: 38px;" onchange="window.handlePosPhoneCountryChange()">
+                      <option value="+56" data-digits="9" data-placeholder="9 1234 5678" data-hint="9 dígitos (ej: 9 1234 5678)" selected>🇨🇱 +56</option>
+                      <option value="+54" data-digits="10" data-placeholder="9 11 1234 5678" data-hint="10 dígitos">🇦🇷 +54</option>
+                      <option value="+51" data-digits="9" data-placeholder="912 345 678" data-hint="9 dígitos">🇵🇪 +51</option>
+                      <option value="+57" data-digits="10" data-placeholder="312 345 6789" data-hint="10 dígitos">🇨🇴 +57</option>
+                      <option value="+52" data-digits="10" data-placeholder="55 1234 5678" data-hint="10 dígitos">🇲🇽 +52</option>
+                      <option value="+55" data-digits="11" data-placeholder="11 91234 5678" data-hint="11 dígitos">🇧🇷 +55</option>
+                      <option value="+1" data-digits="10" data-placeholder="202 555 0123" data-hint="10 dígitos">🇺🇸 +1</option>
+                      <option value="+34" data-digits="9" data-placeholder="612 34 56 78" data-hint="9 dígitos">🇪🇸 +34</option>
+                      <option value="+58" data-digits="10" data-placeholder="412 123 4567" data-hint="10 dígitos">🇻🇪 +58</option>
+                      <option value="+591" data-digits="8" data-placeholder="7123 4567" data-hint="8 dígitos">🇧🇴 +591</option>
+                      <option value="+598" data-digits="8" data-placeholder="91 234 567" data-hint="8 dígitos">🇺🇾 +598</option>
+                      <option value="+595" data-digits="9" data-placeholder="981 123 456" data-hint="9 dígitos">🇵🇾 +595</option>
+                      <option value="+593" data-digits="9" data-placeholder="99 123 4567" data-hint="9 dígitos">🇪🇨 +593</option>
+                      <option value="" data-digits="any" data-placeholder="+123456789" data-hint="Incluir código">🌍 Otro</option>
+                    </select>
+                    <div style="position: relative; flex: 1;">
+                      <input type="tel" id="pos-customer-phone-number" class="form-input" placeholder="9 1234 5678" style="width: 100%; box-sizing: border-box; height: 38px;" autocomplete="tel">
+                      <input type="hidden" id="pos-customer-phone" value="">
+                    </div>
+                  </div>
+                  <div id="pos-phone-validation-msg" style="display: none; font-size: 0.72rem; margin-top: 0.25rem;"></div>
                 </div>
               </div>
             </div>
@@ -3565,7 +3595,7 @@
             </div>
 
             <!-- Tabla de Productos -->
-            <div class="table-responsive" style="margin-bottom: 1rem;">
+            <div class="table-responsive" style="overflow: visible; margin-bottom: 1rem;">
               <table class="data-table" style="font-size: 0.85rem; width: 100%;">
                 <thead>
                   <tr>
@@ -3758,12 +3788,12 @@
   <script src="./js/inventory_notifications.js?v=1.0.0"></script>
   <script src="./js/integration_notifications.js?v=1.0.0"></script>
   <script type="module" src="./js/split_orders.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.4.4"></script>
+  <script type="module" src="./js/admin.js?v=1.4.7"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.4"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
   <script type="module" src="./js/billing_generator.js?v=1.2.4"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
-  <script type="module" src="./js/pos_admin.js?v=1.0.5"></script>
+  <script type="module" src="./js/pos_admin.js?v=1.0.10"></script>
   <script type="module" src="./js/inventory_count.js?v=1.0.9"></script>
 
   <!-- Floating Mercado Libre Sync Button -->

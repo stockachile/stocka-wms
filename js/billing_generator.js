@@ -1237,6 +1237,17 @@ export function normalizeOrderChildStore(orderComercio, conglomerateChildren = [
   return orderComercio;
 }
 
+// Detección de pedidos con agenda FULL MERCADOLIBRE para cobro de etiquetado
+export function isFullMeliOrder(order) {
+  if (!order) return false;
+  const agenda = String(order.agenda || '').toUpperCase().trim();
+  if (!agenda) return false;
+  return agenda.includes('FULL MERCADOLIBRE') || 
+         agenda.includes('FULL MERCADO LIBRE') || 
+         (agenda.includes('FULL') && (agenda.includes('MERCADO') || agenda.includes('MELI')));
+}
+window.isFullMeliOrder = isFullMeliOrder;
+
 // Calcular desglose métrico por tienda dentro de un conglomerado
 export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
   const children = bState.conglomerateChildren || [];
@@ -1257,6 +1268,12 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
     const billableOrders = storeOrders.filter(o => !o.isExcluded);
     const pickPackNet = billableOrders.reduce((sum, o) => sum + (o.pickPackTotal || 0), 0);
     const shippingFreightNet = billableOrders.reduce((sum, o) => sum + (o.shippingFreight || 0), 0);
+
+    // Cobro de Etiqueta FULL de MELI para esta tienda ($100 por unidad en pedidos con agenda FULL MERCADOLIBRE)
+    const storeMeliFullOrders = billableOrders.filter(o => isFullMeliOrder(o));
+    const storeMeliFullUnits = storeMeliFullOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+    const storeMeliFullNet = storeMeliFullUnits * 100;
+
     const shippingRmCount = billableOrders.filter(o => o.deliveryType === 'RM_STK' || o.deliveryType === 'FLEX' || o.deliveryType === 'COLINA').length;
     const shippingEnviameCount = billableOrders.filter(o => o.deliveryType === 'ENVIAME' || o.deliveryType === 'REGION' || o.deliveryType === 'ENVIAME_REGION').length;
     const totalSalesTicket = storeOrders.reduce((sum, o) => sum + (o.ticketVenta || 0), 0);
@@ -1264,7 +1281,7 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
     const mktCount = storeOrders.filter(o => o.isMarketplace).length;
     const excludedOrders = storeOrders.length - billableOrders.length;
 
-    const storeTotalNet = pickPackNet + shippingFreightNet;
+    const storeTotalNet = pickPackNet + shippingFreightNet + storeMeliFullNet;
     const sharePct = totalNetAll > 0 ? parseFloat(((storeTotalNet / totalNetAll) * 100).toFixed(1)) : 0;
 
     breakdown.push({
@@ -1278,6 +1295,9 @@ export function computeConglomerateStoreBreakdown(orders = [], bState = {}) {
       avgTicket,
       pickPackNet,
       shippingFreightNet,
+      meliFullOrdersCount: storeMeliFullOrders.length,
+      meliFullUnitsCount: storeMeliFullUnits,
+      meliFullNet: storeMeliFullNet,
       totalSalesTicket,
       storeTotalNet,
       sharePct
@@ -2222,6 +2242,12 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
 
+  // 9b. Detección y cálculo de Cobro de Etiqueta FULL de MELI ($100 por producto / unidad en pedidos con agenda FULL MERCADOLIBRE)
+  const fullMeliOrders = billableOrders.filter(o => isFullMeliOrder(o));
+  const meliFullUnitsCount = fullMeliOrders.reduce((acc, o) => acc + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+  const meliFullRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_ml_full_labeling) || 100;
+  const meliFullNet = meliFullUnitsCount * meliFullRate;
+
   // 9.1 Conteo global de artículos y ranking de productos más vendidos
   const productMap = {};
   let totalUnitsSold = 0;
@@ -2504,7 +2530,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   }
 
   // 13. Totales Finales Consolidados
-  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
+  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalRmFlexNet + inboundTotalNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
   const totalToPay = Math.max(0, totalGross - totalAbonos);
@@ -2512,6 +2538,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.totals = {
     ordersCount: totalOrdersCount,
     billableOrdersCount: billableOrders.length,
+    meliFullOrdersCount: fullMeliOrders.length,
+    meliFullUnitsCount,
+    meliFullRate,
+    meliFullNet,
     storageGross: Math.round(grossStorage),
     storageDiscountPct,
     storageDiscountLabel,
@@ -2568,6 +2598,29 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
   const sBreakdown = (b.storeBreakdown && b.storeBreakdown.length > 0)
     ? b.storeBreakdown
     : (b.isConglomerate ? computeConglomerateStoreBreakdown(b.orders, b) : []);
+
+  // Detección y cálculo garantizado de Cobro de Etiqueta FULL de MELI
+  let meliFullOrdersCount = t.meliFullOrdersCount;
+  let meliFullUnitsCount = t.meliFullUnitsCount;
+  let meliFullNet = t.meliFullNet;
+
+  if (meliFullNet === undefined || meliFullNet === null) {
+    const fullMeliOrders = (b.orders || []).filter(o => !o.isExcluded && isFullMeliOrder(o));
+    meliFullOrdersCount = fullMeliOrders.length;
+    meliFullUnitsCount = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+    meliFullNet = meliFullUnitsCount * 100;
+
+    if (meliFullNet > 0) {
+      t.meliFullOrdersCount = meliFullOrdersCount;
+      t.meliFullUnitsCount = meliFullUnitsCount;
+      t.meliFullRate = 100;
+      t.meliFullNet = meliFullNet;
+      t.totalNet = (t.totalNet || 0) + meliFullNet;
+      t.iva = Math.round(t.totalNet * 0.19);
+      t.totalGross = t.totalNet + t.iva;
+      t.totalToPay = Math.max(0, t.totalGross - (t.totalAbonos || 0));
+    }
+  }
 
   // Auto-enriquecimiento de respaldo desde localStorage si RUT o Razón Social vienen vacíos o con guión
   if (commName) {
@@ -2871,6 +2924,23 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
                 <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(t.inboundNet)}</td>
                 <td style="text-align: right; color: #64748b;">${formatCLP(t.inboundNet * 0.19)}</td>
                 <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP(t.inboundNet * 1.19)}</td>
+              </tr>
+            ` : ''}
+
+            <!-- 4.2 Cobro de Etiqueta FULL de MELI (si aplica) -->
+            ${((t.meliFullNet > 0) || (meliFullUnitsCount > 0)) ? `
+              <tr>
+                <td>
+                  <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Cobro de etiqueta FULL de MELI</div>
+                  <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
+                    $100 por producto incluido en el pedido (${t.meliFullUnitsCount || meliFullUnitsCount} unidades en ${t.meliFullOrdersCount || meliFullOrdersCount} pedido${(t.meliFullOrdersCount || meliFullOrdersCount) === 1 ? '' : 's'} con agenda FULL MERCADOLIBRE)
+                  </div>
+                </td>
+                <td style="text-align: center; font-weight: 600; color: #64748b;">ud.</td>
+                <td style="text-align: center; font-weight: 700; color: #0f172a;">${t.meliFullUnitsCount || meliFullUnitsCount}</td>
+                <td style="text-align: right; font-weight: 700; color: #0f172a;">${formatCLP(t.meliFullNet || meliFullNet)}</td>
+                <td style="text-align: right; color: #64748b;">${formatCLP((t.meliFullNet || meliFullNet) * 0.19)}</td>
+                <td style="text-align: right; font-weight: 800; color: #0f172a;">${formatCLP((t.meliFullNet || meliFullNet) * 1.19)}</td>
               </tr>
             ` : ''}
 
@@ -3286,6 +3356,27 @@ export function exportBillingToExcel(customState = null) {
       t.inboundNet,
       Math.round(t.inboundNet * 0.19),
       Math.round(t.inboundNet * 1.19)
+    ]);
+  }
+
+  // Cobro de Etiqueta FULL de MELI si aplica
+  let meliUnits = t.meliFullUnitsCount;
+  let meliNet = t.meliFullNet;
+  let meliOrders = t.meliFullOrdersCount;
+  if (meliNet === undefined || meliNet === null) {
+    const fullMeliOrders = (b.orders || []).filter(o => !o.isExcluded && isFullMeliOrder(o));
+    meliOrders = fullMeliOrders.length;
+    meliUnits = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+    meliNet = meliUnits * 100;
+  }
+  if (meliNet > 0 || meliUnits > 0) {
+    summaryData.push([
+      `Cobro de etiqueta FULL de MELI (${meliUnits} unidades en ${meliOrders} pedidos con agenda FULL MERCADOLIBRE)`,
+      "ud.",
+      meliUnits,
+      meliNet,
+      Math.round(meliNet * 0.19),
+      Math.round(meliNet * 1.19)
     ]);
   }
 
@@ -4638,13 +4729,15 @@ export async function renderBillingAnalyticsCharts(targetContainerId = 'bg-analy
   const expenseData = isStoreFiltered
     ? [
         { label: 'Preparación (Pick&Pack)', val: storeData?.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
-        { label: 'Flete Despacho', val: storeData?.shippingFreightNet || 0, color: '#6366f1', darkColor: '#818cf8' }
+        { label: 'Flete Despacho', val: storeData?.shippingFreightNet || 0, color: '#6366f1', darkColor: '#818cf8' },
+        { label: 'Etiqueta FULL MELI', val: storeData?.meliFullNet || 0, color: '#f59e0b', darkColor: '#fbbf24' }
       ].filter(e => e.val > 0)
     : [
         { label: 'Almacenamiento', val: t.storageNet || 0, color: '#5f06fa', darkColor: '#a855f7' },
         { label: 'Preparación (Pick&Pack)', val: t.pickPackNet || 0, color: '#7c3aed', darkColor: '#c084fc' },
         { label: 'Despachos RM/Flex', val: t.shippingRmFlexNet || 0, color: '#6366f1', darkColor: '#818cf8' },
         { label: 'Costo Variable Mensual', val: t.fixedFeeNet || 0, color: '#3b82f6', darkColor: '#60a5fa' },
+        { label: 'Etiqueta FULL MELI', val: t.meliFullNet || 0, color: '#f59e0b', darkColor: '#fbbf24' },
         { label: 'Punto de Venta (POS)', val: t.posFeeNet || 0, color: '#0ea5e9', darkColor: '#38bdf8' },
         { label: 'Recepción e Ingreso de Stock', val: t.inboundNet || 0, color: '#10b981', darkColor: '#34d399' },
         { label: 'Insumos de Embalaje', val: t.suppliesNet || 0, color: '#64748b', darkColor: '#94a3b8' }
@@ -6415,6 +6508,12 @@ function recalculateFromCurrentState() {
 
   const enviameOrders = billableOrders.filter(o => o.deliveryType === 'ENVIAME_REGION');
 
+  // Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
+  const fullMeliOrders = billableOrders.filter(o => isFullMeliOrder(o));
+  const meliFullUnitsCount = fullMeliOrders.reduce((acc, o) => acc + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+  const meliFullRate = (b.pricingConfig?.pick_pack_rules?.surcharge_ml_full_labeling) || 100;
+  const meliFullNet = meliFullUnitsCount * meliFullRate;
+
   const baseStorageM3Rate = b.activeRange?.storage_m3 || 48900;
   const grossStorage = b.volumeM3 * baseStorageM3Rate;
   const netStorageCost = Math.round(grossStorage * (1 - (b.totals.storageDiscountPct || 0) / 100));
@@ -6443,7 +6542,7 @@ function recalculateFromCurrentState() {
 
   const inboundNet = b.totals.inboundNet || 0;
   const posFeeCLP = (b.totals.posFeeNet !== undefined) ? b.totals.posFeeNet : (b.totals.posActive ? Math.round((b.totals.posFeeUF || 0.2) * b.ufValue) : 0);
-  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet);
+  const totalNet = Math.round(netStorageCost + totalPickPackNet + totalShippingNet + inboundNet + fixedFeeCLP + posFeeCLP + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
   const totalIVA = Math.round(totalNet * 0.19);
   const totalGross = totalNet + totalIVA;
   const totalToPay = Math.max(0, totalGross - totalAbonos);
@@ -6452,6 +6551,10 @@ function recalculateFromCurrentState() {
     ...b.totals,
     ordersCount: b.orders.length,
     billableOrdersCount: billableOrders.length,
+    meliFullOrdersCount: fullMeliOrders.length,
+    meliFullUnitsCount,
+    meliFullRate,
+    meliFullNet,
     storageNet: netStorageCost,
     pickPackNet: totalPickPackNet,
     shippingRmFlexCount: billableShippingOrders.length,
@@ -9623,22 +9726,37 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
     }
   });
 
-  if (changed && snapshot.totals) {
-    const billable = snapshot.orders.filter(o => !o.isExcluded);
-    snapshot.totals.pickPackNet = billable.reduce((acc, o) => acc + (o.pickPackTotal || 0), 0);
-    const storageNet = snapshot.totals.storageNet || 0;
-    const shippingNet = snapshot.totals.shippingRmFlexNet || 0;
-    const inboundNet = snapshot.totals.inboundNet || 0;
-    const fixedFeeNet = snapshot.totals.fixedFeeNet || 0;
-    const posFeeNet = snapshot.totals.posFeeNet || 0;
-    const suppliesNet = Array.isArray(snapshot.supplies) ? snapshot.supplies.reduce((acc, s) => acc + (s.total || 0), 0) : 0;
-    const adjustmentsNet = Array.isArray(snapshot.adjustments) ? snapshot.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0) : 0;
-    const totalAbonos = Array.isArray(snapshot.abonos) ? snapshot.abonos.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0) : (snapshot.totals.totalAbonos || 0);
-    snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + posFeeNet + suppliesNet + adjustmentsNet);
-    snapshot.totals.iva = Math.round(snapshot.totals.totalNet * 0.19);
-    snapshot.totals.totalGross = snapshot.totals.totalNet + snapshot.totals.iva;
-    snapshot.totals.totalAbonos = totalAbonos;
-    snapshot.totals.totalToPay = Math.max(0, snapshot.totals.totalGross - totalAbonos);
+  // Calcular Cobro de Etiqueta FULL de MELI ($100 por producto en pedidos con agenda FULL MERCADOLIBRE)
+  const billable = snapshot.orders.filter(o => !o.isExcluded);
+  const fullMeliOrders = billable.filter(o => isFullMeliOrder(o));
+  const meliFullUnitsCount = fullMeliOrders.reduce((sum, o) => sum + (Math.max(1, parseInt(o.unitsCount, 10) || 1)), 0);
+  const meliFullRate = 100;
+  const meliFullNet = meliFullUnitsCount * meliFullRate;
+
+  if (snapshot.totals) {
+    const prevMeliNet = snapshot.totals.meliFullNet !== undefined ? snapshot.totals.meliFullNet : null;
+    snapshot.totals.meliFullOrdersCount = fullMeliOrders.length;
+    snapshot.totals.meliFullUnitsCount = meliFullUnitsCount;
+    snapshot.totals.meliFullRate = meliFullRate;
+    snapshot.totals.meliFullNet = meliFullNet;
+
+    // Si cambió marketplace O si el snapshot no tenía meliFullNet registrado o difiere
+    if (changed || prevMeliNet === null || prevMeliNet !== meliFullNet) {
+      const storageNet = snapshot.totals.storageNet || 0;
+      snapshot.totals.pickPackNet = billable.reduce((acc, o) => acc + (o.pickPackTotal || 0), 0);
+      const shippingNet = snapshot.totals.shippingRmFlexNet || 0;
+      const inboundNet = snapshot.totals.inboundNet || 0;
+      const fixedFeeNet = snapshot.totals.fixedFeeNet || 0;
+      const posFeeNet = snapshot.totals.posFeeNet || 0;
+      const suppliesNet = Array.isArray(snapshot.supplies) ? snapshot.supplies.reduce((acc, s) => acc + (s.total || 0), 0) : 0;
+      const adjustmentsNet = Array.isArray(snapshot.adjustments) ? snapshot.adjustments.reduce((acc, a) => acc + (a.amount || 0), 0) : 0;
+      const totalAbonos = Array.isArray(snapshot.abonos) ? snapshot.abonos.reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0) : (snapshot.totals.totalAbonos || 0);
+      snapshot.totals.totalNet = Math.round(storageNet + snapshot.totals.pickPackNet + shippingNet + inboundNet + fixedFeeNet + posFeeNet + suppliesNet + adjustmentsNet + meliFullNet);
+      snapshot.totals.iva = Math.round(snapshot.totals.totalNet * 0.19);
+      snapshot.totals.totalGross = snapshot.totals.totalNet + snapshot.totals.iva;
+      snapshot.totals.totalAbonos = totalAbonos;
+      snapshot.totals.totalToPay = Math.max(0, snapshot.totals.totalGross - totalAbonos);
+    }
   }
 }
 
