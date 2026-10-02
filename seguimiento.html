@@ -1128,6 +1128,23 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    /* Embedded / White-label Mode for Sellers (Iframe Integration) */
+    body.is-embed {
+      background: transparent;
+    }
+    body.is-embed .tracking-nav,
+    body.is-embed .tracking-footer,
+    body.is-embed .trust-grid {
+      display: none !important;
+    }
+    body.is-embed .main-wrap {
+      padding: 0.5rem 0.5rem 1.5rem 0.5rem;
+      max-width: 100%;
+    }
+    body.is-embed .hero-header {
+      margin-bottom: 1.25rem;
+    }
   </style>
 </head>
 <body>
@@ -1469,6 +1486,7 @@
       resultsArea.style.display = 'none';
       notFoundCard.style.display = 'none';
       resultsContainer.innerHTML = '';
+      notifyParentResize();
     }
 
     function showNotFound(order, email) {
@@ -1477,6 +1495,7 @@
       notFoundCard.style.display = 'block';
       notFoundCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       btnReset.style.display = 'inline-flex';
+      notifyParentResize();
     }
 
     // Render Order Cards
@@ -1881,6 +1900,7 @@
       resultsContainer.innerHTML = cardsHtml;
       resultsArea.style.display = 'block';
       resultsArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      notifyParentResize();
     }
 
     // Helper: Copy Tracking Code
@@ -1912,6 +1932,21 @@
       });
     };
 
+    // Helper: Notify Parent Window to auto-resize iframe dynamically
+    function notifyParentResize() {
+      if (window.parent && window.parent !== window) {
+        setTimeout(() => {
+          const scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight;
+          window.parent.postMessage({
+            type: 'stocka-tracking-resize',
+            height: scrollHeight
+          }, '*');
+        }, 80);
+      }
+    }
+
+    window.addEventListener('resize', notifyParentResize);
+
     // Helper: Toggle Picking Details Accordion
     window.togglePickingDetails = function(orderId) {
       const bodyEl = document.getElementById(`picking-body-${orderId}`);
@@ -1923,6 +1958,7 @@
         if (isHidden) iconEl.classList.add('open');
         else iconEl.classList.remove('open');
       }
+      notifyParentResize();
     };
 
     // Form Submit Event (Zero PII in URL)
@@ -1951,6 +1987,7 @@
       const cleanUrl = new URL(window.location.href);
       cleanUrl.search = '';
       window.history.replaceState({}, '', cleanUrl.toString());
+      notifyParentResize();
     });
 
     // Auto-load from URL Query Parameters on page load
@@ -1959,6 +1996,17 @@
       const urlToken = params.get('t') || params.get('token');
       const urlOrder = params.get('pedido') || params.get('orden') || params.get('order') || params.get('n');
       const urlEmail = params.get('email') || params.get('correo') || params.get('mail');
+
+      // Detect Embed mode via URL (?embed=1 / ?embed=true) or if inside an iframe
+      const isEmbed = params.get('embed') === '1' || 
+                      params.get('embed') === 'true' || 
+                      window.self !== window.top;
+
+      if (isEmbed) {
+        document.body.classList.add('is-embed');
+      }
+
+      notifyParentResize();
 
       // 1. Acceso Directo por Token Seguro Oculto (?t=... o ?token=...)
       // Proporciona acceso inmediato con CERO datos personales expuestos en la URL
@@ -1984,6 +2032,7 @@
         noticeOrderNo.textContent = `#${urlOrder.trim()}`;
         prefillNotice.style.display = 'flex';
         inputEmail.focus();
+        notifyParentResize();
       }
     });
   })();
