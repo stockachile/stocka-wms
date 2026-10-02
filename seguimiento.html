@@ -1497,8 +1497,10 @@
         let statusBadgeIcon = 'ri-time-line';
 
         let step1Done = true;
+        let step2Active = false;
         let step2Done = false;
         let step3Active = false;
+        let step3Done = false;
         let step4Done = false;
         let isIncident = false;
 
@@ -1507,7 +1509,7 @@
           statusBadgeText = isRetiro ? 'Retirado en Sucursal' : 'Entregado con Éxito';
           statusBadgeIcon = 'ri-checkbox-circle-fill';
           step2Done = true;
-          step3Active = true;
+          step3Done = true;
           step4Done = true;
         } else if (rawStatus.includes('listo para retiro')) {
           statusBadgeClass = 'retiro';
@@ -1526,13 +1528,12 @@
           statusBadgeText = trackingCode ? 'Preparado / Esperando Retiro de Courier' : 'Empaque Listo en Bodega';
           statusBadgeIcon = 'ri-inbox-archive-fill';
           step2Done = true;
-          if (trackingCode) {
-            step3Active = true;
-          }
+          step3Active = false;
         } else if (rawStatus.includes('prep') || rawStatus.includes('empaq') || rawStatus.includes('proceso')) {
           statusBadgeClass = 'preparacion';
           statusBadgeText = 'En Preparación en Bodega';
           statusBadgeIcon = 'ri-inbox-archive-fill';
+          step2Active = true;
           step2Done = false;
         } else if (rawStatus.includes('incidenc')) {
           statusBadgeClass = 'incidencia';
@@ -1549,8 +1550,8 @@
         // Stepper Progress Line percentage
         let progressWidth = '0%';
         if (step4Done) progressWidth = '100%';
-        else if (step3Active) progressWidth = '66%';
-        else if (step2Done) progressWidth = '33%';
+        else if (step3Active || step3Done) progressWidth = '66%';
+        else if (step2Done || step2Active) progressWidth = '33%';
 
         // Courier URL resolution
         let courierUrl = order.tracking_url;
@@ -1649,35 +1650,39 @@
                 </div>
 
                 <!-- Step 2 -->
-                <div class="step-item ${step2Done ? (step3Active ? 'done' : 'active') : ''}">
+                <div class="step-item ${step2Done ? 'done' : (step2Active ? 'active' : '')}">
                   <div class="step-circle">
                     <i class="${step2Done ? 'ri-check-line' : 'ri-inbox-archive-line'}"></i>
                   </div>
                   <div class="step-details">
                     <span class="step-title">2. Preparación</span>
-                    <span class="step-subtext">Picking y embalaje Stocka</span>
+                    <span class="step-subtext">${step2Done ? 'Picking y embalaje completado' : (step2Active ? 'En preparación en bodega' : 'Pendiente de preparación')}</span>
                   </div>
                 </div>
 
                 <!-- Step 3 -->
-                <div class="step-item ${step3Active ? (step4Done ? 'done' : 'active') : ''} ${isIncident ? 'incident' : ''}">
+                <div class="step-item ${step3Done ? 'done' : (step3Active ? 'active' : '')} ${isIncident ? 'incident' : ''}">
                   <div class="step-circle">
-                    <i class="${step4Done ? 'ri-check-line' : (isRetiro ? 'ri-store-2-line' : 'ri-truck-line')}"></i>
+                    <i class="${step3Done ? 'ri-check-line' : (isRetiro ? 'ri-store-2-line' : 'ri-truck-line')}"></i>
                   </div>
                   <div class="step-details">
                     <span class="step-title">${isRetiro ? '3. Listo para Retiro' : '3. En Despacho'}</span>
-                    <span class="step-subtext">${isRetiro ? 'Disponible en mesón' : 'En manos del transporte'}</span>
+                    <span class="step-subtext">${
+                      isRetiro
+                        ? (step3Done || step3Active ? 'Disponible en mesón' : 'Por enviar a mesón')
+                        : (step3Done ? 'Despacho completado' : (step3Active ? 'En manos del transporte' : (trackingCode ? 'Esperando retiro del transporte' : 'Pendiente de despacho')))
+                    }</span>
                   </div>
                 </div>
 
                 <!-- Step 4 -->
                 <div class="step-item ${step4Done ? 'done' : ''}">
                   <div class="step-circle">
-                    <i class="ri-flag-2-line"></i>
+                    <i class="${step4Done ? 'ri-checkbox-circle-fill' : 'ri-flag-2-line'}"></i>
                   </div>
                   <div class="step-details">
                     <span class="step-title">4. Entregado</span>
-                    <span class="step-subtext">${isRetiro ? 'Retirado por cliente' : 'Recibido en destino'}</span>
+                    <span class="step-subtext">${isRetiro ? (step4Done ? 'Retirado por cliente' : 'Pendiente de retiro') : (step4Done ? 'Recibido en destino' : 'Pendiente de entrega')}</span>
                   </div>
                 </div>
               </div>
