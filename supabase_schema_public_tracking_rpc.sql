@@ -127,10 +127,16 @@ BEGIN
               ELSE NULL
             END
           ),
+            'scanned_label', o.picker_scanned_label,
             'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
             'items', (
               SELECT COALESCE(jsonb_agg(
-                jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+                jsonb_build_object(
+                  'name', COALESCE(p.name, 'Producto'),
+                  'quantity', oi.quantity,
+                  'sku', p.sku,
+                  'barcode', COALESCE(NULLIF(p.barcode, ''), NULLIF(p.barcode_wms, ''), p.sku)
+                )
               ), '[]'::jsonb)
               FROM public.order_items oi
               LEFT JOIN public.products p ON p.id = oi.product_id
@@ -256,10 +262,16 @@ BEGIN
               ELSE NULL
             END
           ),
+            'scanned_label', o.picker_scanned_label,
             'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
             'items', (
               SELECT COALESCE(jsonb_agg(
-                jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+                jsonb_build_object(
+                  'name', COALESCE(p.name, 'Producto'),
+                  'quantity', oi.quantity,
+                  'sku', p.sku,
+                  'barcode', COALESCE(NULLIF(p.barcode, ''), NULLIF(p.barcode_wms, ''), p.sku)
+                )
               ), '[]'::jsonb)
               FROM public.order_items oi
               LEFT JOIN public.products p ON p.id = oi.product_id
@@ -395,10 +407,16 @@ BEGIN
               ELSE NULL
             END
           ),
+          'scanned_label', o.picker_scanned_label,
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
-              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+              jsonb_build_object(
+                'name', COALESCE(p.name, 'Producto'),
+                'quantity', oi.quantity,
+                'sku', p.sku,
+                'barcode', COALESCE(NULLIF(p.barcode, ''), NULLIF(p.barcode_wms, ''), p.sku)
+              )
             ), '[]'::jsonb)
             FROM public.order_items oi
             LEFT JOIN public.products p ON p.id = oi.product_id
@@ -530,10 +548,16 @@ BEGIN
               ELSE NULL
             END
           ),
+          'scanned_label', o.picker_scanned_label,
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
-              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+              jsonb_build_object(
+                'name', COALESCE(p.name, 'Producto'),
+                'quantity', oi.quantity,
+                'sku', p.sku,
+                'barcode', COALESCE(NULLIF(p.barcode, ''), NULLIF(p.barcode_wms, ''), p.sku)
+              )
             ), '[]'::jsonb)
             FROM public.order_items oi
             LEFT JOIN public.products p ON p.id = oi.product_id
@@ -658,10 +682,16 @@ BEGIN
               ELSE NULL
             END
           ),
+          'scanned_label', o.picker_scanned_label,
           'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
           'items', (
             SELECT COALESCE(jsonb_agg(
-              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+              jsonb_build_object(
+                'name', COALESCE(p.name, 'Producto'),
+                'quantity', oi.quantity,
+                'sku', p.sku,
+                'barcode', COALESCE(NULLIF(p.barcode, ''), NULLIF(p.barcode_wms, ''), p.sku)
+              )
             ), '[]'::jsonb)
             FROM public.order_items oi
             LEFT JOIN public.products p ON p.id = oi.product_id

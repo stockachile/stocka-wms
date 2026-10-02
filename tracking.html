@@ -1715,6 +1715,15 @@
                         </div>
                       </div>
                     ` : ''}
+                    ${picking.scanned_label ? `
+                      <div class="picking-detail-row">
+                        <i class="ri-barcode-box-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                        <div>
+                          <strong>Etiqueta de Bulto Escaneada:</strong><br>
+                          <span style="font-size: 0.78rem; font-family: monospace; color: #334155;">${escapeHtml(picking.scanned_label)}</span>
+                        </div>
+                      </div>
+                    ` : ''}
                   </div>
                   ${pickingItems.length > 0 ? `
                     <div class="picking-items-list">
@@ -1722,7 +1731,15 @@
                       <ul>
                         ${pickingItems.map(it => `
                           <li>
-                            <span>${escapeHtml(it.name)}</span>
+                            <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+                              <span>${escapeHtml(it.name)}</span>
+                              ${it.barcode ? `
+                                <span style="font-size: 0.72rem; color: #64748b; font-family: monospace; display: inline-flex; align-items: center; gap: 0.35rem;">
+                                  <i class="ri-barcode-line" style="font-size: 0.85rem; color: var(--primary);"></i>
+                                  <span>Código escaneado: <strong>${escapeHtml(it.barcode)}</strong></span>
+                                </span>
+                              ` : ''}
+                            </div>
                             <span class="item-qty">x${it.quantity}</span>
                           </li>
                         `).join('')}
