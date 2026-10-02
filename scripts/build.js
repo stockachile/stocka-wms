@@ -21,7 +21,7 @@ let htmlCount = 0;
 rootFiles.forEach(file => {
   const fullPath = path.join(ROOT_DIR, file);
   if (fs.statSync(fullPath).isFile()) {
-    if (file.endsWith('.html') || file === '_redirects' || file === 'favicon.png' || file === 'robots.txt') {
+    if (file.endsWith('.html') || file === '_redirects' || file === '_headers' || file === 'favicon.png' || file === 'robots.txt') {
       fs.copyFileSync(fullPath, path.join(DIST_DIR, file));
       if (file.endsWith('.html')) htmlCount++;
     }

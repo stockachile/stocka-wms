@@ -4,13 +4,52 @@
   publish = "dist"
   command = "npm run build"
 
+# Global security headers for all routes
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "SAMEORIGIN"
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Public Tracking Portal: Explicitly allow iframe embedding by all seller domains (Shopify, WooCommerce, etc.)
+[[headers]]
+  for = "/seguimiento*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors *"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+[[headers]]
+  for = "/tracking*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors *"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+[[headers]]
+  for = "/rastreo*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors *"
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+# Protect internal WMS administrative dashboard against clickjacking
+[[headers]]
+  for = "/admin*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+
+[[headers]]
+  for = "/dashboard*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
 
 [[headers]]
   for = "/*.html"

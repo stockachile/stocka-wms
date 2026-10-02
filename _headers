@@ -1,0 +1,27 @@
+# Netlify _headers configuration
+
+/seguimiento*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/tracking*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/rastreo*
+  Content-Security-Policy: frame-ancestors *
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/admin*
+  X-Frame-Options: SAMEORIGIN
+
+/dashboard*
+  X-Frame-Options: SAMEORIGIN
+
+/*
+  X-XSS-Protection: 1; mode=block
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
