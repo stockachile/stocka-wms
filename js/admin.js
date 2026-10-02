@@ -40545,6 +40545,57 @@ if (typeof window.downloadDeclarationsTemplate !== 'function') {
   };
 }
 
+// Descargar la misma plantilla simplificada del cliente (SKU, Cantidad, Largo, Ancho, Alto)
+window.downloadAdminNewDecSkuTemplate = function() {
+  try {
+    const wb = XLSX.utils.book_new();
+    const headers = [
+      'SKU * (Obligatorio)',
+      'Cantidad declarada * (Obligatorio)',
+      'Largo cm (Opcional - Entero)',
+      'Ancho cm (Opcional - Entero)',
+      'Alto cm (Opcional - Entero)'
+    ];
+
+    const sampleProducts = (window.adminNewDecCatalogCache || []).filter(p => p.sku).slice(0, 3);
+    let sampleData = [headers];
+
+    if (sampleProducts.length > 0) {
+      sampleProducts.forEach((p, idx) => {
+        sampleData.push([
+          p.sku,
+          (idx + 1) * 25,
+          p.largo ? Math.round(p.largo) : '',
+          p.ancho ? Math.round(p.ancho) : '',
+          p.alto ? Math.round(p.alto) : ''
+        ]);
+      });
+    } else {
+      sampleData.push(['SKU-EJEMPLO-001', 50, 30, 20, 15]);
+      sampleData.push(['SKU-EJEMPLO-002', 100, '', '', '']);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(sampleData);
+    ws['!cols'] = [
+      { wch: 28 }, // SKU
+      { wch: 34 }, // Cantidad declarada
+      { wch: 28 }, // Largo
+      { wch: 28 }, // Ancho
+      { wch: 28 }  // Alto
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Planilla Ingreso SKU');
+    XLSX.writeFile(wb, 'plantilla_ingreso_por_sku.xlsx');
+  } catch (err) {
+    console.error('Error al generar plantilla SKU admin:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error', 'No se pudo descargar la plantilla: ' + err.message, 'error');
+    } else {
+      alert('Error al descargar la plantilla.');
+    }
+  }
+};
+
 if (typeof window.calculateEntryCost !== 'function') {
   window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arrivalDateStr, labelingQty = 0) {
     let standardCost = 0;
@@ -40564,6 +40615,393 @@ if (typeof window.calculateEntryCost !== 'function') {
     return { standardCost, unloadingCost, surchargeCost, labelingCost, labelingQty, totalCost };
   };
 }
+
+// ============================================================================
+// VISTA PREVIA Y DIAGNÓSTICO DE IMPORTACIÓN DE PLANILLA (ADMIN)
+// ============================================================================
+window.showAdminDecSpreadsheetPreviewModal = function(analysis, isReopen = false) {
+  const oldModal = document.getElementById('modal-admin-excel-preview');
+  if (oldModal) oldModal.remove();
+
+  if (!analysis) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-admin-excel-preview';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '10050';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.style.position = 'fixed';
+  modal.style.inset = '0';
+  modal.style.background = 'rgba(0, 0, 0, 0.65)';
+  modal.style.backdropFilter = 'blur(4px)';
+
+  // Banner informativo superior
+  let bannerHtml = '';
+  if (analysis.stats.errors > 0) {
+    bannerHtml = `
+      <div style="background-color: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.825rem; color: #b91c1c; display: flex; align-items: flex-start; gap: 0.6rem;">
+        <i class="ri-error-warning-fill" style="font-size: 1.15rem; flex-shrink: 0; margin-top: 1px;"></i>
+        <div>
+          <strong>Atención: Se detectaron ${analysis.stats.errors} fila(s) con errores en la planilla.</strong>
+          <div style="margin-top: 2px; color: #7f1d1d;">Estas filas serán omitidas automáticamente para proteger la integridad de los datos. Solo se procesarán los <strong>${analysis.stats.valid} productos válidos</strong>. Revisa la columna "Diagnóstico" para ver el detalle de cada error.</div>
+        </div>
+      </div>
+    `;
+  } else if (analysis.stats.unmatched > 0) {
+    bannerHtml = `
+      <div style="background-color: rgba(245, 158, 11, 0.08); border-left: 4px solid #f59e0b; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.825rem; color: #b45309; display: flex; align-items: flex-start; gap: 0.6rem;">
+        <i class="ri-alert-fill" style="font-size: 1.15rem; flex-shrink: 0; margin-top: 1px;"></i>
+        <div>
+          <strong>${analysis.stats.unmatched} producto(s) no existen en el Catálogo Master.</strong>
+          <div style="margin-top: 2px; color: #78350f;">Se integrarán como productos personalizados de ingreso señalados como "Fuera de catálogo". Los <strong>${analysis.stats.matched} producto(s)</strong> coincidentes fueron enriquecidos automáticamente con sus datos maestros.</div>
+        </div>
+      </div>
+    `;
+  } else {
+    bannerHtml = `
+      <div style="background-color: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.825rem; color: #047857; display: flex; align-items: center; gap: 0.6rem;">
+        <i class="ri-checkbox-circle-fill" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+        <div>
+          <strong>¡Excelente! Todos los productos coinciden al 100% con el Catálogo Master.</strong>
+          <div style="margin-top: 1px; color: #065f46;">Se asociaron ${analysis.stats.matched} producto(s) con sus nombres, precios y dimensiones registradas.</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Filas de la tabla de vista previa
+  const trs = analysis.items.map(item => {
+    let rowBg = 'transparent';
+    let badgeHtml = '';
+    let diagColor = 'var(--color-text-muted)';
+
+    if (item.status === 'match') {
+      badgeHtml = `<span style="background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i class="ri-check-line"></i> Coincide</span>`;
+      diagColor = '#047857';
+    } else if (item.status === 'unmatched') {
+      rowBg = 'rgba(245, 158, 11, 0.03)';
+      badgeHtml = `<span style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i class="ri-alert-line"></i> Fuera de Catálogo</span>`;
+      diagColor = '#b45309';
+    } else {
+      rowBg = 'rgba(239, 68, 68, 0.05)';
+      badgeHtml = `<span style="background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;"><i class="ri-close-line"></i> Error / Omitida</span>`;
+      diagColor = '#b91c1c';
+    }
+
+    const dimsStr = (item.largo && item.ancho && item.alto) 
+      ? `${item.largo}×${item.ancho}×${item.alto} cm <span style="color:var(--color-text-muted); font-size:0.7rem;">(${(item.vol || 0).toFixed(4)} m³)</span>` 
+      : ((item.vol && item.vol > 0) ? `${(item.vol).toFixed(4)} m³` : '<span style="color: var(--color-text-muted); font-style: italic;">Sin medidas</span>');
+
+    return `
+      <tr class="admin-excel-preview-row" 
+          data-status="${item.status}" 
+          data-sku="${(item.sku || '').toLowerCase()}" 
+          data-name="${(item.name || '').toLowerCase()}" 
+          style="border-bottom: 1px solid var(--color-border); background: ${rowBg}; font-size: 0.8rem; transition: background 0.15s;">
+        <td style="padding: 7px 10px; text-align: center; color: var(--color-text-muted); font-weight: 600; font-size: 0.75rem; vertical-align: middle;">
+          ${item.rowNumber}
+        </td>
+        <td style="padding: 7px 10px; font-family: monospace; font-weight: 700; color: ${item.sku ? 'var(--color-primary)' : '#ef4444'}; vertical-align: middle;">
+          ${item.sku || '(Sin SKU)'}
+        </td>
+        <td style="padding: 7px 10px; vertical-align: middle; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">
+          <span style="font-weight: 500; color: var(--color-text-main);">${item.name || 'Sin nombre'}</span>
+        </td>
+        <td style="padding: 7px 10px; text-align: center; font-weight: 700; vertical-align: middle; color: ${item.status === 'error' ? '#ef4444' : 'var(--color-text-main)'};">
+          ${item.rawQty !== undefined && item.rawQty !== null ? item.rawQty : item.qty}
+        </td>
+        <td style="padding: 7px 10px; vertical-align: middle; white-space: nowrap;">
+          ${dimsStr}
+        </td>
+        <td style="padding: 7px 10px; text-align: center; vertical-align: middle;">
+          ${badgeHtml}
+        </td>
+        <td style="padding: 7px 10px; vertical-align: middle; font-size: 0.77rem; color: ${diagColor}; line-height: 1.35;">
+          ${item.detail}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1020px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: var(--color-surface); border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.35); overflow: hidden; border: 1px solid var(--color-border);">
+      <!-- Header -->
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);">
+            <i class="ri-file-excel-2-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.08rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              Vista Previa y Diagnóstico de Planilla
+              <span class="badge" style="font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-weight: 600;">Modo Admin</span>
+            </h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Archivo: <strong style="color: var(--color-text-main);">${analysis.fileName}</strong> &bull; Comercio: <strong style="color: var(--color-primary);">${analysis.commerce}</strong>
+            </p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="window.closeAdminDecSpreadsheetPreview(${isReopen})" style="background: none; border: none; font-size: 1.5rem; line-height: 1; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+
+      <!-- Body -->
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        ${bannerHtml}
+
+        <!-- KPI Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.65rem; margin-bottom: 1.15rem;">
+          <div style="background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700;">Total Filas</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 2px;">${analysis.stats.total}</div>
+          </div>
+          <div style="background: rgba(16, 185, 129, 0.08); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.25); text-align: center;">
+            <div style="font-size: 0.68rem; color: #059669; text-transform: uppercase; font-weight: 700;">Coinciden Catálogo</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #059669; margin-top: 2px;">${analysis.stats.matched}</div>
+          </div>
+          <div style="background: rgba(245, 158, 11, 0.08); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid rgba(245, 158, 11, 0.25); text-align: center;">
+            <div style="font-size: 0.68rem; color: #d97706; text-transform: uppercase; font-weight: 700;">Fuera de Catálogo</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #d97706; margin-top: 2px;">${analysis.stats.unmatched}</div>
+          </div>
+          <div style="background: rgba(239, 68, 68, 0.08); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.25); text-align: center;">
+            <div style="font-size: 0.68rem; color: #dc2626; text-transform: uppercase; font-weight: 700;">Errores / Omitidas</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #dc2626; margin-top: 2px;">${analysis.stats.errors}</div>
+          </div>
+          <div style="background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700;">Unidades Válidas</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-primary); margin-top: 2px;">${analysis.stats.totalQty}</div>
+          </div>
+          <div style="background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 700;">Volumen Total</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 2px;">${analysis.stats.totalVol.toFixed(4)} m³</div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.65rem;">
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;" id="admin-excel-preview-filters">
+            <button type="button" class="btn btn-sm preview-filter-btn active" data-filter="all" onclick="window.filterAdminExcelPreviewRows('all')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: var(--color-primary); color: white; border: 1px solid var(--color-primary); cursor: pointer;">
+              Todas (${analysis.stats.total})
+            </button>
+            <button type="button" class="btn btn-sm preview-filter-btn" data-filter="match" onclick="window.filterAdminExcelPreviewRows('match')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #059669; border: 1px solid rgba(16, 185, 129, 0.4); cursor: pointer;">
+              ✓ Coincidencias (${analysis.stats.matched})
+            </button>
+            <button type="button" class="btn btn-sm preview-filter-btn" data-filter="unmatched" onclick="window.filterAdminExcelPreviewRows('unmatched')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #d97706; border: 1px solid rgba(245, 158, 11, 0.4); cursor: pointer;">
+              ⚠️ Fuera de Catálogo (${analysis.stats.unmatched})
+            </button>
+            <button type="button" class="btn btn-sm preview-filter-btn" data-filter="error" onclick="window.filterAdminExcelPreviewRows('error')" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; border-radius: 5px; font-weight: 600; background: transparent; color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.4); cursor: pointer;">
+              ✗ Con Error (${analysis.stats.errors})
+            </button>
+          </div>
+          <div style="position: relative; width: 220px;">
+            <i class="ri-search-line" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.85rem; color: var(--color-text-muted);"></i>
+            <input type="text" id="admin-excel-preview-search" placeholder="Filtrar por SKU o nombre..." oninput="window.searchAdminExcelPreviewRows(this.value)" style="width: 100%; height: 30px; padding-left: 1.7rem; font-size: 0.78rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);">
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div style="border: 1px solid var(--color-border); border-radius: 8px; max-height: 340px; overflow-y: auto; background: var(--color-bg);">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem; margin: 0;">
+            <thead>
+              <tr style="position: sticky; top: 0; background: var(--color-surface); z-index: 2; border-bottom: 2px solid var(--color-border); font-size: 0.72rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing: 0.03em;">
+                <th style="padding: 8px 10px; width: 60px; text-align: center;"># Fila</th>
+                <th style="padding: 8px 10px; width: 140px;">SKU</th>
+                <th style="padding: 8px 10px;">Producto</th>
+                <th style="padding: 8px 10px; width: 70px; text-align: center;">Cant.</th>
+                <th style="padding: 8px 10px; width: 150px;">Medidas</th>
+                <th style="padding: 8px 10px; width: 130px; text-align: center;">Estado</th>
+                <th style="padding: 8px 10px;">Diagnóstico / Observación</th>
+              </tr>
+            </thead>
+            <tbody id="admin-excel-preview-tbody">
+              ${trs}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; flex-shrink: 0;">
+        <div style="font-size: 0.825rem; color: var(--color-text-muted);">
+          ${analysis.stats.errors > 0 ? `<span style="color: #dc2626; font-weight: 600;"><i class="ri-error-warning-line"></i> ${analysis.stats.errors} fila(s) no importable(s).</span> ` : ''}
+          <span>Listos para importar: <strong style="color: var(--color-text-main);">${analysis.stats.valid} productos</strong> (${analysis.stats.totalQty} unidades)</span>
+        </div>
+        <div style="display: flex; gap: 0.65rem; align-items: center;">
+          <button type="button" class="btn btn-outline" onclick="window.closeAdminDecSpreadsheetPreview(${isReopen})" style="padding: 0.5rem 1.15rem; font-size: 0.85rem; font-weight: 600;">
+            ${isReopen ? 'Cerrar Vista Previa' : 'Cancelar / Descartar'}
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-confirm-excel-preview" onclick="window.confirmAdminDecSpreadsheetImport()" ${analysis.stats.valid === 0 ? 'disabled' : ''} style="padding: 0.5rem 1.35rem; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; background: var(--color-success); border-color: var(--color-success); box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25); cursor: pointer;">
+            <i class="ri-check-line" style="font-size: 1.1rem;"></i> ${isReopen ? 'Volver a Cargar a la Declaración' : `Confirmar y Cargar (${analysis.stats.valid} productos)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+};
+
+window.filterAdminExcelPreviewRows = function(filter) {
+  const btns = document.querySelectorAll('#admin-excel-preview-filters .preview-filter-btn');
+  btns.forEach(b => {
+    if (b.getAttribute('data-filter') === filter) {
+      b.style.background = 'var(--color-primary)';
+      b.style.color = 'white';
+      b.style.borderColor = 'var(--color-primary)';
+    } else {
+      b.style.background = 'transparent';
+      b.style.borderColor = 'var(--color-border)';
+      if (b.getAttribute('data-filter') === 'match') b.style.color = '#059669';
+      else if (b.getAttribute('data-filter') === 'unmatched') b.style.color = '#d97706';
+      else if (b.getAttribute('data-filter') === 'error') b.style.color = '#dc2626';
+      else b.style.color = 'var(--color-text-muted)';
+    }
+  });
+
+  const searchVal = (document.getElementById('admin-excel-preview-search')?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('#admin-excel-preview-tbody .admin-excel-preview-row');
+  rows.forEach(r => {
+    const status = r.getAttribute('data-status');
+    const sku = r.getAttribute('data-sku') || '';
+    const name = r.getAttribute('data-name') || '';
+
+    const matchesFilter = (filter === 'all' || status === filter);
+    const matchesSearch = (!searchVal || sku.includes(searchVal) || name.includes(searchVal));
+
+    r.style.display = (matchesFilter && matchesSearch) ? '' : 'none';
+  });
+};
+
+window.searchAdminExcelPreviewRows = function(query) {
+  const q = (query || '').toLowerCase().trim();
+  const activeBtn = Array.from(document.querySelectorAll('#admin-excel-preview-filters .preview-filter-btn')).find(b => b.style.background.includes('primary'));
+  const activeFilter = activeBtn ? activeBtn.getAttribute('data-filter') : 'all';
+
+  const rows = document.querySelectorAll('#admin-excel-preview-tbody .admin-excel-preview-row');
+  rows.forEach(r => {
+    const status = r.getAttribute('data-status');
+    const sku = r.getAttribute('data-sku') || '';
+    const name = r.getAttribute('data-name') || '';
+
+    const matchesFilter = (activeFilter === 'all' || status === activeFilter);
+    const matchesSearch = (!q || sku.includes(q) || name.includes(q));
+
+    r.style.display = (matchesFilter && matchesSearch) ? '' : 'none';
+  });
+};
+
+window.confirmAdminDecSpreadsheetImport = function() {
+  const analysis = window.currentAdminDecAnalysis;
+  if (!analysis) return;
+
+  const validItems = analysis.items.filter(i => i.is_valid);
+  if (validItems.length === 0) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Sin productos válidos', 'No hay productos válidos para importar en la planilla seleccionada.', 'warning');
+    } else {
+      alert('No hay productos válidos para importar.');
+    }
+    return;
+  }
+
+  window.adminNewDecProducts = validItems.map(i => ({
+    sku: i.sku,
+    name: i.name,
+    qty: i.qty,
+    price: i.price,
+    subtotal: i.subtotal,
+    largo: i.largo,
+    ancho: i.ancho,
+    alto: i.alto,
+    vol: i.vol,
+    barcode: i.barcode,
+    in_catalog: i.in_catalog
+  }));
+
+  window.adminNewDecUploadedFileName = analysis.fileName;
+  window.adminNewDecUploadedFileBase64 = analysis.fileBase64;
+  window.adminNewDecSpreadsheetAnalysis = analysis;
+
+  // Auto-llenar volumen si hay volumen calculado
+  const volInp = document.getElementById('admin-new-dec-volume');
+  if (volInp && analysis.stats.totalVol > 0) {
+    volInp.value = analysis.stats.totalVol.toFixed(4);
+  }
+
+  // Actualizar banner en el contenedor de carga
+  const fileInfo = document.getElementById('admin-new-dec-file-info');
+  if (fileInfo) {
+    fileInfo.innerHTML = `
+      <div style="margin-top: 0.6rem; padding: 0.65rem 0.85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 32px; height: 32px; border-radius: 6px; background: rgba(16, 185, 129, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0;">
+            <i class="ri-file-excel-2-fill"></i>
+          </div>
+          <div>
+            <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.825rem;">${analysis.fileName}</div>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-top: 1px;">
+              <span style="color: #059669; font-weight: 600;"><i class="ri-check-line"></i> ${analysis.stats.matched} catálogo</span>
+              <span>&bull;</span>
+              <span style="color: #d97706; font-weight: 600;">${analysis.stats.unmatched} fuera catálogo</span>
+              ${analysis.stats.errors > 0 ? `<span>&bull;</span><span style="color: #dc2626; font-weight: 600;">${analysis.stats.errors} omitidas</span>` : ''}
+              <span>&bull;</span>
+              <span>${analysis.stats.totalQty} unidades</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" onclick="window.reopenAdminDecSpreadsheetPreview()" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; padding: 0.35rem 0.75rem; border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; cursor: pointer; border-radius: 6px;">
+          <i class="ri-eye-line"></i> Ver Vista Previa y Diagnóstico
+        </button>
+      </div>
+    `;
+  }
+
+  // Renderizar tabla y recalcular
+  window.renderAdminNewDecProductsTable();
+  window.recalculateAdminNewDecCosts();
+
+  // Cerrar modal de preview
+  const prevModal = document.getElementById('modal-admin-excel-preview');
+  if (prevModal) prevModal.remove();
+
+  if (typeof Swal !== 'undefined') {
+    const Toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true
+    });
+    Toast.fire({
+      icon: 'success',
+      title: `Planilla cargada: ${validItems.length} productos agregados a la declaración.`
+    });
+  }
+};
+
+window.closeAdminDecSpreadsheetPreview = function(isReopen) {
+  const prevModal = document.getElementById('modal-admin-excel-preview');
+  if (prevModal) prevModal.remove();
+
+  if (!isReopen) {
+    const fileInput = document.getElementById('admin-new-dec-file-input');
+    if (fileInput) fileInput.value = '';
+    const fileInfo = document.getElementById('admin-new-dec-file-info');
+    if (fileInfo && (!window.adminNewDecProducts || window.adminNewDecProducts.length === 0)) {
+      fileInfo.innerHTML = '';
+    }
+  }
+};
+
+window.reopenAdminDecSpreadsheetPreview = function() {
+  if (window.adminNewDecSpreadsheetAnalysis) {
+    window.currentAdminDecAnalysis = window.adminNewDecSpreadsheetAnalysis;
+    window.showAdminDecSpreadsheetPreviewModal(window.adminNewDecSpreadsheetAnalysis, true);
+  } else if (window.currentAdminDecAnalysis) {
+    window.showAdminDecSpreadsheetPreviewModal(window.currentAdminDecAnalysis, true);
+  }
+};
 
 window.initAdminNewDeclarationModalDom = function() {
   if (document.getElementById('modal-admin-new-declaration')) return;
@@ -40804,25 +41242,6 @@ window.initAdminNewDeclarationModalDom = function() {
                 <i class="ri-add-line"></i> + Producto Fuera de Catálogo
               </button>
             </div>
-
-            <!-- Tabla de Productos Seleccionados -->
-            <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); max-height: 320px; overflow-y: auto;">
-              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.825rem; margin: 0;">
-                <thead>
-                  <tr style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; border-bottom: 2px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted);">
-                    <th style="padding: 8px 12px; text-align: left;">SKU y Medidas</th>
-                    <th style="padding: 8px 12px; text-align: left;">Producto</th>
-                    <th style="padding: 8px 12px; text-align: center; width: 110px;">Cant. Declarada</th>
-                    <th style="padding: 8px 12px; text-align: right; width: 110px;">Valor Unit.</th>
-                    <th style="padding: 8px 12px; text-align: right; width: 120px;">Subtotal</th>
-                    <th style="padding: 8px 12px; text-align: center; width: 45px;"></th>
-                  </tr>
-                </thead>
-                <tbody id="admin-new-dec-products-tbody">
-                  <tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Selecciona un comercio arriba y busca productos para agregar.</td></tr>
-                </tbody>
-              </table>
-            </div>
           </div>
 
           <!-- Contenedor Modo Planilla Excel -->
@@ -40830,14 +41249,40 @@ window.initAdminNewDeclarationModalDom = function() {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
               <div>
                 <strong style="color: var(--color-text-main); font-size: 0.85rem;"><i class="ri-file-excel-2-line" style="color: #059669;"></i> Importar Planilla de Productos</strong>
-                <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Sube la planilla Excel (.xlsx, .xls) o CSV con el listado de productos a recibir.</p>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+                  Compatible con la <strong>Planilla del Cliente (SKU + Cantidad + Medidas opcionales)</strong> o la planilla detallada.
+                </p>
               </div>
-              <button type="button" class="btn btn-sm btn-outline" onclick="window.downloadDeclarationsTemplate()" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; border-color: rgba(16, 185, 129, 0.5); color: #059669; cursor: pointer;">
-                <i class="ri-download-cloud-line"></i> Descargar Planilla Tipo
-              </button>
+              <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-sm" onclick="window.downloadAdminNewDecSkuTemplate()" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; background: #059669; color: white; border: 1px solid #059669; border-radius: 6px; padding: 0.35rem 0.7rem; cursor: pointer; font-weight: 600;" title="Descargar plantilla de 5 columnas igual a la del cliente (SKU, Cantidad, Largo, Ancho, Alto)">
+                  <i class="ri-download-cloud-line"></i> Plantilla SKU Cliente (5 col)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" onclick="window.downloadDeclarationsTemplate()" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; border-color: rgba(16, 185, 129, 0.5); color: #059669; border-radius: 6px; padding: 0.35rem 0.7rem; cursor: pointer;" title="Descargar plantilla detallada de 11 columnas">
+                  <i class="ri-file-list-line"></i> Planilla Detallada (11 col)
+                </button>
+              </div>
             </div>
             <input type="file" id="admin-new-dec-file-input" class="form-input" accept=".xlsx, .xls, .csv" style="width: 100%; background: var(--color-surface); font-size: 0.85rem;">
             <div id="admin-new-dec-file-info" style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--color-text-muted); font-style: italic;"></div>
+          </div>
+
+          <!-- Tabla de Productos Seleccionados (Visible en ambos modos) -->
+          <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); max-height: 320px; overflow-y: auto;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.825rem; margin: 0;">
+              <thead>
+                <tr style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; border-bottom: 2px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted);">
+                  <th style="padding: 8px 12px; text-align: left;">SKU y Medidas</th>
+                  <th style="padding: 8px 12px; text-align: left;">Producto</th>
+                  <th style="padding: 8px 12px; text-align: center; width: 110px;">Cant. Declarada</th>
+                  <th style="padding: 8px 12px; text-align: right; width: 110px;">Valor Unit.</th>
+                  <th style="padding: 8px 12px; text-align: right; width: 120px;">Subtotal</th>
+                  <th style="padding: 8px 12px; text-align: center; width: 45px;"></th>
+                </tr>
+              </thead>
+              <tbody id="admin-new-dec-products-tbody">
+                <tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Selecciona un comercio arriba y busca productos o sube una planilla.</td></tr>
+              </tbody>
+            </table>
           </div>
 
           <!-- Resumen de Totales al pie de la tabla -->
@@ -41084,9 +41529,34 @@ window.initAdminNewDeclarationModalDom = function() {
       if (!file) return;
 
       const fileInfo = document.getElementById('admin-new-dec-file-info');
-      if (fileInfo) fileInfo.innerHTML = `<i class="ri-loader-4-line animate-spin"></i> Leyendo planilla "${file.name}"...`;
+      const comSelect = document.getElementById('admin-new-dec-commerce');
+      const commerce = comSelect ? comSelect.value.trim() : '';
+
+      if (!commerce) {
+        if (fileInfo) fileInfo.innerHTML = `<span style="color: var(--color-danger); font-weight: 600;"><i class="ri-alert-line"></i> Por favor selecciona primero el Comercio Asociado antes de cargar la planilla.</span>`;
+        fileInput.value = '';
+        return;
+      }
+
+      if (fileInfo) fileInfo.innerHTML = `<i class="ri-loader-4-line animate-spin"></i> Leyendo planilla y validando contra catálogo de ${commerce}...`;
 
       try {
+        // Asegurar que el catálogo del comercio esté cargado para cruzar SKUs
+        if (!window.adminNewDecCatalogCache || window.adminNewDecCatalogCache.length === 0) {
+          try {
+            await window.handleAdminNewDecCommerceChange(commerce);
+          } catch (cErr) {
+            console.warn('Aviso cargando catálogo para cruce Excel:', cErr);
+          }
+        }
+
+        const catalogBySku = new Map();
+        (window.adminNewDecCatalogCache || []).forEach(cp => {
+          if (cp.sku) {
+            catalogBySku.set(String(cp.sku).trim().toUpperCase(), cp);
+          }
+        });
+
         const reader = new FileReader();
         reader.onload = async (evt) => {
           try {
@@ -41099,40 +41569,173 @@ window.initAdminNewDeclarationModalDom = function() {
               throw new Error('La planilla no contiene filas de datos.');
             }
 
-            const headerRow = rows[0];
-            const skuIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('sku'));
-            const nameIdx = headerRow.findIndex(h => h && (h.toString().toLowerCase().includes('nombre') || h.toString().toLowerCase().includes('producto')));
-            const qtyIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('cantidad'));
-            const priceIdx = headerRow.findIndex(h => h && (h.toString().toLowerCase().includes('valor') || h.toString().toLowerCase().includes('precio')));
-            const barcodeIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('barra'));
-            const largoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('largo'));
-            const anchoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('ancho'));
-            const altoIdx = headerRow.findIndex(h => h && h.toString().toLowerCase().includes('alto'));
+            const normalizeH = (str) => String(str || '')
+              .trim()
+              .toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]/g, '');
+
+            const headerRow = rows[0] || [];
+            let skuIdx = -1, nameIdx = -1, qtyIdx = -1, priceIdx = -1, barcodeIdx = -1, largoIdx = -1, anchoIdx = -1, altoIdx = -1;
+
+            headerRow.forEach((h, colIdx) => {
+              const norm = normalizeH(h);
+              if (skuIdx === -1 && (norm === 'sku' || norm === 'codigo' || norm === 'cod' || norm.includes('sku') || norm === 'identificador')) skuIdx = colIdx;
+              if (nameIdx === -1 && (norm === 'nombreproducto' || norm === 'nombre' || norm === 'producto' || norm.includes('producto'))) nameIdx = colIdx;
+              if (qtyIdx === -1 && (norm === 'cantidad' || norm === 'cantidaddeclarada' || norm === 'cant' || norm === 'qty' || norm === 'unidades' || norm.includes('cantidad') || norm.includes('cant') || norm === 'unidadesdeclaradas')) qtyIdx = colIdx;
+              if (priceIdx === -1 && (norm === 'valor' || norm === 'precio' || norm === 'valordeclarado' || norm.includes('valor') || norm.includes('precio'))) priceIdx = colIdx;
+              if (barcodeIdx === -1 && (norm === 'codigodebarra' || norm === 'codigobarra' || norm === 'barcode' || norm.includes('barra'))) barcodeIdx = colIdx;
+              if (largoIdx === -1 && (norm === 'largo' || norm === 'largocm' || norm.includes('largo'))) largoIdx = colIdx;
+              if (anchoIdx === -1 && (norm === 'ancho' || norm === 'anchocm' || norm.includes('ancho'))) anchoIdx = colIdx;
+              if (altoIdx === -1 && (norm === 'alto' || norm === 'altocm' || norm.includes('alto'))) altoIdx = colIdx;
+            });
 
             if (skuIdx === -1 && nameIdx === -1) {
-              throw new Error('No se encontró la columna "SKU" o "Nombre Producto" en el encabezado de la planilla.');
+              throw new Error('No se encontró la columna "SKU" en el encabezado de la planilla.');
             }
 
-            const parsed = [];
+            const analysisItems = [];
+
             for (let i = 1; i < rows.length; i++) {
               const row = rows[i];
               if (!row || row.length === 0) continue;
-              const isEmpty = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+              const isEmpty = row.every(val => val === null || val === undefined || String(val).trim() === '');
               if (isEmpty) continue;
 
-              const sku = skuIdx !== -1 && row[skuIdx] ? row[skuIdx].toString().trim() : `ITEM-${i}`;
-              const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx].toString().trim() : sku;
-              const qty = qtyIdx !== -1 ? (parseInt(row[qtyIdx], 10) || 0) : 1;
-              const price = priceIdx !== -1 ? (parseFloat(row[priceIdx]) || 0) : 0;
-              const barcode = barcodeIdx !== -1 && row[barcodeIdx] ? row[barcodeIdx].toString().trim() : '';
-              const largo = largoIdx !== -1 ? (parseFloat(row[largoIdx]) || null) : null;
-              const ancho = anchoIdx !== -1 ? (parseFloat(row[anchoIdx]) || null) : null;
-              const alto = altoIdx !== -1 ? (parseFloat(row[altoIdx]) || null) : null;
-              const vol = (largo && ancho && alto) ? ((largo * ancho * alto) / 1000000) : 0;
+              const excelRowNumber = i + 1;
+              const rawSku = skuIdx !== -1 && row[skuIdx] !== undefined && row[skuIdx] !== null ? String(row[skuIdx]).trim() : '';
+              const rawName = nameIdx !== -1 && row[nameIdx] !== undefined && row[nameIdx] !== null ? String(row[nameIdx]).trim() : '';
+              const rawQty = qtyIdx !== -1 ? row[qtyIdx] : undefined;
+              const rawPrice = priceIdx !== -1 ? row[priceIdx] : undefined;
+              const rawBarcode = barcodeIdx !== -1 && row[barcodeIdx] !== undefined && row[barcodeIdx] !== null ? String(row[barcodeIdx]).trim() : '';
+              const rawLargo = largoIdx !== -1 ? row[largoIdx] : undefined;
+              const rawAncho = anchoIdx !== -1 ? row[anchoIdx] : undefined;
+              const rawAlto = altoIdx !== -1 ? row[altoIdx] : undefined;
 
-              parsed.push({
-                sku,
-                name,
+              // Error check 1: Falta SKU
+              if (!rawSku) {
+                analysisItems.push({
+                  rowNumber: excelRowNumber,
+                  sku: '',
+                  name: rawName || '(Sin SKU)',
+                  rawQty: rawQty !== undefined && rawQty !== null ? String(rawQty) : '',
+                  qty: 0,
+                  price: 0,
+                  subtotal: 0,
+                  largo: null,
+                  ancho: null,
+                  alto: null,
+                  vol: 0,
+                  barcode: '',
+                  status: 'error',
+                  statusText: 'Error: Falta SKU',
+                  detail: 'La fila no contiene un código SKU (campo obligatorio).',
+                  in_catalog: false,
+                  is_valid: false
+                });
+                continue;
+              }
+
+              // Error check 2: Cantidad inválida
+              let cleanQty = String(rawQty !== undefined && rawQty !== null ? rawQty : '').trim().replace(',', '.');
+              let numQty = parseFloat(cleanQty);
+              if (rawQty === undefined || rawQty === null || cleanQty === '' || isNaN(numQty) || numQty <= 0) {
+                analysisItems.push({
+                  rowNumber: excelRowNumber,
+                  sku: rawSku,
+                  name: rawName || rawSku,
+                  rawQty: rawQty !== undefined && rawQty !== null ? String(rawQty) : 'Vacía',
+                  qty: 0,
+                  price: 0,
+                  subtotal: 0,
+                  largo: null,
+                  ancho: null,
+                  alto: null,
+                  vol: 0,
+                  barcode: rawBarcode,
+                  status: 'error',
+                  statusText: 'Error: Cantidad inválida',
+                  detail: `Cantidad declarada no válida ("${rawQty !== undefined && rawQty !== null ? String(rawQty) : 'vacía'}"). Debe ser un número mayor a 0.`,
+                  in_catalog: false,
+                  is_valid: false
+                });
+                continue;
+              }
+
+              const qty = Math.round(numQty);
+
+              // Cruzar con Catálogo Master del comercio
+              const upperSku = rawSku.toUpperCase();
+              const catProd = catalogBySku.get(upperSku);
+
+              let name = rawSku;
+              let price = 0;
+              let barcode = rawBarcode;
+              let largo = null;
+              let ancho = null;
+              let alto = null;
+              let vol = 0;
+
+              let sheetHasDims = false;
+              if (rawLargo !== undefined && rawLargo !== null && String(rawLargo).trim() !== '') {
+                const l = parseFloat(String(rawLargo).replace(',', '.'));
+                if (!isNaN(l) && l > 0) { largo = Math.round(l); sheetHasDims = true; }
+              }
+              if (rawAncho !== undefined && rawAncho !== null && String(rawAncho).trim() !== '') {
+                const an = parseFloat(String(rawAncho).replace(',', '.'));
+                if (!isNaN(an) && an > 0) { ancho = Math.round(an); sheetHasDims = true; }
+              }
+              if (rawAlto !== undefined && rawAlto !== null && String(rawAlto).trim() !== '') {
+                const al = parseFloat(String(rawAlto).replace(',', '.'));
+                if (!isNaN(al) && al > 0) { alto = Math.round(al); sheetHasDims = true; }
+              }
+
+              if (rawPrice !== undefined && rawPrice !== null && String(rawPrice).trim() !== '') {
+                const p = parseFloat(String(rawPrice).replace(',', '.'));
+                if (!isNaN(p) && p >= 0) price = p;
+              }
+
+              if (rawName) {
+                name = rawName;
+              }
+
+              let status = 'match';
+              let detail = '';
+
+              if (catProd) {
+                status = 'match';
+                if (!rawName && catProd.name) name = catProd.name;
+                if (price === 0 && catProd.price) price = parseFloat(catProd.price) || 0;
+                if (!barcode && catProd.barcode) barcode = catProd.barcode;
+
+                // Si la planilla no trajo medidas, tomar las del catálogo
+                if ((!largo || !ancho || !alto) && catProd.largo && catProd.ancho && catProd.alto) {
+                  largo = Math.round(parseFloat(catProd.largo));
+                  ancho = Math.round(parseFloat(catProd.ancho));
+                  alto = Math.round(parseFloat(catProd.alto));
+                }
+
+                if (largo && ancho && alto) {
+                  vol = (largo * ancho * alto) / 1000000;
+                } else if (catProd.volumen) {
+                  vol = parseFloat(catProd.volumen) || 0;
+                }
+
+                const dimsSource = sheetHasDims ? 'Medidas de la planilla' : (largo ? 'Medidas del catálogo master' : 'Sin medidas');
+                detail = `✓ Coincidencia en Catálogo Master. Nombre y precio autocompletados (${dimsSource}).`;
+              } else {
+                status = 'unmatched';
+                if (largo && ancho && alto) {
+                  vol = (largo * ancho * alto) / 1000000;
+                }
+                detail = `⚠️ SKU no encontrado en el catálogo de ${commerce}. Se registrará como producto fuera de catálogo.`;
+              }
+
+              analysisItems.push({
+                rowNumber: excelRowNumber,
+                sku: rawSku,
+                name: name || rawSku,
+                rawQty: String(qty),
                 qty,
                 price,
                 subtotal: qty * price,
@@ -41140,36 +41743,69 @@ window.initAdminNewDeclarationModalDom = function() {
                 ancho,
                 alto,
                 vol,
-                barcode
+                barcode,
+                status,
+                statusText: status === 'match' ? 'Coincidencia' : 'Fuera de catálogo',
+                detail,
+                in_catalog: !!catProd,
+                is_valid: true
               });
             }
 
-            window.adminNewDecProducts = parsed;
-            window.adminNewDecUploadedFileName = file.name;
+            const matchedRows = analysisItems.filter(i => i.status === 'match');
+            const unmatchedRows = analysisItems.filter(i => i.status === 'unmatched');
+            const errorRows = analysisItems.filter(i => i.status === 'error');
+            const validRows = analysisItems.filter(i => i.is_valid);
+            const totalQty = validRows.reduce((acc, i) => acc + (i.qty || 0), 0);
+            const totalVol = validRows.reduce((acc, i) => acc + ((i.vol || 0) * (i.qty || 0)), 0);
 
             // Convertir a base64
             let binary = '';
             for (let i = 0; i < data.byteLength; i++) {
               binary += String.fromCharCode(data[i]);
             }
-            window.adminNewDecUploadedFileBase64 = window.btoa(binary);
+            const fileBase64 = window.btoa(binary);
+
+            const analysis = {
+              fileName: file.name,
+              commerce,
+              fileBase64,
+              items: analysisItems,
+              stats: {
+                total: analysisItems.length,
+                matched: matchedRows.length,
+                unmatched: unmatchedRows.length,
+                errors: errorRows.length,
+                valid: validRows.length,
+                totalQty,
+                totalVol
+              }
+            };
+
+            window.currentAdminDecAnalysis = analysis;
 
             if (fileInfo) {
-              fileInfo.innerHTML = `<span style="color: var(--color-success); font-weight: 600;"><i class="ri-check-line"></i> ${file.name} cargado: ${parsed.length} productos detectados.</span>`;
+              fileInfo.innerHTML = `
+                <div style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                  <span style="color: var(--color-success); font-weight: 600;">
+                    <i class="ri-checkbox-circle-line"></i> "${file.name}" analizado: ${analysis.stats.matched} coincidencias, ${analysis.stats.unmatched} fuera de catálogo${analysis.stats.errors > 0 ? `, ${analysis.stats.errors} con errores` : ''}.
+                  </span>
+                  <button type="button" class="btn btn-sm btn-outline" onclick="window.reopenAdminDecSpreadsheetPreview()" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; border-color: var(--color-primary); color: var(--color-primary); padding: 0.3rem 0.65rem; border-radius: 6px; cursor: pointer;">
+                    <i class="ri-eye-line"></i> Ver Vista Previa y Diagnóstico
+                  </button>
+                </div>
+              `;
             }
 
-            window.renderAdminNewDecProductsTable();
-
-            // Si hay productos con volumen, auto-rellenar volumen
-            const totalVolFromProds = parsed.reduce((acc, p) => acc + ((p.vol || 0) * (p.qty || 1)), 0);
-            if (totalVolFromProds > 0 && parseFloat(volInp.value || '0') === 0) {
-              volInp.value = totalVolFromProds.toFixed(4);
-              window.recalculateAdminNewDecCosts();
-            }
+            // Mostrar inmediatamente la vista previa modal interactiva
+            window.showAdminDecSpreadsheetPreviewModal(analysis, false);
 
           } catch (pErr) {
             console.error('Error parseando planilla Excel:', pErr);
             if (fileInfo) fileInfo.innerHTML = `<span style="color: var(--color-danger); font-weight: 600;"><i class="ri-error-warning-line"></i> Error: ${pErr.message}</span>`;
+            if (typeof Swal !== 'undefined') {
+              Swal.fire('Error al Leer Planilla', pErr.message, 'error');
+            }
           }
         };
         reader.readAsArrayBuffer(file);
@@ -41191,7 +41827,12 @@ window.openAdminNewDeclarationModal = async function() {
   window.adminNewDecCatalogCache = [];
   window.adminNewDecUploadedFileBase64 = '';
   window.adminNewDecUploadedFileName = '';
-  window.adminNewDecCommerceMap.clear();
+  window.adminNewDecSpreadsheetAnalysis = null;
+  window.currentAdminDecAnalysis = null;
+  const initFileInput = document.getElementById('admin-new-dec-file-input');
+  if (initFileInput) initFileInput.value = '';
+  const initFileInfo = document.getElementById('admin-new-dec-file-info');
+  if (initFileInfo) initFileInfo.innerHTML = '';
 
   const alertContainer = document.getElementById('admin-new-dec-alert-container');
   if (alertContainer) alertContainer.innerHTML = '';
@@ -41347,6 +41988,14 @@ window.handleAdminNewDecCommerceChange = async function(commerce) {
   const badgeEl = document.getElementById('admin-new-dec-commerce-catalog-badge');
   const searchInput = document.getElementById('admin-new-dec-prod-search');
 
+  // Resetear estados de planilla asociados al comercio anterior
+  window.adminNewDecSpreadsheetAnalysis = null;
+  window.currentAdminDecAnalysis = null;
+  const fInput = document.getElementById('admin-new-dec-file-input');
+  if (fInput) fInput.value = '';
+  const fInfo = document.getElementById('admin-new-dec-file-info');
+  if (fInfo) fInfo.innerHTML = '';
+
   if (!commerce) {
     window.adminNewDecCatalogCache = [];
     if (badgeEl) badgeEl.textContent = '';
@@ -41402,6 +42051,9 @@ window.renderAdminNewDecProductsTable = function() {
         </td>
         <td style="padding: 8px 12px; vertical-align: middle; font-weight: 500; color: var(--color-text-main); font-size: 0.85rem;">
           ${p.name || 'Sin nombre'}
+          ${p.in_catalog === false 
+            ? '<span class="badge" style="font-size: 0.68rem; background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 5px; border-radius: 3px; margin-left: 6px; font-weight: 600;" title="Este SKU no fue encontrado en el Catálogo Master del comercio"><i class="ri-alert-line"></i> Fuera de catálogo</span>' 
+            : '<span class="badge" style="font-size: 0.68rem; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 1px 5px; border-radius: 3px; margin-left: 6px; font-weight: 600;" title="Producto validado en Catálogo Master"><i class="ri-check-line"></i> Catálogo</span>'}
         </td>
         <td style="padding: 8px 12px; vertical-align: middle; text-align: center;">
           <input type="number" min="1" value="${p.qty}" 
