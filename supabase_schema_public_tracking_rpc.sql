@@ -1,19 +1,10 @@
 -- ========================================================
--- WMS STOCKA: RPC get_customer_tracking con Soporte de Tokens Ocultos
+-- WMS STOCKA: RPC get_customer_tracking con Picking Seguro y Rastreo Directo Optiroute
 -- ========================================================
 
--- 1. Eliminar versiones anteriores sobrecargadas para evitar conflicto
-DROP FUNCTION IF EXISTS public.get_customer_tracking(text, text);
-DROP FUNCTION IF EXISTS public.get_customer_tracking(text, text, text);
 DROP FUNCTION IF EXISTS public.get_customer_tracking(text, text, text, text);
 DROP FUNCTION IF EXISTS public.get_customer_tracking;
 
--- 2. Índice para token de Shopify
-CREATE INDEX IF NOT EXISTS idx_orders_shopify_token 
-ON public.orders (((raw_shopify_data->>'token'))) 
-WHERE (raw_shopify_data->>'token') IS NOT NULL;
-
--- 3. Crear la función actualizada con soporte de p_token
 CREATE OR REPLACE FUNCTION public.get_customer_tracking(
   p_email text DEFAULT NULL,
   p_order_number text DEFAULT NULL,
@@ -35,9 +26,8 @@ DECLARE
   v_formatted_token text;
   v_num_only text;
 BEGIN
-  -- 0. Rama Prioritaria: Búsqueda por Token Anónimo Oculto (Zero PII en URL)
+  -- 0. Parsear Token si fue proporcionado
   IF v_clean_token <> '' THEN
-    -- Normalizar a formato UUID si tiene 32 o 36 caracteres hex
     IF v_clean_token ~ '^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$' THEN
       v_formatted_token := replace(v_clean_token, '-', '');
       v_formatted_token := SUBSTRING(v_formatted_token FROM 1 FOR 8) || '-' ||
@@ -52,8 +42,8 @@ BEGIN
       END;
     END IF;
 
+    -- Rama A: Token UUID
     IF v_token_uuid IS NOT NULL THEN
-      -- Búsqueda directa por Primary Key (orders_pkey, sub-milisegundo)
       SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
           'id', o.id,
@@ -73,6 +63,9 @@ BEGIN
               OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+              OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%delivered%'
+              OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%delivered%'
+              OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
               OR EXISTS (
@@ -103,6 +96,7 @@ BEGIN
           'created_at', o.created_at,
           'delivered_at', CASE
             WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+            WHEN opti.opti_completed_at IS NOT NULL THEN opti.opti_completed_at
             ELSE (
               SELECT eu.updated_at::text 
               FROM public.envios_unificados eu 
@@ -110,17 +104,57 @@ BEGIN
                 AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
               LIMIT 1
             )
-          END
+          END,
+          'picking_info', jsonb_build_object(
+            'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
+            'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
+            'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+            'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
+            'items', (
+              SELECT COALESCE(jsonb_agg(
+                jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+              ), '[]'::jsonb)
+              FROM public.order_items oi
+              LEFT JOIN public.products p ON p.id = oi.product_id
+              WHERE oi.order_id = o.id
+            )
+          ),
+          'optiroute_info', jsonb_build_object(
+            'is_optiroute', (opti.opti_status IS NOT NULL OR o.operador ILIKE '%STOCKA%' OR o.courier ILIKE '%OPTIROUTE%' OR o.operador ILIKE '%SAME DAY%'),
+            'status_title', COALESCE(opti.opti_status_title, opti.opti_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'En Ruta' ELSE o.estado_wms END),
+            'service_type', COALESCE(opti.opti_service_type, 'Stocka Express (Same Day / 24 hrs)'),
+            'vehicle', opti.opti_vehicle,
+            'route_started_at', opti.opti_route_started_at,
+            'delivered_at', opti.opti_completed_at,
+            'reception_name', opti.opti_reception_name,
+            'proof_image', opti.proof_image
+          )
         )
       ), '[]'::jsonb)
       INTO v_results
       FROM public.orders o
+      LEFT JOIN LATERAL (
+        SELECT 
+          opt.status as opti_status,
+          opt.servicio_tipo_envio as opti_service_type,
+          opt.raw_data->'assigned_vehicle'->>'name' as opti_vehicle,
+          opt.raw_data->>'route_started_at' as opti_route_started_at,
+          opt.raw_data->>'completed_at' as opti_completed_at,
+          opt.raw_data->>'status_title' as opti_status_title,
+          COALESCE(opt.raw_data->'images'->0->>'url', opt.raw_data->'waypoint'->'images'->0->>'url') as proof_image,
+          opt.raw_data->'waypoint'->>'reception_name' as opti_reception_name
+        FROM public.optiroute_orders opt
+        WHERE (opt.referencia = o.external_order_number 
+           OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND opt.tracking = o.tracking_number))
+        ORDER BY opt.created_at DESC
+        LIMIT 1
+      ) opti ON TRUE
       WHERE o.id = v_token_uuid;
 
       RETURN v_results;
 
     ELSE
-      -- Búsqueda por token de Shopify con índice
+      -- Rama B: Token Shopify
       SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
           'id', o.id,
@@ -140,6 +174,9 @@ BEGIN
               OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+              OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%delivered%'
+              OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%delivered%'
+              OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
               OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
               OR EXISTS (
@@ -170,6 +207,7 @@ BEGIN
           'created_at', o.created_at,
           'delivered_at', CASE
             WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+            WHEN opti.opti_completed_at IS NOT NULL THEN opti.opti_completed_at
             ELSE (
               SELECT eu.updated_at::text 
               FROM public.envios_unificados eu 
@@ -177,11 +215,51 @@ BEGIN
                 AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
               LIMIT 1
             )
-          END
+          END,
+          'picking_info', jsonb_build_object(
+            'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
+            'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
+            'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+            'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
+            'items', (
+              SELECT COALESCE(jsonb_agg(
+                jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+              ), '[]'::jsonb)
+              FROM public.order_items oi
+              LEFT JOIN public.products p ON p.id = oi.product_id
+              WHERE oi.order_id = o.id
+            )
+          ),
+          'optiroute_info', jsonb_build_object(
+            'is_optiroute', (opti.opti_status IS NOT NULL OR o.operador ILIKE '%STOCKA%' OR o.courier ILIKE '%OPTIROUTE%' OR o.operador ILIKE '%SAME DAY%'),
+            'status_title', COALESCE(opti.opti_status_title, opti.opti_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'En Ruta' ELSE o.estado_wms END),
+            'service_type', COALESCE(opti.opti_service_type, 'Stocka Express (Same Day / 24 hrs)'),
+            'vehicle', opti.opti_vehicle,
+            'route_started_at', opti.opti_route_started_at,
+            'delivered_at', opti.opti_completed_at,
+            'reception_name', opti.opti_reception_name,
+            'proof_image', opti.proof_image
+          )
         )
       ), '[]'::jsonb)
       INTO v_results
       FROM public.orders o
+      LEFT JOIN LATERAL (
+        SELECT 
+          opt.status as opti_status,
+          opt.servicio_tipo_envio as opti_service_type,
+          opt.raw_data->'assigned_vehicle'->>'name' as opti_vehicle,
+          opt.raw_data->>'route_started_at' as opti_route_started_at,
+          opt.raw_data->>'completed_at' as opti_completed_at,
+          opt.raw_data->>'status_title' as opti_status_title,
+          COALESCE(opt.raw_data->'images'->0->>'url', opt.raw_data->'waypoint'->'images'->0->>'url') as proof_image,
+          opt.raw_data->'waypoint'->>'reception_name' as opti_reception_name
+        FROM public.optiroute_orders opt
+        WHERE (opt.referencia = o.external_order_number 
+           OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND opt.tracking = o.tracking_number))
+        ORDER BY opt.created_at DESC
+        LIMIT 1
+      ) opti ON TRUE
       WHERE (o.raw_shopify_data->>'token') = v_clean_token
       LIMIT 1;
 
@@ -194,10 +272,9 @@ BEGIN
     v_clean_order := SUBSTRING(v_clean_order FROM 2);
   END IF;
 
-  -- Extraer solo dígitos de la orden para comparación numérica flexible
   v_num_only := regexp_replace(v_clean_order, '[^0-9]', '', 'g');
 
-  -- 1. Validación Cruzada (Orden + Correo con soporte de prefijos)
+  -- 1. Validación Cruzada (Orden + Correo)
   IF v_clean_email <> '' AND v_clean_order <> '' THEN
     SELECT COALESCE(jsonb_agg(
       jsonb_build_object(
@@ -218,6 +295,9 @@ BEGIN
             OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
             OR EXISTS (
@@ -248,6 +328,7 @@ BEGIN
         'created_at', o.created_at,
         'delivered_at', CASE
           WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          WHEN opti.opti_completed_at IS NOT NULL THEN opti.opti_completed_at
           ELSE (
             SELECT eu.updated_at::text 
             FROM public.envios_unificados eu 
@@ -255,11 +336,51 @@ BEGIN
               AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
             LIMIT 1
           )
-        END
+        END,
+        'picking_info', jsonb_build_object(
+          'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
+          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
+          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
+          'items', (
+            SELECT COALESCE(jsonb_agg(
+              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+            ), '[]'::jsonb)
+            FROM public.order_items oi
+            LEFT JOIN public.products p ON p.id = oi.product_id
+            WHERE oi.order_id = o.id
+          )
+        ),
+        'optiroute_info', jsonb_build_object(
+          'is_optiroute', (opti.opti_status IS NOT NULL OR o.operador ILIKE '%STOCKA%' OR o.courier ILIKE '%OPTIROUTE%' OR o.operador ILIKE '%SAME DAY%'),
+          'status_title', COALESCE(opti.opti_status_title, opti.opti_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'En Ruta' ELSE o.estado_wms END),
+          'service_type', COALESCE(opti.opti_service_type, 'Stocka Express (Same Day / 24 hrs)'),
+          'vehicle', opti.opti_vehicle,
+          'route_started_at', opti.opti_route_started_at,
+          'delivered_at', opti.opti_completed_at,
+          'reception_name', opti.opti_reception_name,
+          'proof_image', opti.proof_image
+        )
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results
     FROM public.orders o
+    LEFT JOIN LATERAL (
+      SELECT 
+        opt.status as opti_status,
+        opt.servicio_tipo_envio as opti_service_type,
+        opt.raw_data->'assigned_vehicle'->>'name' as opti_vehicle,
+        opt.raw_data->>'route_started_at' as opti_route_started_at,
+        opt.raw_data->>'completed_at' as opti_completed_at,
+        opt.raw_data->>'status_title' as opti_status_title,
+        COALESCE(opt.raw_data->'images'->0->>'url', opt.raw_data->'waypoint'->'images'->0->>'url') as proof_image,
+        opt.raw_data->'waypoint'->>'reception_name' as opti_reception_name
+      FROM public.optiroute_orders opt
+      WHERE (opt.referencia = o.external_order_number 
+         OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND opt.tracking = o.tracking_number))
+      ORDER BY opt.created_at DESC
+      LIMIT 1
+    ) opti ON TRUE
     WHERE 
       LOWER(TRIM(COALESCE(o.customer_email, ''))) = v_clean_email
       AND (
@@ -291,6 +412,9 @@ BEGIN
             OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
             OR EXISTS (
@@ -321,6 +445,7 @@ BEGIN
         'created_at', o.created_at,
         'delivered_at', CASE
           WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          WHEN opti.opti_completed_at IS NOT NULL THEN opti.opti_completed_at
           ELSE (
             SELECT eu.updated_at::text 
             FROM public.envios_unificados eu 
@@ -328,15 +453,55 @@ BEGIN
               AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
             LIMIT 1
           )
-        END
+        END,
+        'picking_info', jsonb_build_object(
+          'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
+          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
+          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
+          'items', (
+            SELECT COALESCE(jsonb_agg(
+              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+            ), '[]'::jsonb)
+            FROM public.order_items oi
+            LEFT JOIN public.products p ON p.id = oi.product_id
+            WHERE oi.order_id = o.id
+          )
+        ),
+        'optiroute_info', jsonb_build_object(
+          'is_optiroute', (opti.opti_status IS NOT NULL OR o.operador ILIKE '%STOCKA%' OR o.courier ILIKE '%OPTIROUTE%' OR o.operador ILIKE '%SAME DAY%'),
+          'status_title', COALESCE(opti.opti_status_title, opti.opti_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'En Ruta' ELSE o.estado_wms END),
+          'service_type', COALESCE(opti.opti_service_type, 'Stocka Express (Same Day / 24 hrs)'),
+          'vehicle', opti.opti_vehicle,
+          'route_started_at', opti.opti_route_started_at,
+          'delivered_at', opti.opti_completed_at,
+          'reception_name', opti.opti_reception_name,
+          'proof_image', opti.proof_image
+        )
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results
     FROM public.orders o
+    LEFT JOIN LATERAL (
+      SELECT 
+        opt.status as opti_status,
+        opt.servicio_tipo_envio as opti_service_type,
+        opt.raw_data->'assigned_vehicle'->>'name' as opti_vehicle,
+        opt.raw_data->>'route_started_at' as opti_route_started_at,
+        opt.raw_data->>'completed_at' as opti_completed_at,
+        opt.raw_data->>'status_title' as opti_status_title,
+        COALESCE(opt.raw_data->'images'->0->>'url', opt.raw_data->'waypoint'->'images'->0->>'url') as proof_image,
+        opt.raw_data->'waypoint'->>'reception_name' as opti_reception_name
+      FROM public.optiroute_orders opt
+      WHERE (opt.referencia = o.external_order_number 
+         OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND opt.tracking = o.tracking_number))
+      ORDER BY opt.created_at DESC
+      LIMIT 1
+    ) opti ON TRUE
     WHERE LOWER(TRIM(COALESCE(o.customer_email, ''))) = v_clean_email
     LIMIT 10;
 
-  -- 3. Solo Código de Courier (Starken, Blue, Chilexpress)
+  -- 3. Solo Código de Courier
   ELSIF v_clean_courier <> '' THEN
     SELECT COALESCE(jsonb_agg(
       jsonb_build_object(
@@ -357,6 +522,9 @@ BEGIN
             OR LOWER(COALESCE(o.starken_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%completed%'
+            OR LOWER(COALESCE(o.optiroute_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%delivered%'
+            OR LOWER(COALESCE(opti.opti_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%entregad%'
             OR LOWER(COALESCE(o.enviame_status, '')) LIKE '%delivered%'
             OR EXISTS (
@@ -387,6 +555,7 @@ BEGIN
         'created_at', o.created_at,
         'delivered_at', CASE
           WHEN LOWER(COALESCE(o.lightdata_status, '')) LIKE '%entregad%' THEN COALESCE(o.raw_lightdata_data->>'fecha_actualizacion_lightdata', o.raw_lightdata_data->>'updated_at')
+          WHEN opti.opti_completed_at IS NOT NULL THEN opti.opti_completed_at
           ELSE (
             SELECT eu.updated_at::text 
             FROM public.envios_unificados eu 
@@ -394,11 +563,51 @@ BEGIN
               AND (LOWER(eu.status) LIKE '%entregad%' OR LOWER(eu.status) = 'delivered')
             LIMIT 1
           )
-        END
+        END,
+        'picking_info', jsonb_build_object(
+          'warehouse', COALESCE(o.sucursal_pickeo, 'Centro de Distribución Stocka'),
+          'status', COALESCE(o.picker_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'Completado' ELSE 'En proceso' END),
+          'picked_at', COALESCE(o.picker_last_synced_at, o.stock_descontado_at),
+          'total_units', (SELECT COALESCE(sum(quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id),
+          'items', (
+            SELECT COALESCE(jsonb_agg(
+              jsonb_build_object('name', COALESCE(p.name, 'Producto'), 'quantity', oi.quantity)
+            ), '[]'::jsonb)
+            FROM public.order_items oi
+            LEFT JOIN public.products p ON p.id = oi.product_id
+            WHERE oi.order_id = o.id
+          )
+        ),
+        'optiroute_info', jsonb_build_object(
+          'is_optiroute', (opti.opti_status IS NOT NULL OR o.operador ILIKE '%STOCKA%' OR o.courier ILIKE '%OPTIROUTE%' OR o.operador ILIKE '%SAME DAY%'),
+          'status_title', COALESCE(opti.opti_status_title, opti.opti_status, CASE WHEN o.estado_wms = 'Despachado' THEN 'En Ruta' ELSE o.estado_wms END),
+          'service_type', COALESCE(opti.opti_service_type, 'Stocka Express (Same Day / 24 hrs)'),
+          'vehicle', opti.opti_vehicle,
+          'route_started_at', opti.opti_route_started_at,
+          'delivered_at', opti.opti_completed_at,
+          'reception_name', opti.opti_reception_name,
+          'proof_image', opti.proof_image
+        )
       ) ORDER BY o.created_at DESC
     ), '[]'::jsonb)
     INTO v_results
     FROM public.orders o
+    LEFT JOIN LATERAL (
+      SELECT 
+        opt.status as opti_status,
+        opt.servicio_tipo_envio as opti_service_type,
+        opt.raw_data->'assigned_vehicle'->>'name' as opti_vehicle,
+        opt.raw_data->>'route_started_at' as opti_route_started_at,
+        opt.raw_data->>'completed_at' as opti_completed_at,
+        opt.raw_data->>'status_title' as opti_status_title,
+        COALESCE(opt.raw_data->'images'->0->>'url', opt.raw_data->'waypoint'->'images'->0->>'url') as proof_image,
+        opt.raw_data->'waypoint'->>'reception_name' as opti_reception_name
+      FROM public.optiroute_orders opt
+      WHERE (opt.referencia = o.external_order_number 
+         OR (o.tracking_number IS NOT NULL AND o.tracking_number <> '' AND opt.tracking = o.tracking_number))
+      ORDER BY opt.created_at DESC
+      LIMIT 1
+    ) opti ON TRUE
     WHERE 
       LOWER(TRIM(COALESCE(o.tracking_number, ''))) = LOWER(v_clean_courier)
       OR LOWER(TRIM(COALESCE(o.tracking_number, ''))) ILIKE '%' || LOWER(v_clean_courier)
@@ -412,5 +621,4 @@ BEGIN
 END;
 $$;
 
--- 4. Conceder permisos con especificación explícita de argumentos
 GRANT EXECUTE ON FUNCTION public.get_customer_tracking(text, text, text, text) TO anon, authenticated;

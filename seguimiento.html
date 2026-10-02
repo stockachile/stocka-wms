@@ -714,6 +714,246 @@
       font-size: 1.1rem;
     }
 
+    /* Picking and Preparation Box */
+    .picking-card {
+      background: #fdfefe;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-top: 1.5rem;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+    .picking-card-header {
+      padding: 0.9rem 1.25rem;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .picking-card-header:hover {
+      background: #f1f5f9;
+    }
+    .picking-header-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .picking-header-title i {
+      color: var(--primary);
+      font-size: 1.15rem;
+    }
+    .picking-header-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .picking-status-tag {
+      font-size: 0.72rem;
+      font-weight: 800;
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+    }
+    .picking-units-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+      padding: 0.2rem 0.55rem;
+      border-radius: 9999px;
+    }
+    .picking-toggle-icon {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      transition: transform 0.2s ease;
+    }
+    .picking-toggle-icon.open {
+      transform: rotate(180deg);
+    }
+    .picking-card-body {
+      padding: 1.25rem;
+      border-top: 1px solid var(--border);
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .picking-details-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.6rem;
+      font-size: 0.82rem;
+      color: #475569;
+    }
+    @media (min-width: 640px) {
+      .picking-details-grid {
+        grid-template-columns: 1.4fr 1fr;
+      }
+    }
+    .picking-detail-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.45rem;
+      line-height: 1.4;
+    }
+    .picking-items-list {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+    }
+    .picking-items-heading {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .picking-items-list ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .picking-items-list li {
+      font-size: 0.82rem;
+      color: #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      border-bottom: 1px dashed #e2e8f0;
+      padding-bottom: 0.35rem;
+    }
+    .picking-items-list li:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .item-qty {
+      font-weight: 800;
+      color: var(--primary);
+      font-size: 0.8rem;
+      background: var(--primary-subtle);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    /* Optiroute / Fleet Box */
+    .delivery-box.optiroute-box {
+      background: linear-gradient(135deg, #ffffff 0%, #fbf9ff 100%);
+      border-color: #ddd6fe;
+    }
+    .optiroute-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .fleet-pill {
+      font-size: 0.75rem;
+      font-weight: 800;
+      background: #5c24ff;
+      color: #ffffff;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      letter-spacing: 0.02em;
+    }
+    .service-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      background: #ede9fe;
+      color: #5b21b6;
+      border: 1px solid #c4b5fd;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+    }
+    .optiroute-status-heading {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #1e1b4b;
+      margin-top: 0.15rem;
+    }
+    .optiroute-meta-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      font-size: 0.82rem;
+      color: #475569;
+    }
+    .optiroute-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .optiroute-notice {
+      font-size: 0.78rem;
+      color: #64748b;
+      line-height: 1.45;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.35rem;
+      background: rgba(92, 36, 255, 0.04);
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(92, 36, 255, 0.1);
+    }
+    .optiroute-notice i {
+      color: var(--primary);
+      margin-top: 2px;
+      flex-shrink: 0;
+    }
+    .btn-proof-image {
+      background: #10b981;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 0.85rem 1.25rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+      transition: all 0.2s ease;
+    }
+    .btn-proof-image:hover {
+      background: #059669;
+      box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35);
+      transform: translateY(-1px);
+    }
+    .fleet-active-badge {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #5c24ff;
+      background: var(--primary-subtle);
+      border: 1.5px solid var(--primary-border);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      text-align: center;
+    }
+
     /* Store Pickup Dedicated Box */
     .pickup-card {
       background: #faf5ff;
@@ -1325,6 +1565,18 @@
           courierDisplay = 'Stocka X (Entrega Express Directa)';
         }
 
+        // Picking & Preparation Info
+        const picking = order.picking_info || {};
+        const pickingItems = picking.items || [];
+        const totalUnits = picking.total_units || pickingItems.reduce((acc, it) => acc + (it.quantity || 1), 0);
+
+        // Optiroute / Flota Propia Stocka X
+        const opti = order.optiroute_info || {};
+        const isOptiroute = (opti.is_optiroute || 
+                             (order.courier || '').toUpperCase().includes('STOCKA') ||
+                             (order.courier || '').toUpperCase().includes('OPTIROUTE') ||
+                             (order.courier || '').toUpperCase().includes('SAME DAY')) && !isRetiro;
+
         cardsHtml += `
           <div class="order-card">
             <!-- Header -->
@@ -1422,6 +1674,56 @@
               </div>
             </div>
 
+            <!-- Picking & Preparation Details Card (Safe, No Operator Name) -->
+            ${picking ? `
+              <div class="picking-card">
+                <div class="picking-card-header" onclick="togglePickingDetails('${escapeHtml(order.id)}')">
+                  <div class="picking-header-title">
+                    <i class="ri-inbox-archive-line"></i>
+                    <span>Preparación en Bodega: <strong>${escapeHtml(picking.warehouse || 'Centro de Distribución Stocka')}</strong></span>
+                  </div>
+                  <div class="picking-header-badge">
+                    <span class="picking-status-tag">${escapeHtml(picking.status || (step2Done ? 'Completado' : 'En proceso'))}</span>
+                    ${totalUnits > 0 ? `<span class="picking-units-tag">${totalUnits} ${totalUnits === 1 ? 'unidad' : 'unidades'}</span>` : ''}
+                    <i class="ri-arrow-down-s-line picking-toggle-icon" id="picking-icon-${escapeHtml(order.id)}"></i>
+                  </div>
+                </div>
+                <div class="picking-card-body" id="picking-body-${escapeHtml(order.id)}" style="display: none;">
+                  <div class="picking-details-grid">
+                    <div class="picking-detail-row">
+                      <i class="ri-checkbox-circle-fill" style="color: var(--success); font-size: 1.15rem; margin-top: 2px;"></i>
+                      <div>
+                        <strong>Control de Calidad y Embalaje:</strong><br>
+                        <span style="font-size: 0.78rem; color: var(--text-muted);">Productos inspeccionados, embalados y precintados bajo estándares WMS Stocka.</span>
+                      </div>
+                    </div>
+                    ${picking.picked_at ? `
+                      <div class="picking-detail-row">
+                        <i class="ri-calendar-check-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                        <div>
+                          <strong>Fecha de Armado:</strong><br>
+                          <span style="font-size: 0.78rem; color: var(--text-muted);">${formatDate(picking.picked_at)}</span>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+                  ${pickingItems.length > 0 ? `
+                    <div class="picking-items-list">
+                      <span class="picking-items-heading">Contenido verificado del paquete:</span>
+                      <ul>
+                        ${pickingItems.map(it => `
+                          <li>
+                            <span>${escapeHtml(it.name)}</span>
+                            <span class="item-qty">x${it.quantity}</span>
+                          </li>
+                        `).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            ` : ''}
+
             <!-- Detailed Delivery or Pickup Card -->
             ${isRetiro ? `
               <div class="pickup-card">
@@ -1449,7 +1751,62 @@
                   💡 <strong>¿Qué necesitas para retirar?</strong> Presentar tu cédula de identidad y el número de orden <strong>#${escapeHtml(order.order_number)}</strong>. Si retira un tercero, debe traer poder simple o copia de cédula del comprador.
                 </div>
               </div>
+            ` : isOptiroute ? `
+              <!-- Optiroute / Flota Propia Stocka X Dedicated Live Delivery Box -->
+              <div class="delivery-box optiroute-box">
+                <div class="delivery-info-left">
+                  <div class="optiroute-badge-row">
+                    <span class="fleet-pill">
+                      <i class="ri-truck-fill"></i> Flota Oficial Stocka X
+                    </span>
+                    <span class="service-pill">${escapeHtml(opti.service_type || 'Same Day / 24 hrs')}</span>
+                  </div>
+                  <div class="optiroute-status-heading">
+                    ${rawStatus.includes('entreg') ? '✅ Pedido Entregado en Domicilio' : 
+                      (opti.route_started_at || rawStatus.includes('despach') || rawStatus.includes('camino') ? '🚚 Móvil en Reparto hacia tu Dirección' : '📦 En Preparación para Salida a Ruta')}
+                  </div>
+                  <div class="optiroute-meta-list">
+                    ${opti.vehicle ? `
+                      <div class="optiroute-meta-item">
+                        <i class="ri-car-line" style="color: var(--primary);"></i>
+                        <span>Móvil Asignado: <strong>${escapeHtml(opti.vehicle)}</strong></span>
+                      </div>
+                    ` : ''}
+                    ${opti.route_started_at ? `
+                      <div class="optiroute-meta-item">
+                        <i class="ri-time-line" style="color: var(--primary);"></i>
+                        <span>Salida a Ruta: ${formatDate(opti.route_started_at)}</span>
+                      </div>
+                    ` : ''}
+                    ${opti.reception_name ? `
+                      <div class="optiroute-meta-item">
+                        <i class="ri-user-received-line" style="color: #059669;"></i>
+                        <span>Recibido por: <strong>${escapeHtml(opti.reception_name)}</strong></span>
+                      </div>
+                    ` : ''}
+                  </div>
+                  <div class="optiroute-notice">
+                    <i class="ri-shield-check-line"></i>
+                    <span>Despacho operado directamente por la flota de Stocka Logistics. Toda la información de ruta y confirmación de entrega se sincronizan en vivo en esta pantalla.</span>
+                  </div>
+                </div>
+
+                <div class="delivery-actions-right">
+                  ${opti.proof_image ? `
+                    <a href="${escapeHtml(opti.proof_image)}" target="_blank" rel="noopener noreferrer" class="btn-proof-image">
+                      <i class="ri-camera-lens-line"></i>
+                      <span>Ver Comprobante de Entrega</span>
+                    </a>
+                  ` : `
+                    <div class="fleet-active-badge">
+                      <i class="ri-radar-line"></i>
+                      <span>Monitoreo Activo de Flota Stocka</span>
+                    </div>
+                  `}
+                </div>
+              </div>
             ` : `
+              <!-- Standard Courier Box (Starken, Blue, Chilexpress) -->
               <div class="delivery-box">
                 <div class="delivery-info-left">
                   <div class="delivery-carrier-name">
@@ -1522,6 +1879,19 @@
       }).catch(err => {
         console.error('Error al copiar enlace privado:', err);
       });
+    };
+
+    // Helper: Toggle Picking Details Accordion
+    window.togglePickingDetails = function(orderId) {
+      const bodyEl = document.getElementById(`picking-body-${orderId}`);
+      const iconEl = document.getElementById(`picking-icon-${orderId}`);
+      if (!bodyEl) return;
+      const isHidden = bodyEl.style.display === 'none' || !bodyEl.style.display;
+      bodyEl.style.display = isHidden ? 'flex' : 'none';
+      if (iconEl) {
+        if (isHidden) iconEl.classList.add('open');
+        else iconEl.classList.remove('open');
+      }
     };
 
     // Form Submit Event (Zero PII in URL)
