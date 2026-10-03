@@ -446,6 +446,69 @@ async function syncOrders(integration, headers, warehouseId) {
       const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
       const totalValue = Number(o.total || 0);
 
+      // Extraer nombre y apellido completo del cliente (con filtro de emails)
+      const isValidName = (str) => {
+        if (!str) return false;
+        const s = String(str).trim();
+        if (!s || s.includes('@') || s.toLowerCase() === 'no registrado' || s.toLowerCase() === 'cliente jumpseller') {
+          return false;
+        }
+        return true;
+      };
+
+      const formatFullName = (fName, lName) => {
+        const f = (fName || '').trim();
+        const l = (lName || '').trim();
+        if (f && l) {
+          if (f.toLowerCase().endsWith(l.toLowerCase())) return f;
+          return `${f} ${l}`;
+        }
+        return f || l || '';
+      };
+
+      const shippingFullName = formatFullName(
+        o.shipping_address?.name || o.shipping_address?.first_name,
+        o.shipping_address?.surname || o.shipping_address?.last_name
+      );
+      const billingFullName = formatFullName(
+        o.billing_address?.name || o.billing_address?.first_name,
+        o.billing_address?.surname || o.billing_address?.last_name
+      );
+      const customerFullName = (
+        o.customer?.fullname ||
+        formatFullName(
+          o.customer?.name || o.customer?.first_name,
+          o.customer?.surname || o.customer?.last_name
+        )
+      ).trim();
+
+      const validShip = isValidName(shippingFullName) ? shippingFullName : '';
+      const validBill = isValidName(billingFullName) ? billingFullName : '';
+      const validCust = isValidName(customerFullName) ? customerFullName : '';
+
+      let finalCustomerName = 'Cliente Jumpseller';
+      if (validShip) {
+        if (!validShip.includes(' ')) {
+          if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) {
+            finalCustomerName = validCust;
+          } else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) {
+            finalCustomerName = validBill;
+          } else {
+            finalCustomerName = validShip;
+          }
+        } else {
+          finalCustomerName = validShip;
+        }
+      } else if (validBill) {
+        if (!validBill.includes(' ') && validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) {
+          finalCustomerName = validCust;
+        } else {
+          finalCustomerName = validBill;
+        }
+      } else if (validCust) {
+        finalCustomerName = validCust;
+      }
+
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
@@ -456,7 +519,7 @@ async function syncOrders(integration, headers, warehouseId) {
         total_value: totalValue,
         customer_email: o.customer?.email || o.shipping_address?.email || o.billing_address?.email,
         customer_phone: o.customer?.phone || o.shipping_address?.phone || o.billing_address?.phone,
-        customer_name: o.customer?.name || o.shipping_address?.name || o.billing_address?.name || 'Cliente Jumpseller',
+        customer_name: finalCustomerName,
         shipping_address: o.shipping_address?.address || o.billing_address?.address,
         shipping_city: o.shipping_address?.city || o.billing_address?.city,
         shipping_complement: o.shipping_address?.municipality || o.shipping_address?.region || '',

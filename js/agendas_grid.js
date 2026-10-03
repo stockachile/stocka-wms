@@ -18,23 +18,26 @@
     columnFilters: {},          // { colKey: Set of allowed string values }
     searchQuery: '',
     filteredOrders: [],
-    sortConfig: { colKey: 'fecha_hora', direction: 'desc' },
+    sortConfig: { colKey: 'fecha', direction: 'desc' },
     isSaving: false
   };
 
-  // Definición de las 11 Columnas requeridas
+  // Definición de las 14 Columnas requeridas
   const COLUMN_DEFS = [
     { key: 'numero_pedido', label: 'N° Pedido', letter: 'A', width: '130px', editable: false, align: 'left' },
     { key: 'comercio', label: 'Comercio', letter: 'B', width: '140px', editable: false, align: 'left' },
-    { key: 'fecha_hora', label: 'Fecha y Hora', letter: 'C', width: '130px', editable: false, align: 'center' },
-    { key: 'cliente_direccion', label: 'Cliente y Dirección', letter: 'D', width: '260px', editable: false, align: 'left' },
-    { key: 'comuna', label: 'Comuna', letter: 'E', width: '130px', editable: false, align: 'left' },
-    { key: 'estado_pago', label: 'Estado Pago Origen', letter: 'F', width: '145px', editable: false, align: 'center' },
-    { key: 'valor_total', label: 'Valor Total', letter: 'G', width: '110px', editable: false, align: 'right' },
-    { key: 'metodo_envio', label: 'Método de Envío', letter: 'H', width: '160px', editable: false, align: 'left' },
-    { key: 'canal_ventas', label: 'Canal de Ventas', letter: 'I', width: '130px', editable: false, align: 'center' },
-    { key: 'agenda', label: 'AGENDA', letter: 'J', width: '140px', editable: true, align: 'center', isSpecial: true },
-    { key: 'operador', label: 'OPERADOR', letter: 'K', width: '150px', editable: true, align: 'center', isSpecial: true }
+    { key: 'fecha', label: 'Fecha', letter: 'C', width: '105px', editable: false, align: 'center' },
+    { key: 'hora', label: 'Hora', letter: 'D', width: '85px', editable: false, align: 'center' },
+    { key: 'cliente', label: 'Nombre Cliente', letter: 'E', width: '170px', editable: false, align: 'left' },
+    { key: 'direccion', label: 'Dirección', letter: 'F', width: '220px', editable: false, align: 'left' },
+    { key: 'complemento', label: 'Complemento', letter: 'G', width: '130px', editable: false, align: 'left' },
+    { key: 'comuna', label: 'Comuna', letter: 'H', width: '130px', editable: false, align: 'left' },
+    { key: 'estado_pago', label: 'Estado Pago Origen', letter: 'I', width: '145px', editable: false, align: 'center' },
+    { key: 'valor_total', label: 'Valor Total', letter: 'J', width: '110px', editable: false, align: 'right' },
+    { key: 'metodo_envio', label: 'Método de Envío', letter: 'K', width: '160px', editable: false, align: 'left' },
+    { key: 'canal_ventas', label: 'Canal de Ventas', letter: 'L', width: '130px', editable: false, align: 'center' },
+    { key: 'agenda', label: 'AGENDA', letter: 'M', width: '140px', editable: true, align: 'center', isSpecial: true },
+    { key: 'operador', label: 'OPERADOR', letter: 'N', width: '150px', editable: true, align: 'center', isSpecial: true }
   ];
 
   // ==========================================================================
@@ -49,33 +52,71 @@
       case 'comercio':
         return String(order.comercio || 'Desconocido').trim();
 
-      case 'fecha_hora': {
+      case 'fecha': {
         const rawDate = order.fecha_pedido || order.created_at;
         if (!rawDate) return '';
         const d = new Date(rawDate);
-        if (isNaN(d.getTime())) return String(rawDate);
-        const datePart = d.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
-        const timePart = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
-        return `${datePart} ${timePart}`;
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
       }
 
-      case 'cliente_direccion': {
+      case 'hora': {
+        const rawDate = order.fecha_pedido || order.created_at;
+        if (!rawDate) return '';
+        const d = new Date(rawDate);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
+      }
+
+      case 'cliente': {
         let name = order.customer_name || '';
-        if (!name || name === 'No registrado') {
+        if (!name || name === 'No registrado' || name.trim() === '' || name === 'Cliente Jumpseller' || (order.raw_jumpseller_data && !name.includes(' '))) {
           if (order.raw_shopify_data?.billing_address) {
             const b = order.raw_shopify_data.billing_address;
             name = `${b.first_name || ''} ${b.last_name || ''}`.trim();
           } else if (order.raw_shopify_data?.customer) {
             const c = order.raw_shopify_data.customer;
             name = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+          } else if (order.raw_jumpseller_data) {
+            const raw = order.raw_jumpseller_data;
+            const isValidName = s => s && !s.includes('@') && s.toLowerCase() !== 'no registrado' && s.toLowerCase() !== 'cliente jumpseller';
+            const sName = [raw.shipping_address?.name || raw.shipping_address?.first_name, raw.shipping_address?.surname || raw.shipping_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+            const bName = [raw.billing_address?.name || raw.billing_address?.first_name, raw.billing_address?.surname || raw.billing_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+            const cName = (raw.customer?.fullname || [raw.customer?.name || raw.customer?.first_name, raw.customer?.surname || raw.customer?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ') || '').trim();
+            const validShip = isValidName(sName) ? sName : '';
+            const validBill = isValidName(bName) ? bName : '';
+            const validCust = isValidName(cName) ? cName : '';
+            let jumpName = validShip || validBill || validCust;
+            if (validShip && !validShip.includes(' ')) {
+              if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validCust;
+              else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validBill;
+            } else if (validBill && !validBill.includes(' ')) {
+              if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) jumpName = validCust;
+            }
+            if (jumpName) name = jumpName;
           }
         }
-        if (!name) name = 'No registrado';
+        return name || 'No registrado';
+      }
 
-        const address = order.shipping_address || order.address || '';
-        const complement = order.shipping_complement || order.address_additional || order.depto || '';
-        const fullAddr = [address, complement].filter(Boolean).join(', ');
-        return fullAddr ? `${name} - ${fullAddr}` : name;
+      case 'direccion': {
+        let addr = order.shipping_address || order.address || '';
+        if (!addr && order.raw_shopify_data?.shipping_address?.address1) {
+          addr = order.raw_shopify_data.shipping_address.address1;
+        } else if (!addr && order.raw_shopify_data?.billing_address?.address1) {
+          addr = order.raw_shopify_data.billing_address.address1;
+        }
+        return String(addr || '-').trim();
+      }
+
+      case 'complemento': {
+        let comp = order.shipping_complement || order.address_additional || order.depto || '';
+        if (!comp && order.raw_shopify_data?.shipping_address?.address2) {
+          comp = order.raw_shopify_data.shipping_address.address2;
+        } else if (!comp && order.raw_shopify_data?.billing_address?.address2) {
+          comp = order.raw_shopify_data.billing_address.address2;
+        }
+        return String(comp || '-').trim();
       }
 
       case 'comuna':
@@ -211,10 +252,14 @@
       // 1. Buscador Global
       if (queryNorm) {
         const idStr = String(order.external_order_number || order.id || '').toLowerCase();
-        const clientStr = String(order.customer_name || '').toLowerCase();
+        const clientStr = String(getOrderFieldValue(order, 'cliente')).toLowerCase();
+        const addrStr = String(getOrderFieldValue(order, 'direccion')).toLowerCase();
+        const compStr = String(getOrderFieldValue(order, 'complemento')).toLowerCase();
+        const dateStr = String(getOrderFieldValue(order, 'fecha')).toLowerCase();
+        const timeStr = String(getOrderFieldValue(order, 'hora')).toLowerCase();
         const commStr = String(order.comercio || '').toLowerCase();
         const cityStr = String(order.shipping_city || order.comuna || '').toLowerCase();
-        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm);
+        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || addrStr.includes(queryNorm) || compStr.includes(queryNorm) || dateStr.includes(queryNorm) || timeStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm);
         if (!matchGlobal) return false;
       }
 
@@ -355,7 +400,7 @@
     if (!orders || orders.length === 0) {
       return `
         <tr>
-          <td colspan="12" style="text-align: center; padding: 4rem; color: var(--color-text-muted);">
+          <td colspan="15" style="text-align: center; padding: 4rem; color: var(--color-text-muted);">
             <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
               <i class="ri-inbox-line" style="font-size: 2.2rem; opacity: 0.5;"></i>
               <span style="font-weight: 600; font-size: 0.95rem;">No hay pedidos con los filtros aplicados</span>

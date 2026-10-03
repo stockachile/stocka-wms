@@ -1,5 +1,45 @@
 # Walkthrough - Mejoras y Correcciones WMS Stocka
 
+## Control de Stock Comprometido Exclusivo por Pago y Pedido Confirmado (Exclusión de Pagos Pendientes)
+
+### 1. Resumen de la Regla de Negocio
+- **Requerimiento:** Los pedidos con estado de pago **Pendiente** (`pending`, `pendiente`, `unpaid`, etc.) no deben considerarse para stock comprometido (`committed_quantity`). Solo deben comprometer stock cuando el pedido está **confirmado** (no cancelado/archivado) y el pago está **confirmado** (`paid`, `pagado`, `completed`, `approved`, etc. o canales de marketplace ya liquidados).
+- **Problema Previo:** Cualquier pedido nuevo que entrara al WMS en estado `En procesamiento` (sin importar si su pago estaba pendiente de acreditación o transferencia) comprometía stock en la bodega de inmediato a través de los triggers de base de datos (`handle_new_order_item`), reservando unidades físicamente inexistentes o bloqueando stock disponible a clientes reales que sí pagaron.
+- **Impacto Resuelto:** Se excluyeron los pedidos con pago pendiente y no confirmados del stock comprometido, liberando más de 130 unidades bloqueadas en la base de datos y sincronizando tanto los triggers nativos de PostgreSQL como los modales de detalle en el Administrador y Portal de Cliente.
+
+### 2. Soluciones Implementadas
+
+#### A. Función de Elegibilidad de Stock en Base de Datos (`is_order_stock_eligible`)
+- Creada en [supabase/supabase_schema_payment_confirmed_stock_control.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/supabase_schema_payment_confirmed_stock_control.sql).
+- Evalúa con rigor:
+  1. **Pedido Confirmado:**
+     - `order.status NOT IN ('cancelado', 'devolución', 'devolucion')`.
+     - `order.estado_wms NOT IN ('Cancelado', 'Archivado', 'Despachado')`.
+     - `order.raw_shopify_data->>'cancelled_at' IS NULL`.
+     - `COALESCE((order.raw_shopify_data->>'confirmed')::boolean, true) = true`.
+  2. **Pago Confirmado / No Pendiente:**
+     - Si `payment_status` o `raw_shopify_data.financial_status` es `pending`, `pendiente`, `unpaid`, `no pagado`, `por_pagar` o `por pagar` -> **NO compromete stock** (`FALSE`).
+     - Si el pago está anulado o reembolsado (`voided`, `anulado`, `refunded`, `reembolsado`) -> **NO compromete stock** (`FALSE`).
+     - Si el pago está confirmado (`paid`, `pagado`, `completed`, `confirmed`, `approved`, `cobrado`) -> **SÍ compromete stock** (`TRUE`).
+     - Canales de Marketplace (Falabella, Paris, Mercado Libre, Ripley, Walmart): considerados pagados por defecto salvo reembolso.
+     - Pedidos Manuales / POS generados en WMS: comprometen stock salvo que se marquen explícitamente con pago pendiente.
+
+#### B. Triggers de Inventario Adaptativos
+- **`handle_new_order_item`:** Al insertar ítems a un pedido, solo incrementa `inventory.committed_quantity` si `is_order_stock_eligible()` es `TRUE`.
+- **`handle_delete_order_item` / `handle_update_order_item`:** Solo ajusta `committed_quantity` si el pedido era elegible.
+- **`handle_order_status_change` & Trigger `on_order_stock_change`:**
+  - El trigger en `public.orders` ahora escucha cambios de `estado_wms`, `payment_status`, `status` y `raw_shopify_data`.
+  - **Transición Automática:** Cuando un pedido pendiente recibe su confirmación de pago (`pending` -> `paid`), el trigger compromete automáticamente las unidades de sus ítems en la estantería.
+  - **Cancelación / Reembolso:** Si un pedido confirmado pasa a cancelado o reembolsado, libera automáticamente el stock comprometido.
+- **`recalculate_committed_stock`:** Recalcula `committed_quantity` a nivel de base de datos considerando únicamente pedidos que cumplan las reglas de corte (`should_process_order_stock`) y la elegibilidad de pago confirmado (`is_order_stock_eligible`).
+
+#### C. Sincronización en Paneles Frontend ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) y [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js))
+- Implementada la función global `window.isOrderStockCommittedEligible(order)`.
+- En el modal de detalle de stock comprometido (`openCommittedDetailModal`), la consulta a `order_items` ahora incluye `payment_status` y `raw_shopify_data`, filtrando para mostrar única y exclusivamente los pedidos con pago confirmado.
+- Se agregó la columna **Estado Pago** con el badge visual correspondiente en la tabla del modal para brindar total transparencia a los operadores y clientes.
+
+---
+
 ## Verificación de Movimiento de Stock Previo al Despachar e Idempotencia (Sin Doble Descuento)
 
 ### 1. Resumen del Problema y Causa Raíz

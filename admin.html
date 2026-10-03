@@ -1289,6 +1289,13 @@
                   <input type="text" id="order-cust-complement" class="form-input" placeholder="Depto 402, Block B" style="font-size: 0.85rem;">
                 </div>
               </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-sticky-note-line" style="color: var(--color-primary); font-size: 1rem;"></i> Notas o Comentarios del Pedido <span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(Opcional)</span>
+                </label>
+                <textarea id="order-cust-notes" class="form-input" rows="2" placeholder="Instrucciones de entrega, referencias del domicilio, notas para empaque o bodega..." style="font-size: 0.85rem; resize: vertical; min-height: 52px; padding: 0.5rem 0.75rem; width: 100%; box-sizing: border-box;"></textarea>
+              </div>
             </div>
           </div>
 
@@ -1663,6 +1670,15 @@
                   <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Entrega / Courier:</span>
                     <span id="summary-shipping-type" style="font-weight: bold; color: var(--color-primary);">--</span>
+                  </div>
+                  <div style="border-top: 1px solid var(--color-border); padding-top: 0.6rem; margin-top: 0.25rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                      <span style="font-weight: 600; color: var(--color-text-muted); font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <i class="ri-sticky-note-line" style="color: var(--color-primary);"></i> Notas o Comentarios:
+                      </span>
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">Editable antes de confirmar</span>
+                    </div>
+                    <textarea id="order-cust-notes-summary" class="form-input" rows="2" placeholder="Sin notas ingresadas (puedes agregar o modificar notas aquí antes de confirmar)..." style="font-size: 0.82rem; resize: vertical; min-height: 52px; background: var(--color-bg); width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem;"></textarea>
                   </div>
                 </div>
               </div>
@@ -3194,34 +3210,142 @@
         
         <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
           
-          <!-- Wizard Step Indicator (4 pasos para Cambio / 3 para Devolución) -->
+          <!-- Wizard Step Indicator (5 pasos para Cambio / 4 para Devolución) -->
           <div class="rl-wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
             <div class="rl-wizard-step-tab active" id="rlo-wizard-tab-1" style="flex: 1; text-align: center; font-weight: bold; color: var(--color-primary); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
               <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15); font-weight: 700;">1</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">Modo de Entrega</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Situación</span>
             </div>
-            <div class="rl-wizard-step-line" id="rlo-wizard-line-1" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
-            
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-1" style="flex: 0.25; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+
             <div class="rl-wizard-step-tab" id="rlo-wizard-tab-2" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
               <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">2</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Ingresa?</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Modo de Entrega</span>
             </div>
-            <div class="rl-wizard-step-line" id="rlo-wizard-line-2" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-2" style="flex: 0.25; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
             
             <div class="rl-wizard-step-tab" id="rlo-wizard-tab-3" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
-              <span class="step-num" id="rlo-tab-3-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
-              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Sale?</span>
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Ingresa?</span>
             </div>
-            <div class="rl-wizard-step-line" id="rlo-wizard-line-3" style="flex: 0.3; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-3" style="flex: 0.25; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
             
             <div class="rl-wizard-step-tab" id="rlo-wizard-tab-4" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
               <span class="step-num" id="rlo-tab-4-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">4</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">¿Qué Sale?</span>
+            </div>
+            <div class="rl-wizard-step-line" id="rlo-wizard-line-4" style="flex: 0.25; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            
+            <div class="rl-wizard-step-tab" id="rlo-wizard-tab-5" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" id="rlo-tab-5-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">5</span>
               <span style="font-size: 0.8rem; font-weight: 600;">Datos del Cliente</span>
             </div>
           </div>
 
-          <!-- PASO 1: MODO DE ENTREGA Y ORIGEN -->
+          <!-- PASO 1: SELECCION DE SITUACION OPERATIVA (SOLO ADMIN) -->
           <div id="rlo-wizard-step-1" class="rl-wizard-step-container">
+            <div style="text-align: center; max-width: 680px; margin: 0 auto 1.75rem auto;">
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">
+                ¿Cuál es la situación actual de este movimiento?
+              </h4>
+              <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.5;">
+                Selecciona si el cambio o devolución ya está concretado físicamente en bodega o si requiere ser gestionado y coordinado previamente.
+              </p>
+            </div>
+
+            <input type="hidden" id="rlo-situacion" value="por_realizar">
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; max-width: 900px; margin: 0 auto 1.5rem auto;">
+              
+              <!-- Opción 1: Movimiento por Realizar -->
+              <div id="lbl-rlo-situacion-por_realizar" onclick="window.selectRloSituacion('por_realizar')" style="display: flex; flex-direction: column; justify-content: space-between; padding: 1.5rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.04); border-radius: var(--radius-lg, 12px); cursor: pointer; transition: all 0.25s ease; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.12); position: relative;">
+                <div>
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                    <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.12); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.6rem;">
+                      <i class="ri-truck-line"></i>
+                    </div>
+                    <span class="badge" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 600; padding: 0.3rem 0.65rem; font-size: 0.75rem; border-radius: 6px;">
+                      <i class="ri-time-line" style="margin-right: 3px;"></i> Por Gestionar
+                    </span>
+                  </div>
+
+                  <h5 style="margin: 0 0 0.35rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">
+                    MOVIMIENTO POR REALIZAR
+                  </h5>
+                  <div style="font-size: 0.82rem; font-weight: 600; color: var(--color-primary); margin-bottom: 0.75rem;">
+                    Pendiente de coordinación o despacho
+                  </div>
+
+                  <p style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5; margin: 0 0 1.25rem 0;">
+                    El cambio o devolución debe gestionarse. Se debe ir al domicilio del cliente, esperar que el paquete llegue vía despacho/courier, o esperar la recepción presencial en sucursal.
+                  </p>
+                </div>
+
+                <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-main);">
+                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.35rem;">Consecuencia en el sistema:</strong>
+                  <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: #f59e0b;"></i>
+                    <span><strong>Logística Inversa:</strong> Estado <span class="badge" style="padding: 1px 6px; font-size: 0.72rem; background: #fef3c7; color: #b45309;">Pendiente</span></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: var(--color-primary);"></i>
+                    <span><strong>Gestor WMS:</strong> Pedido <span class="badge" style="padding: 1px 6px; font-size: 0.72rem; background: #e0f2fe; color: #0369a1;">En procesamiento</span></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: var(--color-text-muted);"></i>
+                    <span><strong>Inventario:</strong> Stock de reemplazo comprometido hasta ser despachado</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Opción 2: Movimiento Ya Finalizado -->
+              <div id="lbl-rlo-situacion-finalizado" onclick="window.selectRloSituacion('finalizado')" style="display: flex; flex-direction: column; justify-content: space-between; padding: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg, 12px); cursor: pointer; transition: all 0.25s ease; position: relative;">
+                <div>
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                    <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.12); display: flex; align-items: center; justify-content: center; color: var(--color-success, #10b981); font-size: 1.6rem;">
+                      <i class="ri-checkbox-circle-fill"></i>
+                    </div>
+                    <span class="badge" style="background-color: #d1fae5; color: #047857; border: 1px solid #a7f3d0; font-weight: 600; padding: 0.3rem 0.65rem; font-size: 0.75rem; border-radius: 6px;">
+                      <i class="ri-check-line" style="margin-right: 3px;"></i> Ya en Bodega
+                    </span>
+                  </div>
+
+                  <h5 style="margin: 0 0 0.35rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">
+                    MOVIMIENTO YA FINALIZADO
+                  </h5>
+                  <div style="font-size: 0.82rem; font-weight: 600; color: var(--color-success, #10b981); margin-bottom: 0.75rem;">
+                    Concretado físicamente en bodega
+                  </div>
+
+                  <p style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5; margin: 0 0 1.25rem 0;">
+                    El cambio o devolución ya lo tenemos en bodega o se está concretando en bodega en este instante. La mercadería física ya fue devuelta o cambiada de forma presencial.
+                  </p>
+                </div>
+
+                <div style="background: var(--color-bg); padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--color-border); font-size: 0.78rem; line-height: 1.5; color: var(--color-text-main);">
+                  <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.35rem;">Consecuencia en el sistema:</strong>
+                  <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: #10b981;"></i>
+                    <span><strong>Logística Inversa:</strong> Estado <span class="badge" style="padding: 1px 6px; font-size: 0.72rem; background: #d1fae5; color: #047857;">Confirmado</span></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: #10b981;"></i>
+                    <span><strong>Gestor WMS:</strong> Pedido <span class="badge" style="padding: 1px 6px; font-size: 0.72rem; background: #d1fae5; color: #047857;">Despachado</span></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <i class="ri-checkbox-blank-circle-fill" style="font-size: 0.45rem; color: #10b981;"></i>
+                    <span><strong>Inventario:</strong> Stock físico actualizado (ingreso y salida directa)</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- PASO 2: MODO DE ENTREGA Y ORIGEN -->
+          <div id="rlo-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
+            <!-- Badge Situación Seleccionada -->
+            <div id="rlo-step2-situacion-badge" style="margin-bottom: 1.25rem;"></div>
             <!-- Buscar y Cargar Pedido Previo -->
             <div style="display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.5rem; background: var(--color-bg); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
               <div class="form-group" style="margin-bottom: 0;">
@@ -3331,8 +3455,8 @@
             </div>
           </div>
 
-          <!-- PASO 2: PRODUCTOS QUE INGRESAN (DEVOLUCIÓN) -->
-          <div id="rlo-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
+          <!-- PASO 3: PRODUCTOS QUE INGRESAN (DEVOLUCIÓN) -->
+          <div id="rlo-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
               <div>
                 <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
@@ -3374,8 +3498,8 @@
             </button>
           </div>
 
-          <!-- PASO 3: PRODUCTOS QUE SALEN (REEMPLAZO) -->
-          <div id="rlo-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
+          <!-- PASO 4: PRODUCTOS QUE SALEN (REEMPLAZO) -->
+          <div id="rlo-wizard-step-4" class="rl-wizard-step-container" style="display: none;">
             <div style="margin-bottom: 1rem;">
               <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
                 <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.25rem;"></i> Productos que Salen (Reemplazo / Despacho)
@@ -3406,8 +3530,8 @@
             </button>
           </div>
 
-          <!-- PASO 4: DATOS DEL CLIENTE Y CONFIRMACIÓN -->
-          <div id="rlo-wizard-step-4" class="rl-wizard-step-container" style="display: none;">
+          <!-- PASO 5: DATOS DEL CLIENTE Y CONFIRMACIÓN -->
+          <div id="rlo-wizard-step-5" class="rl-wizard-step-container" style="display: none;">
             <div style="margin-bottom: 1.25rem;">
               <h4 style="margin: 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
                 <i class="ri-user-settings-line" style="color: var(--color-primary); font-size: 1.25rem;"></i> Datos del Destinatario y Confirmación

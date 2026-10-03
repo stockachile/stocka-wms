@@ -600,6 +600,13 @@
                   <input type="text" id="order-cust-complement" class="form-input" placeholder="Depto 402, Block B" style="font-size: 0.85rem;">
                 </div>
               </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-sticky-note-line" style="color: var(--color-primary); font-size: 1rem;"></i> Notas o Comentarios del Pedido <span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(Opcional)</span>
+                </label>
+                <textarea id="order-cust-notes" class="form-input" rows="2" placeholder="Instrucciones de entrega, referencias del domicilio, notas para empaque o bodega..." style="font-size: 0.85rem; resize: vertical; min-height: 52px; padding: 0.5rem 0.75rem; width: 100%; box-sizing: border-box;"></textarea>
+              </div>
             </div>
           </div>
 
@@ -965,6 +972,15 @@
                   <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Entrega / Courier:</span>
                     <span id="summary-shipping-type" style="font-weight: bold; color: var(--color-primary);">--</span>
+                  </div>
+                  <div style="border-top: 1px solid var(--color-border); padding-top: 0.6rem; margin-top: 0.25rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                      <span style="font-weight: 600; color: var(--color-text-muted); font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;">
+                        <i class="ri-sticky-note-line" style="color: var(--color-primary);"></i> Notas o Comentarios:
+                      </span>
+                      <span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">Editable antes de confirmar</span>
+                    </div>
+                    <textarea id="order-cust-notes-summary" class="form-input" rows="2" placeholder="Sin notas ingresadas (puedes agregar o modificar notas aquí antes de confirmar)..." style="font-size: 0.82rem; resize: vertical; min-height: 52px; background: var(--color-bg); width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem;"></textarea>
                   </div>
                 </div>
               </div>

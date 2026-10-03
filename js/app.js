@@ -556,6 +556,56 @@ window.getOrderPaymentBadgeHtml = function(order) {
   return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
 };
 
+// Helper para validar si un pedido califica para comprometer stock en WMS
+// Regla: Solo debe comprometer stock cuando el pedido está confirmado y el pago confirmado (los pedidos con pago pendiente no comprometen)
+window.isOrderStockCommittedEligible = function(order) {
+  if (!order) return false;
+
+  // 1. Pedido Confirmado:
+  const orderStatus = String(order.status || '').toLowerCase().trim();
+  const wmsStatus = String(order.estado_wms || '').trim();
+  if (['cancelado', 'devolución', 'devolucion'].includes(orderStatus)) return false;
+  if (['Cancelado', 'Archivado', 'Despachado'].includes(wmsStatus)) return false;
+  if (order.raw_shopify_data?.cancelled_at) return false;
+  if (order.raw_shopify_data?.confirmed === false) return false;
+
+  // 2. Pago Confirmado / No Pendiente:
+  const payStatus = String(order.payment_status || '').toLowerCase().trim();
+  const shopFin = String(order.raw_shopify_data?.financial_status || '').toLowerCase().trim();
+  const platform = String(order.external_platform || order.origen || 'Manual').trim();
+  const isMarketplace = ['Falabella', 'MercadoLibre', 'Mercado Libre', 'Paris', 'Ripley', 'Walmart'].includes(platform);
+
+  // Estados pendientes explícitos (NO comprometen stock)
+  const pendingList = ['pending', 'pendiente', 'unpaid', 'no pagado', 'por_pagar', 'por pagar'];
+  if (pendingList.includes(payStatus) || pendingList.includes(shopFin)) {
+    return false;
+  }
+
+  // Estados anulados / reembolsados (NO comprometen stock)
+  const voidedList = ['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided', 'anulado'];
+  if (voidedList.includes(payStatus) || voidedList.includes(shopFin)) {
+    return false;
+  }
+
+  // Estados pagados explícitos (SÍ comprometen stock)
+  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'];
+  if (paidList.includes(payStatus) || paidList.includes(shopFin)) {
+    return true;
+  }
+
+  // Marketplaces: los pedidos recibidos ya cuentan con pago procesado por el portal
+  if (isMarketplace) {
+    return true;
+  }
+
+  // Pedidos Manuales / POS generados directamente en WMS para despacho
+  if (['Manual', 'Punto de Venta'].includes(platform)) {
+    return true;
+  }
+
+  return false;
+};
+
 // Helper para badge amigable de categoría de entrega (Distribución, Retiro, Shop Point, Logística Inversa)
 window.getOrderCategoriaBadgeHtml = function(order) {
   if (!order) return '-';
@@ -5502,8 +5552,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           id,
           external_order_number,
           external_platform,
+          origen,
           status,
           estado_wms,
+          payment_status,
+          raw_shopify_data,
           created_at,
           customer_name
         )
@@ -5544,6 +5597,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       const orderStatus = (item.orders.status || '').toLowerCase().trim();
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
       if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
+      
+      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock)
+      if (typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
+        continue;
+      }
       
       // Simular lógica de should_process_order_stock
       let shouldProcess = true;
@@ -5618,8 +5676,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           order_id: item.orders.id,
           external_order_number: item.orders.external_order_number,
           external_platform: item.orders.external_platform,
+          origen: item.orders.origen,
           status: item.orders.status,
           estado_wms: item.orders.estado_wms || 'En procesamiento',
+          payment_status: item.orders.payment_status,
+          raw_shopify_data: item.orders.raw_shopify_data,
           created_at: item.orders.created_at,
           customer_name: item.orders.customer_name
         });
@@ -5662,10 +5723,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
         ? new Date(item.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
         : '-';
 
-      const platform = item.external_platform || 'Manual';
+      const platform = item.external_platform || item.origen || 'Manual';
       const orderNum = item.external_order_number || item.order_id || 'N/A';
       const customer = item.customer_name || 'N/A';
       const statusBadge = `<span class="badge" style="background-color: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase;">${item.status || 'N/A'}</span>`;
+      const paymentBadge = window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(item) : `<span class="badge" style="font-size: 0.75rem;">${item.payment_status || 'N/A'}</span>`;
 
       const isEnMesa = ['En preparación', 'Pickeado'].includes(item.estado_wms);
       const wmsBadge = isEnMesa
@@ -5682,6 +5744,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           <td style="padding: 0.85rem 0.5rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${customer}</td>
           <td style="padding: 0.85rem 0.5rem;">${wmsBadge}</td>
           <td style="padding: 0.85rem 0.5rem;">${statusBadge}</td>
+          <td style="padding: 0.85rem 0.5rem;">${paymentBadge}</td>
           <td style="padding: 0.85rem 0.5rem; text-align: center; font-weight: 700; color: ${qtyColor};">${item.quantity}</td>
         </tr>
       `;
@@ -5703,18 +5766,20 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
             <th style="padding: 0.6rem 0.5rem;">Cliente</th>
             <th style="padding: 0.6rem 0.5rem;">Ubicación WMS</th>
             <th style="padding: 0.6rem 0.5rem;">Estado Pedido</th>
+            <th style="padding: 0.6rem 0.5rem;">Estado Pago</th>
             <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
           </tr>
         </thead>
         <tbody style="color: var(--color-text-main);">
           ${rowsHtml}
           <tr style="background: rgba(0,0,0,0.02); font-weight: bold; border-top: 2px solid var(--color-border);">
-            <td colspan="6" style="padding: 0.85rem 0.5rem; text-align: right;">${totalLabel}</td>
+            <td colspan="7" style="padding: 0.85rem 0.5rem; text-align: right;">${totalLabel}</td>
             <td style="padding: 0.85rem 0.5rem; text-align: center; font-size: 1rem; color: ${totalColor};">${totalQty}</td>
           </tr>
         </tbody>
       </table>
     `;
+
 
   } catch (err) {
     console.error('Error al cargar detalle de stock comprometido:', err);
@@ -10549,9 +10614,9 @@ window.applyClientWmsFiltersAndRender = function() {
       }).join('');
     }
 
-    // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal)
+    // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal o Jumpseller sin apellido)
     let displayName = order.customer_name;
-    if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+    if (!displayName || displayName === 'No registrado' || displayName.trim() === '' || displayName === 'Cliente Jumpseller' || (order.raw_jumpseller_data && !displayName.includes(' '))) {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         const billing = raw.billing_address;
@@ -10561,6 +10626,23 @@ window.applyClientWmsFiltersAndRender = function() {
         } else if (cust) {
           displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
         }
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        const isValidName = s => s && !s.includes('@') && s.toLowerCase() !== 'no registrado' && s.toLowerCase() !== 'cliente jumpseller';
+        const sName = [raw.shipping_address?.name || raw.shipping_address?.first_name, raw.shipping_address?.surname || raw.shipping_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+        const bName = [raw.billing_address?.name || raw.billing_address?.first_name, raw.billing_address?.surname || raw.billing_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+        const cName = (raw.customer?.fullname || [raw.customer?.name || raw.customer?.first_name, raw.customer?.surname || raw.customer?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ') || '').trim();
+        const validShip = isValidName(sName) ? sName : '';
+        const validBill = isValidName(bName) ? bName : '';
+        const validCust = isValidName(cName) ? cName : '';
+        let jumpName = validShip || validBill || validCust;
+        if (validShip && !validShip.includes(' ')) {
+          if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validCust;
+          else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validBill;
+        } else if (validBill && !validBill.includes(' ')) {
+          if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) jumpName = validCust;
+        }
+        if (jumpName) displayName = jumpName;
       }
       if (!displayName || displayName.trim() === '') {
         displayName = 'No registrado';
@@ -10572,6 +10654,9 @@ window.applyClientWmsFiltersAndRender = function() {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        displayEmail = raw.customer?.email || raw.shipping_address?.email || raw.billing_address?.email || '';
       }
       if (!displayEmail || displayEmail.trim() === '') {
         displayEmail = 'No registrado';
@@ -10583,6 +10668,9 @@ window.applyClientWmsFiltersAndRender = function() {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        displayPhone = raw.customer?.phone || raw.shipping_address?.phone || raw.billing_address?.phone || '';
       }
       if (!displayPhone || displayPhone.trim() === '') {
         displayPhone = 'No registrado';
@@ -14390,6 +14478,10 @@ async function renderIntegrations() {
       window.tempClientNewOrderItems = [];
       const form = document.getElementById('form-new-order');
       if (form) form.reset();
+      const notesEl = document.getElementById('order-cust-notes');
+      if (notesEl) notesEl.value = '';
+      const notesSumEl = document.getElementById('order-cust-notes-summary');
+      if (notesSumEl) notesSumEl.value = '';
       const catSelectEl = document.getElementById('order-categoria-entrega');
       if (catSelectEl) catSelectEl.value = 'DISTRIBUCIÓN';
       const searchInput = document.getElementById('order-product-search');
@@ -14959,6 +15051,7 @@ async function renderIntegrations() {
       const shippingComplement = document.getElementById('order-cust-complement').value.trim();
       const origen = document.getElementById('order-cust-origen').value;
       const externalId = document.getElementById('order-cust-external-id').value.trim();
+      const orderNotes = (document.getElementById('order-cust-notes-summary')?.value || document.getElementById('order-cust-notes')?.value || '').trim();
 
       // Shipping configuration
       const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
@@ -15079,6 +15172,13 @@ async function renderIntegrations() {
       const taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
 
       // 1. Crear el Pedido Padre
+      const rawShopifyData = orderNotes ? {
+        note: orderNotes,
+        notes: orderNotes,
+        customer_note: orderNotes,
+        manual_order: true
+      } : { manual_order: true };
+
       const orderDataPayload = {
         merchant_id: merchantId,
         comercio: document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
@@ -15101,7 +15201,8 @@ async function renderIntegrations() {
         cantidad: totalCantidad,
         sku: orderSkus,
         item: orderItemsNames,
-        total_value: totalValue
+        total_value: totalValue,
+        raw_shopify_data: rawShopifyData
       };
 
       // Add quoted costs with columns
@@ -15208,6 +15309,10 @@ async function renderIntegrations() {
       alert('Pedido registrado con éxito');
       document.getElementById('modal-order').classList.remove('active');
       e.target.reset();
+      const notesEl = document.getElementById('order-cust-notes');
+      if (notesEl) notesEl.value = '';
+      const notesSumEl = document.getElementById('order-cust-notes-summary');
+      if (notesSumEl) notesSumEl.value = '';
       window.tempClientNewOrderItems = [];
       renderOrders(); // Refrescar vista
     } catch (error) {
@@ -15223,6 +15328,7 @@ async function sendOrderNotificationEmail(order, items) {
   try {
     const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
     const subject = `🆕 Nuevo pedido manual registrado - ${order.external_order_number || 'Sin Nro'}`;
+    const orderNotes = window.getOrderNoteText ? window.getOrderNoteText(order) : (order.raw_shopify_data?.note || '');
     
     const itemsHtml = items.map(item => `
       <tr style="border-bottom: 1px solid #edf2f7;">
@@ -15274,6 +15380,11 @@ async function sendOrderNotificationEmail(order, items) {
             <td style="padding: 6px 0; font-weight: bold; color: #718096;">Total:</td>
             <td style="padding: 6px 0; font-weight: bold; color: #22c55e;">${window.formatCLP(order.total_value || 0)}</td>
           </tr>
+          ${orderNotes ? `
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096; vertical-align: top;">Notas / Comentarios:</td>
+            <td style="padding: 6px 0; color: #b45309; font-weight: 500; background: #fffbeb; border-radius: 4px; padding-left: 8px;">${orderNotes.replace(/\n/g, '<br>')}</td>
+          </tr>` : ''}
         </table>
 
         <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
@@ -19540,6 +19651,183 @@ window.updateRloRegionalCouriers = function() {
   if (courierLabel) courierLabel.textContent = 'Courier Preferido (Opcional)';
 };
 const updateRloRegionalCouriers = window.updateRloRegionalCouriers;
+
+async function getCommerceVariantConfig(commerce) {
+  const defaultCfg = {
+    naming: {
+      color: 'Color',
+      talla: 'Talla',
+      var1: 'Variable 1',
+      var2: 'Variable 2'
+    },
+    options: {
+      color: [],
+      talla: [],
+      var1: [],
+      var2: []
+    },
+    colors: {}
+  };
+
+  let localCfg = null;
+  try {
+    const raw = localStorage.getItem('wms_variant_config_' + commerce);
+    if (raw) localCfg = JSON.parse(raw);
+  } catch (e) {}
+
+  try {
+    const { data, error } = await supabase
+      .from('comercios_adicional_config')
+      .select('plat_siglas_config')
+      .eq('comercio', commerce)
+      .maybeSingle();
+
+    if (!error && data && data.plat_siglas_config && data.plat_siglas_config.variant_config) {
+      const dbCfg = data.plat_siglas_config.variant_config;
+      const merged = {
+        naming: { ...defaultCfg.naming, ...(dbCfg.naming || {}) },
+        options: { ...defaultCfg.options, ...(dbCfg.options || {}) },
+        colors: { ...(dbCfg.colors || {}) }
+      };
+      try {
+        localStorage.setItem('wms_variant_config_' + commerce, JSON.stringify(merged));
+      } catch (e) {}
+      return merged;
+    }
+  } catch (e) {
+    console.warn('Error fetching variant config from Supabase:', e);
+  }
+
+  if (localCfg) {
+    return {
+      naming: { ...defaultCfg.naming, ...(localCfg.naming || {}) },
+      options: { ...defaultCfg.options, ...(localCfg.options || {}) },
+      colors: { ...(localCfg.colors || {}) }
+    };
+  }
+
+  return defaultCfg;
+}
+
+function getVariantColorStyle(colorName, commerceConfig, productOptions) {
+  if (!colorName) return null;
+  const upper = String(colorName).toUpperCase().trim();
+
+  // 1. Opciones del producto si vienen definidas
+  if (productOptions && productOptions.color_bg) {
+    return {
+      bg: String(productOptions.color_bg).trim(),
+      text: (productOptions.color_text && String(productOptions.color_text).trim()) ? String(productOptions.color_text).trim() : '#ffffff'
+    };
+  }
+
+  // 2. Configuración específica del comercio
+  if (commerceConfig && commerceConfig.colors) {
+    if (commerceConfig.colors[upper]) return commerceConfig.colors[upper];
+    if (commerceConfig.colors[colorName]) return commerceConfig.colors[colorName];
+  }
+
+  // 3. Paleta estándar de respaldo
+  const defaultPalette = {
+    "VERDE": { bg: "#10b981", text: "#ffffff" },
+    "NEGRO": { bg: "#09090b", text: "#ffffff" },
+    "BLANCO": { bg: "#ffffff", text: "#000000" },
+    "AZUL": { bg: "#004aad", text: "#ffffff" },
+    "CAJA AZUL": { bg: "#004aad", text: "#ffffff" },
+    "ROJO": { bg: "#dc2626", text: "#ffffff" },
+    "MAGENTA": { bg: "#bd2665", text: "#ffffff" },
+    "GRIS": { bg: "#64748b", text: "#ffffff" },
+    "ROSADO": { bg: "#f472b6", text: "#000000" },
+    "LILA": { bg: "#c084fc", text: "#000000" },
+    "CAFE": { bg: "#78350f", text: "#ffffff" },
+    "PETROLEO": { bg: "#0e7490", text: "#ffffff" },
+    "CELESTE": { bg: "#38bdf8", text: "#000000" },
+    "AMARILLO": { bg: "#facc15", text: "#000000" },
+    "BEIGE": { bg: "#fef3c7", text: "#78350f" }
+  };
+
+  if (defaultPalette[upper]) return defaultPalette[upper];
+  for (const k in defaultPalette) {
+    if (upper.includes(k)) return defaultPalette[k];
+  }
+
+  return { bg: "#3b82f6", text: "#ffffff" };
+}
+window.getVariantColorStyle = getVariantColorStyle;
+window.getCommerceVariantConfig = getCommerceVariantConfig;
+
+window.renderProductVariantBadges = function(prod, config, options = {}) {
+  if (!prod) return '';
+  const opt = prod.options || {};
+  const color = prod.color || opt.color || null;
+  const talla = prod.talla || opt.talla || opt.size || null;
+  const var1 = prod.variable_1 || opt.var1 || opt.manga || null;
+  const var2 = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+  if (!color && !talla && !var1 && !var2) return '';
+
+  const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
+  const naming = (config && config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  const parts = [];
+
+  if (color) {
+    let colorStyle = null;
+    if (typeof window.getVariantColorStyle === 'function') {
+      colorStyle = window.getVariantColorStyle(color, config, opt);
+    }
+    const colorBg = (colorStyle && colorStyle.bg) ? colorStyle.bg : 'rgba(113, 23, 235, 0.08)';
+    const colorText = (colorStyle && colorStyle.text) ? colorStyle.text : 'var(--color-primary)';
+    
+    if (colorStyle && colorStyle.bg) {
+      parts.push(`
+        <span class="badge variant-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; background-color: ${colorBg}; color: ${colorText}; border: 1px solid rgba(0,0,0,0.18); box-shadow: 0 1px 2px rgba(0,0,0,0.06); max-width: 100%;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: ${colorBg}; border: 1px solid rgba(255,255,255,0.7); flex-shrink: 0;"></span>
+          <span>${esc(naming.color || 'Color')}: <strong>${esc(color)}</strong></span>
+        </span>
+      `);
+    } else {
+      parts.push(`
+        <span class="badge variant-badge" style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(113, 23, 235, 0.2);">
+          ${esc(naming.color || 'Color')}: <strong>${esc(color)}</strong>
+        </span>
+      `);
+    }
+  }
+
+  if (talla) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(15, 23, 42, 0.07); color: var(--color-text-main); padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.12);">
+        ${esc(naming.talla || 'Talla')}: <strong>${esc(talla)}</strong>
+      </span>
+    `);
+  }
+
+  if (var1) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(249, 115, 22, 0.1); color: #c2410c; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(249, 115, 22, 0.25);">
+        ${esc(naming.var1 || 'Variable 1')}: <strong>${esc(var1)}</strong>
+      </span>
+    `);
+  }
+
+  if (var2) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(202, 138, 4, 0.12); color: #a16207; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(202, 138, 4, 0.25);">
+        ${esc(naming.var2 || 'Variable 2')}: <strong>${esc(var2)}</strong>
+      </span>
+    `);
+  }
+
+  const containerMargin = options.margin !== undefined ? options.margin : 'margin-top: 0.25rem;';
+  return `<div class="product-variants-badges" style="display: flex; gap: 0.3rem; flex-wrap: wrap; ${containerMargin} align-items: center;">${parts.join('')}</div>`;
+};
 
 window.loadRloCatalog = async function(commerceName) {
   const form = document.getElementById('form-reverse-logistics-order');
@@ -23943,9 +24231,9 @@ window.renderDeclarations = async function() {
           
           const products = window.decCatalogProductsCache || [];
           const matches = products.filter(p => 
-            (p.name && p.name.toLowerCase().includes(term)) || 
-            (p.sku && p.sku.toLowerCase().includes(term)) ||
-            (p.barcode && p.barcode.toLowerCase().includes(term))
+            (p.name && String(p.name).toLowerCase().includes(term)) || 
+            (p.sku && String(p.sku).trim().toLowerCase().includes(term)) ||
+            (p.barcode && String(p.barcode).trim().toLowerCase().includes(term))
           );
           
           let html = '';
@@ -23971,6 +24259,10 @@ window.renderDeclarations = async function() {
               }
               const masterTagHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.68rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.75rem;"></i>${platName} (Catálogo Master)</span>`;
 
+              const variantBadgesHtml = (typeof window.renderProductVariantBadges === 'function')
+                ? window.renderProductVariantBadges(p, window.decCurrentCommerceVariantConfig, { margin: 'margin-top: 4px;' })
+                : '';
+
               html += `
                 <div class="search-result-item" 
                      data-sku="${p.sku}" 
@@ -23990,6 +24282,7 @@ window.renderDeclarations = async function() {
                       <strong style="color: var(--color-text-main); font-size: 0.875rem;">${p.name}</strong>
                       ${masterTagHtml}
                     </div>
+                    ${variantBadgesHtml}
                     <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 3px;">
                       SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> ${p.barcode ? `| CB: ${p.barcode}` : ''}
                     </div>
@@ -24544,6 +24837,7 @@ window.renderDeclarations = async function() {
             }
 
             if (qty > 0) {
+              const cached = (window.decCatalogProductsCache || []).find(p => p.sku && String(p.sku).trim().toUpperCase() === String(sku).trim().toUpperCase());
               parsedProducts.push({ 
                 sku, 
                 name, 
@@ -24555,7 +24849,12 @@ window.renderDeclarations = async function() {
                 largo, 
                 ancho, 
                 alto, 
-                subtotal: qty * price 
+                subtotal: qty * price,
+                color: cached?.color || null,
+                talla: cached?.talla || null,
+                variable_1: cached?.variable_1 || null,
+                variable_2: cached?.variable_2 || null,
+                options: cached?.options || null
               });
               totalQtyFromExcel += qty;
             }
@@ -25526,6 +25825,30 @@ window.viewDeclarationDetail = async function(id) {
     const skuSet = new Set(products.map(p => p.sku).filter(Boolean));
     let itemsTableRowsHtml = '';
 
+    // Cargar configuración de variantes y variantes de catálogo para estos productos
+    let commerceVariantCfg = null;
+    let variantMap = new Map();
+    if (dec.comercio) {
+      try {
+        commerceVariantCfg = await getCommerceVariantConfig(dec.comercio);
+        const skus = products.map(p => p.sku).filter(Boolean);
+        if (skus.length > 0) {
+          const { data: dbProds } = await supabase
+            .from('products')
+            .select('sku, color, talla, variable_1, variable_2, options')
+            .eq('comercio', dec.comercio)
+            .in('sku', skus);
+          if (dbProds) {
+            dbProds.forEach(dp => {
+              if (dp.sku) variantMap.set(String(dp.sku).trim().toUpperCase(), dp);
+            });
+          }
+        }
+      } catch (errVar) {
+        console.warn('Error loading variant config or products for viewDeclarationDetail:', errVar);
+      }
+    }
+
     if (products.length === 0) {
       itemsTableRowsHtml = `
         <tr>
@@ -25571,6 +25894,20 @@ window.viewDeclarationDetail = async function(id) {
 
         const barcodeText = p.barcode ? `<span style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace; display: block; margin-top: 1px;"><i class="ri-barcode-line"></i> ${p.barcode}</span>` : '';
 
+        const catProd = (p.sku && variantMap) ? variantMap.get(String(p.sku).trim().toUpperCase()) : null;
+        const prodForBadges = {
+          ...catProd,
+          ...p,
+          color: p.color || (catProd && catProd.color) || null,
+          talla: p.talla || (catProd && catProd.talla) || null,
+          variable_1: p.variable_1 || (catProd && catProd.variable_1) || null,
+          variable_2: p.variable_2 || (catProd && catProd.variable_2) || null,
+          options: p.options || (catProd && catProd.options) || null
+        };
+        const variantBadges = (typeof window.renderProductVariantBadges === 'function')
+          ? window.renderProductVariantBadges(prodForBadges, commerceVariantCfg, { margin: 'margin-top: 3px;' })
+          : '';
+
         const priceNum = parseFloat(p.price) || 0;
         const subtotalNum = parseFloat(p.subtotal) || (priceNum * declared);
         const subtotalText = subtotalNum > 0 ? `$ ${subtotalNum.toLocaleString('es-CL')}` : '—';
@@ -25584,6 +25921,7 @@ window.viewDeclarationDetail = async function(id) {
             </td>
             <td style="padding: 0.65rem 0.75rem;">
               <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; line-height: 1.35;">${p.name || 'Sin nombre'}</div>
+              ${variantBadges}
               ${dimText}
             </td>
             <td style="padding: 0.65rem 0.75rem; text-align: right; font-weight: 700; color: var(--color-text-main); font-size: 0.88rem;">${declared.toLocaleString('es-CL')}</td>
@@ -26577,6 +26915,10 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
         ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 3px; font-family: var(--font-family);">${p.largo} × ${p.ancho} × ${p.alto} cm <span style="opacity: 0.85;">(${(p.vol || 0).toFixed(4)} m³)</span></div>`
         : ((p.vol && p.vol > 0) ? `<div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 3px; font-family: var(--font-family);">${p.vol.toFixed(4)} m³</div>` : '');
 
+      const variantBadgesHtml = (typeof window.renderProductVariantBadges === 'function')
+        ? window.renderProductVariantBadges(p, window.decCurrentCommerceVariantConfig, { margin: 'margin-top: 3px;' })
+        : '';
+
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.84rem; transition: background 0.15s;">
           <td style="padding: 0.75rem 1rem; text-align: left; vertical-align: middle; width: 220px;">
@@ -26584,7 +26926,8 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
             ${dimInfo}
           </td>
           <td style="padding: 0.75rem 1rem; text-align: left; vertical-align: middle; line-height: 1.45; color: var(--color-text-main); font-weight: 500;" title="${p.name}">
-            ${p.name}
+            <div>${p.name}</div>
+            ${variantBadgesHtml}
           </td>
           <td style="padding: 0.75rem 1rem; text-align: right; vertical-align: middle; width: 110px;">
             <span style="display: inline-block; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); font-weight: 700; font-size: 0.85rem; padding: 3px 10px; border-radius: 6px;">${p.qty}</span>
@@ -35936,17 +36279,56 @@ window.exportDeclarationToPDF = async function(id) {
       }
     }
 
+    // Cargar variantes del catálogo para el comercio si existen
+    let variantConfig = null;
+    let catalogMap = {};
+    if (dec.comercio && products.length > 0) {
+      try {
+        if (typeof window.getCommerceVariantConfig === 'function') {
+          variantConfig = await window.getCommerceVariantConfig(dec.comercio);
+        } else if (typeof getCommerceVariantConfig === 'function') {
+          variantConfig = await getCommerceVariantConfig(dec.comercio);
+        }
+        const skus = products.map(p => (p.sku || '').trim()).filter(Boolean);
+        if (skus.length > 0) {
+          const { data: catRows } = await supabase
+            .from('products')
+            .select('sku, color, talla, variable_1, variable_2, options')
+            .eq('comercio', dec.comercio)
+            .in('sku', skus);
+          (catRows || []).forEach(cp => {
+            if (cp.sku) catalogMap[String(cp.sku).trim().toUpperCase()] = cp;
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching variant config for declaration PDF:', e);
+      }
+    }
+
     let productsHtml = '';
     if (products.length > 0) {
       products.forEach((p, idx) => {
+        const catProd = p.sku ? catalogMap[String(p.sku).trim().toUpperCase()] : null;
+        const prodForBadges = {
+          color: p.color || catProd?.color,
+          talla: p.talla || catProd?.talla,
+          variable_1: p.variable_1 || catProd?.variable_1,
+          variable_2: p.variable_2 || catProd?.variable_2,
+          options: p.options || catProd?.options
+        };
+        const badgesHtml = (typeof window.renderProductVariantBadges === 'function')
+          ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true })
+          : '';
+
         productsHtml += `
           <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
             <td style="padding: 6px 8px; color: #475569; font-size: 9px;">${idx + 1}</td>
             <td style="padding: 6px 8px; color: #334155; font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.sku}">${p.sku}</td>
             <td style="padding: 6px 8px; color: #1e293b; font-size: 9px; vertical-align: top;">
-              <div style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; max-height: 2.6em; word-break: break-word;">
+              <div style="font-weight: 500; line-height: 1.3; word-break: break-word;">
                 ${p.name}
               </div>
+              ${badgesHtml ? `<div style="margin-top: 3px;">${badgesHtml}</div>` : ''}
             </td>
             <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600; font-size: 9px;">${p.qty}</td>
           </tr>
@@ -36310,7 +36692,7 @@ window.viewDeclarationProducts = async function(id) {
     modal.id = 'modal-view-dec-products';
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column; max-height: 80vh; padding: 0;">
+      <div class="modal-content" style="max-width: 780px; display: flex; flex-direction: column; max-height: 80vh; padding: 0;">
         <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
           <h3 style="margin: 0;" id="view-products-title">Productos del Ingreso</h3>
           <button type="button" class="modal-close" onclick="document.getElementById('modal-view-dec-products').classList.remove('active')">&times;</button>
@@ -36334,7 +36716,7 @@ window.viewDeclarationProducts = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('title, products_list, file_base64, history')
+      .select('comercio, title, products_list, file_base64, history')
       .eq('id', id)
       .single();
 
@@ -36384,6 +36766,32 @@ window.viewDeclarationProducts = async function(id) {
       return;
     }
 
+    // Cargar variantes y configuración de variantes del comercio
+    let variantConfig = null;
+    let catalogMap = {};
+    if (dec.comercio) {
+      try {
+        if (typeof window.getCommerceVariantConfig === 'function') {
+          variantConfig = await window.getCommerceVariantConfig(dec.comercio);
+        } else if (typeof getCommerceVariantConfig === 'function') {
+          variantConfig = await getCommerceVariantConfig(dec.comercio);
+        }
+        const skus = products.map(p => (p.sku || '').trim()).filter(Boolean);
+        if (skus.length > 0) {
+          const { data: catRows } = await supabase
+            .from('products')
+            .select('sku, color, talla, variable_1, variable_2, options')
+            .eq('comercio', dec.comercio)
+            .in('sku', skus);
+          (catRows || []).forEach(cp => {
+            if (cp.sku) catalogMap[String(cp.sku).trim().toUpperCase()] = cp;
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching variant info for viewDeclarationProducts:', e);
+      }
+    }
+
     const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
     const hasConfirmed = products.some(p => p.qty_confirmed !== undefined && p.qty_confirmed !== null);
 
@@ -36400,8 +36808,8 @@ window.viewDeclarationProducts = async function(id) {
         <thead>
           <tr style="border-bottom: 2px solid var(--color-border); text-align: left;">
             <th style="padding: 8px;">#</th>
-            <th style="padding: 8px;">SKU</th>
-            <th style="padding: 8px;">Nombre Producto</th>
+            <th style="padding: 8px; min-width: 110px;">SKU</th>
+            <th style="padding: 8px; min-width: 220px;">Nombre Producto / Variantes</th>
             <th style="padding: 8px; text-align: right;">Declarada</th>
             ${hasConfirmed ? '<th style="padding: 8px; text-align: right;">Recibida</th><th style="padding: 8px; text-align: right;">Pendiente</th>' : ''}
           </tr>
@@ -36414,11 +36822,26 @@ window.viewDeclarationProducts = async function(id) {
       const confirmed = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : declared;
       const pending = Math.max(0, declared - confirmed);
 
+      const catProd = p.sku ? catalogMap[String(p.sku).trim().toUpperCase()] : null;
+      const prodForBadges = {
+        color: p.color || catProd?.color,
+        talla: p.talla || catProd?.talla,
+        variable_1: p.variable_1 || catProd?.variable_1,
+        variable_2: p.variable_2 || catProd?.variable_2,
+        options: p.options || catProd?.options
+      };
+      const badgesHtml = (typeof window.renderProductVariantBadges === 'function')
+        ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true })
+        : '';
+
       tableHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
-          <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
-          <td style="padding: 8px;">${p.name}</td>
+          <td style="padding: 8px; font-weight: 700; font-family: monospace; color: var(--color-primary);">${p.sku}</td>
+          <td style="padding: 8px;">
+            <div style="font-weight: 500; color: var(--color-text-main);">${p.name}</div>
+            ${badgesHtml ? `<div style="margin-top: 4px;">${badgesHtml}</div>` : ''}
+          </td>
           <td style="padding: 8px; text-align: right; font-weight: bold;">${declared.toLocaleString('es-CL')}</td>
           ${hasConfirmed ? `
             <td style="padding: 8px; text-align: right; font-weight: 700; color: var(--color-primary);">${confirmed.toLocaleString('es-CL')}</td>
@@ -38186,10 +38609,19 @@ async function loadCatalogProductsForDeclaration(commerce) {
     }
     window.decCatalogCurrentMainPlatform = mainPlatform;
 
-    // 2. Traer productos con atributos necesarios para identificar origen y tipo
+    // Cargar configuración de variantes del comercio
+    try {
+      if (typeof getCommerceVariantConfig === 'function') {
+        window.decCurrentCommerceVariantConfig = await getCommerceVariantConfig(commerce);
+      }
+    } catch (eCfg) {
+      console.warn('Error loading commerce variant config for declarations:', eCfg);
+    }
+
+    // 2. Traer productos con atributos necesarios para identificar origen y tipo (incluyendo variantes)
     const prods = await window.fetchAllSupabaseRows(
       'products', 
-      'id, sku, name, volumen, largo, ancho, alto, weight, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data', 
+      'id, sku, name, volumen, largo, ancho, alto, weight, price, barcode, is_virtual, is_pack, status, description, color, talla, variable_1, variable_2, options, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data', 
       q => q.eq('comercio', commerce).order('name')
     );
 
@@ -38268,8 +38700,9 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   let catalogVol = parseFloat(vol) || 0;
 
   // Si no pasamos medidas explícitas completas, intentar buscarlas en la caché del catálogo
+  let cached = null;
   if (window.decCatalogProductsCache) {
-    const cached = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
+    cached = window.decCatalogProductsCache.find(p => p.sku && String(p.sku).trim().toUpperCase() === String(sku).trim().toUpperCase());
     if (cached) {
       if (catalogLargo === null && cached.largo !== null && cached.largo !== undefined && !isNaN(cached.largo)) catalogLargo = parseFloat(cached.largo);
       if (catalogAncho === null && cached.ancho !== null && cached.ancho !== undefined && !isNaN(cached.ancho)) catalogAncho = parseFloat(cached.ancho);
@@ -38293,7 +38726,9 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
     unitVol = catalogVol;
   }
 
-  const existingRow = tbody.querySelector(`.selected-product-row[data-sku="${sku}"]`);
+  const existingRow = Array.from(tbody.querySelectorAll('.selected-product-row')).find(r => {
+    return String(r.getAttribute('data-sku') || '').trim().toUpperCase() === String(sku).trim().toUpperCase();
+  });
   if (existingRow) {
     const qtyInput = existingRow.querySelector('.dec-catalog-qty-input');
     if (qtyInput) {
@@ -38340,11 +38775,8 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   }
 
   let cachedPlat = '';
-  if (window.decCatalogProductsCache) {
-    const cached = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
-    if (cached && cached.platform_origin) {
-      cachedPlat = cached.platform_origin;
-    }
+  if (cached && cached.platform_origin) {
+    cachedPlat = cached.platform_origin;
   }
   const displayPlat = cachedPlat === 'Manual' ? 'WMS' : (cachedPlat || window.decCatalogCurrentMainPlatform || 'WMS');
   let platBg = 'rgba(37, 99, 235, 0.09)';
@@ -38363,14 +38795,19 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   }
   const tagTableHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.65rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.72rem;"></i>${displayPlat} (Catálogo Master)</span>`;
 
+  const variantBadgesHtml = (typeof window.renderProductVariantBadges === 'function')
+    ? window.renderProductVariantBadges(cached, window.decCurrentCommerceVariantConfig, { margin: 'margin-top: 4px;' })
+    : '';
+
   const tr = document.createElement('tr');
   tr.className = 'selected-product-row';
   tr.setAttribute('data-sku', sku);
   tr.style.cssText = 'border-bottom: 1px solid var(--color-border); vertical-align: middle; transition: background 0.15s;';
   tr.innerHTML = `
-    <td style="padding: 10px 14px; max-width: 260px;">
-      <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.875rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${name}">${name}</div>
-      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+    <td style="padding: 10px 14px; min-width: 250px;">
+      <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.875rem; line-height: 1.35;" title="${name}">${name}</div>
+      ${variantBadgesHtml}
+      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
         <span style="font-family: monospace; font-weight: 600; color: var(--color-primary);">${sku}</span>
         ${barcode ? `<span style="color: var(--color-text-muted);">| CB: ${barcode}</span>` : ''}
         ${tagTableHtml}
@@ -43366,6 +43803,18 @@ window.initWizardOrder = function() {
     };
   }
 
+  // Sincronización bidireccional de notas del pedido (Paso 1 y Paso 4)
+  const notesInput = document.getElementById('order-cust-notes');
+  const notesSummary = document.getElementById('order-cust-notes-summary');
+  if (notesInput && notesSummary) {
+    notesInput.oninput = function() {
+      notesSummary.value = this.value;
+    };
+    notesSummary.oninput = function() {
+      notesInput.value = this.value;
+    };
+  }
+
   // Resetear flujo a despacho por defecto
   window.updateOrderFlowType('despacho');
   window.tempOrderOriginalData = null;
@@ -43708,6 +44157,12 @@ window.populateWizardSummary = function() {
   }
   document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
 
+  const notesInputVal = document.getElementById('order-cust-notes')?.value || '';
+  const notesSummaryEl = document.getElementById('order-cust-notes-summary');
+  if (notesSummaryEl) {
+    notesSummaryEl.value = notesInputVal;
+  }
+
   // Populate items table
   const tbody = document.getElementById('summary-items-tbody');
   const items = window.tempClientNewOrderItems || [];
@@ -43861,7 +44316,7 @@ window.setupCustomerAutocomplete = function() {
         const selectedCommerce = document.getElementById('order-select-commerce')?.value || (typeof currentCompany !== 'undefined' && currentCompany ? currentCompany.split(',')[0].trim() : '');
         let query = supabase
           .from('orders')
-          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at')
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at, raw_shopify_data')
           .or(`customer_name.ilike.%${cleanTerm}%,customer_email.ilike.%${cleanTerm}%,external_order_number.ilike.%${cleanTerm}%,customer_phone.ilike.%${cleanTerm}%`)
           .order('created_at', { ascending: false })
           .limit(50);
@@ -43934,6 +44389,14 @@ window.setupCustomerAutocomplete = function() {
             document.getElementById('order-cust-phone').value = customer.customer_phone || '';
             document.getElementById('order-cust-address').value = customer.shipping_address || '';
             document.getElementById('order-cust-complement').value = customer.shipping_complement || '';
+
+            const prevNote = window.getOrderNoteText ? window.getOrderNoteText(customer) : (customer.raw_shopify_data?.note || '');
+            const notesEl = document.getElementById('order-cust-notes');
+            if (notesEl && prevNote) {
+              notesEl.value = prevNote;
+              const notesSummary = document.getElementById('order-cust-notes-summary');
+              if (notesSummary) notesSummary.value = prevNote;
+            }
 
             // Validar de forma inmediata la comuna del pedido anterior
             const rawCity = customer.shipping_city || '';

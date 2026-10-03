@@ -1556,6 +1556,56 @@ window.getOrderPaymentBadgeHtml = function(order) {
   return `<span style="background: #991b1b; color: #ffffff; border: 1px solid #7f1d1d; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-error-warning-line"></i> ${order.payment_status || 'Pendiente'}</span>`;
 };
 
+// Helper para validar si un pedido califica para comprometer stock en WMS
+// Regla: Solo debe comprometer stock cuando el pedido está confirmado y el pago confirmado (los pedidos con pago pendiente no comprometen)
+window.isOrderStockCommittedEligible = function(order) {
+  if (!order) return false;
+
+  // 1. Pedido Confirmado:
+  const orderStatus = String(order.status || '').toLowerCase().trim();
+  const wmsStatus = String(order.estado_wms || '').trim();
+  if (['cancelado', 'devolución', 'devolucion'].includes(orderStatus)) return false;
+  if (['Cancelado', 'Archivado', 'Despachado'].includes(wmsStatus)) return false;
+  if (order.raw_shopify_data?.cancelled_at) return false;
+  if (order.raw_shopify_data?.confirmed === false) return false;
+
+  // 2. Pago Confirmado / No Pendiente:
+  const payStatus = String(order.payment_status || '').toLowerCase().trim();
+  const shopFin = String(order.raw_shopify_data?.financial_status || '').toLowerCase().trim();
+  const platform = String(order.external_platform || order.origen || 'Manual').trim();
+  const isMarketplace = ['Falabella', 'MercadoLibre', 'Mercado Libre', 'Paris', 'Ripley', 'Walmart'].includes(platform);
+
+  // Estados pendientes explícitos (NO comprometen stock)
+  const pendingList = ['pending', 'pendiente', 'unpaid', 'no pagado', 'por_pagar', 'por pagar'];
+  if (pendingList.includes(payStatus) || pendingList.includes(shopFin)) {
+    return false;
+  }
+
+  // Estados anulados / reembolsados (NO comprometen stock)
+  const voidedList = ['refunded', 'reembolsado', 'partially_refunded', 'parcialmente_reembolsado', 'voided', 'anulado'];
+  if (voidedList.includes(payStatus) || voidedList.includes(shopFin)) {
+    return false;
+  }
+
+  // Estados pagados explícitos (SÍ comprometen stock)
+  const paidList = ['paid', 'pagado', 'completed', 'confirmed', 'approved', 'cobrado'];
+  if (paidList.includes(payStatus) || paidList.includes(shopFin)) {
+    return true;
+  }
+
+  // Marketplaces: los pedidos recibidos ya cuentan con pago procesado por el portal
+  if (isMarketplace) {
+    return true;
+  }
+
+  // Pedidos Manuales / POS generados directamente en WMS para despacho
+  if (['Manual', 'Punto de Venta'].includes(platform)) {
+    return true;
+  }
+
+  return false;
+};
+
 // Helper para badge amigable de categoría de entrega (Distribución, Retiro, Logística Inversa)
 window.getOrderCategoriaBadgeHtml = function(order) {
   if (!order) return '-';
@@ -7697,9 +7747,9 @@ window.applyWmsFiltersAndRender = function() {
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
     const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items?.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
-    // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal)
+    // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal o Jumpseller sin apellido)
     let displayName = order.customer_name;
-    if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+    if (!displayName || displayName === 'No registrado' || displayName.trim() === '' || displayName === 'Cliente Jumpseller' || (order.raw_jumpseller_data && !displayName.includes(' '))) {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         const billing = raw.billing_address;
@@ -7709,6 +7759,23 @@ window.applyWmsFiltersAndRender = function() {
         } else if (cust) {
           displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
         }
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        const isValidName = s => s && !s.includes('@') && s.toLowerCase() !== 'no registrado' && s.toLowerCase() !== 'cliente jumpseller';
+        const sName = [raw.shipping_address?.name || raw.shipping_address?.first_name, raw.shipping_address?.surname || raw.shipping_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+        const bName = [raw.billing_address?.name || raw.billing_address?.first_name, raw.billing_address?.surname || raw.billing_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+        const cName = (raw.customer?.fullname || [raw.customer?.name || raw.customer?.first_name, raw.customer?.surname || raw.customer?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ') || '').trim();
+        const validShip = isValidName(sName) ? sName : '';
+        const validBill = isValidName(bName) ? bName : '';
+        const validCust = isValidName(cName) ? cName : '';
+        let jumpName = validShip || validBill || validCust;
+        if (validShip && !validShip.includes(' ')) {
+          if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validCust;
+          else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validBill;
+        } else if (validBill && !validBill.includes(' ')) {
+          if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) jumpName = validCust;
+        }
+        if (jumpName) displayName = jumpName;
       }
       if (!displayName || displayName.trim() === '') {
         displayName = 'No registrado';
@@ -7720,6 +7787,9 @@ window.applyWmsFiltersAndRender = function() {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        displayEmail = raw.customer?.email || raw.shipping_address?.email || raw.billing_address?.email || '';
       }
       if (!displayEmail || displayEmail.trim() === '') {
         displayEmail = 'No registrado';
@@ -7731,6 +7801,9 @@ window.applyWmsFiltersAndRender = function() {
       if (order.raw_shopify_data) {
         const raw = order.raw_shopify_data;
         displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+      } else if (order.raw_jumpseller_data) {
+        const raw = order.raw_jumpseller_data;
+        displayPhone = raw.customer?.phone || raw.shipping_address?.phone || raw.billing_address?.phone || '';
       }
       if (!displayPhone || displayPhone.trim() === '') {
         displayPhone = 'No registrado';
@@ -25122,8 +25195,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           id,
           external_order_number,
           external_platform,
+          origen,
           status,
           estado_wms,
+          payment_status,
+          raw_shopify_data,
           created_at,
           customer_name
         )
@@ -25164,6 +25240,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       const orderStatus = (item.orders.status || '').toLowerCase().trim();
       const orderWmsStatus = (item.orders.estado_wms || '').trim();
       if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado' || orderWmsStatus === 'Archivado') continue;
+      
+      // NUEVO: Validar que el pedido y el pago estén confirmados (pedidos con pago pendiente o no confirmados no comprometen stock)
+      if (typeof window.isOrderStockCommittedEligible === 'function' && !window.isOrderStockCommittedEligible(item.orders)) {
+        continue;
+      }
       
       // Simular lógica de should_process_order_stock
       let shouldProcess = true;
@@ -25238,8 +25319,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           order_id: item.orders.id,
           external_order_number: item.orders.external_order_number,
           external_platform: item.orders.external_platform,
+          origen: item.orders.origen,
           status: item.orders.status,
           estado_wms: item.orders.estado_wms || 'En procesamiento',
+          payment_status: item.orders.payment_status,
+          raw_shopify_data: item.orders.raw_shopify_data,
           created_at: item.orders.created_at,
           customer_name: item.orders.customer_name
         });
@@ -25282,10 +25366,11 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
         ? new Date(item.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
         : '-';
 
-      const platform = item.external_platform || 'Manual';
+      const platform = item.external_platform || item.origen || 'Manual';
       const orderNum = item.external_order_number || item.order_id || 'N/A';
       const customer = item.customer_name || 'N/A';
       const statusBadge = `<span class="badge" style="background-color: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase;">${item.status || 'N/A'}</span>`;
+      const paymentBadge = window.getOrderPaymentBadgeHtml ? window.getOrderPaymentBadgeHtml(item) : `<span class="badge" style="font-size: 0.75rem;">${item.payment_status || 'N/A'}</span>`;
 
       const isEnMesa = ['En preparación', 'Pickeado'].includes(item.estado_wms);
       const wmsBadge = isEnMesa
@@ -25302,6 +25387,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
           <td style="padding: 0.85rem 0.5rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${customer}</td>
           <td style="padding: 0.85rem 0.5rem;">${wmsBadge}</td>
           <td style="padding: 0.85rem 0.5rem;">${statusBadge}</td>
+          <td style="padding: 0.85rem 0.5rem;">${paymentBadge}</td>
           <td style="padding: 0.85rem 0.5rem; text-align: center; font-weight: 700; color: ${qtyColor};">${item.quantity}</td>
         </tr>
       `;
@@ -25323,18 +25409,20 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
             <th style="padding: 0.6rem 0.5rem;">Cliente</th>
             <th style="padding: 0.6rem 0.5rem;">Ubicación WMS</th>
             <th style="padding: 0.6rem 0.5rem;">Estado Pedido</th>
+            <th style="padding: 0.6rem 0.5rem;">Estado Pago</th>
             <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
           </tr>
         </thead>
         <tbody style="color: var(--color-text-main);">
           ${rowsHtml}
           <tr style="background: rgba(0,0,0,0.02); font-weight: bold; border-top: 2px solid var(--color-border);">
-            <td colspan="6" style="padding: 0.85rem 0.5rem; text-align: right;">${totalLabel}</td>
+            <td colspan="7" style="padding: 0.85rem 0.5rem; text-align: right;">${totalLabel}</td>
             <td style="padding: 0.85rem 0.5rem; text-align: center; font-size: 1rem; color: ${totalColor};">${totalQty}</td>
           </tr>
         </tbody>
       </table>
     `;
+
 
   } catch (err) {
     console.error('Error al cargar detalle de stock comprometido:', err);
@@ -37902,11 +37990,12 @@ window.manageDeclaration = async function(id) {
           window.currentDeclarationProductsEditing = [];
         }
 
-        const existing = window.currentDeclarationProductsEditing.find(p => p.sku === sku);
+        const skuNorm = String(sku || '').trim().toLowerCase();
+        const existing = window.currentDeclarationProductsEditing.find(p => String(p.sku || '').trim().toLowerCase() === skuNorm);
         if (existing) {
           Swal.fire('Atención', `El producto SKU: ${sku} ya está en la lista de recepción.`, 'info');
         } else {
-          const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku === sku);
+          const catProd = (window.adminCatalogProductsCache || []).find(p => String(p.sku || '').trim().toLowerCase() === skuNorm);
           window.currentDeclarationProductsEditing.push({
             sku: sku,
             name: name,
@@ -40266,7 +40355,8 @@ window.editDeclarationAdmin = async function(id) {
 
           if (formValues) {
             const { sku, name, qty, barcode, vol, price } = formValues;
-            const existing = window.adminEditingDeclarationProducts.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+            const customSkuNorm = String(sku || '').trim().toUpperCase();
+            const existing = window.adminEditingDeclarationProducts.find(p => String(p.sku || '').trim().toUpperCase() === customSkuNorm);
             if (existing) {
               existing.qty += qty;
             } else {
@@ -40295,8 +40385,9 @@ window.editDeclarationAdmin = async function(id) {
         const price = parseFloat(item.getAttribute('data-price') || '0');
         const barcode = item.getAttribute('data-barcode') || '';
 
-        const existing = window.adminEditingDeclarationProducts.find(p => p.sku.toUpperCase() === sku.toUpperCase());
-        const catObj = (window.adminCatalogProductsCache || []).find(cp => (cp.sku || '').toUpperCase() === (sku || '').toUpperCase());
+        const skuNorm = String(sku || '').trim().toUpperCase();
+        const existing = window.adminEditingDeclarationProducts.find(p => String(p.sku || '').trim().toUpperCase() === skuNorm);
+        const catObj = (window.adminCatalogProductsCache || []).find(cp => String(cp.sku || '').trim().toUpperCase() === skuNorm);
         if (existing) {
           existing.qty = (existing.qty || 0) + 1;
         } else {
@@ -61457,7 +61548,7 @@ window.editWmsOrderShippingDetails = async function(orderId) {
 
   // Load display fallbacks similar to rendering logic
   let displayName = order.customer_name || '';
-  if (!displayName || displayName === 'No registrado') {
+  if (!displayName || displayName === 'No registrado' || displayName === 'Cliente Jumpseller' || (order.raw_jumpseller_data && !displayName.includes(' '))) {
     if (order.raw_shopify_data) {
       const raw = order.raw_shopify_data;
       const billing = raw.billing_address;
@@ -61467,6 +61558,23 @@ window.editWmsOrderShippingDetails = async function(orderId) {
       } else if (cust) {
         displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
       }
+    } else if (order.raw_jumpseller_data) {
+      const raw = order.raw_jumpseller_data;
+      const isValidName = s => s && !s.includes('@') && s.toLowerCase() !== 'no registrado' && s.toLowerCase() !== 'cliente jumpseller';
+      const sName = [raw.shipping_address?.name || raw.shipping_address?.first_name, raw.shipping_address?.surname || raw.shipping_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+      const bName = [raw.billing_address?.name || raw.billing_address?.first_name, raw.billing_address?.surname || raw.billing_address?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ').trim();
+      const cName = (raw.customer?.fullname || [raw.customer?.name || raw.customer?.first_name, raw.customer?.surname || raw.customer?.last_name].filter(Boolean).map(s => String(s).trim()).join(' ') || '').trim();
+      const validShip = isValidName(sName) ? sName : '';
+      const validBill = isValidName(bName) ? bName : '';
+      const validCust = isValidName(cName) ? cName : '';
+      let jumpName = validShip || validBill || validCust;
+      if (validShip && !validShip.includes(' ')) {
+        if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validCust;
+        else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) jumpName = validBill;
+      } else if (validBill && !validBill.includes(' ')) {
+        if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) jumpName = validCust;
+      }
+      if (jumpName) displayName = jumpName;
     }
   }
 
@@ -61475,6 +61583,9 @@ window.editWmsOrderShippingDetails = async function(orderId) {
     if (order.raw_shopify_data) {
       const raw = order.raw_shopify_data;
       displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+    } else if (order.raw_jumpseller_data) {
+      const raw = order.raw_jumpseller_data;
+      displayEmail = raw.customer?.email || raw.shipping_address?.email || raw.billing_address?.email || '';
     }
   }
 
@@ -61483,6 +61594,9 @@ window.editWmsOrderShippingDetails = async function(orderId) {
     if (order.raw_shopify_data) {
       const raw = order.raw_shopify_data;
       displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+    } else if (order.raw_jumpseller_data) {
+      const raw = order.raw_jumpseller_data;
+      displayPhone = raw.customer?.phone || raw.shipping_address?.phone || raw.billing_address?.phone || '';
     }
   }
 
@@ -63212,6 +63326,36 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       const raw = localStorage.getItem('wms_variant_config_' + dec.comercio);
       if (raw) window.currentDeclarationVariantConfig = JSON.parse(raw);
     } catch (e) {}
+    if (!window.currentDeclarationVariantConfig && typeof window.getCommerceVariantConfig === 'function') {
+      window.getCommerceVariantConfig(dec.comercio).then(cfg => {
+        if (cfg) {
+          window.currentDeclarationVariantConfig = cfg;
+          if (tbody && tbody.children.length > 0) {
+            window.renderManageDeclarationProducts(dec, activeStatus);
+          }
+        }
+      }).catch(e => console.warn('Error fetching variant config:', e));
+    }
+  }
+
+  // Si el catálogo aún no está cargado en caché, precargarlo en segundo plano y refrescar la tabla
+  if (dec && dec.comercio && (!window.adminCatalogProductsCache || window.adminCatalogProductsCache.length === 0)) {
+    if (!window._loadingAdminCatalogForDec) {
+      window._loadingAdminCatalogForDec = true;
+      (async () => {
+        try {
+          const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
+          window.adminCatalogProductsCache = prods || [];
+          window._loadingAdminCatalogForDec = false;
+          if (document.getElementById('manage-dec-products-tbody')) {
+            window.renderManageDeclarationProducts(dec, activeStatus);
+          }
+        } catch (err) {
+          console.warn('Error fallback catalog cache in renderManageDeclarationProducts:', err);
+          window._loadingAdminCatalogForDec = false;
+        }
+      })();
+    }
   }
 
   // Solo ocultamos el botón de agregar si la declaración ya estaba guardada como Recibido Conforme
@@ -63227,8 +63371,9 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
     window.currentDeclarationProductsEditing_id = dec.id;
     window.currentDeclarationProductsEditing = products.map(item => {
-      // Buscar en el catálogo precargado si faltan dimensiones o variantes
-      const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku && item.sku && p.sku.toLowerCase().trim() === item.sku.toLowerCase().trim());
+      // Buscar en el catálogo precargado si faltan dimensiones o variantes (manejo seguro de SKUs numéricos)
+      const itemSku = String(item.sku || '').trim().toLowerCase();
+      const catProd = (window.adminCatalogProductsCache || []).find(p => itemSku && String(p.sku || '').trim().toLowerCase() === itemSku);
 
       const declaredLargo = item.declared_largo || item.largo || catProd?.largo || null;
       const declaredAncho = item.declared_ancho || item.ancho || catProd?.ancho || null;
@@ -63339,7 +63484,8 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
     const rowTotalVol = unitVol * confirmed;
 
-    const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku && item.sku && p.sku.toLowerCase().trim() === item.sku.toLowerCase().trim());
+    const itemSku = String(item.sku || '').trim().toLowerCase();
+    const catProd = (window.adminCatalogProductsCache || []).find(p => itemSku && String(p.sku || '').trim().toLowerCase() === itemSku);
     const prodForBadges = {
       ...catProd,
       ...item,
@@ -63350,7 +63496,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       options: { ...(catProd?.options || {}), ...(item.options || {}) }
     };
     const variantsBadgeHtml = window.renderProductVariantBadges 
-      ? window.renderProductVariantBadges(prodForBadges, window.currentDeclarationVariantConfig) 
+      ? window.renderProductVariantBadges(prodForBadges, window.currentDeclarationVariantConfig, { compact: true }) 
       : '';
 
     tbody.innerHTML += `
@@ -81972,7 +82118,11 @@ function buildAdminReturnsQuery(query) {
     query = query.eq('tipo_movimiento', 'DEVOLUCION');
   }
 
-  if (fStatus) query = query.eq('status', fStatus);
+  if (fStatus === 'procesado') {
+    query = query.in('status', ['procesado', 'confirmado']);
+  } else if (fStatus) {
+    query = query.eq('status', fStatus);
+  }
   if (fSearch) {
     query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%,customer_name.ilike.%${fSearch}%`);
   }
@@ -82038,14 +82188,14 @@ async function fetchAndRenderAdminReturnsData() {
         let confirmAction = '';
         
         if (statusVal === 'pendiente') {
-          statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
+          statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;"><i class="ri-time-line"></i> Pendiente</span>`;
           confirmAction = `
             <button class="btn btn-primary" onclick="window.openConfirmReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--color-primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
               <i class="ri-checkbox-circle-line"></i> Confirmar
             </button>
           `;
         } else {
-          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;"><i class="ri-check-line"></i> Confirmado</span>`;
         }
 
         html += `
@@ -83973,21 +84123,87 @@ function getRloProductsFromTable(direction) {
   return products;
 }
 
+window.selectRloSituacion = function(val) {
+  const hiddenInput = document.getElementById('rlo-situacion');
+  if (hiddenInput) hiddenInput.value = val;
+
+  const cardRealizar = document.getElementById('lbl-rlo-situacion-por_realizar');
+  const cardFinalizado = document.getElementById('lbl-rlo-situacion-finalizado');
+
+  if (val === 'finalizado') {
+    if (cardFinalizado) {
+      cardFinalizado.style.borderColor = 'var(--color-success, #10b981)';
+      cardFinalizado.style.background = 'rgba(16, 185, 129, 0.05)';
+      cardFinalizado.style.boxShadow = '0 4px 16px rgba(16, 185, 129, 0.15)';
+    }
+    if (cardRealizar) {
+      cardRealizar.style.borderColor = 'var(--color-border)';
+      cardRealizar.style.background = 'var(--color-surface)';
+      cardRealizar.style.boxShadow = 'none';
+    }
+  } else {
+    if (cardRealizar) {
+      cardRealizar.style.borderColor = 'var(--color-primary)';
+      cardRealizar.style.background = 'rgba(59, 130, 246, 0.05)';
+      cardRealizar.style.boxShadow = '0 4px 16px rgba(59, 130, 246, 0.15)';
+    }
+    if (cardFinalizado) {
+      cardFinalizado.style.borderColor = 'var(--color-border)';
+      cardFinalizado.style.background = 'var(--color-surface)';
+      cardFinalizado.style.boxShadow = 'none';
+    }
+  }
+
+  window.updateRloSituacionBadge();
+};
+
+window.updateRloSituacionBadge = function() {
+  const situacion = document.getElementById('rlo-situacion') ? document.getElementById('rlo-situacion').value : 'por_realizar';
+  const badgeContainer = document.getElementById('rlo-step2-situacion-badge');
+  if (!badgeContainer) return;
+
+  if (situacion === 'finalizado') {
+    badgeContainer.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); padding: 0.65rem 1rem; border-radius: var(--radius-md); font-size: 0.84rem; color: #047857;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-checkbox-circle-fill" style="font-size: 1.15rem; color: #10b981;"></i>
+          <span>Situación actual: <strong>Movimiento Ya Finalizado</strong> (Quedará <strong style="color: #047857;">Confirmado</strong> en Logística Inversa y <strong style="color: #047857;">Despachado</strong> en el Gestor)</span>
+        </div>
+        <button type="button" class="btn btn-outline" onclick="window.currentRloWizardStep=1;window.updateRloWizardUI();" style="padding: 0.2rem 0.65rem; font-size: 0.75rem; border-color: #10b981; color: #047857; background: white; white-space: nowrap;">
+          <i class="ri-arrow-left-line"></i> Cambiar Situación
+        </button>
+      </div>
+    `;
+  } else {
+    badgeContainer.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); padding: 0.65rem 1rem; border-radius: var(--radius-md); font-size: 0.84rem; color: #1d4ed8;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-time-line" style="font-size: 1.15rem; color: var(--color-primary);"></i>
+          <span>Situación actual: <strong>Movimiento por Realizar</strong> (Quedará <strong style="color: #d97706;">Pendiente</strong> en Logística Inversa y <strong style="color: #0284c7;">En procesamiento</strong> en el Gestor)</span>
+        </div>
+        <button type="button" class="btn btn-outline" onclick="window.currentRloWizardStep=1;window.updateRloWizardUI();" style="padding: 0.2rem 0.65rem; font-size: 0.75rem; border-color: var(--color-primary); color: #1d4ed8; background: white; white-space: nowrap;">
+          <i class="ri-arrow-left-line"></i> Cambiar Situación
+        </button>
+      </div>
+    `;
+  }
+};
+
 window.updateRloWizardUI = function() {
   const type = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
   const isCambio = type === 'CAMBIO';
 
-  // Ajustar visibilidad de pestañas para DEVOLUCION (omite Paso 3 de salida)
-  const tab3 = document.getElementById('rlo-wizard-tab-3');
-  const line3 = document.getElementById('rlo-wizard-line-3');
-  const tab4Num = document.getElementById('rlo-tab-4-num');
+  // Ajustar visibilidad de pestañas para DEVOLUCION (omite Paso 4 de salida)
+  const tab4 = document.getElementById('rlo-wizard-tab-4');
+  const line4 = document.getElementById('rlo-wizard-line-4');
+  const tab5Num = document.getElementById('rlo-tab-5-num');
   
-  if (tab3) tab3.style.display = isCambio ? 'flex' : 'none';
-  if (line3) line3.style.display = isCambio ? 'block' : 'none';
-  if (tab4Num) tab4Num.textContent = isCambio ? '4' : '3';
+  if (tab4) tab4.style.display = isCambio ? 'flex' : 'none';
+  if (line4) line4.style.display = isCambio ? 'block' : 'none';
+  if (tab5Num) tab5Num.textContent = isCambio ? '5' : '4';
 
-  // Ocultar todos los contenedores
-  for (let i = 1; i <= 4; i++) {
+  // Ocultar todos los contenedores 1..5
+  for (let i = 1; i <= 5; i++) {
     const container = document.getElementById(`rlo-wizard-step-${i}`);
     if (container) container.style.display = 'none';
 
@@ -84033,8 +84249,13 @@ window.updateRloWizardUI = function() {
     }
   }
 
-  // Si estamos en Paso 4, preparar la vista adaptada al modo de entrega
-  if (currentStep === 4) {
+  // Actualizar badge en Paso 2
+  if (currentStep === 2) {
+    window.updateRloSituacionBadge();
+  }
+
+  // Si estamos en Paso 5, preparar la vista adaptada al modo de entrega
+  if (currentStep === 5) {
     const modo = document.getElementById('rlo-modo-entrega') ? document.getElementById('rlo-modo-entrega').value : 'sucursal';
     const responsable = document.getElementById('rlo-responsable-pago') ? document.getElementById('rlo-responsable-pago').value : 'comercio';
     const deliveryWrapper = document.getElementById('rlo-delivery-fields-wrapper');
@@ -84105,13 +84326,14 @@ window.updateRloWizardUI = function() {
       updateRloRegionalCouriers();
     }
 
-    // Renderizar resumen en Paso 4
+    // Renderizar resumen en Paso 5
     if (summaryContainer) {
       const incProds = getRloProductsFromTable('incoming');
       const outProds = getRloProductsFromTable('outgoing');
       const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
       const refPedido = document.getElementById('rlo-ref-pedido') ? document.getElementById('rlo-ref-pedido').value.trim() : '';
-      
+      const situacionVal = document.getElementById('rlo-situacion') ? document.getElementById('rlo-situacion').value : 'por_realizar';
+      const isFin = situacionVal === 'finalizado';
 
       let modoLabel = 'Punto Físico Ñuñoa';
       if (modo === 'domicilio_rm') {
@@ -84121,6 +84343,7 @@ window.updateRloWizardUI = function() {
 
       summaryContainer.innerHTML = `
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.5rem 1rem; margin-bottom: 0.75rem;">
+          <div><strong style="color: var(--color-text-main);">Situación:</strong> <span style="font-weight: 700; color: ${isFin ? '#059669' : '#d97706'};">${isFin ? '✅ Ya Finalizado en Bodega' : '⏳ Movimiento Por Realizar'}</span></div>
           <div><strong style="color: var(--color-text-main);">Comercio:</strong> ${commerce || '-'}</div>
           <div><strong style="color: var(--color-text-main);">Ref. Pedido:</strong> ${refPedido || '-'}</div>
           <div><strong style="color: var(--color-text-main);">Modo Entrega:</strong> ${modoLabel}</div>
@@ -84146,12 +84369,22 @@ window.updateRloWizardUI = function() {
   const btnSubmit = document.getElementById('btn-rlo-save');
 
   if (btnPrev) btnPrev.style.display = currentStep > 1 ? 'flex' : 'none';
-  if (btnNext) btnNext.style.display = currentStep < 4 ? 'flex' : 'none';
-  if (btnSubmit) btnSubmit.style.display = currentStep === 4 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = currentStep < 5 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = currentStep === 5 ? 'flex' : 'none';
 };
 
 function validateRloStep(step) {
   if (step === 1) {
+    // Situación operativa: por defecto siempre tiene valor
+    const sit = document.getElementById('rlo-situacion') ? document.getElementById('rlo-situacion').value : '';
+    if (!sit) {
+      alert('Por favor, selecciona si el movimiento ya está finalizado o por realizar.');
+      return false;
+    }
+    return true;
+  }
+
+  if (step === 2) {
     const commerce = document.getElementById('rlo-select-commerce') ? document.getElementById('rlo-select-commerce').value : '';
     const refPedido = document.getElementById('rlo-ref-pedido') ? document.getElementById('rlo-ref-pedido').value.trim() : '';
 
@@ -84179,7 +84412,7 @@ function validateRloStep(step) {
     return true;
   }
 
-  if (step === 2) {
+  if (step === 3) {
     const incomingProducts = getRloProductsFromTable('incoming');
     if (incomingProducts.length === 0) {
       Swal.fire({
@@ -84194,7 +84427,7 @@ function validateRloStep(step) {
     return true;
   }
 
-  if (step === 3) {
+  if (step === 4) {
     const type = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
     if (type === 'CAMBIO') {
       const outgoingProducts = getRloProductsFromTable('outgoing');
@@ -84245,7 +84478,7 @@ function validateRloStep(step) {
     return true;
   }
 
-  if (step === 4) {
+  if (step === 5) {
     const name = document.getElementById('rlo-customer-name') ? document.getElementById('rlo-customer-name').value.trim() : '';
     const email = document.getElementById('rlo-customer-email') ? document.getElementById('rlo-customer-email').value.trim() : '';
     const phone = document.getElementById('rlo-customer-phone') ? document.getElementById('rlo-customer-phone').value.trim() : '';
@@ -84503,6 +84736,7 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
     `<i class="ri-shopping-bag-3-line" style="color: var(--color-danger);"></i> Registrar Pedido de Devolución`;
   
   window.currentRloWizardStep = 1;
+  window.selectRloSituacion('por_realizar');
   window.updateRloWizardUI();
   
   // Inicializar comunas según el modo inicial (sucursal)
@@ -84583,8 +84817,8 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
         const curr = window.currentRloWizardStep;
         if (validateRloStep(curr)) {
           const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
-          if (curr === 2 && typeVal === 'DEVOLUCION') {
-            window.currentRloWizardStep = 4;
+          if (curr === 3 && typeVal === 'DEVOLUCION') {
+            window.currentRloWizardStep = 5;
           } else {
             window.currentRloWizardStep++;
           }
@@ -84598,8 +84832,8 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
       btnPrev.addEventListener('click', () => {
         const curr = window.currentRloWizardStep;
         const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
-        if (curr === 4 && typeVal === 'DEVOLUCION') {
-          window.currentRloWizardStep = 2;
+        if (curr === 5 && typeVal === 'DEVOLUCION') {
+          window.currentRloWizardStep = 3;
         } else {
           window.currentRloWizardStep--;
         }
@@ -84653,13 +84887,13 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
       });
     }
     
-    // Navegación por clic en pestañas
-    for (let i = 1; i <= 4; i++) {
+    // Navegación por clic en pestañas (1 a 5)
+    for (let i = 1; i <= 5; i++) {
       const tab = document.getElementById(`rlo-wizard-tab-${i}`);
       if (tab) {
         tab.addEventListener('click', () => {
           const typeVal = document.getElementById('rlo-type') ? document.getElementById('rlo-type').value : 'CAMBIO';
-          if (typeVal === 'DEVOLUCION' && i === 3) return;
+          if (typeVal === 'DEVOLUCION' && i === 4) return;
 
           if (i < window.currentRloWizardStep) {
             window.currentRloWizardStep = i;
@@ -84667,7 +84901,7 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
           } else if (i > window.currentRloWizardStep) {
             let canGo = true;
             for (let s = window.currentRloWizardStep; s < i; s++) {
-              if (typeVal === 'DEVOLUCION' && s === 3) continue;
+              if (typeVal === 'DEVOLUCION' && s === 4) continue;
               if (!validateRloStep(s)) {
                 canGo = false;
                 break;
@@ -84699,10 +84933,13 @@ window.openAdminReverseLogisticsOrderModal = async function(type) {
 async function handleRloFormSubmit(e) {
   e.preventDefault();
   
-  if (!validateRloStep(4)) return;
+  if (!validateRloStep(5)) return;
 
   const form = document.getElementById('form-reverse-logistics-order');
   const type = document.getElementById('rlo-type').value;
+  const situacion = document.getElementById('rlo-situacion') ? document.getElementById('rlo-situacion').value : 'por_realizar';
+  const isFinalizado = situacion === 'finalizado';
+
   const commerce = document.getElementById('rlo-select-commerce').value;
   const refPedido = document.getElementById('rlo-ref-pedido').value.trim();
   const responsablePago = document.getElementById('rlo-responsable-pago').value;
@@ -84750,13 +84987,23 @@ async function handleRloFormSubmit(e) {
     tracking,
     incomingProducts,
     outgoingProducts,
-    comments
+    comments: (isFinalizado ? '[Movimiento Finalizado en Bodega] ' : '') + comments
   });
 
   let summaryHtml = `
     <div style="text-align: left; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; border-top: 1px solid var(--color-border); padding-top: 0.8rem; max-height: 50vh; overflow-y: auto;">
       <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; color: var(--color-primary); font-weight: 700;">Resumen del Pedido (${type === 'CAMBIO' ? 'Cambio' : 'Devolución'})</h4>
       
+      <div style="margin-bottom: 0.8rem; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); background: ${isFinalizado ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.08)'}; border: 1px solid ${isFinalizado ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.2)'};">
+        <strong style="color: ${isFinalizado ? '#047857' : '#1d4ed8'}; display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem;">
+          <i class="${isFinalizado ? 'ri-checkbox-circle-fill' : 'ri-time-line'}"></i>
+          Situación: ${isFinalizado ? 'Movimiento Ya Finalizado (En Bodega)' : 'Movimiento por Realizar (Pendiente)'}
+        </strong>
+        <span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 0.2rem;">
+          ${isFinalizado ? '• Logística Inversa: <strong style="color: #047857;">Confirmado</strong> | Gestor WMS: <strong style="color: #047857;">Despachado</strong> | Stock físico: Actualizado de inmediato.' : '• Logística Inversa: <strong style="color: #b45309;">Pendiente</strong> | Gestor WMS: <strong style="color: #0284c7;">En procesamiento</strong>.'}
+        </span>
+      </div>
+
       <div style="background: var(--color-bg-dark, #f1f5f9); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); margin-bottom: 0.8rem; border: 1px solid var(--color-border);">
         <strong>Comercio:</strong> ${commerce}<br>
         <strong>Cliente:</strong> ${customerName}<br>
@@ -84834,7 +85081,7 @@ async function handleRloFormSubmit(e) {
       
       <div style="margin-top: 0.8rem; font-size: 0.75rem; color: #d97706; border-top: 1px solid var(--color-border); padding-top: 0.6rem; display: flex; gap: 0.35rem; align-items: flex-start;">
         <i class="ri-alert-line" style="font-size: 0.95rem; margin-top: 0.05rem;"></i>
-        <span>Esta acción creará un pedido WMS y realizará ajustes automáticos de stock. ¿Confirmas el registro?</span>
+        <span>${isFinalizado ? 'Esta acción confirmará el pedido de Logística Inversa, creará la orden WMS como <strong>DESPACHADA</strong> y actualizará inmediatamente el inventario físico en bodega. ¿Confirmas el registro?' : 'Esta acción creará un pedido WMS en procesamiento y dejará la Logística Inversa como PENDIENTE. ¿Confirmas el registro?'}</span>
       </div>
     </div>
   `;
@@ -84842,11 +85089,11 @@ async function handleRloFormSubmit(e) {
   const confirmResult = await Swal.fire({
     title: `¿Confirmar Pedido de ${type === 'CAMBIO' ? 'Cambio' : 'Devolución'}?`,
     html: summaryHtml,
-    icon: 'warning',
+    icon: isFinalizado ? 'question' : 'warning',
     showCancelButton: true,
-    confirmButtonText: 'Sí, registrar pedido',
+    confirmButtonText: isFinalizado ? 'Sí, registrar y finalizar' : 'Sí, registrar pedido',
     cancelButtonText: 'Cancelar',
-    confirmButtonColor: 'var(--color-primary)',
+    confirmButtonColor: isFinalizado ? 'var(--color-success, #10b981)' : 'var(--color-primary)',
     cancelButtonColor: 'var(--color-text-muted)',
     width: '600px'
   });
@@ -84896,9 +85143,9 @@ async function handleRloFormSubmit(e) {
     } else if (modoEntrega === 'regiones' && responsablePago === 'comercio') {
       const normalizedCity = comuna.toLowerCase()
         .normalize('NFD')
-        .replace(/[\\u0300-\\u036f]/g, '')
+        .replace(/[\u0300-\u036f]/g, '')
         .replace(/ñ/g, 'n')
-        .replace(/[^a-z\\s]/g, '')
+        .replace(/[^a-z\s]/g, '')
         .trim();
       const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
       const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
@@ -84924,10 +85171,10 @@ async function handleRloFormSubmit(e) {
       referencia_transporte: tracking || 'N/A',
       productos: productosPayload,
       cantidad_total: totalQty,
-      comentarios: comments,
+      comentarios: (isFinalizado ? '[Concretado en Bodega] ' : '') + comments,
       sucursal: finalSucursal,
       creado_por: (window.currentUserProfile && window.currentUserProfile.email) || 'Administrador',
-      status: 'pendiente',
+      status: isFinalizado ? 'procesado' : 'pendiente',
       
       customer_name: customerName,
       customer_email: customerEmail,
@@ -84976,20 +85223,25 @@ async function handleRloFormSubmit(e) {
     const cleanRef = refPedido ? (refPedido.startsWith('LI-') ? refPedido.substring(3) : refPedido) : 'REC';
     const finalExternalOrderNumber = `LI-${cleanRef}-${insertedRl.id.substring(0, 4).toUpperCase()}`;
 
+    const wmsStatus = isFinalizado ? 'despachado' : 'para procesar';
+    const wmsEstado = isFinalizado ? 'Despachado' : 'En procesamiento';
+
     const wmsOrderPayload = {
       merchant_id: merchantId,
       comercio: commerce,
-      status: 'para procesar',
-      estado_wms: 'En procesamiento',
+      status: wmsStatus,
+      estado_wms: wmsEstado,
+      stock_descontado: isFinalizado,
+      stock_descontado_at: isFinalizado ? new Date().toISOString() : null,
       customer_name: customerName,
       customer_email: customerEmail || null,
       customer_phone: customerPhone || null,
       shipping_address: customerAddress,
       shipping_city: comuna,
       shipping_complement: customerComplement || null,
-      shipping_method: `${shippingMethod} (Logística Inversa - ${type})`,
-      operador: courier || 'STOCKA',
-      courier: courier || 'STOCKA',
+      shipping_method: `${shippingMethod} (Logística Inversa - ${type}${isFinalizado ? ' [Finalizado]' : ''})`,
+      operador: courier || (isFinalizado ? 'Bodega Central' : 'STOCKA'),
+      courier: courier || (isFinalizado ? 'Bodega Central' : 'STOCKA'),
       origen: 'Logística Inversa',
       external_platform: 'Logística Inversa',
       external_order_number: finalExternalOrderNumber,
@@ -85003,6 +85255,7 @@ async function handleRloFormSubmit(e) {
         rl_id: insertedRl.id,
         rl_type: type,
         rl_reference: refPedido,
+        situacion_movimiento: situacion,
         no_stock_deduction: type === 'DEVOLUCION',
         incoming_products: incomingProducts.map(p => ({
           sku: p.sku,
@@ -85025,22 +85278,26 @@ async function handleRloFormSubmit(e) {
     const orderItemsPayload = [];
     const { data: bodegaCentral } = await supabase
       .from('warehouses')
-      .select('id')
+      .select('id, name')
       .ilike('name', '%Central%')
       .limit(1)
-      .single();
+      .maybeSingle();
     
     let whId = bodegaCentral ? bodegaCentral.id : null;
+    let whName = bodegaCentral ? bodegaCentral.name : 'Bodega Central';
     if (!whId) {
-      const { data: anyWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
-      if (anyWh) whId = anyWh.id;
+      const { data: anyWh } = await supabase.from('warehouses').select('id, name').limit(1).maybeSingle();
+      if (anyWh) {
+        whId = anyWh.id;
+        whName = anyWh.name;
+      }
     }
     
     for (const item of wmsOrderItems) {
       orderItemsPayload.push({
         order_id: insertedOrder.id,
         product_id: item.product_id,
-        warehouse_id: type === 'DEVOLUCION' ? null : whId,
+        warehouse_id: whId,
         quantity: item.cantidad
       });
     }
@@ -85058,32 +85315,128 @@ async function handleRloFormSubmit(e) {
       .update({ wms_order_id: insertedOrder.id })
       .eq('id', insertedRl.id);
     
-    // Stock comprometido para salidas de Cambios
-    if (type === 'CAMBIO' && !isManual) {
-      if (bodegaCentral) {
-        for (const out of outgoingProducts) {
-          if (out.product_id) {
+    // GESTIÓN DE INVENTARIO Y MOVIMIENTOS
+    if (isFinalizado) {
+      // 1. Reingreso de productos entrantes aptos para inventario
+      for (const inc of incomingProducts) {
+        if (inc.regresar_a_inventario !== false && whId) {
+          let pId = inc.product_id;
+          if (!pId && inc.sku) {
+            const { data: prodFound } = await supabase.from('products').select('id').eq('sku', inc.sku.trim()).limit(1).maybeSingle();
+            if (prodFound) pId = prodFound.id;
+          }
+          if (pId) {
             const { data: invRecord } = await supabase
               .from('inventory')
-              .select('id, committed_quantity')
-              .eq('product_id', out.product_id)
-              .eq('warehouse_id', bodegaCentral.id)
+              .select('id, quantity')
+              .eq('product_id', pId)
+              .eq('warehouse_id', whId)
               .maybeSingle();
-              
+
             if (invRecord) {
               await supabase
                 .from('inventory')
-                .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
+                .update({ quantity: (invRecord.quantity || 0) + inc.cantidad })
                 .eq('id', invRecord.id);
             } else {
               await supabase
                 .from('inventory')
                 .insert([{
-                  product_id: out.product_id,
-                  warehouse_id: bodegaCentral.id,
-                  quantity: 0,
-                  committed_quantity: out.cantidad
+                  product_id: pId,
+                  warehouse_id: whId,
+                  quantity: inc.cantidad
                 }]);
+            }
+
+            await supabase
+              .from('movements')
+              .insert([{
+                product_id: pId,
+                warehouse_id: whId,
+                type: 'in',
+                quantity: inc.cantidad,
+                order_id: insertedOrder.id,
+                reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} Finalizado en Bodega [Ped: ${refPedido || finalExternalOrderNumber}]`
+              }]);
+          }
+        }
+      }
+
+      // 2. Salida directa de productos de reemplazo (si es CAMBIO)
+      if (type === 'CAMBIO') {
+        for (const out of outgoingProducts) {
+          if (whId) {
+            let pId = out.product_id;
+            if (!pId && out.sku) {
+              const { data: prodFound } = await supabase.from('products').select('id').eq('sku', out.sku.trim()).limit(1).maybeSingle();
+              if (prodFound) pId = prodFound.id;
+            }
+            if (pId) {
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', pId)
+                .eq('warehouse_id', whId)
+                .maybeSingle();
+
+              if (invRecord) {
+                const newQty = Math.max(0, (invRecord.quantity || 0) - out.cantidad);
+                await supabase
+                  .from('inventory')
+                  .update({ quantity: newQty })
+                  .eq('id', invRecord.id);
+              } else {
+                await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: pId,
+                    warehouse_id: whId,
+                    quantity: 0
+                  }]);
+              }
+
+              await supabase
+                .from('movements')
+                .insert([{
+                  product_id: pId,
+                  warehouse_id: whId,
+                  type: 'out',
+                  quantity: out.cantidad,
+                  order_id: insertedOrder.id,
+                  reference_doc: `Cambio Finalizado en Bodega [Ped: ${refPedido || finalExternalOrderNumber}]`
+                }]);
+            }
+          }
+        }
+      }
+    } else {
+      // Movimiento Por Realizar: Stock comprometido para salidas de Cambios
+      if (type === 'CAMBIO' && !isManual) {
+        if (bodegaCentral) {
+          for (const out of outgoingProducts) {
+            if (out.product_id) {
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, committed_quantity')
+                .eq('product_id', out.product_id)
+                .eq('warehouse_id', bodegaCentral.id)
+                .maybeSingle();
+                
+              if (invRecord) {
+                await supabase
+                  .from('inventory')
+                  .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
+                  .eq('id', invRecord.id);
+              } else {
+                await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: out.product_id,
+                    warehouse_id: bodegaCentral.id,
+                    quantity: 0,
+                    committed_quantity: out.cantidad
+                  }]);
+              }
             }
           }
         }
@@ -85093,7 +85446,7 @@ async function handleRloFormSubmit(e) {
     // Enviar notificación Brevo
     try {
       const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
-      const subject = `🔄 Nueva Solicitud de Logística Inversa (${newRecord.tipo_movimiento}) - Ref: ${newRecord.referencia_pedido}`;
+      const subject = `🔄 Nueva Solicitud de Logística Inversa (${newRecord.tipo_movimiento}) [${isFinalizado ? 'Finalizado en Bodega' : 'Por Gestionar'}] - Ref: ${newRecord.referencia_pedido}`;
       
       const incomingHtml = incomingProducts.map(p => `
         <tr style="border-bottom: 1px solid #edf2f7;">
@@ -85134,11 +85487,15 @@ async function handleRloFormSubmit(e) {
       const htmlBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
           <h2 style="color: #0284c7; margin-top: 0;">¡Nueva Solicitud de Logística Inversa (Admin)!</h2>
-          <p>Se ha registrado un pedido de <strong>${newRecord.tipo_movimiento === 'CAMBIO' ? 'Cambio' : 'Devolución'}</strong> con los siguientes detalles:</p>
+          <p>Se ha registrado un pedido de <strong>${newRecord.tipo_movimiento === 'CAMBIO' ? 'Cambio' : 'Devolución'}</strong> con situación <strong>${isFinalizado ? 'Finalizado en Bodega (Despachado)' : 'Por Realizar (Pendiente)'}</strong>:</p>
           
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
             <tr>
-              <td style="padding: 6px 0; font-weight: bold; color: #718096; width: 180px;">N° de Pedido Referencia:</td>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096; width: 180px;">Situación:</td>
+              <td style="padding: 6px 0; font-weight: bold; color: ${isFinalizado ? '#047857' : '#0284c7'};">${isFinalizado ? 'Movimiento Ya Finalizado en Bodega (Despachado)' : 'Movimiento Por Realizar (Pendiente)'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">N° de Pedido Referencia:</td>
               <td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${newRecord.referencia_pedido}</td>
             </tr>
             <tr>
@@ -85221,8 +85578,10 @@ async function handleRloFormSubmit(e) {
     }
     
     Swal.fire({
-      title: '¡Pedido Creado!',
-      text: 'El pedido de logística inversa ha sido registrado exitosamente y se generó la orden correspondiente en el WMS.',
+      title: isFinalizado ? '¡Pedido Finalizado y Registrado!' : '¡Pedido Creado!',
+      text: isFinalizado ? 
+        'El movimiento de logística inversa ha quedado confirmado y la orden fue generada como Despachada en el WMS, actualizando el inventario.' :
+        'El pedido de logística inversa ha sido registrado exitosamente y se generó la orden correspondiente en el WMS.',
       icon: 'success',
       confirmButtonText: 'Entendido',
       confirmButtonColor: 'var(--color-primary)'
@@ -85232,6 +85591,9 @@ async function handleRloFormSubmit(e) {
     
     if (typeof fetchAndRenderAdminReturnsData === 'function') {
       await fetchAndRenderAdminReturnsData();
+    }
+    if (typeof fetchOrders === 'function') {
+      await fetchOrders();
     }
     
   } catch (err) {
@@ -86397,6 +86759,11 @@ window.openCreateOrderModal = async function() {
   const hiddenInput = document.getElementById('order-product');
   if (hiddenInput) hiddenInput.value = '';
 
+  const notesInput = document.getElementById('order-cust-notes');
+  if (notesInput) notesInput.value = '';
+  const notesSummary = document.getElementById('order-cust-notes-summary');
+  if (notesSummary) notesSummary.value = '';
+
   const dropdownListEl = document.getElementById('order-product-dropdown-list');
   if (dropdownListEl) {
     dropdownListEl.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">Cargando productos...</div>';
@@ -87116,6 +87483,18 @@ window.initAdminWizardOrder = function() {
     };
   }
 
+  // Sincronización bidireccional de notas del pedido (Paso 1 y Paso 4)
+  const notesInput = document.getElementById('order-cust-notes');
+  const notesSummary = document.getElementById('order-cust-notes-summary');
+  if (notesInput && notesSummary) {
+    notesInput.oninput = function() {
+      notesSummary.value = this.value;
+    };
+    notesSummary.oninput = function() {
+      notesInput.value = this.value;
+    };
+  }
+
   window.updateOrderFlowType('despacho');
   window.tempAdminOrderOriginalData = null;
 };
@@ -87434,6 +87813,12 @@ window.populateAdminWizardSummary = function() {
   }
   document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
 
+  const notesInputVal = document.getElementById('order-cust-notes')?.value || '';
+  const notesSummaryEl = document.getElementById('order-cust-notes-summary');
+  if (notesSummaryEl) {
+    notesSummaryEl.value = notesInputVal;
+  }
+
   const tbody = document.getElementById('summary-items-tbody');
   const items = window.tempAdminNewOrderItems || [];
   let itemsHtml = '';
@@ -87613,7 +87998,7 @@ window.setupAdminCustomerAutocomplete = function() {
         const selectedCommerce = document.getElementById('order-select-commerce')?.value;
         let query = supabase
           .from('orders')
-          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at')
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, external_order_number, created_at, raw_shopify_data')
           .or(`customer_name.ilike.%${cleanTerm}%,customer_email.ilike.%${cleanTerm}%,external_order_number.ilike.%${cleanTerm}%,customer_phone.ilike.%${cleanTerm}%`)
           .order('created_at', { ascending: false })
           .limit(50);
@@ -87682,6 +88067,14 @@ window.setupAdminCustomerAutocomplete = function() {
             document.getElementById('order-cust-phone').value = customer.customer_phone || '';
             document.getElementById('order-cust-address').value = customer.shipping_address || '';
             document.getElementById('order-cust-complement').value = customer.shipping_complement || '';
+
+            const prevNote = window.getOrderNoteText ? window.getOrderNoteText(customer) : (customer.raw_shopify_data?.note || '');
+            const notesEl = document.getElementById('order-cust-notes');
+            if (notesEl && prevNote) {
+              notesEl.value = prevNote;
+              const notesSummary = document.getElementById('order-cust-notes-summary');
+              if (notesSummary) notesSummary.value = prevNote;
+            }
 
             const rawCity = customer.shipping_city || '';
             let validComunas = [];
@@ -88229,6 +88622,7 @@ setTimeout(() => {
     const complement = document.getElementById('order-cust-complement').value.trim();
     const city = document.getElementById('order-cust-city').value.trim();
     const canalOrigen = document.getElementById('order-cust-origen')?.value || 'Manual';
+    const orderNotes = (document.getElementById('order-cust-notes-summary')?.value || document.getElementById('order-cust-notes')?.value || '').trim();
 
     const items = window.tempAdminNewOrderItems || [];
     if (items.length === 0) {
@@ -88344,6 +88738,13 @@ setTimeout(() => {
       }
 
       // 2. Insertar Order
+      const rawShopifyData = orderNotes ? {
+        note: orderNotes,
+        notes: orderNotes,
+        customer_note: orderNotes,
+        manual_order: true
+      } : { manual_order: true };
+
       const orderDataPayload = {
         merchant_id: merchantId,
         comercio: selectedCommerce,
@@ -88367,6 +88768,7 @@ setTimeout(() => {
         shipping_cost_tax: taxShippingCost,
         status: 'para procesar',
         estado_wms: 'En procesamiento',
+        raw_shopify_data: rawShopifyData,
         created_at: new Date().toISOString()
       };
 
@@ -88481,6 +88883,7 @@ setTimeout(() => {
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_address}, ${insertedOrder.shipping_city}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Método Envío:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_method}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Total:</td><td style="padding: 6px 0; font-weight: bold; color: #22c55e;">${window.formatCLP(insertedOrder.total_value || 0)}</td></tr>
+              ${orderNotes ? `<tr><td style="padding: 6px 0; font-weight: bold; color: #718096; vertical-align: top;">Notas / Comentarios:</td><td style="padding: 6px 0; color: #b45309; font-weight: 500; background: #fffbeb; border-radius: 4px; padding-left: 8px;">${orderNotes.replace(/\n/g, '<br>')}</td></tr>` : ''}
             </table>
             <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
             <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
@@ -88517,6 +88920,10 @@ setTimeout(() => {
       // 5. Cerrar modal y limpiar
       document.getElementById('modal-order')?.classList.remove('active');
       e.target.reset();
+      const notesEl = document.getElementById('order-cust-notes');
+      if (notesEl) notesEl.value = '';
+      const notesSumEl = document.getElementById('order-cust-notes-summary');
+      if (notesSumEl) notesSumEl.value = '';
       window.tempAdminNewOrderItems = [];
       window.tempClientNewOrderItems = [];
 

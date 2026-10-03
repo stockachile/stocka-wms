@@ -248,6 +248,69 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
   const totalValue = Number(order.total || 0);
 
+  // Extraer nombre y apellido completo del cliente (con filtro de emails)
+  const isValidName = (str?: string) => {
+    if (!str) return false;
+    const s = String(str).trim();
+    if (!s || s.includes('@') || s.toLowerCase() === 'no registrado' || s.toLowerCase() === 'cliente jumpseller') {
+      return false;
+    }
+    return true;
+  };
+
+  const formatFullName = (fName?: string, lName?: string) => {
+    const f = (fName || '').trim();
+    const l = (lName || '').trim();
+    if (f && l) {
+      if (f.toLowerCase().endsWith(l.toLowerCase())) return f;
+      return `${f} ${l}`;
+    }
+    return f || l || '';
+  };
+
+  const shippingFullName = formatFullName(
+    order.shipping_address?.name || order.shipping_address?.first_name,
+    order.shipping_address?.surname || order.shipping_address?.last_name
+  );
+  const billingFullName = formatFullName(
+    order.billing_address?.name || order.billing_address?.first_name,
+    order.billing_address?.surname || order.billing_address?.last_name
+  );
+  const customerFullName = (
+    order.customer?.fullname ||
+    formatFullName(
+      order.customer?.name || order.customer?.first_name,
+      order.customer?.surname || order.customer?.last_name
+    )
+  ).trim();
+
+  const validShip = isValidName(shippingFullName) ? shippingFullName : '';
+  const validBill = isValidName(billingFullName) ? billingFullName : '';
+  const validCust = isValidName(customerFullName) ? customerFullName : '';
+
+  let finalCustomerName = 'Cliente Jumpseller';
+  if (validShip) {
+    if (!validShip.includes(' ')) {
+      if (validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validShip.toLowerCase())) {
+        finalCustomerName = validCust;
+      } else if (validBill && validBill.includes(' ') && validBill.toLowerCase().startsWith(validShip.toLowerCase())) {
+        finalCustomerName = validBill;
+      } else {
+        finalCustomerName = validShip;
+      }
+    } else {
+      finalCustomerName = validShip;
+    }
+  } else if (validBill) {
+    if (!validBill.includes(' ') && validCust && validCust.includes(' ') && validCust.toLowerCase().startsWith(validBill.toLowerCase())) {
+      finalCustomerName = validCust;
+    } else {
+      finalCustomerName = validBill;
+    }
+  } else if (validCust) {
+    finalCustomerName = validCust;
+  }
+
   const orderData: Record<string, any> = {
     merchant_id: merchantId,
     comercio: comercio,
@@ -258,7 +321,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     total_value: totalValue,
     customer_email: order.customer?.email || order.shipping_address?.email || order.billing_address?.email,
     customer_phone: order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone,
-    customer_name: order.customer?.name || order.shipping_address?.name || order.billing_address?.name || 'Cliente Jumpseller',
+    customer_name: finalCustomerName,
     shipping_address: order.shipping_address?.address || order.billing_address?.address,
     shipping_city: order.shipping_address?.city || order.billing_address?.city,
     shipping_complement: order.shipping_address?.municipality || order.shipping_address?.region || '',
