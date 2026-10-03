@@ -16962,6 +16962,30 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
+  // 6.6. Descargar plantilla de ejemplo para importación de stock inicial
+  const btnDownloadStockTemplate = document.getElementById('btn-download-stock-template');
+  if (btnDownloadStockTemplate) {
+    btnDownloadStockTemplate.addEventListener('click', () => {
+      const headers = [['SKU', 'Nombre_Referencial', 'Stock Inicial']];
+      const activeProds = (window.currentMasterProducts || []).filter(p => p.status !== 'archived');
+      const rowsData = activeProds.length > 0
+        ? activeProds.map(p => [p.sku, p.name || '', 0])
+        : [
+            ['EJEMPLO-SKU-001', 'Producto Ejemplo 1', 100],
+            ['EJEMPLO-SKU-002', 'Producto Ejemplo 2', 50],
+            ['EJEMPLO-SKU-003', 'Producto Ejemplo 3', 0]
+          ];
+
+      const wsData = headers.concat(rowsData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = [{ wch: 22 }, { wch: 42 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock Inicial');
+      const cleanComName = String(commerce || 'comercio').toLowerCase().replace(/[^a-z0-9]/g, '_');
+      XLSX.writeFile(wb, `plantilla_stock_inicial_${cleanComName}.xlsx`);
+    });
+  }
+
   // 6.7. Trigger file input for dimensions import
   const btnTriggerImportDimensions = document.getElementById('btn-trigger-import-dimensions');
   if (btnTriggerImportDimensions) {
@@ -76915,7 +76939,12 @@ function openCatalogBulkStockImportModal(commerce) {
           </select>
         </div>
         <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Seleccionar Planilla Excel *</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">2. Seleccionar Planilla Excel *</label>
+            <button type="button" id="btn-modal-download-stock-tpl" style="background: none; border: none; font-size: 0.8rem; color: #4f46e5; text-decoration: underline; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-download-2-line"></i> Descargar plantilla
+            </button>
+          </div>
           <div style="border: 2px dashed var(--color-border); padding: 1.5rem; border-radius: var(--radius-md); text-align: center; cursor: pointer; transition: all 0.2s; background: var(--color-bg);" id="drop-zone-catalog-bulk-stock">
             <i class="ri-upload-cloud-2-line" style="font-size: 2.5rem; color: var(--color-success); display: block; margin-bottom: 0.5rem;"></i>
             <span style="font-size: 0.85rem; color: var(--color-text-muted);" id="catalog-bulk-stock-file-label">Selecciona o arrastra el archivo Excel aquí</span>
@@ -76930,6 +76959,34 @@ function openCatalogBulkStockImportModal(commerce) {
   `;
 
   document.body.appendChild(modal);
+
+  // Botón descargar plantilla dentro del modal
+  const btnModalDownloadTpl = document.getElementById('btn-modal-download-stock-tpl');
+  if (btnModalDownloadTpl) {
+    btnModalDownloadTpl.addEventListener('click', () => {
+      const btnStockTpl = document.getElementById('btn-download-stock-template');
+      if (btnStockTpl) {
+        btnStockTpl.click();
+      } else {
+        const headers = [['SKU', 'Nombre_Referencial', 'Stock Inicial']];
+        const activeProds = (window.currentMasterProducts || []).filter(p => p.status !== 'archived');
+        const rowsData = activeProds.length > 0
+          ? activeProds.map(p => [p.sku, p.name || '', 0])
+          : [
+              ['EJEMPLO-SKU-001', 'Producto Ejemplo 1', 100],
+              ['EJEMPLO-SKU-002', 'Producto Ejemplo 2', 50],
+              ['EJEMPLO-SKU-003', 'Producto Ejemplo 3', 0]
+            ];
+        const wsData = headers.concat(rowsData);
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        ws['!cols'] = [{ wch: 22 }, { wch: 42 }, { wch: 16 }];
+        XLSX.utils.book_append_sheet(wb, ws, 'Stock Inicial');
+        const cleanComName = String(commerce || 'comercio').toLowerCase().replace(/[^a-z0-9]/g, '_');
+        XLSX.writeFile(wb, `plantilla_stock_inicial_${cleanComName}.xlsx`);
+      }
+    });
+  }
 
   // Load warehouses
   supabase
@@ -78112,6 +78169,24 @@ async function saveBulkProductsToSupabase() {
       text: isExcelTab
         ? 'No hay productos válidos en la planilla para cargar.'
         : 'Ingresa al menos un producto con SKU y Nombre en la grilla.'
+    });
+    return;
+  }
+
+  // Validar duplicados de SKU dentro del lote antes de enviar a la base de datos
+  const skuCounts = new Map();
+  productsToSave.forEach(p => {
+    const s = (p.sku || '').trim().toLowerCase();
+    skuCounts.set(s, (skuCounts.get(s) || 0) + 1);
+  });
+  const duplicateSkus = [...skuCounts.entries()].filter(([_, count]) => count > 1).map(([s]) => s);
+  if (duplicateSkus.length > 0) {
+    const listDisplay = duplicateSkus.slice(0, 6).map(s => `<code>${s.toUpperCase()}</code>`).join(', ');
+    const moreText = duplicateSkus.length > 6 ? ` y ${duplicateSkus.length - 6} más` : '';
+    Swal.fire({
+      icon: 'error',
+      title: 'SKUs Duplicados en la Lista',
+      html: `Se encontraron <b>${duplicateSkus.length}</b> SKU(s) repetidos dentro de los datos a guardar:<br><br>${listDisplay}${moreText}<br><br><small style="color: var(--color-text-muted);">Cada producto debe tener un SKU único para este comercio. Por favor elimina o modifica las filas duplicadas antes de guardar.</small>`
     });
     return;
   }
