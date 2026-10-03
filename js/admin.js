@@ -1381,6 +1381,11 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
     window.applyWmsFiltersAndRender();
 
+    // Sincronizar grilla de agendas si está abierta
+    if (typeof window.renderAgendasGrid === 'function' && document.getElementById('subview-agendas-grid')?.style.display !== 'none') {
+      window.renderAgendasGrid();
+    }
+
     const orderName = order ? (order.external_order_number || order.id) : '';
     const toast = Swal.mixin({
       toast: true,
@@ -6239,8 +6244,25 @@ async function renderAdminOrders() {
     }
 
     appContent.innerHTML = `
-      <!-- Barra Superior: Buscador y Tarjetas de KPI Compactas -->
-      <style>
+      <!-- Sub-pestañas Principales del Gestor de Pedidos -->
+      <div class="orders-subnav-container">
+        <div class="orders-subnav-tabs">
+          <button type="button" id="btn-subnav-control-tower" class="orders-subnav-tab active" onclick="window.switchOrdersSubView('control_tower')">
+            <i class="ri-dashboard-line tab-icon"></i>
+            <span>Torre de Control</span>
+          </button>
+          <button type="button" id="btn-subnav-agendas-grid" class="orders-subnav-tab" onclick="window.switchOrdersSubView('agendas_grid')">
+            <i class="ri-table-line tab-icon"></i>
+            <span>Gestión de Agendas</span>
+            <span class="tab-badge" id="agendas-tab-count">${(window.loadedOrders || []).length}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Contenedor 1: Torre de Control (Vista Actual Completa) -->
+      <div id="subview-control-tower" style="display: block;">
+        <!-- Barra Superior: Buscador y Tarjetas de KPI Compactas -->
+        <style>
         .orders-top-header {
           display: grid;
           grid-template-columns: minmax(260px, 1.3fr) repeat(5, minmax(115px, 1fr));
@@ -6801,7 +6823,53 @@ async function renderAdminOrders() {
         <!-- Paginación -->
         <div id="wms-pagination-container" style="padding: 1rem; border-top: 1px solid var(--color-border);"></div>
       </div>
+      </div> <!-- Cierre de #subview-control-tower -->
+
+      <!-- Contenedor 2: Gestión de Agendas (Grilla Excel) -->
+      <div id="subview-agendas-grid" style="display: none;"></div>
     `;
+
+    // Función para alternar entre Torre de Control y Gestión de Agendas
+    window.switchOrdersSubView = function(subview) {
+      window.wmsOrdersActiveSubView = subview;
+      localStorage.setItem('wms_orders_active_subview', subview);
+
+      const btnTower = document.getElementById('btn-subnav-control-tower');
+      const btnAgendas = document.getElementById('btn-subnav-agendas-grid');
+      const viewTower = document.getElementById('subview-control-tower');
+      const viewAgendas = document.getElementById('subview-agendas-grid');
+
+      if (subview === 'agendas_grid') {
+        if (btnTower) btnTower.classList.remove('active');
+        if (btnAgendas) btnAgendas.classList.add('active');
+        if (viewTower) viewTower.style.display = 'none';
+        if (viewAgendas) {
+          viewAgendas.style.display = 'block';
+          if (typeof window.renderAgendasGrid === 'function') {
+            window.renderAgendasGrid();
+          }
+        }
+      } else {
+        if (btnTower) btnTower.classList.add('active');
+        if (btnAgendas) btnAgendas.classList.remove('active');
+        if (viewTower) viewTower.style.display = 'block';
+        if (viewAgendas) viewAgendas.style.display = 'none';
+
+        // Sincronizar en Torre de Control cualquier cambio realizado en la grilla
+        if (typeof window.applyWmsFiltersAndRender === 'function') {
+          window.applyWmsFiltersAndRender();
+        }
+        if (window.updateWmsStickyHeaderPositions) {
+          window.updateWmsStickyHeaderPositions();
+        }
+      }
+    };
+
+    // Restaurar sub-vista activa guardada
+    const savedOrdersSubView = localStorage.getItem('wms_orders_active_subview');
+    if (savedOrdersSubView === 'agendas_grid') {
+      window.switchOrdersSubView('agendas_grid');
+    }
 
     // Configurar posiciones sticky para la barra de control y cabecera de la tabla
     if (window.updateWmsStickyHeaderPositions) {
@@ -37567,6 +37635,20 @@ window.renderDeclarationHistoryTimeline = function(dec) {
 
 window.manageDeclaration = async function(id) {
   try {
+    if (window.Swal) {
+      window.Swal.fire({
+        title: 'Cargando ingreso...',
+        html: `
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 16px 0;">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: var(--color-primary, #6366f1); animation: spin 1s linear infinite; display: inline-block;"></i>
+            <span style="color: var(--color-text-muted, #64748b); font-size: 0.95rem;">Obteniendo información del ingreso y catálogo de productos...</span>
+          </div>
+        `,
+        allowOutsideClick: false,
+        showConfirmButton: false
+      });
+    }
+
     window.currentDeclarationProductsEditing = null;
     window.currentDeclarationProductsEditing_id = null;
     
@@ -37578,13 +37660,21 @@ window.manageDeclaration = async function(id) {
 
     if (error) throw error;
 
-    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales (incluyendo medidas)
+    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales (incluyendo medidas y variantes)
     try {
-      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
+      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
       window.adminCatalogProductsCache = prods || [];
     } catch (e) {
       console.error('Error preloading products for admin:', e);
       window.adminCatalogProductsCache = [];
+    }
+
+    // Cargar configuración de variantes del comercio
+    try {
+      window.currentDeclarationVariantConfig = await getCommerceVariantConfig(dec.comercio);
+    } catch (e) {
+      console.warn('Error fetching variant config for declaration:', e);
+      window.currentDeclarationVariantConfig = null;
     }
 
     // Configurar autocompletar en la modal del administrador
@@ -37616,6 +37706,7 @@ window.manageDeclaration = async function(id) {
         } else {
           matches.forEach(p => {
             const dimsText = (p.largo && p.ancho && p.alto) ? `${p.largo}×${p.ancho}×${p.alto} cm` : 'Sin medidas';
+            const vBadges = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, window.currentDeclarationVariantConfig, { margin: 'margin-top: 0.2rem;' }) : '';
             html += `
               <div class="admin-search-result-item" 
                    data-sku="${p.sku}" 
@@ -37630,6 +37721,7 @@ window.manageDeclaration = async function(id) {
                    onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                    onmouseout="this.style.backgroundColor='transparent'">
                 <strong style="color: var(--color-text-main);">${p.name}</strong>
+                ${vBadges}
                 <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Medidas: ${dimsText} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
               </div>
             `;
@@ -37814,6 +37906,7 @@ window.manageDeclaration = async function(id) {
         if (existing) {
           Swal.fire('Atención', `El producto SKU: ${sku} ya está en la lista de recepción.`, 'info');
         } else {
+          const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku === sku);
           window.currentDeclarationProductsEditing.push({
             sku: sku,
             name: name,
@@ -37829,7 +37922,12 @@ window.manageDeclaration = async function(id) {
             confirmed_ancho: ancho,
             confirmed_alto: alto,
             confirmed_volumen: vol,
-            barcode: barcode
+            barcode: barcode,
+            color: catProd?.color || null,
+            talla: catProd?.talla || null,
+            variable_1: catProd?.variable_1 || null,
+            variable_2: catProd?.variable_2 || null,
+            options: catProd?.options || {}
           });
           
           const currentStatusVal = document.getElementById('manage-dec-status').value || window.currentDeclarationEditing?.status || '';
@@ -38186,11 +38284,22 @@ window.manageDeclaration = async function(id) {
     }
 
     // Mostrar el modal
+    if (window.Swal && window.Swal.isVisible()) {
+      window.Swal.close();
+    }
     document.getElementById('modal-manage-declaration').classList.add('active');
 
   } catch (err) {
     console.error('Error fetching declaration details for manage:', err);
-    alert('Error al obtener los detalles de la declaración: ' + err.message);
+    if (window.Swal) {
+      window.Swal.fire({
+        icon: 'error',
+        title: 'Error al abrir gestión',
+        text: 'Error al obtener los detalles de la declaración: ' + (err.message || err)
+      });
+    } else {
+      alert('Error al obtener los detalles de la declaración: ' + err.message);
+    }
   }
 };
 
@@ -38206,7 +38315,7 @@ window.saveDeclarationBillingDirect = async function() {
   const saveBtn = document.getElementById('btn-quick-save-billing');
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+    saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin" style="animation: spin 1s linear infinite; display: inline-block;"></i> Guardando...';
   }
 
   try {
@@ -38473,8 +38582,10 @@ document.addEventListener('submit', async (e) => {
     }
 
     const saveBtn = e.target.querySelector('button[type="submit"]');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Guardando cambios...';
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin" style="animation: spin 1s linear infinite; display: inline-block;"></i> Guardando cambios...';
+    }
 
     try {
       // 1. Obtener historial previo de la base de datos
@@ -38515,8 +38626,10 @@ document.addEventListener('submit', async (e) => {
           });
 
           if (!confirmRollback.isConfirmed) {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Guardar Cambios';
+            if (saveBtn) {
+              saveBtn.disabled = false;
+              saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+            }
             return;
           }
 
@@ -38606,6 +38719,22 @@ document.addEventListener('submit', async (e) => {
 
       const updatedHistory = [...existingHistory, newHistoryEntry];
  
+      if (window.Swal) {
+        window.Swal.fire({
+          title: 'Guardando y procesando...',
+          html: `
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 14px; margin: 15px 0;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: var(--color-primary, #6366f1); animation: spin 1s linear infinite; display: inline-block;"></i>
+              <span id="swal-manage-progress-text" style="color: var(--color-text-muted, #64748b); font-size: 0.95rem; font-weight: 500;">
+                Guardando información de recepción...
+              </span>
+            </div>
+          `,
+          allowOutsideClick: false,
+          showConfirmButton: false
+        });
+      }
+
       // 2. Ejecutar actualización
       const billingStatus = document.getElementById('manage-dec-billing-status')?.value || 'Pendiente';
       const billingNotes = document.getElementById('manage-dec-billing-notes')?.value?.trim() || '';
@@ -38738,7 +38867,14 @@ document.addEventListener('submit', async (e) => {
           const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
           if (targetWarehouseId) {
             let inventoryModified = false;
+            let currentItemIdx = 0;
             for (const item of productsList) {
+              currentItemIdx++;
+              const progressElem = document.getElementById('swal-manage-progress-text');
+              if (progressElem) {
+                progressElem.textContent = `Actualizando inventario y medidas: producto ${currentItemIdx} de ${productsList.length}...`;
+              }
+
               const itemQty = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
                 ? parseInt(item.qty_confirmed, 10) 
                 : (status === 'Recibido Conforme' ? (parseInt(item.qty, 10) || 0) : 0);
@@ -38893,6 +39029,11 @@ document.addEventListener('submit', async (e) => {
       }
 
       // 3. Enviar notificaciones automáticas por correo según el estado
+      const notifProgressElem = document.getElementById('swal-manage-progress-text');
+      if (notifProgressElem) {
+        notifProgressElem.textContent = 'Enviando notificaciones y finalizando...';
+      }
+
       try {
         const { data: updatedDec } = await supabase
           .from('stock_declarations')
@@ -39023,9 +39164,18 @@ document.addEventListener('submit', async (e) => {
         }
       }
       alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al guardar cambios: ${errorMsg}</div>`;
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'error',
+          title: 'Error al procesar ingreso',
+          html: `Ocurrió un error al guardar los cambios: <br><strong>${errorMsg}</strong>`
+        });
+      }
     } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Guardar Cambios';
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+      }
     }
   }
 });
@@ -39866,6 +40016,9 @@ window.editDeclarationAdmin = async function(id) {
     document.getElementById('admin-edit-dec-admin-notes').value = dec.admin_notes || '';
     document.getElementById('admin-edit-dec-reason').value = '';
 
+    // Cargar configuración de variantes del comercio
+    window.adminEditDeclarationVariantConfig = await window.getCommerceVariantConfig(dec.comercio);
+
     // Cargar productos
     const prods = getDeclarationProducts(dec) || [];
     window.adminEditingDeclarationProducts_id = dec.id;
@@ -39875,7 +40028,12 @@ window.editDeclarationAdmin = async function(id) {
       qty: parseInt(p.qty, 10) || 0,
       price: parseFloat(p.price) || 0,
       volumen: parseFloat(p.volumen || p.vol) || 0,
-      barcode: p.barcode || ''
+      barcode: p.barcode || '',
+      color: p.color || null,
+      talla: p.talla || null,
+      variable_1: p.variable_1 || null,
+      variable_2: p.variable_2 || null,
+      options: p.options || null
     }));
 
     window.renderAdminEditDeclarationProducts();
@@ -39902,9 +40060,26 @@ window.editDeclarationAdmin = async function(id) {
 
       const catProds = await window.fetchAllSupabaseRows(
         'products', 
-        'sku, name, volumen, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data', 
+        'sku, name, volumen, price, barcode, is_virtual, is_pack, status, description, shopify_product_id, raw_shopify_data, meli_item_id, raw_meli_data, raw_falabella_data, raw_paris_data, raw_ripley_data, raw_woocommerce_data, raw_jumpseller_data, tiendanube_product_id, raw_tiendanube_data, raw_walmart_data, color, talla, variable_1, variable_2, options', 
         q => q.eq('comercio', dec.comercio).order('name')
       );
+
+      // Cruzar con productos de la declaración para poblar atributos de variantes si no venían en la planilla
+      const catProdsMap = {};
+      (catProds || []).forEach(cp => {
+        if (cp.sku) catProdsMap[cp.sku.trim().toUpperCase()] = cp;
+      });
+      window.adminEditingDeclarationProducts.forEach(p => {
+        const cp = p.sku ? catProdsMap[p.sku.trim().toUpperCase()] : null;
+        if (cp) {
+          if (!p.color && cp.color) p.color = cp.color;
+          if (!p.talla && cp.talla) p.talla = cp.talla;
+          if (!p.variable_1 && cp.variable_1) p.variable_1 = cp.variable_1;
+          if (!p.variable_2 && cp.variable_2) p.variable_2 = cp.variable_2;
+          if (!p.options && cp.options) p.options = cp.options;
+        }
+      });
+      window.renderAdminEditDeclarationProducts();
 
       const getProductPlatform = (p) => {
         if (p.shopify_product_id || p.raw_shopify_data || (p.description && p.description.includes('Shopify'))) return 'Shopify';
@@ -39984,6 +40159,7 @@ window.editDeclarationAdmin = async function(id) {
               platBg = 'rgba(100, 116, 139, 0.09)'; platColor = '#475569'; platBorder = 'rgba(100, 116, 139, 0.25)';
             }
             const masterTagHtml = `<span style="display: inline-flex; align-items: center; gap: 3.5px; font-size: 0.68rem; font-weight: 700; padding: 1.5px 6px; border-radius: 4px; background: ${platBg}; color: ${platColor}; border: 1px solid ${platBorder}; white-space: nowrap;"><i class="ri-shield-check-fill" style="font-size: 0.75rem;"></i>${platName} (Catálogo Master)</span>`;
+            const variantBadgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, window.adminEditDeclarationVariantConfig, { compact: true }) : '';
 
             html += `
               <div class="admin-edit-search-result-item" 
@@ -39999,6 +40175,7 @@ window.editDeclarationAdmin = async function(id) {
                   <strong style="color: var(--color-text-main); font-size: 0.875rem;">${p.name}</strong>
                   ${masterTagHtml}
                 </div>
+                ${variantBadgesHtml ? `<div style="margin-top: 2px;">${variantBadgesHtml}</div>` : ''}
                 <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
               </div>
             `;
@@ -40119,6 +40296,7 @@ window.editDeclarationAdmin = async function(id) {
         const barcode = item.getAttribute('data-barcode') || '';
 
         const existing = window.adminEditingDeclarationProducts.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+        const catObj = (window.adminCatalogProductsCache || []).find(cp => (cp.sku || '').toUpperCase() === (sku || '').toUpperCase());
         if (existing) {
           existing.qty = (existing.qty || 0) + 1;
         } else {
@@ -40128,7 +40306,12 @@ window.editDeclarationAdmin = async function(id) {
             qty: 1,
             price: price,
             volumen: vol,
-            barcode: barcode
+            barcode: barcode,
+            color: catObj?.color || null,
+            talla: catObj?.talla || null,
+            variable_1: catObj?.variable_1 || null,
+            variable_2: catObj?.variable_2 || null,
+            options: catObj?.options || null
           });
         }
 
@@ -40194,11 +40377,14 @@ window.renderAdminEditDeclarationProducts = function() {
 
   let html = '';
   prods.forEach((p, idx) => {
+    const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, window.adminEditDeclarationVariantConfig, { compact: true }) : '';
+
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
-        <td style="padding: 8px 12px; max-width: 250px;">
-          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.sku}">${p.sku}</div>
-          <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name || ''}">${p.name || 'Sin descripción'}</div>
+        <td style="padding: 8px 12px; min-width: 220px;">
+          <div style="font-weight: 700; color: var(--color-primary); font-family: monospace; font-size: 0.85rem;" title="${p.sku}">${p.sku}</div>
+          <div style="font-size: 0.8rem; color: var(--color-text-main); margin-top: 2px; word-break: break-word;" title="${p.name || ''}">${p.name || 'Sin descripción'}</div>
+          ${badgesHtml ? `<div style="margin-top: 4px;">${badgesHtml}</div>` : ''}
         </td>
         <td style="padding: 8px 12px; text-align: center;">
           <input type="number" class="form-input" min="0" value="${p.qty || 0}" style="width: 85px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto; font-weight: 700;" oninput="window.updateAdminEditDeclarationProductQty(${idx}, this.value)">
@@ -63020,6 +63206,14 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     return;
   }
 
+  // Cargar respaldo de configuración de variantes del comercio si aún no está en memoria
+  if (dec && dec.comercio && !window.currentDeclarationVariantConfig) {
+    try {
+      const raw = localStorage.getItem('wms_variant_config_' + dec.comercio);
+      if (raw) window.currentDeclarationVariantConfig = JSON.parse(raw);
+    } catch (e) {}
+  }
+
   // Solo ocultamos el botón de agregar si la declaración ya estaba guardada como Recibido Conforme
   const isAlreadyFinished = dec && dec.status === 'Recibido Conforme' && activeStatus === 'Recibido Conforme';
   const addProdContainer = document.getElementById('manage-dec-add-product-container');
@@ -63033,7 +63227,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
     window.currentDeclarationProductsEditing_id = dec.id;
     window.currentDeclarationProductsEditing = products.map(item => {
-      // Buscar en el catálogo precargado si faltan dimensiones
+      // Buscar en el catálogo precargado si faltan dimensiones o variantes
       const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku && item.sku && p.sku.toLowerCase().trim() === item.sku.toLowerCase().trim());
 
       const declaredLargo = item.declared_largo || item.largo || catProd?.largo || null;
@@ -63064,6 +63258,11 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
       return {
         ...item,
+        color: item.color || catProd?.color || null,
+        talla: item.talla || catProd?.talla || null,
+        variable_1: item.variable_1 || catProd?.variable_1 || null,
+        variable_2: item.variable_2 || catProd?.variable_2 || null,
+        options: { ...(catProd?.options || {}), ...(item.options || {}) },
         price: item.price || catProd?.price || 0,
         barcode: item.barcode || catProd?.barcode || '',
         declared_largo: declaredLargo ? parseFloat(declaredLargo) : null,
@@ -63140,14 +63339,29 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
     const rowTotalVol = unitVol * confirmed;
 
+    const catProd = (window.adminCatalogProductsCache || []).find(p => p.sku && item.sku && p.sku.toLowerCase().trim() === item.sku.toLowerCase().trim());
+    const prodForBadges = {
+      ...catProd,
+      ...item,
+      color: item.color || catProd?.color || null,
+      talla: item.talla || catProd?.talla || null,
+      variable_1: item.variable_1 || catProd?.variable_1 || null,
+      variable_2: item.variable_2 || catProd?.variable_2 || null,
+      options: { ...(catProd?.options || {}), ...(item.options || {}) }
+    };
+    const variantsBadgeHtml = window.renderProductVariantBadges 
+      ? window.renderProductVariantBadges(prodForBadges, window.currentDeclarationVariantConfig) 
+      : '';
+
     tbody.innerHTML += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
         <td style="padding: 8px 6px; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-weight: 700; font-family: monospace;">
           ${idx + 1}
         </td>
-        <td style="padding: 8px 10px; max-width: 200px;">
-          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.sku}">${item.sku}</div>
-          <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
+        <td style="padding: 8px 10px; min-width: 200px; max-width: 320px;">
+          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.85rem; font-family: monospace;" title="${item.sku}">${item.sku}</div>
+          <div style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 500; line-height: 1.3; margin-top: 2px;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
+          ${variantsBadgeHtml}
         </td>
         <td style="padding: 8px 6px; text-align: center;">
           ${(item.declared_largo && item.declared_ancho && item.declared_alto) ? `
@@ -66907,17 +67121,50 @@ window.exportDeclarationToPDF = async function(id) {
       }
     }
 
+    // Cargar variantes del catálogo para el comercio si existen
+    let variantConfig = null;
+    let catalogMap = {};
+    if (dec.comercio && products.length > 0) {
+      try {
+        variantConfig = await window.getCommerceVariantConfig(dec.comercio);
+        const skus = products.map(p => (p.sku || '').trim()).filter(Boolean);
+        if (skus.length > 0) {
+          const { data: catRows } = await supabase
+            .from('products')
+            .select('sku, color, talla, variable_1, variable_2, options')
+            .eq('comercio', dec.comercio)
+            .in('sku', skus);
+          (catRows || []).forEach(cp => {
+            if (cp.sku) catalogMap[cp.sku.trim().toUpperCase()] = cp;
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching variant config for declaration PDF:', e);
+      }
+    }
+
     let productsHtml = '';
     if (products.length > 0) {
       products.forEach((p, idx) => {
+        const catProd = p.sku ? catalogMap[p.sku.trim().toUpperCase()] : null;
+        const prodForBadges = {
+          color: p.color || catProd?.color,
+          talla: p.talla || catProd?.talla,
+          variable_1: p.variable_1 || catProd?.variable_1,
+          variable_2: p.variable_2 || catProd?.variable_2,
+          options: p.options || catProd?.options
+        };
+        const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true }) : '';
+
         productsHtml += `
           <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
             <td style="padding: 6px 8px; color: #475569; font-size: 9px;">${idx + 1}</td>
             <td style="padding: 6px 8px; color: #334155; font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.sku}">${p.sku}</td>
             <td style="padding: 6px 8px; color: #1e293b; font-size: 9px; vertical-align: top;">
-              <div style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; max-height: 2.6em; word-break: break-word;">
+              <div style="font-weight: 500; line-height: 1.3; word-break: break-word;">
                 ${p.name}
               </div>
+              ${badgesHtml ? `<div style="margin-top: 3px;">${badgesHtml}</div>` : ''}
             </td>
             <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600; font-size: 9px;">${p.qty}</td>
           </tr>
@@ -67222,14 +67469,18 @@ window.exportDeclarationOperationsPDF = async function(id) {
       }
     }
 
-    // 3.1 Cargar dimensiones del catálogo maestro si no vienen en la declaración
+    // 3.1 Cargar dimensiones y atributos de variantes del catálogo maestro si no vienen en la declaración
+    let variantConfig = null;
     if (products.length > 0) {
       try {
-        const skusToFetch = products.filter(p => !p.largo || !p.ancho || !p.alto).map(p => (p.sku || '').trim()).filter(Boolean);
+        if (dec.comercio) {
+          variantConfig = await window.getCommerceVariantConfig(dec.comercio);
+        }
+        const skusToFetch = [...new Set(products.map(p => (p.sku || '').trim()).filter(Boolean))];
         if (skusToFetch.length > 0) {
           const { data: dbProds } = await supabase
             .from('products')
-            .select('sku, largo, ancho, alto, volumen')
+            .select('sku, largo, ancho, alto, volumen, color, talla, variable_1, variable_2, options')
             .eq('comercio', dec.comercio)
             .in('sku', skusToFetch);
 
@@ -67246,13 +67497,18 @@ window.exportDeclarationOperationsPDF = async function(id) {
                   if (!p.ancho && dbP.ancho) p.ancho = dbP.ancho;
                   if (!p.alto && dbP.alto) p.alto = dbP.alto;
                   if (!p.vol && !p.volumen && dbP.volumen) p.vol = dbP.volumen;
+                  if (!p.color && dbP.color) p.color = dbP.color;
+                  if (!p.talla && dbP.talla) p.talla = dbP.talla;
+                  if (!p.variable_1 && dbP.variable_1) p.variable_1 = dbP.variable_1;
+                  if (!p.variable_2 && dbP.variable_2) p.variable_2 = dbP.variable_2;
+                  if (!p.options && dbP.options) p.options = dbP.options;
                 }
               }
             });
           }
         }
       } catch (e) {
-        console.warn('Error fetching product dimensions for operations PDF:', e);
+        console.warn('Error fetching product data for operations PDF:', e);
       }
     }
 
@@ -67288,12 +67544,15 @@ window.exportDeclarationOperationsPDF = async function(id) {
           ? `<div><strong>${p.largo}×${p.ancho}×${p.alto}</strong> cm</div><span style="font-size: 8px; color: #64748b;">${((p.largo*p.ancho*p.alto)/1000000).toFixed(4)} m³</span>`
           : ((p.vol || p.volumen) ? `<div>${(parseFloat(p.vol || p.volumen) || 0).toFixed(4)} m³</div>` : '<span style="color:#94a3b8; font-style:italic;">S/medidas</span>');
 
+        const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, variantConfig, { compact: true }) : '';
+
         productsHtml += `
           <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
             <td style="padding: 5px 6px; color: #64748b; font-size: 9.5px; text-align: center;">${idx + 1}</td>
             <td style="padding: 5px 6px; color: #0f172a; font-weight: 700; font-size: 9.5px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
             <td style="padding: 5px 6px; color: #1e293b; font-size: 9.5px; line-height: 1.25;">
               <div style="font-weight: 500;">${p.name}</div>
+              ${badgesHtml ? `<div style="margin-top: 3px;">${badgesHtml}</div>` : ''}
             </td>
             <td style="padding: 5px 6px; color: #475569; font-size: 9px; font-family: monospace; white-space: nowrap;">
               ${p.barcode || '<span style="color:#94a3b8; font-style:italic;">Sin registrar</span>'}
@@ -67784,7 +68043,7 @@ window.viewDeclarationProducts = async function(id) {
     modal.id = 'modal-view-dec-products';
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column; max-height: 80vh; padding: 0;">
+      <div class="modal-content" style="max-width: 780px; display: flex; flex-direction: column; max-height: 80vh; padding: 0;">
         <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
           <h3 style="margin: 0;" id="view-products-title">Productos del Ingreso</h3>
           <button type="button" class="modal-close" onclick="document.getElementById('modal-view-dec-products').classList.remove('active')">&times;</button>
@@ -67808,7 +68067,7 @@ window.viewDeclarationProducts = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('title, products_list, file_base64, history')
+      .select('title, products_list, file_base64, history, comercio')
       .eq('id', id)
       .single();
 
@@ -67858,6 +68117,28 @@ window.viewDeclarationProducts = async function(id) {
       return;
     }
 
+    // Cargar variantes y configuración de variantes del comercio
+    let variantConfig = null;
+    let catalogMap = {};
+    if (dec.comercio) {
+      try {
+        variantConfig = await window.getCommerceVariantConfig(dec.comercio);
+        const skus = products.map(p => (p.sku || '').trim()).filter(Boolean);
+        if (skus.length > 0) {
+          const { data: catRows } = await supabase
+            .from('products')
+            .select('sku, color, talla, variable_1, variable_2, options')
+            .eq('comercio', dec.comercio)
+            .in('sku', skus);
+          (catRows || []).forEach(cp => {
+            if (cp.sku) catalogMap[cp.sku.trim().toUpperCase()] = cp;
+          });
+        }
+      } catch (e) {
+        console.warn('Error fetching variant info for viewDeclarationProducts:', e);
+      }
+    }
+
     const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
     const hasConfirmed = products.some(p => p.qty_confirmed !== undefined && p.qty_confirmed !== null);
 
@@ -67874,8 +68155,8 @@ window.viewDeclarationProducts = async function(id) {
         <thead>
           <tr style="border-bottom: 2px solid var(--color-border); text-align: left;">
             <th style="padding: 8px;">#</th>
-            <th style="padding: 8px;">SKU</th>
-            <th style="padding: 8px;">Nombre Producto</th>
+            <th style="padding: 8px; min-width: 110px;">SKU</th>
+            <th style="padding: 8px; min-width: 220px;">Nombre Producto / Variantes</th>
             <th style="padding: 8px; text-align: right;">Declarada</th>
             ${hasConfirmed ? '<th style="padding: 8px; text-align: right;">Recibida</th><th style="padding: 8px; text-align: right;">Pendiente</th>' : ''}
           </tr>
@@ -67888,11 +68169,24 @@ window.viewDeclarationProducts = async function(id) {
       const confirmed = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : declared;
       const pending = Math.max(0, declared - confirmed);
 
+      const catProd = p.sku ? catalogMap[p.sku.trim().toUpperCase()] : null;
+      const prodForBadges = {
+        color: p.color || catProd?.color,
+        talla: p.talla || catProd?.talla,
+        variable_1: p.variable_1 || catProd?.variable_1,
+        variable_2: p.variable_2 || catProd?.variable_2,
+        options: p.options || catProd?.options
+      };
+      const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(prodForBadges, variantConfig, { compact: true }) : '';
+
       tableHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
-          <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
-          <td style="padding: 8px;">${p.name}</td>
+          <td style="padding: 8px; font-weight: 700; font-family: monospace; color: var(--color-primary);">${p.sku}</td>
+          <td style="padding: 8px;">
+            <div style="font-weight: 500; color: var(--color-text-main);">${p.name}</div>
+            ${badgesHtml ? `<div style="margin-top: 4px;">${badgesHtml}</div>` : ''}
+          </td>
           <td style="padding: 8px; text-align: right; font-weight: bold;">${declared.toLocaleString('es-CL')}</td>
           ${hasConfirmed ? `
             <td style="padding: 8px; text-align: right; font-weight: 700; color: var(--color-primary);">${confirmed.toLocaleString('es-CL')}</td>
@@ -73374,6 +73668,80 @@ function getVariantColorStyle(colorName, commerceConfig, productOptions) {
   return { bg: "#3b82f6", text: "#ffffff" };
 }
 window.getVariantColorStyle = getVariantColorStyle;
+window.getCommerceVariantConfig = getCommerceVariantConfig;
+
+window.renderProductVariantBadges = function(prod, config, options = {}) {
+  if (!prod) return '';
+  const opt = prod.options || {};
+  const color = prod.color || opt.color || null;
+  const talla = prod.talla || opt.talla || opt.size || null;
+  const var1 = prod.variable_1 || opt.var1 || opt.manga || null;
+  const var2 = prod.variable_2 || opt.var2 || opt.cuello || null;
+
+  if (!color && !talla && !var1 && !var2) return '';
+
+  const esc = window.escapeHtml || (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
+  const naming = (config && config.naming) || {
+    color: 'Color',
+    talla: 'Talla',
+    var1: 'Variable 1',
+    var2: 'Variable 2'
+  };
+
+  const parts = [];
+
+  if (color) {
+    let colorStyle = null;
+    if (typeof window.getVariantColorStyle === 'function') {
+      colorStyle = window.getVariantColorStyle(color, config, opt);
+    }
+    const colorBg = (colorStyle && colorStyle.bg) ? colorStyle.bg : 'rgba(113, 23, 235, 0.08)';
+    const colorText = (colorStyle && colorStyle.text) ? colorStyle.text : 'var(--color-primary)';
+    
+    if (colorStyle && colorStyle.bg) {
+      parts.push(`
+        <span class="badge variant-badge" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; background-color: ${colorBg}; color: ${colorText}; border: 1px solid rgba(0,0,0,0.18); box-shadow: 0 1px 2px rgba(0,0,0,0.06); max-width: 100%;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: ${colorBg}; border: 1px solid rgba(255,255,255,0.7); flex-shrink: 0;"></span>
+          <span>${esc(naming.color || 'Color')}: <strong>${esc(color)}</strong></span>
+        </span>
+      `);
+    } else {
+      parts.push(`
+        <span class="badge variant-badge" style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(113, 23, 235, 0.2);">
+          ${esc(naming.color || 'Color')}: <strong>${esc(color)}</strong>
+        </span>
+      `);
+    }
+  }
+
+  if (talla) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(15, 23, 42, 0.07); color: var(--color-text-main); padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.12);">
+        ${esc(naming.talla || 'Talla')}: <strong>${esc(talla)}</strong>
+      </span>
+    `);
+  }
+
+  if (var1) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(249, 115, 22, 0.1); color: #c2410c; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(249, 115, 22, 0.25);">
+        ${esc(naming.var1 || 'Variable 1')}: <strong>${esc(var1)}</strong>
+      </span>
+    `);
+  }
+
+  if (var2) {
+    parts.push(`
+      <span class="badge variant-badge" style="background: rgba(202, 138, 4, 0.12); color: #a16207; padding: 2px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; border: 1px solid rgba(202, 138, 4, 0.25);">
+        ${esc(naming.var2 || 'Variable 2')}: <strong>${esc(var2)}</strong>
+      </span>
+    `);
+  }
+
+  const containerMargin = options.margin !== undefined ? options.margin : 'margin-top: 0.25rem;';
+  return `<div class="product-variants-badges" style="display: flex; gap: 0.3rem; flex-wrap: wrap; ${containerMargin} align-items: center;">${parts.join('')}</div>`;
+};
 
 async function saveCommerceVariantConfig(commerce, config) {
   try {
