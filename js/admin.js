@@ -16290,6 +16290,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
       showWmsWarningInModal('form-new-product');
     });
   }
+  const btnBulkProd = document.getElementById('btn-bulk-create-product');
+  if (btnBulkProd) {
+    btnBulkProd.addEventListener('click', () => {
+      window.openCatalogBulkCreateModal(commerce);
+    });
+  }
+  const btnTriggerBulkExcel = document.getElementById('btn-trigger-bulk-create-products-excel');
+  if (btnTriggerBulkExcel) {
+    btnTriggerBulkExcel.addEventListener('click', () => {
+      window.openCatalogBulkCreateModal(commerce);
+    });
+  }
   document.querySelectorAll('.btn-edit-product').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const prodId = e.currentTarget.getAttribute('data-id');
@@ -25290,6 +25302,12 @@ async function renderAdminCatalog() {
         <div id="eq-admin-client-dropdown-container"></div>
       </div>
       <div id="catalog-admin-stats-container" style="flex: 1 1 0; min-width: 0; display: none; border-left: 1px solid var(--color-border); padding-left: 1rem;"></div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+        <button class="btn btn-primary" id="btn-catalog-top-bulk-create" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease; background: #4f46e5; border-color: #4338ca;" title="Crear productos de manera masiva con stock, medidas y atributos">
+          <i class="ri-file-upload-line" style="font-size: 1.05rem;"></i>
+          <span>Crear Productos Masivos</span>
+        </button>
+      </div>
     </div>
     <div id="eq-admin-workspace" style="display: none;">
     </div>
@@ -25344,6 +25362,13 @@ async function renderAdminCatalog() {
     }
 
     initProductFormListeners();
+
+    const btnTopBulk = document.getElementById('btn-catalog-top-bulk-create');
+    if (btnTopBulk) {
+      btnTopBulk.addEventListener('click', () => {
+        window.openCatalogBulkCreateModal(window.activeAdminComercio || '');
+      });
+    }
 
   } catch (err) {
     console.error('Error loading admin client select:', err);
@@ -25529,6 +25554,11 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const createBtn = `<button class="btn btn-primary" id="btn-new-product" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease;"><i class="ri-add-line" style="font-size: 1.05rem;"></i><span>Nuevo Producto</span></button>`;
     
+    const bulkCreateBtn = `<button class="btn btn-primary" id="btn-bulk-create-product" style="padding: 0 1rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s ease; background: #4f46e5; border-color: #4338ca;" title="Crear productos de manera masiva con stock, medidas y atributos">
+      <i class="ri-file-upload-line" style="font-size: 1.05rem;"></i>
+      <span>Crear Productos Masivos</span>
+    </button>`;
+    
     const importBtn = mainPlatform
       ? `<button class="btn btn-catalog-action" id="btn-import-from-main" style="padding: 0 0.85rem; font-size: 0.82rem; height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.28); color: #2563eb; font-weight: 600; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s ease;" title="Sincronizar y actualizar todo el catálogo desde ${mainPlatform}">
           <i class="ri-download-cloud-2-line" style="font-size: 1rem;"></i>
@@ -25559,6 +25589,14 @@ async function renderAdminCatalogWorkspace(commerce) {
           <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; opacity: 0.8;"></i>
         </button>
         <div class="excel-dropdown-content">
+          <div style="position: relative;">
+            <button class="excel-dropdown-btn" id="btn-trigger-bulk-create-products-excel" style="color: #4f46e5; font-weight: 600;">
+              <i class="ri-file-add-fill" style="color: #4f46e5;"></i> Crear Productos Masivos
+            </button>
+          </div>
+          
+          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
+
           <div style="position: relative;">
             <button class="excel-dropdown-btn" id="btn-trigger-import-stock" style="color: var(--color-success);">
               <i class="ri-file-upload-line"></i> Importar Stock Inicial
@@ -25725,6 +25763,7 @@ async function renderAdminCatalogWorkspace(commerce) {
                 ${excelActionsDropdown}
                 <div id="admin-catalog-export-container"></div>
                 ${quickEditBtnHtml}
+                ${bulkCreateBtn}
                 ${createBtn}
               </div>
             </div>
@@ -76622,6 +76661,1156 @@ function openCatalogBulkStockImportModal(commerce) {
       }
     };
     reader.readAsArrayBuffer(file);
+  }
+}
+
+// ============================================================================
+// CREACIÓN MASIVA DE PRODUCTOS EN CATÁLOGO (SOLO ADMIN)
+// ============================================================================
+window._bulkParsedProducts = [];
+window._bulkExistingSkus = new Set();
+let _bulkModalEventsBound = false;
+
+window.openCatalogBulkCreateModal = async function(preferredCommerce) {
+  const modal = document.getElementById('modal-catalog-bulk-create');
+  if (!modal) {
+    console.error('Modal modal-catalog-bulk-create no encontrado en el DOM.');
+    return;
+  }
+
+  modal.classList.add('active');
+
+  const commerceSelect = document.getElementById('bulk-create-commerce-select');
+  if (commerceSelect) {
+    try {
+      const { data: comercios, error: comErr } = await supabase
+        .from('v_comercios_config')
+        .select('sigla, nombre')
+        .order('nombre');
+
+      if (!comErr && comercios) {
+        const uniqueClients = [];
+        const seen = new Set();
+        comercios.forEach(c => {
+          if (c.nombre && !seen.has(c.nombre)) {
+            seen.add(c.nombre);
+            uniqueClients.push(c);
+          }
+        });
+
+        commerceSelect.innerHTML = '<option value="">-- Selecciona un comercio --</option>' +
+          uniqueClients.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+
+        const target = preferredCommerce || window.activeAdminComercio || '';
+        if (target) {
+          commerceSelect.value = target;
+        }
+      }
+    } catch (err) {
+      console.error('Error cargando comercios para modal bulk:', err);
+    }
+  }
+
+  const warehouseSelect = document.getElementById('bulk-create-warehouse-select');
+  if (warehouseSelect) {
+    try {
+      const { data: warehouses, error: wErr } = await supabase
+        .from('warehouses')
+        .select('id, name, comuna')
+        .order('name');
+
+      if (!wErr && warehouses && warehouses.length > 0) {
+        warehouseSelect.innerHTML = warehouses.map(w => `<option value="${w.id}">${w.name} (${w.comuna})</option>`).join('');
+        const central = warehouses.find(w => w.name && w.name.toLowerCase().includes('central'));
+        if (central) {
+          warehouseSelect.value = central.id;
+        } else {
+          warehouseSelect.value = warehouses[0].id;
+        }
+      } else {
+        warehouseSelect.innerHTML = '<option value="">Sin bodegas registradas</option>';
+      }
+    } catch (err) {
+      console.error('Error cargando bodegas para modal bulk:', err);
+    }
+  }
+
+  await refreshBulkExistingSkus();
+  resetBulkCreateModal();
+
+  if (!_bulkModalEventsBound) {
+    setupBulkModalEventListeners();
+    _bulkModalEventsBound = true;
+  }
+};
+
+async function refreshBulkExistingSkus() {
+  window._bulkExistingSkus.clear();
+  const commerceSelect = document.getElementById('bulk-create-commerce-select');
+  const commerce = commerceSelect ? commerceSelect.value : '';
+  if (!commerce) return;
+
+  try {
+    const { data: prods } = await supabase
+      .from('products')
+      .select('sku')
+      .eq('comercio', commerce);
+
+    if (prods) {
+      prods.forEach(p => {
+        if (p.sku) window._bulkExistingSkus.add(p.sku.trim().toLowerCase());
+      });
+    }
+  } catch (err) {
+    console.error('Error refrescando SKUs existentes para carga masiva:', err);
+  }
+}
+
+function resetBulkCreateModal() {
+  window._bulkParsedProducts = [];
+  const fileInput = document.getElementById('bulk-create-file-input');
+  if (fileInput) fileInput.value = '';
+
+  const dropTitle = document.getElementById('bulk-dropzone-title');
+  if (dropTitle) dropTitle.textContent = 'Haz clic o arrastra aquí tu archivo Excel o CSV';
+  const dropSubtitle = document.getElementById('bulk-dropzone-subtitle');
+  if (dropSubtitle) dropSubtitle.textContent = 'Formatos aceptados: .xlsx, .xls y .csv (separador coma o punto y coma)';
+
+  const previewContainer = document.getElementById('bulk-excel-preview-container');
+  if (previewContainer) previewContainer.style.display = 'none';
+
+  const previewTbody = document.getElementById('bulk-excel-preview-tbody');
+  if (previewTbody) previewTbody.innerHTML = '';
+
+  const alertContainer = document.getElementById('bulk-create-alert-container');
+  if (alertContainer) alertContainer.innerHTML = '';
+
+  const progressBox = document.getElementById('bulk-create-progress-box');
+  if (progressBox) progressBox.style.display = 'none';
+
+  const progressBar = document.getElementById('bulk-create-progress-bar');
+  if (progressBar) progressBar.style.width = '0%';
+
+  const saveBtn = document.getElementById('btn-bulk-create-save');
+  const saveLabel = document.getElementById('btn-bulk-create-save-label');
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    if (saveLabel) saveLabel.textContent = 'Guardar Productos';
+  }
+
+  // Activar tab 1 por defecto
+  setBulkActiveTab('excel');
+
+  // Inicializar grilla con 3 filas vacías
+  initBulkInteractiveGrid();
+}
+
+function setBulkActiveTab(tabName) {
+  const btnExcel = document.getElementById('tab-btn-bulk-excel');
+  const btnGrid = document.getElementById('tab-btn-bulk-grid');
+  const paneExcel = document.getElementById('bulk-pane-excel');
+  const paneGrid = document.getElementById('bulk-pane-grid');
+
+  if (tabName === 'excel') {
+    if (btnExcel) {
+      btnExcel.classList.add('active');
+      btnExcel.style.borderBottomColor = '#4f46e5';
+      btnExcel.style.color = '#4f46e5';
+      btnExcel.style.fontWeight = '600';
+    }
+    if (btnGrid) {
+      btnGrid.classList.remove('active');
+      btnGrid.style.borderBottomColor = 'transparent';
+      btnGrid.style.color = 'var(--color-text-muted)';
+      btnGrid.style.fontWeight = '500';
+    }
+    if (paneExcel) paneExcel.style.display = 'block';
+    if (paneGrid) paneGrid.style.display = 'none';
+  } else {
+    if (btnGrid) {
+      btnGrid.classList.add('active');
+      btnGrid.style.borderBottomColor = '#4f46e5';
+      btnGrid.style.color = '#4f46e5';
+      btnGrid.style.fontWeight = '600';
+    }
+    if (btnExcel) {
+      btnExcel.classList.remove('active');
+      btnExcel.style.borderBottomColor = 'transparent';
+      btnExcel.style.color = 'var(--color-text-muted)';
+      btnExcel.style.fontWeight = '500';
+    }
+    if (paneGrid) paneGrid.style.display = 'block';
+    if (paneExcel) paneExcel.style.display = 'none';
+  }
+}
+
+function setupBulkModalEventListeners() {
+  // Pestañas
+  const btnExcel = document.getElementById('tab-btn-bulk-excel');
+  const btnGrid = document.getElementById('tab-btn-bulk-grid');
+  if (btnExcel) btnExcel.addEventListener('click', () => setBulkActiveTab('excel'));
+  if (btnGrid) btnGrid.addEventListener('click', () => setBulkActiveTab('grid'));
+
+  // Cambio de comercio
+  const commerceSelect = document.getElementById('bulk-create-commerce-select');
+  if (commerceSelect) {
+    commerceSelect.addEventListener('change', async () => {
+      await refreshBulkExistingSkus();
+      if (window._bulkParsedProducts.length > 0) {
+        window._bulkParsedProducts.forEach(p => {
+          if (p.isValid && p.sku) {
+            p.isUpdate = window._bulkExistingSkus.has(p.sku.toLowerCase().trim());
+          }
+        });
+        renderBulkExcelPreview();
+      }
+    });
+  }
+
+  // Descarga de plantillas
+  const btnDownloadXlsx = document.getElementById('btn-download-bulk-template-excel');
+  if (btnDownloadXlsx) {
+    btnDownloadXlsx.addEventListener('click', () => downloadBulkCreateTemplate('xlsx'));
+  }
+  const btnDownloadCsv = document.getElementById('btn-download-bulk-template-csv');
+  if (btnDownloadCsv) {
+    btnDownloadCsv.addEventListener('click', () => downloadBulkCreateTemplate('csv'));
+  }
+
+  // Dropzone y File Input
+  const dropzone = document.getElementById('bulk-create-dropzone');
+  const fileInput = document.getElementById('bulk-create-file-input');
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = '#4f46e5';
+      dropzone.style.background = 'rgba(99, 102, 241, 0.05)';
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.style.borderColor = 'var(--color-border)';
+      dropzone.style.background = 'var(--color-bg)';
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.style.borderColor = 'var(--color-border)';
+      dropzone.style.background = 'var(--color-bg)';
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        fileInput.files = files;
+        handleBulkCreateFile(files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        handleBulkCreateFile(file);
+      }
+    });
+  }
+
+  // Acciones de Grilla
+  const btnAdd1 = document.getElementById('btn-grid-add-1');
+  if (btnAdd1) btnAdd1.addEventListener('click', () => addBulkGridRow());
+
+  const btnAdd5 = document.getElementById('btn-grid-add-5');
+  if (btnAdd5) {
+    btnAdd5.addEventListener('click', () => {
+      for (let i = 0; i < 5; i++) addBulkGridRow();
+    });
+  }
+
+  const btnClearGrid = document.getElementById('btn-grid-clear-all');
+  if (btnClearGrid) {
+    btnClearGrid.addEventListener('click', () => {
+      if (confirm('¿Limpiar todas las filas de la grilla?')) {
+        initBulkInteractiveGrid();
+      }
+    });
+  }
+
+  const btnPaste = document.getElementById('btn-grid-paste');
+  if (btnPaste) {
+    btnPaste.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text && text.trim()) {
+            parseAndPopulateGridFromClipboard(text);
+            return;
+          }
+        }
+      } catch (e) {
+        // Fallback si no tiene permisos de clipboard directo
+      }
+
+      const promptText = prompt('Pega aquí el contenido copiado desde Excel (Ctrl+V):');
+      if (promptText && promptText.trim()) {
+        parseAndPopulateGridFromClipboard(promptText);
+      }
+    });
+  }
+
+  // Evento paste en la tabla interactiva
+  const gridTable = document.getElementById('bulk-interactive-grid-table');
+  if (gridTable) {
+    gridTable.addEventListener('paste', (e) => {
+      const text = (e.clipboardData || window.clipboardData)?.getData('text');
+      if (text && text.includes('\t')) {
+        e.preventDefault();
+        parseAndPopulateGridFromClipboard(text);
+      }
+    });
+  }
+
+  // Botón Guardar
+  const btnSave = document.getElementById('btn-bulk-create-save');
+  if (btnSave) {
+    btnSave.addEventListener('click', saveBulkProductsToSupabase);
+  }
+
+  // Cerrar al hacer clic en el backdrop fuera del contenido
+  const modal = document.getElementById('modal-catalog-bulk-create');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+      }
+    });
+  }
+}
+
+function downloadBulkCreateTemplate(format) {
+  const headers = [
+    'SKU',
+    'Nombre',
+    'Stock Inicial',
+    'Largo (cm)',
+    'Ancho (cm)',
+    'Alto (cm)',
+    'Volumen (m3)',
+    'Peso (kg)',
+    'Codigo Barras',
+    'Codigo Barras WMS',
+    'Categoria',
+    'Color',
+    'Talla',
+    'Var 1 (Manga)',
+    'Var 2 (Cuello)',
+    'Alias Picker',
+    'Es Pack (SI/NO)',
+    'Es Virtual (SI/NO)',
+    'Lectura Estricta (SI/NO)'
+  ];
+
+  const sampleRows = [
+    [
+      'POL-BAS-NEG-M',
+      'Polera Básica Algodón Negro M',
+      50,
+      28,
+      20,
+      2,
+      '',
+      0.25,
+      '7801234567890',
+      'WMS-POL-001',
+      'Ropa',
+      'Negro',
+      'M',
+      'Corta',
+      'Redondo',
+      'Polera Negra M',
+      'NO',
+      'NO',
+      'NO'
+    ],
+    [
+      'ZAP-RUN-AZU-42',
+      'Zapatilla Running Pro Azul 42',
+      20,
+      32,
+      22,
+      12,
+      '',
+      0.90,
+      '7809876543210',
+      'WMS-ZAP-002',
+      'Calzado',
+      'Azul',
+      '42',
+      '',
+      '',
+      'Zapatilla Azul 42',
+      'NO',
+      'NO',
+      'NO'
+    ],
+    [
+      'PACK-DUO-POL',
+      'Pack 2x Poleras Básicas',
+      0,
+      30,
+      22,
+      4,
+      '',
+      0.50,
+      '',
+      '',
+      'Packs',
+      '',
+      'Única',
+      '',
+      '',
+      'Pack Duo Poleras',
+      'SI',
+      'NO',
+      'NO'
+    ]
+  ];
+
+  if (format === 'csv') {
+    const csvContent = "\uFEFF" + [headers.join(';'), ...sampleRows.map(r => r.join(';'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'plantilla_productos_masivos.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } else {
+    const wsData = [headers, ...sampleRows];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 18 },
+      { wch: 35 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 22 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+    XLSX.writeFile(wb, 'plantilla_productos_masivos.xlsx');
+  }
+}
+
+function handleBulkCreateFile(file) {
+  const alertContainer = document.getElementById('bulk-create-alert-container');
+  if (alertContainer) alertContainer.innerHTML = '';
+
+  const dropTitle = document.getElementById('bulk-dropzone-title');
+  const dropSubtitle = document.getElementById('bulk-dropzone-subtitle');
+
+  if (dropTitle) dropTitle.innerHTML = `<i class="ri-file-check-line" style="color: #10b981;"></i> Archivo: <strong>${file.name}</strong>`;
+  if (dropSubtitle) dropSubtitle.textContent = `Tamaño: ${(file.size / 1024).toFixed(1)} KB. Procesando filas...`;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error('El archivo no contiene hojas de cálculo legibles.');
+      }
+
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+      if (!jsonData || jsonData.length === 0) {
+        throw new Error('La planilla no contiene filas de datos.');
+      }
+
+      window._bulkParsedProducts = parseBulkRows(jsonData);
+      renderBulkExcelPreview();
+
+      if (dropSubtitle) {
+        dropSubtitle.textContent = `Se detectaron ${jsonData.length} filas en la hoja. Revisa la vista previa abajo.`;
+      }
+    } catch (err) {
+      console.error('Error leyendo archivo en carga masiva:', err);
+      if (alertContainer) {
+        alertContainer.innerHTML = `
+          <div class="alert alert-error" style="display: block; margin-bottom: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;">
+            <strong>Error al leer planilla:</strong> ${err.message || 'Formato no soportado o archivo corrupto.'}
+          </div>
+        `;
+      }
+    }
+  };
+
+  reader.onerror = () => {
+    if (alertContainer) {
+      alertContainer.innerHTML = `
+        <div class="alert alert-error" style="display: block; margin-bottom: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;">
+          <strong>Error de lectura:</strong> No se pudo abrir el archivo en su navegador.
+        </div>
+      `;
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function parseBulkRows(jsonData) {
+  return jsonData.map(rawRow => {
+    const row = {};
+    for (const k in rawRow) {
+      if (Object.prototype.hasOwnProperty.call(rawRow, k)) {
+        const normKey = k.trim().toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9_]/g, "_")
+          .replace(/_+/g, "_")
+          .replace(/^_|_$/g, "");
+        row[normKey] = rawRow[k];
+      }
+    }
+
+    const find = (aliases) => {
+      for (const a of aliases) {
+        if (row[a] !== undefined && row[a] !== null && String(row[a]).trim() !== '') {
+          return String(row[a]).trim();
+        }
+      }
+      return '';
+    };
+
+    const sku = find(['sku', 'codigo', 'cod_articulo', 'codigo_articulo', 'ref', 'referencia', 'item_code', 'articulo']);
+    const name = find(['nombre', 'name', 'nombre_producto', 'producto', 'descripcion', 'descripcion_producto', 'titulo', 'title']);
+    const rawStock = find(['stock_inicial', 'stock', 'stock_ini', 'cantidad_inicial', 'cantidad', 'cant', 'qty', 'inventario', 'unidades']);
+    const stock = rawStock ? Math.max(0, parseInt(rawStock.replace(',', '.'), 10) || 0) : 0;
+
+    const parseDec = (aliases) => {
+      const v = find(aliases);
+      if (!v) return null;
+      const num = parseFloat(v.replace(',', '.'));
+      return isNaN(num) ? null : num;
+    };
+
+    const largo = parseDec(['largo', 'length', 'largo_cm', 'longitud', 'depth', 'l']);
+    const ancho = parseDec(['ancho', 'width', 'ancho_cm', 'anchura', 'w', 'a']);
+    const alto = parseDec(['alto', 'height', 'alto_cm', 'altura', 'h']);
+    const peso = parseDec(['peso', 'weight', 'peso_kg', 'kg', 'peso_neto']);
+
+    let volumen = parseDec(['volumen', 'volume', 'volumen_m3', 'vol_m3', 'vol', 'm3', 'cbm']);
+    let isCalculated = false;
+    if (volumen === null && largo !== null && ancho !== null && alto !== null) {
+      isCalculated = true;
+      volumen = window.roundUpVolume((largo * ancho * alto) / 1000000);
+    } else if (volumen !== null) {
+      volumen = window.roundUpVolume(volumen);
+    }
+
+    const barcode = find(['codigo_barras', 'codigo_de_barras', 'barcode', 'barras', 'ean', 'upc', 'gtin', 'cod_barra']);
+    const barcode_wms = find(['codigo_barras_wms', 'codigo_de_barras_wms', 'barcode_wms', 'cbar_wms', 'barras_wms', 'wms_barcode', 'wms_cbar']);
+    const type = find(['categoria', 'tipo', 'type', 'category', 'familia', 'clase']);
+    const color = find(['color', 'colour', 'tono']);
+    const talla = find(['talla', 'size', 'tamano', 'medida']);
+    const variable_1 = find(['variable_1', 'variable1', 'var_1', 'var1', 'manga']);
+    const variable_2 = find(['variable_2', 'variable2', 'var_2', 'var2', 'cuello']);
+    const alias = find(['alias', 'alias_picker', 'picker_alias', 'nombre_corto']);
+
+    const parseBool = (aliases) => {
+      const v = find(aliases).toLowerCase();
+      return ['si', 'sí', 'yes', 'true', '1'].includes(v);
+    };
+
+    const is_pack = parseBool(['es_pack', 'is_pack', 'pack', 'combo', 'es_combo']);
+    const is_virtual = parseBool(['es_virtual', 'is_virtual', 'virtual', 'es_servicio']);
+    const picking_match_strict = parseBool(['lectura_estricta', 'picking_strict', 'estricto', 'strict']);
+
+    const errors = [];
+    if (!sku) errors.push('Falta SKU');
+    if (!name) errors.push('Falta Nombre');
+
+    const isValid = errors.length === 0;
+    const isUpdate = isValid && window._bulkExistingSkus.has(sku.toLowerCase().trim());
+
+    return {
+      sku,
+      name,
+      stock,
+      largo,
+      ancho,
+      alto,
+      volumen,
+      isCalculated,
+      peso,
+      barcode: barcode || null,
+      barcode_wms: barcode_wms || null,
+      type: type || null,
+      color: color || null,
+      talla: talla || null,
+      variable_1: variable_1 || null,
+      variable_2: variable_2 || null,
+      alias: alias || null,
+      is_pack,
+      is_virtual,
+      picking_match_strict,
+      isValid,
+      isUpdate,
+      errors
+    };
+  });
+}
+
+function renderBulkExcelPreview() {
+  const container = document.getElementById('bulk-excel-preview-container');
+  const tbody = document.getElementById('bulk-excel-preview-tbody');
+  const totalEl = document.getElementById('bulk-preview-total');
+  const newEl = document.getElementById('bulk-preview-new');
+  const updateEl = document.getElementById('bulk-preview-update');
+  const errorEl = document.getElementById('bulk-preview-errors');
+  const saveBtn = document.getElementById('btn-bulk-create-save');
+  const saveLabel = document.getElementById('btn-bulk-create-save-label');
+
+  if (!window._bulkParsedProducts || window._bulkParsedProducts.length === 0) {
+    if (container) container.style.display = 'none';
+    if (saveBtn) saveBtn.disabled = true;
+    return;
+  }
+
+  container.style.display = 'block';
+
+  let newCount = 0;
+  let updateCount = 0;
+  let errorCount = 0;
+
+  tbody.innerHTML = window._bulkParsedProducts.map((p) => {
+    if (!p.isValid) {
+      errorCount++;
+    } else if (p.isUpdate) {
+      updateCount++;
+    } else {
+      newCount++;
+    }
+
+    const badge = p.isValid
+      ? (p.isUpdate
+          ? '<span style="background: #ffedd5; color: #c2410c; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-refresh-line"></i> Actualizar</span>'
+          : '<span style="background: #dcfce7; color: #15803d; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-add-line"></i> Nuevo</span>')
+      : `<span style="background: #fee2e2; color: #b91c1c; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem;" title="${p.errors.join(', ')}"><i class="ri-close-line"></i> ${p.errors.join(', ')}</span>`;
+
+    const dims = (p.largo !== null || p.ancho !== null || p.alto !== null)
+      ? `${p.largo ?? '-'} x ${p.ancho ?? '-'} x ${p.alto ?? '-'}`
+      : '<span style="color: var(--color-text-muted);">-</span>';
+
+    const vol = p.volumen !== null
+      ? `${p.volumen.toFixed(5)} ${p.isCalculated ? '<small style="color: var(--color-text-muted);">(calc)</small>' : ''}`
+      : '-';
+
+    const vars = [
+      p.color ? `Color: ${p.color}` : '',
+      p.talla ? `Talla: ${p.talla}` : '',
+      p.variable_1 ? `V1: ${p.variable_1}` : '',
+      p.variable_2 ? `V2: ${p.variable_2}` : ''
+    ].filter(Boolean).join(', ') || '-';
+
+    const flags = [
+      p.is_pack ? '<span class="badge" style="background: #ede9fe; color: #6d28d9; font-size: 0.7rem;">Pack</span>' : '',
+      p.is_virtual ? '<span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.7rem;">Virtual</span>' : '',
+      p.type ? `<span style="font-size: 0.75rem; color: var(--color-text-muted);">${p.type}</span>` : ''
+    ].filter(Boolean).join(' ') || '-';
+
+    return `
+      <tr style="${p.isValid ? '' : 'background: #fff1f2;'}">
+        <td style="text-align: center;">${badge}</td>
+        <td style="font-weight: 700; font-family: monospace; color: var(--color-text-main);">${p.sku}</td>
+        <td>${p.name}</td>
+        <td style="text-align: right; font-weight: 600; color: ${p.stock > 0 ? '#15803d' : 'var(--color-text-muted)'};">${p.stock}</td>
+        <td>${dims}</td>
+        <td style="text-align: right; font-family: monospace;">${vol}</td>
+        <td style="text-align: right;">${p.peso !== null ? p.peso + ' kg' : '-'}</td>
+        <td style="font-family: monospace; font-size: 0.78rem;">${p.barcode || '-'}</td>
+        <td style="font-family: monospace; font-size: 0.78rem; color: #1d4ed8; font-weight: 600;">${p.barcode_wms || '-'}</td>
+        <td style="font-size: 0.78rem;">${vars}</td>
+        <td>${flags}</td>
+      </tr>
+    `;
+  }).join('');
+
+  totalEl.textContent = window._bulkParsedProducts.length;
+  newEl.textContent = newCount;
+  updateEl.textContent = updateCount;
+  errorEl.textContent = errorCount;
+
+  const validCount = newCount + updateCount;
+  if (saveBtn) {
+    saveBtn.disabled = (validCount === 0);
+    if (saveLabel) saveLabel.textContent = `Guardar (${validCount} válidos)`;
+  }
+}
+
+function initBulkInteractiveGrid() {
+  const tbody = document.getElementById('bulk-grid-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    addBulkGridRow();
+  }
+}
+
+function addBulkGridRow(data = {}) {
+  const tbody = document.getElementById('bulk-grid-tbody');
+  if (!tbody) return;
+
+  const rowIdx = tbody.children.length + 1;
+  const tr = document.createElement('tr');
+  tr.className = 'bulk-grid-row';
+
+  const initialVol = (data.largo && data.ancho && data.alto)
+    ? window.roundUpVolume((data.largo * data.ancho * data.alto) / 1000000).toFixed(5)
+    : (data.volumen || '');
+
+  tr.innerHTML = `
+    <td style="text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${rowIdx}</td>
+    <td><input type="text" class="form-input grid-input-sku" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; font-family: monospace;" value="${data.sku || ''}" placeholder="SKU-001"></td>
+    <td><input type="text" class="form-input grid-input-name" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" value="${data.name || ''}" placeholder="Nombre producto"></td>
+    <td><input type="number" class="form-input grid-input-stock" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-align: right;" value="${data.stock || 0}" min="0"></td>
+    <td><input type="number" class="form-input grid-input-largo" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" step="0.1" value="${data.largo || ''}" placeholder="cm"></td>
+    <td><input type="number" class="form-input grid-input-ancho" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" step="0.1" value="${data.ancho || ''}" placeholder="cm"></td>
+    <td><input type="number" class="form-input grid-input-alto" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" step="0.1" value="${data.alto || ''}" placeholder="cm"></td>
+    <td><input type="number" class="form-input grid-input-volumen" style="height: 30px; font-size: 0.75rem; padding: 0.2rem 0.4rem; background: var(--color-bg); font-family: monospace;" step="0.00001" value="${initialVol}" placeholder="auto m³" title="Volumen calculado automáticamente en m³"></td>
+    <td><input type="number" class="form-input grid-input-peso" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" step="0.01" value="${data.peso || ''}" placeholder="kg"></td>
+    <td><input type="text" class="form-input grid-input-barcode" style="height: 30px; font-size: 0.78rem; padding: 0.2rem 0.4rem; font-family: monospace;" value="${data.barcode || ''}" placeholder="Cód. Origen"></td>
+    <td><input type="text" class="form-input grid-input-barcodewms" style="height: 30px; font-size: 0.78rem; padding: 0.2rem 0.4rem; font-family: monospace; color: #1d4ed8;" value="${data.barcode_wms || ''}" placeholder="CBAR WMS"></td>
+    <td><input type="text" class="form-input grid-input-color" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" value="${data.color || ''}" placeholder="Color"></td>
+    <td><input type="text" class="form-input grid-input-talla" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem;" value="${data.talla || ''}" placeholder="Talla"></td>
+    <td style="text-align: center;">
+      <button type="button" class="btn btn-outline btn-sm btn-delete-grid-row" style="padding: 0.2rem 0.35rem; color: var(--color-danger); border-color: transparent;" title="Eliminar fila">
+        <i class="ri-delete-bin-line"></i>
+      </button>
+    </td>
+  `;
+
+  // Listener para recalcular volumen cuando cambian dimensiones
+  const lInput = tr.querySelector('.grid-input-largo');
+  const wInput = tr.querySelector('.grid-input-ancho');
+  const hInput = tr.querySelector('.grid-input-alto');
+  const vInput = tr.querySelector('.grid-input-volumen');
+
+  const updateVol = () => {
+    const l = parseFloat(lInput.value) || 0;
+    const w = parseFloat(wInput.value) || 0;
+    const h = parseFloat(hInput.value) || 0;
+    if (l > 0 && w > 0 && h > 0) {
+      vInput.value = window.roundUpVolume((l * w * h) / 1000000).toFixed(5);
+    }
+  };
+
+  lInput.addEventListener('input', updateVol);
+  wInput.addEventListener('input', updateVol);
+  hInput.addEventListener('input', updateVol);
+
+  // Listener para eliminar fila
+  tr.querySelector('.btn-delete-grid-row').addEventListener('click', () => {
+    tr.remove();
+    reindexBulkGrid();
+  });
+
+  tbody.appendChild(tr);
+}
+
+function reindexBulkGrid() {
+  const rows = document.querySelectorAll('#bulk-grid-tbody tr.bulk-grid-row');
+  rows.forEach((row, i) => {
+    const firstTd = row.querySelector('td');
+    if (firstTd) firstTd.textContent = i + 1;
+  });
+}
+
+function parseAndPopulateGridFromClipboard(clipboardText) {
+  if (!clipboardText) return;
+  const lines = clipboardText.trim().split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length === 0) return;
+
+  const tbody = document.getElementById('bulk-grid-tbody');
+  if (!tbody) return;
+
+  // Si las filas actuales están vacías, limpiarlas primero
+  const existingRows = tbody.querySelectorAll('tr.bulk-grid-row');
+  let allEmpty = true;
+  existingRows.forEach(r => {
+    const sku = r.querySelector('.grid-input-sku')?.value?.trim();
+    const name = r.querySelector('.grid-input-name')?.value?.trim();
+    if (sku || name) allEmpty = false;
+  });
+
+  if (allEmpty) tbody.innerHTML = '';
+
+  let startIndex = 0;
+  // Si la primera fila es encabezado (ej. contiene 'sku' o 'nombre')
+  const firstCols = lines[0].toLowerCase().split('\t');
+  if (firstCols.some(c => c.includes('sku') || c.includes('nombre') || c.includes('name'))) {
+    startIndex = 1;
+  }
+
+  let count = 0;
+  for (let i = startIndex; i < lines.length; i++) {
+    const cols = lines[i].split('\t').map(c => c.trim());
+    if (cols.length === 0 || !cols[0]) continue;
+
+    const sku = cols[0] || '';
+    const name = cols[1] || '';
+    const stock = cols[2] ? parseInt(cols[2].replace(',', '.'), 10) || 0 : 0;
+    const largo = cols[3] ? parseFloat(cols[3].replace(',', '.')) || '' : '';
+    const ancho = cols[4] ? parseFloat(cols[4].replace(',', '.')) || '' : '';
+    const alto = cols[5] ? parseFloat(cols[5].replace(',', '.')) || '' : '';
+    const volumen = cols[6] ? parseFloat(cols[6].replace(',', '.')) || '' : '';
+    const peso = cols[7] ? parseFloat(cols[7].replace(',', '.')) || '' : '';
+    const barcode = cols[8] || '';
+    const barcode_wms = cols[9] || '';
+    const color = cols[10] || '';
+    const talla = cols[11] || '';
+
+    addBulkGridRow({
+      sku,
+      name,
+      stock,
+      largo,
+      ancho,
+      alto,
+      volumen,
+      peso,
+      barcode,
+      barcode_wms,
+      color,
+      talla
+    });
+    count++;
+  }
+
+  reindexBulkGrid();
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: `Se importaron ${count} filas desde el portapapeles`,
+    showConfirmButton: false,
+    timer: 2500
+  });
+}
+
+async function saveBulkProductsToSupabase() {
+  const commerceSelect = document.getElementById('bulk-create-commerce-select');
+  const warehouseSelect = document.getElementById('bulk-create-warehouse-select');
+  const alertContainer = document.getElementById('bulk-create-alert-container');
+  const progressBox = document.getElementById('bulk-create-progress-box');
+  const progressBar = document.getElementById('bulk-create-progress-bar');
+  const progressText = document.getElementById('bulk-create-progress-text');
+  const saveBtn = document.getElementById('btn-bulk-create-save');
+
+  if (alertContainer) alertContainer.innerHTML = '';
+
+  const commerce = commerceSelect ? commerceSelect.value.trim() : '';
+  if (!commerce) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Comercio Requerido',
+      text: 'Por favor selecciona el Comercio (Cliente) destino antes de guardar.'
+    });
+    if (commerceSelect) commerceSelect.focus();
+    return;
+  }
+
+  const warehouseId = warehouseSelect ? warehouseSelect.value : null;
+  const warehouseName = warehouseSelect && warehouseSelect.selectedIndex >= 0
+    ? warehouseSelect.options[warehouseSelect.selectedIndex].text
+    : 'Bodega Principal';
+
+  // Identificar qué pestaña está activa
+  const isExcelTab = document.getElementById('tab-btn-bulk-excel')?.classList.contains('active');
+  let productsToSave = [];
+
+  if (isExcelTab) {
+    productsToSave = (window._bulkParsedProducts || []).filter(p => p.isValid);
+  } else {
+    // Extraer datos desde la grilla
+    const gridRows = document.querySelectorAll('#bulk-grid-tbody tr.bulk-grid-row');
+    gridRows.forEach(row => {
+      const sku = row.querySelector('.grid-input-sku')?.value?.trim();
+      const name = row.querySelector('.grid-input-name')?.value?.trim();
+      if (!sku || !name) return;
+
+      const stock = Math.max(0, parseInt(row.querySelector('.grid-input-stock')?.value, 10) || 0);
+      const largo = parseFloat(row.querySelector('.grid-input-largo')?.value) || null;
+      const ancho = parseFloat(row.querySelector('.grid-input-ancho')?.value) || null;
+      const alto = parseFloat(row.querySelector('.grid-input-alto')?.value) || null;
+
+      let volumen = parseFloat(row.querySelector('.grid-input-volumen')?.value) || null;
+      if (volumen === null && largo && ancho && alto) {
+        volumen = window.roundUpVolume((largo * ancho * alto) / 1000000);
+      }
+
+      const peso = parseFloat(row.querySelector('.grid-input-peso')?.value) || null;
+      const barcode = row.querySelector('.grid-input-barcode')?.value?.trim() || null;
+      const barcode_wms = row.querySelector('.grid-input-barcodewms')?.value?.trim() || null;
+      const color = row.querySelector('.grid-input-color')?.value?.trim() || null;
+      const talla = row.querySelector('.grid-input-talla')?.value?.trim() || null;
+
+      productsToSave.push({
+        sku,
+        name,
+        stock,
+        largo,
+        ancho,
+        alto,
+        volumen,
+        peso,
+        barcode,
+        barcode_wms,
+        color,
+        talla,
+        type: null,
+        is_pack: false,
+        is_virtual: false,
+        picking_match_strict: false
+      });
+    });
+  }
+
+  if (productsToSave.length === 0) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Sin Productos Válidos',
+      text: isExcelTab
+        ? 'No hay productos válidos en la planilla para cargar.'
+        : 'Ingresa al menos un producto con SKU y Nombre en la grilla.'
+    });
+    return;
+  }
+
+  const hasStock = productsToSave.some(p => p.stock > 0);
+  if (hasStock && !warehouseId) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Bodega Requerida',
+      text: 'Has indicado stock inicial para uno o más productos. Por favor selecciona la bodega de destino.'
+    });
+    if (warehouseSelect) warehouseSelect.focus();
+    return;
+  }
+
+  const confirmRes = await Swal.fire({
+    title: '¿Confirmar Creación Masiva?',
+    html: `Se crearán / actualizarán <b>${productsToSave.length}</b> productos en el comercio <b>${commerce}</b>.` +
+      (hasStock ? `<br><small style="color: var(--color-text-muted); margin-top: 0.5rem; display: block;">Bodega para stock inicial: <b>${warehouseName}</b></small>` : ''),
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#4f46e5',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: 'Sí, Guardar Productos',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!confirmRes.isConfirmed) return;
+
+  if (saveBtn) saveBtn.disabled = true;
+  if (progressBox) progressBox.style.display = 'flex';
+  if (progressBar) progressBar.style.width = '10%';
+  if (progressText) progressText.textContent = 'Resolviendo comercio y permisos...';
+
+  try {
+    const merchantId = await resolveMerchantId(commerce);
+    if (!merchantId) {
+      throw new Error(`No se pudo resolver el merchant_id para el comercio '${commerce}'.`);
+    }
+
+    const payload = productsToSave.map(p => {
+      const optionsObj = {};
+      if (p.color) optionsObj.color = p.color;
+      if (p.talla) { optionsObj.talla = p.talla; optionsObj.size = p.talla; }
+      if (p.variable_1) { optionsObj.var1 = p.variable_1; optionsObj.manga = p.variable_1; }
+      if (p.variable_2) { optionsObj.var2 = p.variable_2; optionsObj.cuello = p.variable_2; }
+
+      return {
+        merchant_id: merchantId,
+        comercio: commerce,
+        sku: p.sku.trim(),
+        name: p.name.trim(),
+        barcode: p.barcode || null,
+        barcode_wms: p.barcode_wms || null,
+        send_barcode_to_picker: Boolean(p.barcode),
+        send_barcode_wms_to_picker: true,
+        alias: p.alias || null,
+        send_alias_to_picker: Boolean(p.alias),
+        color: p.color || null,
+        talla: p.talla || null,
+        variable_1: p.variable_1 || null,
+        variable_2: p.variable_2 || null,
+        options: Object.keys(optionsObj).length > 0 ? optionsObj : null,
+        length: p.largo !== null && p.largo !== undefined ? p.largo : null,
+        width: p.ancho !== null && p.ancho !== undefined ? p.ancho : null,
+        height: p.alto !== null && p.alto !== undefined ? p.alto : null,
+        largo: p.largo !== null && p.largo !== undefined ? p.largo : null,
+        ancho: p.ancho !== null && p.ancho !== undefined ? p.ancho : null,
+        alto: p.alto !== null && p.alto !== undefined ? p.alto : null,
+        volumen: p.volumen !== null && p.volumen !== undefined ? p.volumen : null,
+        weight: p.peso !== null && p.peso !== undefined ? p.peso : null,
+        type: p.type || null,
+        is_pack: p.is_pack === true,
+        is_virtual: p.is_virtual === true,
+        picking_match_strict: p.picking_match_strict === true,
+        status: 'active'
+      };
+    });
+
+    const BATCH_SIZE = 100;
+    const allSaved = [];
+
+    for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+      const chunk = payload.slice(i, i + BATCH_SIZE);
+      const pct = Math.round(15 + ((i + chunk.length) / payload.length) * 55);
+      if (progressBar) progressBar.style.width = pct + '%';
+      if (progressText) progressText.textContent = `Guardando productos (${Math.min(i + chunk.length, payload.length)} de ${payload.length})...`;
+
+      const { data: savedBatch, error: upsertErr } = await supabase
+        .from('products')
+        .upsert(chunk, { onConflict: 'comercio,sku' })
+        .select('id, sku');
+
+      if (upsertErr) throw upsertErr;
+      if (savedBatch) allSaved.push(...savedBatch);
+    }
+
+    // Procesar Stock Inicial
+    const itemsWithStock = productsToSave.filter(p => p.stock > 0 && !p.is_pack && !p.is_virtual);
+    if (itemsWithStock.length > 0 && warehouseId) {
+      if (progressBar) progressBar.style.width = '75%';
+      if (progressText) progressText.textContent = `Asignando stock inicial a ${itemsWithStock.length} productos en ${warehouseName}...`;
+
+      const skuToIdMap = new Map();
+      allSaved.forEach(s => {
+        if (s.sku && s.id) skuToIdMap.set(s.sku.toLowerCase().trim(), s.id);
+      });
+
+      const missingSkus = itemsWithStock.filter(it => !skuToIdMap.has(it.sku.toLowerCase().trim()));
+      if (missingSkus.length > 0) {
+        const { data: dbProds } = await supabase
+          .from('products')
+          .select('id, sku')
+          .eq('comercio', commerce);
+        if (dbProds) {
+          dbProds.forEach(dp => skuToIdMap.set(dp.sku.toLowerCase().trim(), dp.id));
+        }
+      }
+
+      const validStockItems = itemsWithStock
+        .map(it => ({ ...it, prodId: skuToIdMap.get(it.sku.toLowerCase().trim()) }))
+        .filter(it => Boolean(it.prodId));
+
+      const prodIds = validStockItems.map(it => it.prodId);
+
+      const { data: existingInvs } = await supabase
+        .from('inventory')
+        .select('id, product_id, quantity')
+        .eq('warehouse_id', warehouseId)
+        .in('product_id', prodIds);
+
+      const invMap = new Map();
+      if (existingInvs) {
+        existingInvs.forEach(inv => invMap.set(inv.product_id, inv));
+      }
+
+      const invToInsert = [];
+      const invToUpdate = [];
+      const movementsToInsert = [];
+
+      validStockItems.forEach(it => {
+        if (invMap.has(it.prodId)) {
+          const ex = invMap.get(it.prodId);
+          invToUpdate.push({ id: ex.id, quantity: (ex.quantity || 0) + it.stock });
+        } else {
+          invToInsert.push({ product_id: it.prodId, warehouse_id: warehouseId, quantity: it.stock });
+        }
+
+        movementsToInsert.push({
+          product_id: it.prodId,
+          warehouse_id: warehouseId,
+          type: 'in',
+          quantity: it.stock,
+          reference_doc: 'Stock Inicial'
+        });
+      });
+
+      if (invToInsert.length > 0) {
+        const { error: insInvErr } = await supabase.from('inventory').insert(invToInsert);
+        if (insInvErr) console.warn('Advertencia al insertar inventario inicial:', insInvErr);
+      }
+
+      for (const upd of invToUpdate) {
+        await supabase.from('inventory').update({ quantity: upd.quantity }).eq('id', upd.id);
+      }
+
+      if (movementsToInsert.length > 0) {
+        const { error: insMovErr } = await supabase.from('movements').insert(movementsToInsert);
+        if (insMovErr) console.warn('Advertencia al insertar movimientos de stock inicial:', insMovErr);
+      }
+    }
+
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressText) progressText.textContent = '¡Completado con éxito!';
+
+    await Swal.fire({
+      icon: 'success',
+      title: '¡Carga Masiva Exitosa!',
+      html: `Se guardaron <b>${allSaved.length}</b> productos correctamente en el comercio <b>${commerce}</b>.` +
+        (itemsWithStock.length > 0 ? `<br><small style="color: var(--color-text-muted);">Stock inicial asignado a <b>${itemsWithStock.length}</b> productos en ${warehouseName}.</small>` : ''),
+      confirmButtonColor: '#4f46e5',
+      confirmButtonText: 'Ver en Catálogo'
+    });
+
+    document.getElementById('modal-catalog-bulk-create').classList.remove('active');
+
+    window.activeAdminComercio = commerce;
+    const clientDropdownContainer = document.getElementById('eq-admin-client-dropdown-container');
+    if (clientDropdownContainer) {
+      const selInput = clientDropdownContainer.querySelector('input');
+      if (selInput) selInput.value = commerce;
+    }
+    const workspace = document.getElementById('eq-admin-workspace');
+    if (workspace) workspace.style.display = 'block';
+    renderAdminCatalogWorkspace(commerce);
+
+  } catch (err) {
+    console.error('Error durante la carga masiva de productos:', err);
+    if (alertContainer) {
+      alertContainer.innerHTML = `
+        <div class="alert alert-error" style="display: block; margin-bottom: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;">
+          <strong>Error al guardar productos:</strong> ${err.message || 'Error inesperado de base de datos.'}
+        </div>
+      `;
+    }
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al Procesar',
+      text: err.message || 'Ocurrió un error al guardar los productos en la base de datos.'
+    });
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+    if (progressBox) progressBox.style.display = 'none';
   }
 }
 

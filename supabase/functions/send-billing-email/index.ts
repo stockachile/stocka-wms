@@ -105,10 +105,15 @@ serve(async (req) => {
         user = verifiedUser;
         const { data: profile } = await supabaseClient
           .from('profiles')
-          .select('role')
+          .select('role, is_colaborador, allowed_modules')
           .eq('id', user.id)
           .maybeSingle()
-        if (profile && (profile.role === 'admin' || profile.role === 'all')) {
+        if (profile && (
+          profile.role === 'admin' || 
+          profile.role === 'all' || 
+          profile.is_colaborador === true || 
+          profile.allowed_modules === 'all'
+        )) {
           isAuthorized = true;
         }
       }

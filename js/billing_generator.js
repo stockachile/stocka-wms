@@ -67,11 +67,14 @@ export const billingState = {
   totals: {
     ordersCount: 0,
     billableOrdersCount: 0,
+    storageRate: 0,
+    defaultStorageRate: 0,
     storageGross: 0,
     storageDiscountPct: 0,
     storageDiscountLabel: '',
     storageDiscountAmount: 0,
     storageNet: 0,
+    isStorageCustom: false,
     pickPackNet: 0,
     shippingRmFlexCount: 0,
     shippingRmFlexNet: 0,
@@ -1661,11 +1664,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.totals = {
     ordersCount: 0,
     billableOrdersCount: 0,
+    storageRate: 0,
+    defaultStorageRate: 0,
     storageGross: 0,
     storageDiscountPct: 0,
     storageDiscountLabel: '',
     storageDiscountAmount: 0,
     storageNet: 0,
+    isStorageCustom: false,
     pickPackNet: 0,
     shippingRmFlexCount: 0,
     shippingRmFlexNet: 0,
@@ -1722,10 +1728,17 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
       if (bRec) {
         savedRecordStatus = bRec.desglose_fulfillment;
-        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot.json'))) {
+        const isPublishedStatus = (bRec.desglose_fulfillment === 'Enviado' || bRec.desglose_fulfillment === 'Publicado');
+        if (isPublishedStatus) {
           billingState.isPublished = true;
           savedRecordStatus = 'Publicado';
+        } else if (bRec.desglose_fulfillment === 'Creado') {
+          billingState.isPublished = false;
+          billingState.isSaved = true;
+          savedRecordStatus = 'Creado';
+        }
 
+        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot.json'))) {
           if (!savedSnapshot && (bRec.fulfillment_link.startsWith('http://') || bRec.fulfillment_link.startsWith('https://'))) {
             try {
               const resp = await fetch(bRec.fulfillment_link);
@@ -1738,15 +1751,29 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       console.warn('Error consultando billing_records previo:', errRec);
     }
 
-    if (!savedSnapshot) {
-      try {
-        let localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
-        if (!localStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
-          localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG SPA`) ||
-                     localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG`);
+    // Consultar snapshot guardado en localStorage y resolver el más reciente
+    let localSnapshot = null;
+    try {
+      let localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`);
+      if (!localStr && (commerceName === 'BIG BANG' || commerceName === 'BIG BANG SPA')) {
+        localStr = localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG SPA`) ||
+                   localStorage.getItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_BIG BANG`);
+      }
+      if (localStr) localSnapshot = JSON.parse(localStr);
+    } catch (e) {}
+
+    if (localSnapshot && savedSnapshot) {
+      const localTime = new Date(localSnapshot.generatedAt || localSnapshot.publishedAt || 0).getTime();
+      const remoteTime = new Date(savedSnapshot.generatedAt || savedSnapshot.publishedAt || 0).getTime();
+      if (localTime > remoteTime) {
+        console.log('[BillingGenerator] Restaurando snapshot local más reciente que el de Storage:', { localTime, remoteTime });
+        savedSnapshot = localSnapshot;
+        if (typeof uploadBillingSnapshotToStorage === 'function') {
+          uploadBillingSnapshotToStorage(localSnapshot).catch(e => console.warn('Aviso sincronizando snapshot local a Storage:', e));
         }
-        if (localStr) savedSnapshot = JSON.parse(localStr);
-      } catch (e) {}
+      }
+    } else if (!savedSnapshot && localSnapshot) {
+      savedSnapshot = localSnapshot;
     }
   }
 
@@ -2349,20 +2376,45 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   billingState.productsStats = computeProductsStatsFromOrders(billableOrders);
 
   // 10. Cálculo de Almacenamiento y Descuento por Volumen (> 10 m3)
-  const baseStorageM3Rate = activeRange.storage_m3; // ej: $48.900
-  const grossStorage = billingState.volumeM3 * baseStorageM3Rate;
+  const defaultStorageM3Rate = activeRange.storage_m3 || 48900;
+  let baseStorageM3Rate = defaultStorageM3Rate;
 
-  let storageDiscountPct = 0;
-  let storageDiscountLabel = "Sin descuento (< 10 m³)";
+  let defaultDiscountPct = 0;
+  let defaultDiscountLabel = "Sin descuento (< 10 m³)";
   if (cfg.storage_discounts && cfg.storage_discounts.length > 0) {
     for (const d of cfg.storage_discounts) {
       if (billingState.volumeM3 >= d.min && billingState.volumeM3 <= d.max) {
-        storageDiscountPct = d.discount_pct;
-        storageDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
+        defaultDiscountPct = d.discount_pct;
+        defaultDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
         break;
       }
     }
   }
+
+  let storageDiscountPct = defaultDiscountPct;
+  let storageDiscountLabel = defaultDiscountLabel;
+  let isStorageCustom = false;
+
+  const savedTotals = savedSnapshot?.totals;
+  if (customOverrides.storageRate !== undefined) {
+    baseStorageM3Rate = Number(customOverrides.storageRate);
+    isStorageCustom = true;
+  } else if (savedTotals && savedTotals.storageRate !== undefined && savedTotals.storageRate > 0) {
+    baseStorageM3Rate = Number(savedTotals.storageRate);
+    if (savedTotals.isStorageCustom) isStorageCustom = true;
+  }
+
+  if (customOverrides.storageDiscountPct !== undefined) {
+    storageDiscountPct = Number(customOverrides.storageDiscountPct);
+    storageDiscountLabel = customOverrides.storageDiscountLabel || `${storageDiscountPct}% dcto`;
+    isStorageCustom = true;
+  } else if (savedTotals && savedTotals.storageDiscountPct !== undefined) {
+    storageDiscountPct = Number(savedTotals.storageDiscountPct);
+    storageDiscountLabel = savedTotals.storageDiscountLabel || `${storageDiscountPct}% dcto`;
+    if (savedTotals.isStorageCustom) isStorageCustom = true;
+  }
+
+  const grossStorage = billingState.volumeM3 * baseStorageM3Rate;
   const storageDiscountAmount = Math.round(grossStorage * (storageDiscountPct / 100));
   const netStorageCost = Math.round(grossStorage - storageDiscountAmount);
 
@@ -2542,11 +2594,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     meliFullUnitsCount,
     meliFullRate,
     meliFullNet,
+    storageRate: baseStorageM3Rate,
+    defaultStorageRate: defaultStorageM3Rate,
     storageGross: Math.round(grossStorage),
     storageDiscountPct,
     storageDiscountLabel,
     storageDiscountAmount,
     storageNet: netStorageCost,
+    isStorageCustom,
     pickPackNet: totalPickPackNet,
     shippingRmFlexCount: billableShippingOrders.length,
     shippingRmFlexNet: totalRmFlexNet,
@@ -2768,7 +2823,7 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
         <div class="stocka-metric-card">
           <div class="stocka-metric-title">Almacenamiento Mes</div>
           <div class="stocka-metric-value">${formatDec(b.volumeM3, 2)} <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">m³</span></div>
-          <div class="stocka-metric-sub">Tarifa: ${formatCLP(b.activeRange?.storage_m3 || 48900)} / m³</div>
+          <div class="stocka-metric-sub">Tarifa: ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³</div>
         </div>
 
         <div class="stocka-metric-card">
@@ -2853,9 +2908,26 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
             <!-- 1. Almacenamiento -->
             <tr>
               <td>
-                <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de almacenamiento</div>
-                <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
-                  ${formatDec(b.volumeM3, 2)} m³ @ ${formatCLP(b.activeRange?.storage_m3 || 48900)} / m³ ${t.storageDiscountPct > 0 ? `(${t.storageDiscountLabel})` : ''}
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                      <span style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de almacenamiento</span>
+                      ${t.isStorageCustom ? `
+                        <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.2); font-size: 0.68rem; font-weight: 700; padding: 1px 6px; border-radius: 4px;">
+                          Manual
+                        </span>
+                      ` : ''}
+                    </div>
+                    <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
+                      ${formatDec(b.volumeM3, 2)} m³ @ ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)} / m³ ${t.storageDiscountPct > 0 ? `(${t.storageDiscountLabel || `${t.storageDiscountPct}% dcto`})` : ''}
+                    </div>
+                  </div>
+                  ${!isClient ? `
+                  <div class="no-print">
+                    <button type="button" onclick="window.openEditStorageFeeModal()" title="Editar tarifa de almacenamiento o porcentaje de descuento" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 7px; cursor: pointer; color: #475569; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;">
+                      <i class="ri-pencil-line"></i> Editar
+                    </button>
+                  </div>` : ''}
                 </div>
               </td>
               <td style="text-align: center; font-weight: 600; color: #64748b;">m³</td>
@@ -3314,7 +3386,7 @@ export function exportBillingToExcel(customState = null) {
     ["DESGLOSE MENSUAL DE SERVICIOS DE FULFILLMENT"],
     ["ITEM", "UNIDAD", "CANTIDAD", "NETO ($)", "IVA ($)", "TOTAL ($)"],
     [
-      "Servicio de almacenamiento",
+      `Servicio de almacenamiento (${formatDec(b.volumeM3, 2)} m³ @ ${formatCLP(t.storageRate || b.activeRange?.storage_m3 || 48900)}/m³${t.storageDiscountPct > 0 ? ` - ${t.storageDiscountLabel || `${t.storageDiscountPct}% dcto`}` : ''})`,
       "m3",
       b.volumeM3,
       t.storageNet,
@@ -3678,6 +3750,7 @@ export async function saveBillingRecordToSupabase() {
       supplies: b.supplies,
       adjustments: b.adjustments,
       abonos: b.abonos || [],
+      pricingConfig: b.pricingConfig,
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
       generatedAt: new Date().toISOString()
     };
@@ -3688,37 +3761,65 @@ export async function saveBillingRecordToSupabase() {
       localStorage.setItem(storageKey, JSON.stringify(fullSnapshot));
     } catch (e) {}
 
-    // 2. Intentar actualizar en Supabase billing_records
-    let updateSuccess = false;
+    // 2. Subir Snapshot JSON a Supabase Storage para persistencia definitiva en la nube
+    let publicSnapshotUrl = null;
     try {
-      const { error: fullErr } = await supabase
+      publicSnapshotUrl = await uploadBillingSnapshotToStorage(fullSnapshot);
+    } catch (storageErr) {
+      console.warn('Error subiendo snapshot a Supabase Storage en guardado:', storageErr);
+    }
+
+    if (publicSnapshotUrl) {
+      payload.fulfillment_link = publicSnapshotUrl;
+    }
+
+    // 3. Buscar registro existente por ID o por comercio/alias
+    const lookupCommerces = [b.currentCommerce];
+    const upperComm = (b.currentCommerce || '').trim().toUpperCase();
+    if (upperComm === 'BIG BANG' || upperComm === 'BIG BANG SPA' || upperComm.includes('BIG BANG')) {
+      lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
+    } else if (upperComm === 'SILVER FOX' || upperComm === 'SILVER FOX SPA' || upperComm.includes('SILVER FOX')) {
+      lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
+    }
+
+    const { data: existingRecs } = await supabase
+      .from('billing_records')
+      .select('id')
+      .eq('period_id', b.currentPeriodId)
+      .in('comercio', lookupCommerces)
+      .limit(1);
+
+    const existingId = existingRecs && existingRecs[0] ? existingRecs[0].id : null;
+
+    if (existingId) {
+      const { error: updateErr } = await supabase
         .from('billing_records')
-        .update({
-          ...payload,
-          fulfillment_details: fullSnapshot,
-          fulfillment_volume: b.volumeM3,
-          fulfillment_orders_count: t.billableOrdersCount,
-          fulfillment_uf_value: b.ufValue,
-          fulfillment_calculated_at: new Date().toISOString()
-        })
-        .eq('period_id', b.currentPeriodId)
-        .eq('comercio', b.currentCommerce);
+        .update(payload)
+        .eq('id', existingId);
 
-      if (!fullErr) {
-        updateSuccess = true;
-      } else {
-        console.warn('Columnas extendidas aún no disponibles en Supabase, aplicando campos base:', fullErr.message);
-      }
-    } catch (e) {}
-
-    if (!updateSuccess) {
-      const { error: baseErr } = await supabase
+      if (updateErr) throw updateErr;
+    } else {
+      const { data: updatedRows, error: baseErr } = await supabase
         .from('billing_records')
         .update(payload)
         .eq('period_id', b.currentPeriodId)
-        .eq('comercio', b.currentCommerce);
+        .eq('comercio', b.currentCommerce)
+        .select('id');
 
       if (baseErr) throw baseErr;
+
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: insertErr } = await supabase
+          .from('billing_records')
+          .insert({
+            period_id: b.currentPeriodId,
+            comercio: b.currentCommerce,
+            pago_fulfillment: (t.totalToPay || 0) > 0 ? 'Por solicitar' : 'Sin movimientos',
+            factura_fulfillment: 'Esperando',
+            ...payload
+          });
+        if (insertErr) throw insertErr;
+      }
     }
 
     billingState.isSaved = true;
@@ -6514,9 +6615,11 @@ function recalculateFromCurrentState() {
   const meliFullRate = (b.pricingConfig?.pick_pack_rules?.surcharge_ml_full_labeling) || 100;
   const meliFullNet = meliFullUnitsCount * meliFullRate;
 
-  const baseStorageM3Rate = b.activeRange?.storage_m3 || 48900;
+  const baseStorageM3Rate = b.totals?.storageRate || b.activeRange?.storage_m3 || 48900;
+  const storageDiscountPct = (b.totals?.storageDiscountPct !== undefined) ? b.totals.storageDiscountPct : 0;
   const grossStorage = b.volumeM3 * baseStorageM3Rate;
-  const netStorageCost = Math.round(grossStorage * (1 - (b.totals.storageDiscountPct || 0) / 100));
+  const storageDiscountAmount = Math.round(grossStorage * (storageDiscountPct / 100));
+  const netStorageCost = Math.round(grossStorage - storageDiscountAmount);
 
   let fixedFeeUF = 0;
   let fixedFeeCLP = 0;
@@ -6555,6 +6658,10 @@ function recalculateFromCurrentState() {
     meliFullUnitsCount,
     meliFullRate,
     meliFullNet,
+    storageRate: baseStorageM3Rate,
+    storageGross: Math.round(grossStorage),
+    storageDiscountPct,
+    storageDiscountAmount,
     storageNet: netStorageCost,
     pickPackNet: totalPickPackNet,
     shippingRmFlexCount: billableShippingOrders.length,
@@ -7354,6 +7461,367 @@ window.openEditPosFeeModal = async function() {
   }
 };
 
+// Modal interactivo para asignar o editar la tarifa de almacenamiento y descuento por volumen
+window.openEditStorageFeeModal = async function() {
+  const b = billingState;
+  const t = b.totals || {};
+  const activeRange = b.activeRange || {};
+  const cfg = b.pricingConfig || DEFAULT_PRICING_CONFIG;
+  const volM3 = parseFloat(b.volumeM3) || 0;
+
+  // Tarifa por defecto según el tramo de pedidos
+  const defaultRate = activeRange.storage_m3 || 48900;
+  const currentRate = t.storageRate || defaultRate;
+
+  // Descuento por defecto según la regla de volumen
+  let defaultDiscountPct = 0;
+  let defaultDiscountLabel = "Sin descuento (< 10 m³)";
+  if (cfg.storage_discounts && Array.isArray(cfg.storage_discounts)) {
+    for (const d of cfg.storage_discounts) {
+      if (volM3 >= d.min && volM3 <= d.max) {
+        defaultDiscountPct = d.discount_pct;
+        defaultDiscountLabel = `${d.discount_pct}% dcto por volumen (${d.min} - ${d.max === 999999 ? '+60' : d.max} m³)`;
+        break;
+      }
+    }
+  }
+
+  const currentDiscountPct = (t.storageDiscountPct !== undefined) ? t.storageDiscountPct : defaultDiscountPct;
+  const currentDiscountLabel = t.storageDiscountLabel || defaultDiscountLabel;
+  const isCustom = !!t.isStorageCustom;
+
+  // Lista de rangos oficiales para sugerencias rápidas de tarifa
+  const standardRanges = (cfg.order_ranges && Array.isArray(cfg.order_ranges))
+    ? cfg.order_ranges
+    : DEFAULT_PRICING_CONFIG.order_ranges;
+
+  // Opciones de descuentos estándar
+  const standardDiscounts = (cfg.storage_discounts && Array.isArray(cfg.storage_discounts))
+    ? cfg.storage_discounts
+    : DEFAULT_PRICING_CONFIG.storage_discounts;
+
+  const result = await Swal.fire({
+    title: '<div style="display:flex;align-items:center;justify-content:center;gap:0.5rem;"><i class="ri-archive-line" style="color: #5f06fa;"></i><span>Tarifa y Descuento de Almacenamiento</span></div>',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; line-height: 1.45; color: #334155;">
+        <!-- Banner Informativo -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
+            <span style="color: #64748b; font-weight: 600;">Comercio:</span>
+            <strong style="color: #0f172a;">${escapeHtml(b.currentCommerce)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
+            <span style="color: #64748b; font-weight: 600;">Volumen Promedio Mes:</span>
+            <strong style="color: #5f06fa; font-size: 0.95rem;">${formatDec(volM3, 2)} m³</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; font-size: 0.78rem;">
+            <span style="color: #64748b; font-weight: 600;">Tarifa Estándar del Tramo:</span>
+            <span style="color: #0f172a; font-weight: 700;">${formatCLP(defaultRate)} / m³ <span style="color: #64748b; font-weight: 500;">(${escapeHtml(activeRange.label || `${activeRange.min || 0}-${activeRange.max || '∞'} ped`)})</span></span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+            <span style="color: #64748b; font-weight: 600;">Descuento Estándar por Volumen:</span>
+            <span style="color: #0f172a; font-weight: 700;">${defaultDiscountPct}% <span style="color: #64748b; font-weight: 500;">(${escapeHtml(defaultDiscountLabel)})</span></span>
+          </div>
+        </div>
+
+        <!-- 1. TARIFA BASE ($ / m³) -->
+        <div style="margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <label style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase;">
+              1. Tarifa de Almacenamiento ($ CLP / m³):
+            </label>
+            <button type="button" id="swal-storage-btn-reset-rate" style="background: none; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
+              Usar estándar (${formatCLP(defaultRate)})
+            </button>
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input type="number" id="swal-storage-rate" class="swal2-input" style="flex: 1; height: 38px; margin: 0; font-size: 0.9rem; font-weight: 700; color: #0f172a;" value="${currentRate}">
+            <select id="swal-storage-rate-presets" class="swal2-select" style="width: 140px; height: 38px; margin: 0; font-size: 0.78rem;" title="Seleccionar una tarifa estándar de la lista">
+              <option value="">Tarifas Stocka...</option>
+              ${standardRanges.map(r => `
+                <option value="${r.storage_m3}" ${r.storage_m3 === currentRate ? 'selected' : ''}>
+                  ${formatCLP(r.storage_m3)} (${r.min}-${r.max >= 999999 ? '+2.5k' : r.max})
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- 2. DESCUENTO POR VOLUMEN (%) -->
+        <div style="margin-bottom: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <label style="font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase;">
+              2. Descuento Comercial / Volumen:
+            </label>
+            <button type="button" id="swal-storage-btn-reset-discount" style="background: none; border: none; color: #5f06fa; font-size: 0.72rem; font-weight: 700; cursor: pointer; text-decoration: underline; padding: 0;">
+              Usar regla estándar (${defaultDiscountPct}%)
+            </button>
+          </div>
+          <select id="swal-storage-discount-mode" class="swal2-select" style="width: 100%; height: 38px; margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 600;">
+            <option value="default" ${currentDiscountPct === defaultDiscountPct ? 'selected' : ''}>
+              ⭐ Automático del sistema (${defaultDiscountPct}% - ${defaultDiscountLabel})
+            </option>
+            <option value="0" ${currentDiscountPct === 0 && defaultDiscountPct !== 0 ? 'selected' : ''}>
+              0% - Sin descuento
+            </option>
+            ${standardDiscounts.map(d => `
+              <option value="${d.discount_pct}" ${d.discount_pct === currentDiscountPct && currentDiscountPct !== defaultDiscountPct ? 'selected' : ''}>
+                ${d.discount_pct}% - ${escapeHtml(d.label || `${d.min}-${d.max} m³`)}
+              </option>
+            `).join('')}
+            <option value="custom" ${![0, defaultDiscountPct, ...standardDiscounts.map(d => d.discount_pct)].includes(currentDiscountPct) ? 'selected' : ''}>
+              ✏️ Ingresar otro porcentaje manual...
+            </option>
+          </select>
+
+          <div id="swal-storage-custom-discount-container" style="display: ${![0, defaultDiscountPct, ...standardDiscounts.map(d => d.discount_pct)].includes(currentDiscountPct) ? 'block' : 'none'}; margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="number" id="swal-storage-custom-discount-pct" class="swal2-input" style="flex: 1; height: 38px; margin: 0; font-size: 0.85rem;" min="0" max="100" step="0.5" placeholder="Ej: 20" value="${currentDiscountPct}">
+              <span style="font-weight: 700; font-size: 0.9rem; color: #475569;">%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. DESCRIPCIÓN / NOTA DEL DESCUENTO -->
+        <div style="margin-bottom: 1rem;">
+          <label style="font-size: 0.75rem; font-weight: 800; color: #475569; display: block; margin-bottom: 0.25rem; text-transform: uppercase;">
+            3. Glosa / Detalle que aparecerá en el desglose:
+          </label>
+          <input type="text" id="swal-storage-discount-label" class="swal2-input" style="width: 100%; height: 36px; margin: 0; font-size: 0.82rem;" value="${escapeHtml(currentDiscountLabel)}">
+        </div>
+
+        <!-- 4. CUADRO REACTIVO DE CÁLCULO EN VIVO -->
+        <div id="swal-storage-live-preview" style="background: linear-gradient(135deg, rgba(95, 6, 250, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%); border: 1.5px solid rgba(95, 6, 250, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem;">
+          <div style="font-size: 0.72rem; font-weight: 800; color: #5f06fa; text-transform: uppercase; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 4px;">
+            <i class="ri-calculator-line"></i> Cálculo en Tiempo Real:
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 2px;">
+            <span style="color: #64748b;">Subtotal Bruto (${formatDec(volM3, 2)} m³ × <span id="prev-rate">$0</span>):</span>
+            <strong id="prev-gross" style="color: #0f172a;">$0</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 4px;">
+            <span style="color: #dc2626;">(-) Descuento Aplicado (<span id="prev-pct">0%</span>):</span>
+            <strong id="prev-discount" style="color: #dc2626;">-$0</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.88rem; border-top: 1px solid rgba(95,6,250,0.2); padding-top: 4px; margin-top: 4px;">
+            <span style="color: #0f172a; font-weight: 800;">Total Neto Almacenamiento:</span>
+            <strong id="prev-net" style="color: #5f06fa; font-size: 1rem; font-weight: 900;">$0</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; margin-top: 2px;">
+            <span>+ IVA (19%): <span id="prev-iva">$0</span></span>
+            <span>Total con IVA: <strong id="prev-total" style="color: #0f172a;">$0</strong></span>
+          </div>
+        </div>
+      </div>
+    `,
+    didOpen: () => {
+      const rateInput = document.getElementById('swal-storage-rate');
+      const ratePresets = document.getElementById('swal-storage-rate-presets');
+      const discountSelect = document.getElementById('swal-storage-discount-mode');
+      const customDiscountContainer = document.getElementById('swal-storage-custom-discount-container');
+      const customDiscountInput = document.getElementById('swal-storage-custom-discount-pct');
+      const labelInput = document.getElementById('swal-storage-discount-label');
+
+      const prevRate = document.getElementById('prev-rate');
+      const prevGross = document.getElementById('prev-gross');
+      const prevPct = document.getElementById('prev-pct');
+      const prevDiscount = document.getElementById('prev-discount');
+      const prevNet = document.getElementById('prev-net');
+      const prevIva = document.getElementById('prev-iva');
+      const prevTotal = document.getElementById('prev-total');
+
+      const updateCalculation = () => {
+        const rate = parseInt(rateInput?.value, 10) || 0;
+        let pct = 0;
+        const mode = discountSelect?.value;
+
+        if (mode === 'default') {
+          pct = defaultDiscountPct;
+        } else if (mode === 'custom') {
+          pct = parseFloat(customDiscountInput?.value) || 0;
+        } else {
+          pct = parseFloat(mode) || 0;
+        }
+
+        const gross = Math.round(volM3 * rate);
+        const discountAmount = Math.round(gross * (pct / 100));
+        const net = Math.max(0, gross - discountAmount);
+        const iva = Math.round(net * 0.19);
+        const total = net + iva;
+
+        if (prevRate) prevRate.textContent = formatCLP(rate);
+        if (prevGross) prevGross.textContent = formatCLP(gross);
+        if (prevPct) prevPct.textContent = `${pct}%`;
+        if (prevDiscount) prevDiscount.textContent = `-${formatCLP(discountAmount)}`;
+        if (prevNet) prevNet.textContent = formatCLP(net);
+        if (prevIva) prevIva.textContent = formatCLP(iva);
+        if (prevTotal) prevTotal.textContent = formatCLP(total);
+      };
+
+      ratePresets?.addEventListener('change', () => {
+        if (ratePresets.value && rateInput) {
+          rateInput.value = ratePresets.value;
+          updateCalculation();
+        }
+      });
+
+      rateInput?.addEventListener('input', () => {
+        if (ratePresets) ratePresets.value = '';
+        updateCalculation();
+      });
+
+      discountSelect?.addEventListener('change', () => {
+        const mode = discountSelect.value;
+        if (mode === 'custom') {
+          if (customDiscountContainer) customDiscountContainer.style.display = 'block';
+        } else {
+          if (customDiscountContainer) customDiscountContainer.style.display = 'none';
+        }
+
+        if (mode === 'default') {
+          if (labelInput) labelInput.value = defaultDiscountLabel;
+        } else if (mode === '0') {
+          if (labelInput) labelInput.value = 'Sin descuento (< 10 m³)';
+        } else if (mode === 'custom') {
+          const cPct = parseFloat(customDiscountInput?.value) || 0;
+          if (labelInput) labelInput.value = `${cPct}% dcto comercial pactado`;
+        } else {
+          const match = standardDiscounts.find(d => String(d.discount_pct) === mode);
+          if (labelInput) labelInput.value = match ? `${match.discount_pct}% dcto por volumen (${match.label || `${match.min}-${match.max} m³`})` : `${mode}% dcto por volumen`;
+        }
+
+        updateCalculation();
+      });
+
+      customDiscountInput?.addEventListener('input', () => {
+        const cPct = parseFloat(customDiscountInput?.value) || 0;
+        if (labelInput) labelInput.value = `${cPct}% dcto comercial pactado`;
+        updateCalculation();
+      });
+
+      document.getElementById('swal-storage-btn-reset-rate')?.addEventListener('click', () => {
+        if (rateInput) rateInput.value = defaultRate;
+        if (ratePresets) ratePresets.value = String(defaultRate);
+        updateCalculation();
+      });
+
+      document.getElementById('swal-storage-btn-reset-discount')?.addEventListener('click', () => {
+        if (discountSelect) discountSelect.value = 'default';
+        if (customDiscountContainer) customDiscountContainer.style.display = 'none';
+        if (labelInput) labelInput.value = defaultDiscountLabel;
+        updateCalculation();
+      });
+
+      updateCalculation();
+    },
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Aplicar Almacenamiento',
+    denyButtonText: '<i class="ri-restart-line"></i> Restablecer Automático',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#5f06fa',
+    denyButtonColor: '#64748b',
+    cancelButtonColor: '#94a3b8',
+    preConfirm: () => {
+      const rateInput = document.getElementById('swal-storage-rate');
+      const discountSelect = document.getElementById('swal-storage-discount-mode');
+      const customDiscountInput = document.getElementById('swal-storage-custom-discount-pct');
+      const labelInput = document.getElementById('swal-storage-discount-label');
+
+      const rate = parseInt(rateInput?.value, 10) || defaultRate;
+      let pct = 0;
+      const mode = discountSelect?.value;
+      if (mode === 'default') {
+        pct = defaultDiscountPct;
+      } else if (mode === 'custom') {
+        pct = parseFloat(customDiscountInput?.value) || 0;
+      } else {
+        pct = parseFloat(mode) || 0;
+      }
+
+      const label = labelInput?.value?.trim() || (pct > 0 ? `${pct}% dcto por volumen` : 'Sin descuento');
+      const isCustom = (rate !== defaultRate || pct !== defaultDiscountPct);
+
+      return { rate, discountPct: pct, discountLabel: label, isCustom };
+    }
+  });
+
+  let chosenValues = null;
+  if (result.isDenied) {
+    chosenValues = {
+      rate: defaultRate,
+      discountPct: defaultDiscountPct,
+      discountLabel: defaultDiscountLabel,
+      isCustom: false
+    };
+  } else if (result.isConfirmed && result.value) {
+    chosenValues = result.value;
+  }
+
+  if (chosenValues) {
+    const rate = chosenValues.rate;
+    const discountPct = chosenValues.discountPct;
+    const discountLabel = chosenValues.discountLabel;
+    const isCustom = chosenValues.isCustom;
+
+    const gross = Math.round(volM3 * rate);
+    const discountAmount = Math.round(gross * (discountPct / 100));
+    const net = Math.max(0, gross - discountAmount);
+
+    b.totals.storageRate = rate;
+    b.totals.defaultStorageRate = defaultRate;
+    b.totals.storageDiscountPct = discountPct;
+    b.totals.storageDiscountLabel = discountLabel;
+    b.totals.storageGross = gross;
+    b.totals.storageDiscountAmount = discountAmount;
+    b.totals.storageNet = net;
+    b.totals.isStorageCustom = isCustom;
+
+    // Recalcular totales consolidados
+    const totalSuppliesNet = (b.supplies || []).reduce((acc, s) => acc + (s.total || 0), 0);
+    const totalAdjustmentsNet = (b.adjustments || []).reduce((acc, a) => acc + (a.amount || 0), 0);
+    const totalAbonos = (b.abonos || []).reduce((acc, a) => acc + (Math.round(Number(a.amount)) || 0), 0);
+    const inboundNet = b.totals.inboundNet || 0;
+    const fixedFeeNet = b.totals.fixedFeeNet || 0;
+    const posFeeNet = b.totals.posFeeNet || 0;
+    const meliFullNet = b.totals.meliFullNet || 0;
+
+    const totalNet = Math.round(net + b.totals.pickPackNet + b.totals.shippingRmFlexNet + inboundNet + fixedFeeNet + posFeeNet + totalSuppliesNet + totalAdjustmentsNet + meliFullNet);
+    const totalIVA = Math.round(totalNet * 0.19);
+    const totalGross = totalNet + totalIVA;
+    const totalToPay = Math.max(0, totalGross - totalAbonos);
+
+    b.totals.suppliesNet = totalSuppliesNet;
+    b.totals.totalSuppliesNet = totalSuppliesNet;
+    b.totals.adjustmentsNet = totalAdjustmentsNet;
+    b.totals.totalAdjustmentsNet = totalAdjustmentsNet;
+    b.totals.totalAbonos = totalAbonos;
+    b.totals.totalNet = totalNet;
+    b.totals.iva = totalIVA;
+    b.totals.totalGross = totalGross;
+    b.totals.totalToPay = totalToPay;
+
+    b.isSaved = false;
+
+    renderKPIsUI();
+
+    const desgloseCont = document.getElementById('bg-desglose-view-container');
+    if (desgloseCont) desgloseCont.innerHTML = renderStockaDesgloseHTML();
+
+    if (b.isConglomerate) {
+      renderConglomerateBannerUI();
+    }
+
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: isCustom ? 'Tarifa y descuento de almacenamiento actualizados' : 'Almacenamiento restablecido a valores estándar',
+      showConfirmButton: false,
+      timer: 2500
+    });
+  }
+};
 
 // Modal de Configuración y Edición de Tipos de Entrega y Tarifas
 window.openDeliveryTypesManagerModal = async function() {

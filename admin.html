@@ -663,6 +663,215 @@
   </div>
 
   <!-- Modals -->
+  <!-- Modal Carga Masiva de Productos (Solo Admin) -->
+  <div class="modal-overlay" id="modal-catalog-bulk-create">
+    <div class="modal-content" style="max-width: 1120px; width: 96vw; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden;">
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(99, 102, 241, 0.12); color: #4f46e5; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">
+            <i class="ri-file-upload-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              Creación Masiva de Productos
+              <span class="badge" style="font-size: 0.7rem; font-weight: 700; background: rgba(99, 102, 241, 0.1); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.2rem 0.5rem; border-radius: 4px;">ADMIN</span>
+            </h3>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              Crea o actualiza múltiples productos con stock inicial, dimensiones, volumen, peso y variantes.
+            </p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" data-close="modal-catalog-bulk-create" style="font-size: 1.6rem; color: var(--color-text-muted); cursor: pointer; border: none; background: transparent; padding: 0.25rem;">&times;</button>
+      </div>
+
+      <!-- Barra superior: Configuración de Comercio y Bodega -->
+      <div style="background: var(--color-bg); padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: center; flex-shrink: 0;">
+        <div style="flex: 1 1 250px; min-width: 220px;">
+          <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.03em;">
+            <i class="ri-store-3-line" style="color: var(--color-primary);"></i> 1. Comercio Destino <span style="color: var(--color-danger);">*</span>
+          </label>
+          <select id="bulk-create-commerce-select" class="form-input" style="height: 38px; font-size: 0.85rem; width: 100%; border-radius: var(--radius-md); background: var(--color-surface); font-weight: 600; color: var(--color-text-main);">
+            <option value="">-- Selecciona un comercio --</option>
+          </select>
+        </div>
+
+        <div style="flex: 1 1 250px; min-width: 220px;">
+          <label style="display: block; font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); text-transform: uppercase; margin-bottom: 0.25rem; letter-spacing: 0.03em;">
+            <i class="ri-map-pin-line" style="color: var(--color-success);"></i> 2. Bodega para Stock Inicial <span style="color: var(--color-danger);">*</span>
+          </label>
+          <select id="bulk-create-warehouse-select" class="form-input" style="height: 38px; font-size: 0.85rem; width: 100%; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+            <option value="">-- Cargando bodegas --</option>
+          </select>
+        </div>
+
+        <div style="flex: 1 1 220px; min-width: 200px; display: flex; align-items: center; gap: 0.5rem; margin-top: 1.1rem;">
+          <i class="ri-information-line" style="color: #6366f1; font-size: 1.1rem; flex-shrink: 0;"></i>
+          <span style="font-size: 0.78rem; color: var(--color-text-muted); line-height: 1.3;">
+            El stock inicial > 0 se ingresará en la bodega seleccionada y generará movimiento histórico.
+          </span>
+        </div>
+      </div>
+
+      <!-- Subnavegación de Pestañas -->
+      <div style="display: flex; gap: 0.5rem; background: var(--color-surface); padding: 0.5rem 1.5rem 0 1.5rem; border-bottom: 1px solid var(--color-border); flex-shrink: 0;">
+        <button type="button" class="bulk-tab-btn active" id="tab-btn-bulk-excel" style="padding: 0.65rem 1.25rem; font-size: 0.85rem; font-weight: 600; border: none; background: transparent; border-bottom: 2px solid #4f46e5; color: #4f46e5; cursor: pointer; display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-file-excel-2-line" style="font-size: 1.05rem;"></i> 1. Cargar Planilla Excel / CSV
+        </button>
+        <button type="button" class="bulk-tab-btn" id="tab-btn-bulk-grid" style="padding: 0.65rem 1.25rem; font-size: 0.85rem; font-weight: 500; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); cursor: pointer; display: flex; align-items: center; gap: 0.45rem;">
+          <i class="ri-table-line" style="font-size: 1.05rem;"></i> 2. Grilla Rápida / Pegar desde Portapapeles
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1;">
+        <div id="bulk-create-alert-container"></div>
+
+        <!-- PANE 1: CARGA VÍA EXCEL / CSV -->
+        <div id="bulk-pane-excel" style="display: block;">
+          <!-- Bloque de descarga de plantillas -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.3); border-radius: var(--radius-md); padding: 0.9rem 1.25rem;">
+            <div>
+              <strong style="display: block; font-size: 0.88rem; color: var(--color-text-main); margin-bottom: 0.2rem;">
+                <i class="ri-download-2-line" style="color: #4f46e5;"></i> ¿Necesitas la planilla modelo?
+              </strong>
+              <span style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.35;">
+                Descarga la plantilla con todas las columnas configuradas y filas de ejemplo con instrucciones.
+              </span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" id="btn-download-bulk-template-excel" class="btn btn-outline btn-sm" style="border-color: #107c41; color: #107c41; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.85rem;">
+                <i class="ri-file-excel-2-line"></i> Descargar Plantilla Excel (.xlsx)
+              </button>
+              <button type="button" id="btn-download-bulk-template-csv" class="btn btn-outline btn-sm" style="font-weight: 500; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.85rem;">
+                <i class="ri-file-text-line"></i> Descargar CSV (.csv)
+              </button>
+            </div>
+          </div>
+
+          <!-- Zona de arrastre de archivo -->
+          <div id="bulk-create-dropzone" style="border: 2px dashed var(--color-border); border-radius: var(--radius-lg); padding: 2rem 1.5rem; text-align: center; cursor: pointer; background: var(--color-bg); transition: all 0.2s ease; margin-bottom: 1.25rem;">
+            <i class="ri-upload-cloud-2-line" style="font-size: 3rem; color: #4f46e5; display: block; margin-bottom: 0.5rem;"></i>
+            <h4 style="margin: 0 0 0.35rem 0; font-size: 1rem; font-weight: 600; color: var(--color-text-main);" id="bulk-dropzone-title">
+              Haz clic o arrastra aquí tu archivo Excel o CSV
+            </h4>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);" id="bulk-dropzone-subtitle">
+              Formatos aceptados: .xlsx, .xls y .csv (separador coma o punto y coma)
+            </p>
+            <input type="file" id="bulk-create-file-input" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+
+          <!-- Previsualización de datos procesados -->
+          <div id="bulk-excel-preview-container" style="display: none;">
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+              <div style="flex: 1 1 130px; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); text-align: center;">
+                <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Filas Leídas</div>
+                <div id="bulk-preview-total" style="font-size: 1.45rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.1rem;">0</div>
+              </div>
+              <div style="flex: 1 1 130px; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid #bbf7d0; background: #f0fdf4; text-align: center;">
+                <div style="font-size: 0.7rem; color: #166534; font-weight: 700; text-transform: uppercase;">Nuevos Productos</div>
+                <div id="bulk-preview-new" style="font-size: 1.45rem; font-weight: 700; color: #15803d; margin-top: 0.1rem;">0</div>
+              </div>
+              <div style="flex: 1 1 130px; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid #fed7aa; background: #fff7ed; text-align: center;">
+                <div style="font-size: 0.7rem; color: #9a3412; font-weight: 700; text-transform: uppercase;">A Actualizar (Existentes)</div>
+                <div id="bulk-preview-update" style="font-size: 1.45rem; font-weight: 700; color: #ea580c; margin-top: 0.1rem;">0</div>
+              </div>
+              <div style="flex: 1 1 130px; padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid #fecaca; background: #fef2f2; text-align: center;">
+                <div style="font-size: 0.7rem; color: #991b1b; font-weight: 700; text-transform: uppercase;">Errores (Omitidos)</div>
+                <div id="bulk-preview-errors" style="font-size: 1.45rem; font-weight: 700; color: #dc2626; margin-top: 0.1rem;">0</div>
+              </div>
+            </div>
+
+            <div style="max-height: 350px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: var(--color-surface);">
+              <table class="data-table" style="min-width: 1050px; font-size: 0.8rem; margin: 0;">
+                <thead style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; box-shadow: 0 1px 0 var(--color-border);">
+                  <tr>
+                    <th style="width: 95px; text-align: center;">Estado</th>
+                    <th>SKU</th>
+                    <th>Nombre</th>
+                    <th style="text-align: right;">Stock Ini.</th>
+                    <th>Dimensiones (cm)</th>
+                    <th style="text-align: right;">Volumen (m³)</th>
+                    <th style="text-align: right;">Peso (kg)</th>
+                    <th>Cód. Barras</th>
+                    <th>CBAR WMS</th>
+                    <th>Variantes</th>
+                    <th>Tipo / Flags</th>
+                  </tr>
+                </thead>
+                <tbody id="bulk-excel-preview-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 2: GRILLA INTERACTIVA / PEGAR DESDE EXCEL -->
+        <div id="bulk-pane-grid" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+            <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+              <button type="button" id="btn-grid-add-1" class="btn btn-outline btn-sm" style="font-size: 0.78rem; font-weight: 600;">
+                <i class="ri-add-line"></i> +1 Fila
+              </button>
+              <button type="button" id="btn-grid-add-5" class="btn btn-outline btn-sm" style="font-size: 0.78rem; font-weight: 600;">
+                <i class="ri-add-line"></i> +5 Filas
+              </button>
+              <button type="button" id="btn-grid-paste" class="btn btn-outline btn-sm" style="border-color: #6366f1; color: #4f46e5; font-weight: 600;">
+                <i class="ri-clipboard-line"></i> Pegar desde Excel (Ctrl+V)
+              </button>
+              <button type="button" id="btn-grid-clear-all" class="btn btn-outline btn-sm" style="color: var(--color-danger); border-color: rgba(239, 68, 68, 0.4);">
+                <i class="ri-delete-bin-line"></i> Limpiar Grilla
+              </button>
+            </div>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+              💡 Puedes copiar celdas en Excel y presionar <kbd style="background: var(--color-bg); padding: 0.15rem 0.35rem; border: 1px solid var(--color-border); border-radius: 3px;">Ctrl+V</kbd> para pegarlas directamente.
+            </span>
+          </div>
+
+          <div style="max-height: 380px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: var(--color-surface);">
+            <table class="data-table" id="bulk-interactive-grid-table" style="min-width: 1200px; font-size: 0.8rem; margin: 0;">
+              <thead style="position: sticky; top: 0; background: var(--color-surface); z-index: 5; box-shadow: 0 1px 0 var(--color-border);">
+                <tr>
+                  <th style="width: 36px; text-align: center;">#</th>
+                  <th style="width: 140px;">SKU <span style="color: var(--color-danger);">*</span></th>
+                  <th style="width: 220px;">Nombre <span style="color: var(--color-danger);">*</span></th>
+                  <th style="width: 85px;">Stock Ini</th>
+                  <th style="width: 75px;">Largo (cm)</th>
+                  <th style="width: 75px;">Ancho (cm)</th>
+                  <th style="width: 75px;">Alto (cm)</th>
+                  <th style="width: 90px;">Vol (m³)</th>
+                  <th style="width: 75px;">Peso (kg)</th>
+                  <th style="width: 110px;">Cód. Barras</th>
+                  <th style="width: 110px;">CBAR WMS</th>
+                  <th style="width: 90px;">Color</th>
+                  <th style="width: 80px;">Talla</th>
+                  <th style="width: 45px; text-align: center;">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="bulk-grid-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer con loader y botones de acción -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div id="bulk-create-progress-box" style="display: none; align-items: center; gap: 0.75rem; flex: 1; max-width: 500px;">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.4rem; color: #4f46e5;"></i>
+          <div style="flex: 1;">
+            <div id="bulk-create-progress-text" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.2rem;">Guardando...</div>
+            <div style="width: 100%; height: 6px; background: var(--color-border); border-radius: 3px; overflow: hidden;">
+              <div id="bulk-create-progress-bar" style="width: 0%; height: 100%; background: #4f46e5; transition: width 0.2s;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-left: auto;">
+          <button type="button" class="btn btn-outline" data-close="modal-catalog-bulk-create">Cancelar</button>
+          <button type="button" id="btn-bulk-create-save" class="btn btn-primary" style="background: #4f46e5; border-color: #4338ca; display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+            <i class="ri-save-line"></i> <span id="btn-bulk-create-save-label">Guardar Productos</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Nuevo Producto -->
   <div class="modal-overlay" id="modal-product">
     <div class="modal-content">
