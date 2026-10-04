@@ -1168,6 +1168,29 @@
       transform: translateY(-2px);
       box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45);
     }
+    .btn-email-seller {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      background: var(--surface, #ffffff);
+      color: var(--text-main, #0f172a) !important;
+      border: 1px solid var(--border, #e2e8f0);
+      padding: 0.85rem 1.6rem;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+      transition: all 0.25s ease;
+      max-width: 100%;
+    }
+    .btn-email-seller:hover {
+      border-color: var(--primary);
+      color: var(--primary) !important;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+    }
     .embed-seller-logo {
       max-height: 52px;
       max-width: 240px;
@@ -2063,22 +2086,45 @@
         }
       }
 
-      // 5. WhatsApp support button
+      // 5. WhatsApp & Email support buttons
       const wa = cfg.support_wa || cfg.whatsapp || cfg.wa;
+      const email = cfg.support_email || cfg.email || cfg.correo;
+      let cleanWa = '';
       if (wa) {
-        const cleanWa = String(wa).replace(/[^0-9]/g, '');
-        if (cleanWa.length >= 8) {
+        const parsed = String(wa).replace(/[^0-9]/g, '');
+        if (parsed.length >= 8) cleanWa = parsed;
+      }
+      let cleanEmail = '';
+      if (email && String(email).includes('@')) {
+        cleanEmail = String(email).trim();
+      }
+
+      const supportBox = document.getElementById('seller-support-box');
+      if (supportBox) {
+        let buttonsHtml = '';
+        if (cleanWa) {
           window.customTrackingWa = cleanWa;
-          const waBox = document.getElementById('seller-support-box');
-          if (waBox) {
-            waBox.innerHTML = `
-              <a href="https://wa.me/${cleanWa}?text=Hola!%20Tengo%20una%20consulta%20sobre%20el%20estado%20de%20mi%20pedido" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-seller">
-                <i class="ri-whatsapp-line" style="font-size: 1.25rem;"></i>
-                <span>¿Tienes dudas con tu pedido? Chatea con nosotros por WhatsApp</span>
-              </a>
-            `;
-            waBox.style.display = 'block';
-          }
+          buttonsHtml += `
+            <a href="https://wa.me/${cleanWa}?text=Hola!%20Tengo%20una%20consulta%20sobre%20el%20estado%20de%20mi%20pedido" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-seller">
+              <i class="ri-whatsapp-line" style="font-size: 1.25rem;"></i>
+              <span>¿Tienes dudas con tu pedido? Chatea con nosotros por WhatsApp</span>
+            </a>
+          `;
+        }
+        if (cleanEmail) {
+          buttonsHtml += `
+            <a href="mailto:${escapeHtml(cleanEmail)}?subject=Consulta%20sobre%20mi%20pedido" class="btn-email-seller">
+              <i class="ri-mail-line" style="font-size: 1.25rem; color: var(--primary);"></i>
+              <span>¿Dudas con tu compra? Escríbenos a ${escapeHtml(cleanEmail)}</span>
+            </a>
+          `;
+        }
+
+        if (buttonsHtml) {
+          supportBox.innerHTML = `<div style="display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; align-items: center;">${buttonsHtml}</div>`;
+          supportBox.style.display = 'block';
+        } else {
+          supportBox.style.display = 'none';
         }
       }
 
@@ -2163,6 +2209,7 @@
         brand_name: params.get('brand') || params.get('marca'),
         logo_url: params.get('logo'),
         support_wa: params.get('wa') || params.get('whatsapp'),
+        support_email: params.get('email') || params.get('correo'),
         show_picking: params.get('picking'),
         show_courier_link: params.get('courier_link')
       };

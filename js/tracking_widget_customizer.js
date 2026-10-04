@@ -390,11 +390,18 @@ function renderCustomizerUI(container, comerciosList, initialConfig) {
                   </div>
                 </div>
 
-                <!-- WhatsApp Support preview -->
-                <div id="tw-prev-wa-wrap" style="margin-top: 0.85rem; text-align: center; ${state.support_wa ? '' : 'display: none;'}">
-                  <span style="display: inline-flex; align-items: center; gap: 0.35rem; background: #25d366; color: #ffffff; padding: 0.45rem 1rem; border-radius: 99px; font-weight: 700; font-size: 0.75rem;">
-                    <i class="ri-whatsapp-line"></i> ¿Dudas? Chatea con nosotros por WhatsApp
-                  </span>
+                <!-- Direct Support Channels Preview (WhatsApp & Email) -->
+                <div id="tw-prev-support-wrap" style="margin-top: 0.85rem; display: flex; flex-direction: column; gap: 0.45rem; align-items: center; justify-content: center;">
+                  <div id="tw-prev-wa-wrap" style="${state.support_wa ? '' : 'display: none;'}">
+                    <span style="display: inline-flex; align-items: center; gap: 0.35rem; background: #25d366; color: #ffffff; padding: 0.45rem 1rem; border-radius: 99px; font-weight: 700; font-size: 0.75rem; box-shadow: 0 2px 6px rgba(37,211,102,0.2);">
+                      <i class="ri-whatsapp-line" style="font-size: 0.95rem;"></i> ¿Dudas? Chatea con nosotros por WhatsApp
+                    </span>
+                  </div>
+                  <div id="tw-prev-email-wrap" style="${state.support_email ? '' : 'display: none;'}">
+                    <span style="display: inline-flex; align-items: center; gap: 0.35rem; background: #ffffff; color: #334155; border: 1px solid #cbd5e1; padding: 0.4rem 0.95rem; border-radius: 99px; font-weight: 600; font-size: 0.74rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                      <i id="tw-prev-email-icon" class="ri-mail-line" style="font-size: 0.85rem; color: ${state.primary_color || '#5c24ff'};"></i> <span id="tw-prev-email-text">${escapeHtml(state.support_email || '')}</span>
+                    </span>
+                  </div>
                 </div>
 
               </div>
@@ -497,10 +504,23 @@ function attachCustomizerEvents(container, state) {
       }
     }
 
-    // 4. WhatsApp Support Preview
+    // 4. WhatsApp & Email Support Preview
     const waWrap = container.querySelector('#tw-prev-wa-wrap');
     if (waWrap) {
       waWrap.style.display = state.support_wa ? 'block' : 'none';
+    }
+
+    const emailWrap = container.querySelector('#tw-prev-email-wrap');
+    const emailText = container.querySelector('#tw-prev-email-text');
+    const emailIcon = container.querySelector('#tw-prev-email-icon');
+    if (emailWrap && emailText) {
+      if (state.support_email) {
+        emailText.textContent = state.support_email;
+        emailWrap.style.display = 'block';
+        if (emailIcon) emailIcon.style.color = state.primary_color;
+      } else {
+        emailWrap.style.display = 'none';
+      }
     }
 
     // 5. Courier Button Preview
@@ -525,6 +545,7 @@ function attachCustomizerEvents(container, state) {
     if (st.brand_name) params.set('brand', st.brand_name);
     if (st.logo_url) params.set('logo', st.logo_url);
     if (st.support_wa) params.set('wa', st.support_wa.replace(/[^0-9]/g, ''));
+    if (st.support_email) params.set('email', st.support_email.trim());
     if (st.show_picking === false) params.set('picking', '0');
     if (st.show_courier_link === false) params.set('courier_link', '0');
 
