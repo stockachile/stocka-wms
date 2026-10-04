@@ -1145,6 +1145,36 @@
     body.is-embed .hero-header {
       margin-bottom: 1.25rem;
     }
+
+    /* Seller Custom Branding & WhatsApp Support */
+    .btn-whatsapp-seller {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      background: #25d366;
+      color: #ffffff !important;
+      padding: 0.85rem 1.6rem;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      box-shadow: 0 4px 15px rgba(37, 211, 102, 0.35);
+      transition: all 0.25s ease;
+      max-width: 100%;
+    }
+    .btn-whatsapp-seller:hover {
+      background: #1eb954;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45);
+    }
+    .embed-seller-logo {
+      max-height: 52px;
+      max-width: 240px;
+      object-fit: contain;
+      margin: 0 auto 1.25rem auto;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -1153,10 +1183,10 @@
   <header class="tracking-nav">
     <div class="nav-container">
       <a href="https://stocka.cl" target="_blank" class="nav-brand" title="Stocka Logistics Chile">
-        <img src="assets/logo.png" alt="Stocka Logistics Logo" onerror="this.src='img/newlogotransp.png';">
+        <img id="nav-brand-logo" src="assets/logo.png" alt="Stocka Logistics Logo" onerror="this.src='img/newlogotransp.png';">
         <div class="nav-brand-text">
-          <span class="nav-brand-title">STOCKA</span>
-          <span class="nav-brand-subtitle">Tracking Portal</span>
+          <span id="nav-brand-title" class="nav-brand-title">STOCKA</span>
+          <span id="nav-brand-subtitle" class="nav-brand-subtitle">Tracking Portal</span>
         </div>
       </a>
       <div class="nav-security-tag">
@@ -1169,13 +1199,16 @@
   <!-- Main Content Wrap -->
   <main class="main-wrap">
     
+    <!-- Custom Logo for Embedded Mode -->
+    <div id="embed-custom-logo" style="display: none; text-align: center; margin-bottom: 1.25rem;"></div>
+
     <!-- Hero Header -->
     <section class="hero-header">
-      <div class="hero-badge">
-        <i class="ri-radar-line"></i> Red de Distribución Stocka
+      <div id="hero-badge" class="hero-badge">
+        <i class="ri-radar-line"></i> <span id="hero-badge-text">Red de Distribución Stocka</span>
       </div>
-      <h1 class="hero-title">Seguimiento de tu Pedido</h1>
-      <p class="hero-subtitle">
+      <h1 id="hero-title" class="hero-title">Seguimiento de tu Pedido</h1>
+      <p id="hero-subtitle" class="hero-subtitle">
         Consulta el estado en vivo de tu compra, fechas de preparación y datos de despacho ingresando tu número de orden y correo.
       </p>
     </section>
@@ -1285,6 +1318,9 @@
         <!-- Injected dynamically via JS -->
       </div>
     </section>
+
+    <!-- Seller WhatsApp / Support Action Box -->
+    <div id="seller-support-box" style="display: none; margin: 1.5rem auto 1rem auto; text-align: center;"></div>
 
     <!-- Trust Cards Grid -->
     <section class="trust-grid">
@@ -1708,7 +1744,7 @@
             </div>
 
             <!-- Picking & Preparation Details Card (Safe, No Operator Name) -->
-            ${picking ? `
+            ${picking && !window.hidePickingDetails ? `
               <div class="picking-card">
                 <div class="picking-card-header" onclick="togglePickingDetails('${escapeHtml(order.id)}')">
                   <div class="picking-header-title">
@@ -1879,14 +1915,14 @@
                 </div>
 
                 <div class="delivery-actions-right">
-                  ${courierUrl ? `
+                  ${courierUrl && !window.hideCourierLink ? `
                     <a href="${escapeHtml(courierUrl)}" target="_blank" rel="noopener noreferrer" class="btn-external-track">
                       <span>Ver Rastreo Oficial en Vivo</span>
                       <i class="ri-external-link-line"></i>
                     </a>
                   ` : `
                     <div style="font-size: 0.78rem; text-align: center; color: var(--text-muted);">
-                      <i class="ri-information-line"></i> El enlace de seguimiento en vivo se habilitará una vez que el courier inicie ruta.
+                      <i class="ri-shield-check-line" style="color: var(--primary);"></i> Envío respaldado por la red Stocka Logistics.
                     </div>
                   `}
                 </div>
@@ -1896,6 +1932,14 @@
           </div>
         `;
       });
+
+      // Auto-apply commerce theme if available and not explicitly overridden via URL
+      if (orders && orders[0] && orders[0].comercio) {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.get('comercio') && !urlParams.get('color')) {
+          loadCommerceCustomization(orders[0].comercio);
+        }
+      }
 
       resultsContainer.innerHTML = cardsHtml;
       resultsArea.style.display = 'block';
@@ -1961,6 +2005,112 @@
       notifyParentResize();
     };
 
+    // Helper: Apply Dynamic Custom Theme & Branding (Sellers)
+    function applyCustomTheme(cfg) {
+      if (!cfg || typeof cfg !== 'object') return;
+
+      // 1. Primary color (Hex)
+      const rawColor = cfg.primary_color || cfg.color;
+      if (rawColor) {
+        let hex = String(rawColor).trim();
+        if (!hex.startsWith('#')) hex = '#' + hex;
+        if (/^#[0-9A-Fa-f]{6}$/.test(hex) || /^#[0-9A-Fa-f]{3}$/.test(hex)) {
+          document.documentElement.style.setProperty('--primary', hex);
+          document.documentElement.style.setProperty('--primary-hover', hex);
+          document.documentElement.style.setProperty('--primary-subtle', hex + '18');
+          document.documentElement.style.setProperty('--primary-border', hex + '38');
+        }
+      }
+
+      // 2. Background color
+      const rawBg = cfg.background_color || cfg.bg;
+      if (rawBg) {
+        const bg = String(rawBg).trim();
+        if (bg.toLowerCase() === 'transparent') {
+          document.documentElement.style.setProperty('--bg', 'transparent');
+          document.body.style.backgroundColor = 'transparent';
+        } else {
+          let hex = bg.startsWith('#') ? bg : '#' + bg;
+          document.documentElement.style.setProperty('--bg', hex);
+          document.body.style.backgroundColor = hex;
+        }
+      }
+
+      // 3. Brand name
+      const brand = cfg.brand_name || cfg.brand;
+      if (brand) {
+        const cleanBrand = String(brand).trim();
+        const badgeEl = document.getElementById('hero-badge-text');
+        if (badgeEl) badgeEl.textContent = cleanBrand;
+        const subEl = document.getElementById('hero-subtitle');
+        if (subEl) subEl.textContent = `Consulta el estado en vivo de tu compra en ${cleanBrand}.`;
+        const navBrandTitle = document.getElementById('nav-brand-title');
+        if (navBrandTitle) navBrandTitle.textContent = cleanBrand.toUpperCase();
+        document.title = `Seguimiento de Pedido - ${cleanBrand}`;
+      }
+
+      // 4. Custom logo URL
+      const logoUrl = cfg.logo_url || cfg.logo;
+      if (logoUrl) {
+        const cleanLogo = String(logoUrl).trim();
+        const navLogo = document.getElementById('nav-brand-logo');
+        if (navLogo) navLogo.src = cleanLogo;
+
+        const embedLogo = document.getElementById('embed-custom-logo');
+        if (embedLogo) {
+          embedLogo.innerHTML = `<img src="${escapeHtml(cleanLogo)}" alt="Logo" class="embed-seller-logo" onerror="this.style.display='none';">`;
+          embedLogo.style.display = 'block';
+        }
+      }
+
+      // 5. WhatsApp support button
+      const wa = cfg.support_wa || cfg.whatsapp || cfg.wa;
+      if (wa) {
+        const cleanWa = String(wa).replace(/[^0-9]/g, '');
+        if (cleanWa.length >= 8) {
+          window.customTrackingWa = cleanWa;
+          const waBox = document.getElementById('seller-support-box');
+          if (waBox) {
+            waBox.innerHTML = `
+              <a href="https://wa.me/${cleanWa}?text=Hola!%20Tengo%20una%20consulta%20sobre%20el%20estado%20de%20mi%20pedido" target="_blank" rel="noopener noreferrer" class="btn-whatsapp-seller">
+                <i class="ri-whatsapp-line" style="font-size: 1.25rem;"></i>
+                <span>¿Tienes dudas con tu pedido? Chatea con nosotros por WhatsApp</span>
+              </a>
+            `;
+            waBox.style.display = 'block';
+          }
+        }
+      }
+
+      // 6. Toggles
+      if (cfg.show_picking === false || cfg.show_picking === '0' || cfg.show_picking === 'false') {
+        window.hidePickingDetails = true;
+      }
+      if (cfg.show_courier_link === false || cfg.show_courier_link === '0' || cfg.show_courier_link === 'false') {
+        window.hideCourierLink = true;
+      }
+    }
+
+    // Helper: Load Stored Customization from Supabase for a commerce
+    async function loadCommerceCustomization(commerceName) {
+      if (!commerceName) return;
+      try {
+        const { data } = await sbClient
+          .from('merchant_integrations')
+          .select('access_token')
+          .eq('platform', 'TrackingWidget')
+          .ilike('comercio', commerceName.trim())
+          .maybeSingle();
+
+        if (data && data.access_token) {
+          const cfg = JSON.parse(data.access_token);
+          applyCustomTheme(cfg);
+        }
+      } catch(e) {
+        console.warn("Notice loading tracking customization:", e);
+      }
+    }
+
     // Form Submit Event (Zero PII in URL)
     form.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -2004,6 +2154,24 @@
 
       if (isEmbed) {
         document.body.classList.add('is-embed');
+      }
+
+      // URL-based Custom Theme & Branding (Sellers)
+      const urlConfig = {
+        primary_color: params.get('color') || params.get('primary'),
+        background_color: params.get('bg') || params.get('background'),
+        brand_name: params.get('brand') || params.get('marca'),
+        logo_url: params.get('logo'),
+        support_wa: params.get('wa') || params.get('whatsapp'),
+        show_picking: params.get('picking'),
+        show_courier_link: params.get('courier_link')
+      };
+      applyCustomTheme(urlConfig);
+
+      // Commerce auto-theme lookup
+      const urlComercio = params.get('comercio') || params.get('seller');
+      if (urlComercio) {
+        loadCommerceCustomization(urlComercio);
       }
 
       notifyParentResize();

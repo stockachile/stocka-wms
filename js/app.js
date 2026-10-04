@@ -5,6 +5,8 @@ window.renderSurveysClient = renderSurveysClient;
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 import { renderNotifications } from './notifications.js';
+import { renderTrackingWidgetCustomizer } from './tracking_widget_customizer.js';
+window.renderTrackingWidgetCustomizer = renderTrackingWidgetCustomizer;
 
 // Redefinir window.alert globalmente con SweetAlert2 para estética premium y generar mayor confianza
 const nativeAlert = window.alert;
@@ -1262,6 +1264,9 @@ async function init() {
           } else if (view === 'cotizador') {
             viewTitle.textContent = 'Cotizador de Envíos';
             renderCotizador();
+          } else if (view === 'tracking_widget') {
+            viewTitle.textContent = 'Portal de Tracking para Clientes';
+            renderTrackingWidgetCustomizer();
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
@@ -11419,6 +11424,27 @@ async function renderIntegrations() {
 
       ${selectorHtml}
 
+      <!-- Banner Promocional Portal de Tracking Personalizado -->
+      <div style="background: linear-gradient(135deg, rgba(92, 36, 255, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(92, 36, 255, 0.25); border-radius: var(--radius-lg, 12px); padding: 1.25rem 1.5rem; margin-bottom: 2rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.25rem; box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.05));">
+        <div style="display: flex; align-items: center; gap: 1rem; max-width: 720px;">
+          <div style="width: 48px; height: 48px; min-width: 48px; border-radius: 12px; background: var(--color-primary, #5c24ff); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);">
+            <i class="ri-radar-line"></i>
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <strong style="font-size: 1.05rem; color: var(--color-text-main);">Personalizador de Portal de Tracking</strong>
+              <span style="background: var(--color-primary, #5c24ff); color: white; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 99px; text-transform: uppercase;">Nuevo</span>
+            </div>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.88rem; line-height: 1.45;">
+              Personaliza el portal de seguimiento con los colores y logo de tu marca, integra tu botón de WhatsApp directo e inserta el iframe en tu tienda Shopify o WooCommerce.
+            </p>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();" style="display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; padding: 0.65rem 1.2rem; font-size: 0.88rem; white-space: nowrap;">
+          <i class="ri-palette-line"></i> Personalizar Portal de Tracking
+        </button>
+      </div>
+
       <div class="integrations-wrapper">
         <div class="integrations-sidebar">
           <div class="integrations-sidebar-title">Plataformas</div>
@@ -11433,6 +11459,7 @@ async function renderIntegrations() {
             <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
             <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
             <button class="integration-tab" data-tab="tab-tiendanube"><i class="ri-cloud-fill"></i> Tiendanube</button>
+            <button class="integration-tab" data-tab="tab-tracking-widget" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();"><i class="ri-radar-line"></i> Portal de Tracking</button>
           </div>
         </div>
 
@@ -11443,6 +11470,18 @@ async function renderIntegrations() {
         <!-- TAB: Resumen -->
         <div id="tab-summary" class="integration-tab-pane" style="display: block;">
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+            <div class="card" style="border: 1px solid rgba(92, 36, 255, 0.25); background: rgba(92, 36, 255, 0.05); margin: 0; cursor: pointer;" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();">
+              <div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                  <i class="ri-radar-line" style="font-size: 2rem; color: var(--color-primary, #5c24ff);"></i>
+                  <div>
+                    <h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Portal de Tracking</h4>
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Personalizable para tu tienda</span>
+                  </div>
+                </div>
+                <span class="badge" style="background-color: #ede9fe; color: #6d28d9; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Personalizar &rarr;</span>
+              </div>
+            </div>
             ${hasShopify ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-3-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Shopify</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + shopUrl + '</span></div></div>' + shopifyStatusText + '</div></div>' : ''}
             ${hasParis ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">París</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + parisStatusText + '</div></div>' : ''}
             ${hasRipley ? '<div class="card" style="border: 1px solid rgba(124, 58, 237, 0.2); background: rgba(124, 58, 237, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #7c3aed;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Ripley</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + ripleyStatusText + '</div></div>' : ''}
