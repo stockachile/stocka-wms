@@ -93,7 +93,7 @@ export async function renderTrackingWidgetCustomizer() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
 
-  const currentCompany = window.currentCompany || '';
+  const currentCompany = window.currentCompany || window.currentUserProfile?.comercio || window.currentUserProfile?.company_name || '';
   const assignedComercios = currentCompany
     .split(',')
     .map(c => c.trim())

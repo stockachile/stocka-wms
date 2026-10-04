@@ -7,6 +7,16 @@ import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 import { renderNotifications } from './notifications.js';
 import { renderTrackingWidgetCustomizer } from './tracking_widget_customizer.js';
 window.renderTrackingWidgetCustomizer = renderTrackingWidgetCustomizer;
+window.navigateToTrackingWidget = function() {
+  const twNav = document.querySelector('.nav-item[data-view="tracking_widget"]');
+  if (twNav) {
+    twNav.click();
+  } else if (typeof window.renderTrackingWidgetCustomizer === 'function') {
+    const viewTitle = document.getElementById('current-view-title');
+    if (viewTitle) viewTitle.textContent = 'Portal de Tracking para Clientes';
+    window.renderTrackingWidgetCustomizer();
+  }
+};
 
 // Redefinir window.alert globalmente con SweetAlert2 para estética premium y generar mayor confianza
 const nativeAlert = window.alert;
@@ -11440,7 +11450,7 @@ async function renderIntegrations() {
             </p>
           </div>
         </div>
-        <button type="button" class="btn btn-primary" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();" style="display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; padding: 0.65rem 1.2rem; font-size: 0.88rem; white-space: nowrap;">
+        <button type="button" class="btn btn-primary" onclick="window.navigateToTrackingWidget()" style="display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; padding: 0.65rem 1.2rem; font-size: 0.88rem; white-space: nowrap;">
           <i class="ri-palette-line"></i> Personalizar Portal de Tracking
         </button>
       </div>
@@ -11459,7 +11469,7 @@ async function renderIntegrations() {
             <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
             <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
             <button class="integration-tab" data-tab="tab-tiendanube"><i class="ri-cloud-fill"></i> Tiendanube</button>
-            <button class="integration-tab" data-tab="tab-tracking-widget" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();"><i class="ri-radar-line"></i> Portal de Tracking</button>
+            <button class="integration-tab" data-tab="tab-tracking-widget" onclick="window.navigateToTrackingWidget()"><i class="ri-radar-line"></i> Portal de Tracking</button>
           </div>
         </div>
 
@@ -11470,7 +11480,7 @@ async function renderIntegrations() {
         <!-- TAB: Resumen -->
         <div id="tab-summary" class="integration-tab-pane" style="display: block;">
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
-            <div class="card" style="border: 1px solid rgba(92, 36, 255, 0.25); background: rgba(92, 36, 255, 0.05); margin: 0; cursor: pointer;" onclick="const twNav = document.querySelector('.nav-item[data-view=\'tracking_widget\']'); if (twNav) twNav.click();">
+            <div class="card" style="border: 1px solid rgba(92, 36, 255, 0.25); background: rgba(92, 36, 255, 0.05); margin: 0; cursor: pointer;" onclick="window.navigateToTrackingWidget()">
               <div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                   <i class="ri-radar-line" style="font-size: 2rem; color: var(--color-primary, #5c24ff);"></i>
