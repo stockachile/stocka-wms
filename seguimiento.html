@@ -685,6 +685,119 @@
       border-color: var(--primary);
     }
 
+    /* Floating copy toast */
+    .stocka-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #0f172a;
+      color: #ffffff;
+      padding: 10px 20px;
+      border-radius: 9999px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      z-index: 99999;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .stocka-toast.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Fallback copy modal */
+    .stocka-copy-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999999;
+      padding: 16px;
+    }
+    .stocka-copy-modal-backdrop.open {
+      display: flex;
+    }
+    .stocka-copy-modal-card {
+      background: #ffffff;
+      border-radius: 16px;
+      max-width: 480px;
+      width: 100%;
+      padding: 20px 24px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      border: 1px solid #e2e8f0;
+      animation: stockaFadeInUp 0.2s ease-out;
+    }
+    .stocka-copy-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+    .stocka-copy-modal-header h3 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .stocka-copy-modal-close {
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      line-height: 1;
+      cursor: pointer;
+      color: #94a3b8;
+      padding: 0 4px;
+    }
+    .stocka-copy-modal-close:hover {
+      color: #0f172a;
+    }
+    .stocka-copy-modal-input-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .stocka-copy-modal-input {
+      flex: 1;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #1e293b;
+      outline: none;
+      font-family: inherit;
+    }
+    .stocka-copy-modal-btn {
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem 1.1rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s ease;
+    }
+    .stocka-copy-modal-btn:hover {
+      background: var(--primary-hover);
+    }
+
     .delivery-actions-right {
       display: flex;
       flex-direction: column;
@@ -1717,7 +1830,7 @@
                   <span class="store-badge">
                     <i class="ri-store-line"></i> ${escapeHtml(order.comercio)}
                   </span>
-                  <button type="button" class="btn-copy-token" onclick="copyPrivateLink('${escapeHtml(order.id)}', this)" title="Copia un enlace privado sin datos de correo ni personales">
+                  <button type="button" class="btn-copy-token" onclick="copyPrivateLink('${escapeHtml(order.id)}', this, '${escapeHtml(order.comercio || '')}')" title="Copia un enlace privado sin datos de correo ni personales">
                     <i class="ri-shield-keyhole-line"></i> Copiar Enlace Seguro
                   </button>
                 </div>
@@ -2056,32 +2169,212 @@
       notifyParentResize();
     }
 
+    // Helper: Cross-browser & Cross-origin Iframe robust clipboard copy
+    function copyTextToClipboard(text) {
+      if (!text) return Promise.resolve(false);
+
+      // Strategy 1: Synchronous execCommand with offscreen textarea
+      // Operates synchronously within user gesture - essential for cross-origin iframes without Permissions-Policy
+      let execSuccess = false;
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '-9999px';
+        textArea.style.width = '2em';
+        textArea.style.height = '2em';
+        textArea.style.padding = '0';
+        textArea.style.border = 'none';
+        textArea.style.outline = 'none';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        textArea.setAttribute('readonly', '');
+
+        // iOS Safari compatibility
+        textArea.contentEditable = true;
+        textArea.readOnly = false;
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        textArea.setSelectionRange(0, 999999);
+
+        execSuccess = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch (err) {
+        execSuccess = false;
+      }
+
+      if (execSuccess) {
+        return Promise.resolve(true);
+      }
+
+      // Strategy 2: Modern Navigator Clipboard API
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        return navigator.clipboard.writeText(text)
+          .then(() => true)
+          .catch(() => false);
+      }
+
+      return Promise.resolve(false);
+    }
+
+    // Helper: Floating Copy Toast
+    function showCopyToast(msg) {
+      let toast = document.getElementById('stocka-copy-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'stocka-copy-toast';
+        toast.className = 'stocka-toast';
+        document.body.appendChild(toast);
+      }
+      toast.innerHTML = `<i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1.15rem;"></i> <span>${escapeHtml(msg)}</span>`;
+      toast.classList.add('show');
+      clearTimeout(toast._timeout);
+      toast._timeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
+    }
+
+    // Helper: Fallback Modal for environments blocking automatic clipboard access
+    window.showCopyFallbackModal = function(title, textToCopy, desc) {
+      let modal = document.getElementById('stocka-copy-modal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'stocka-copy-modal';
+        modal.className = 'stocka-copy-modal-backdrop';
+        modal.innerHTML = `
+          <div class="stocka-copy-modal-card">
+            <div class="stocka-copy-modal-header">
+              <h3 id="stocka-copy-modal-title">
+                <i class="ri-file-copy-line" style="color: var(--primary);"></i>
+                <span>Copiar Enlace</span>
+              </h3>
+              <button type="button" class="stocka-copy-modal-close" onclick="closeCopyModal()">&times;</button>
+            </div>
+            <p id="stocka-copy-modal-desc" style="margin: 0.4rem 0 0.8rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+              Copia tu enlace privado de seguimiento:
+            </p>
+            <div class="stocka-copy-modal-input-row">
+              <input id="stocka-copy-modal-input" class="stocka-copy-modal-input" type="text" readonly onclick="this.select()" />
+              <button id="stocka-copy-modal-btn" type="button" class="stocka-copy-modal-btn" onclick="copyFromModalInput()">
+                Copiar
+              </button>
+            </div>
+            <div id="stocka-copy-modal-msg" style="margin-top: 0.5rem; font-size: 0.78rem; color: #059669; font-weight: 600; display: none;">
+              <i class="ri-check-line"></i> ¡Copiado con éxito!
+            </div>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) closeCopyModal();
+        });
+      }
+
+      document.getElementById('stocka-copy-modal-title').innerHTML = `<i class="ri-file-copy-line" style="color: var(--primary);"></i> <span>${escapeHtml(title || 'Copiar Enlace')}</span>`;
+      document.getElementById('stocka-copy-modal-desc').textContent = desc || 'Copia el texto a continuación:';
+      const input = document.getElementById('stocka-copy-modal-input');
+      input.value = textToCopy || '';
+      document.getElementById('stocka-copy-modal-msg').style.display = 'none';
+      const actionBtn = document.getElementById('stocka-copy-modal-btn');
+      actionBtn.textContent = 'Copiar';
+
+      modal.classList.add('open');
+      setTimeout(() => {
+        input.focus();
+        input.select();
+        input.setSelectionRange(0, 999999);
+      }, 80);
+    };
+
+    window.closeCopyModal = function() {
+      const modal = document.getElementById('stocka-copy-modal');
+      if (modal) modal.classList.remove('open');
+    };
+
+    window.copyFromModalInput = function() {
+      const input = document.getElementById('stocka-copy-modal-input');
+      const actionBtn = document.getElementById('stocka-copy-modal-btn');
+      const msg = document.getElementById('stocka-copy-modal-msg');
+      if (!input) return;
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, 999999);
+
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+
+      if (ok) {
+        if (actionBtn) actionBtn.textContent = '¡Copiado!';
+        if (msg) msg.style.display = 'block';
+        showCopyToast('¡Copiado al portapapeles!');
+        setTimeout(() => { closeCopyModal(); }, 1200);
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(input.value).then(() => {
+          if (actionBtn) actionBtn.textContent = '¡Copiado!';
+          if (msg) msg.style.display = 'block';
+          showCopyToast('¡Copiado al portapapeles!');
+          setTimeout(() => { closeCopyModal(); }, 1200);
+        });
+      }
+    };
+
     // Helper: Copy Tracking Code
     window.copyTrackingCode = function(text, btnElement) {
       if (!text) return;
-      navigator.clipboard.writeText(text).then(() => {
-        const origHtml = btnElement.innerHTML;
-        btnElement.innerHTML = '<i class="ri-check-line" style="color:#059669;"></i> ¡Copiado!';
-        setTimeout(() => {
-          btnElement.innerHTML = origHtml;
-        }, 2000);
-      }).catch(err => {
-        console.error('Error al copiar:', err);
+      copyTextToClipboard(text).then((success) => {
+        if (success) {
+          if (btnElement) {
+            const origHtml = btnElement.innerHTML;
+            btnElement.innerHTML = '<i class="ri-check-line" style="color:#059669;"></i> ¡Copiado!';
+            setTimeout(() => {
+              btnElement.innerHTML = origHtml;
+            }, 2000);
+          }
+          showCopyToast('¡Código de rastreo copiado!');
+        } else {
+          showCopyFallbackModal('Código de Rastreo', text, 'Copia tu código de rastreo:');
+        }
       });
     };
 
     // Helper: Copy Private Tracking Link
-    window.copyPrivateLink = function(orderId, btnElement) {
+    window.copyPrivateLink = function(orderId, btnElement, comercio) {
       if (!orderId) return;
-      const cleanUrl = window.location.origin + window.location.pathname + '?t=' + encodeURIComponent(orderId);
-      navigator.clipboard.writeText(cleanUrl).then(() => {
-        const origHtml = btnElement.innerHTML;
-        btnElement.innerHTML = '<i class="ri-checkbox-circle-line" style="color:#059669;"></i> ¡Enlace copiado!';
-        setTimeout(() => {
-          btnElement.innerHTML = origHtml;
-        }, 2500);
-      }).catch(err => {
-        console.error('Error al copiar enlace privado:', err);
+      let cleanUrl = window.location.origin + window.location.pathname + '?t=' + encodeURIComponent(orderId);
+      if (comercio) {
+        cleanUrl += '&comercio=' + encodeURIComponent(comercio);
+      }
+      copyTextToClipboard(cleanUrl).then((success) => {
+        if (success) {
+          if (btnElement) {
+            const origHtml = btnElement.innerHTML;
+            const origBg = btnElement.style.backgroundColor;
+            const origBorder = btnElement.style.borderColor;
+            const origColor = btnElement.style.color;
+
+            btnElement.innerHTML = '<i class="ri-checkbox-circle-line" style="color:#059669;"></i> ¡Enlace copiado!';
+            btnElement.style.backgroundColor = '#ecfdf5';
+            btnElement.style.borderColor = '#10b981';
+            btnElement.style.color = '#065f46';
+
+            setTimeout(() => {
+              btnElement.innerHTML = origHtml;
+              btnElement.style.backgroundColor = origBg;
+              btnElement.style.borderColor = origBorder;
+              btnElement.style.color = origColor;
+            }, 2500);
+          }
+          showCopyToast('¡Enlace seguro copiado al portapapeles!');
+        } else {
+          showCopyFallbackModal('Enlace Seguro de Seguimiento', cleanUrl, 'Copia tu enlace privado para ver y compartir el estado de tu pedido sin exponer datos de correo:');
+        }
       });
     };
 

@@ -552,7 +552,7 @@ function attachCustomizerEvents(container, state) {
     const iframeUrl = `https://wms.stocka.cl/seguimiento.html?${params.toString()}`;
 
     const snippet = `<div style="width: 100%; max-width: 900px; margin: 0 auto; min-height: 520px;">
-  <iframe id="stocka-tracking-frame" src="${iframeUrl}" width="100%" height="650" frameborder="0" scrolling="no" style="border: none; width: 100%; display: block; overflow: hidden; background: transparent;" allow="clipboard-write"></iframe>
+  <iframe id="stocka-tracking-frame" src="${iframeUrl}" width="100%" height="650" frameborder="0" scrolling="no" style="border: none; width: 100%; display: block; overflow: hidden; background: transparent;" allow="clipboard-write; clipboard-read"></iframe>
 </div>
 <script>
   window.addEventListener('message', function(e) {
@@ -649,7 +649,21 @@ function attachCustomizerEvents(container, state) {
   copyBtn.addEventListener('click', () => {
     const codeArea = container.querySelector('#tw-generated-code');
     if (!codeArea) return;
-    navigator.clipboard.writeText(codeArea.value).then(() => {
+
+    codeArea.focus();
+    codeArea.select();
+    if (codeArea.setSelectionRange) {
+      codeArea.setSelectionRange(0, 999999);
+    }
+
+    let execOk = false;
+    try {
+      execOk = document.execCommand('copy');
+    } catch (e) {
+      execOk = false;
+    }
+
+    const onCopySuccess = () => {
       const origHtml = copyBtn.innerHTML;
       copyBtn.innerHTML = `<i class="ri-check-line" style="color: #10b981;"></i> ¡Copiado!`;
       setTimeout(() => { copyBtn.innerHTML = origHtml; }, 2500);
@@ -666,9 +680,15 @@ function attachCustomizerEvents(container, state) {
           title: 'Código copiado al portapapeles. ¡Listo para pegar en Shopify!'
         });
       }
-    }).catch(err => {
-      console.error("Error al copiar:", err);
-    });
+    };
+
+    if (execOk) {
+      onCopySuccess();
+    } else if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(codeArea.value).then(onCopySuccess).catch(err => {
+        console.error("Error al copiar:", err);
+      });
+    }
   });
 
   // Initialize Code snippet
