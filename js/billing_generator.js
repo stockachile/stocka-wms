@@ -1720,7 +1720,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
       const { data: bRecList } = await supabase
         .from('billing_records')
-        .select('desglose_fulfillment, total_fulfillment, fulfillment_link, comercio')
+        .select('desglose_fulfillment, total_fulfillment, fulfillment_link, comercio, updated_at')
         .eq('period_id', billingState.currentPeriodId)
         .in('comercio', lookupCommerces);
 
@@ -1738,11 +1738,15 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
           savedRecordStatus = 'Creado';
         }
 
-        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot.json'))) {
+        if (bRec.fulfillment_link && (bRec.fulfillment_link.includes('billing_snapshots') || bRec.fulfillment_link.includes('_snapshot') || bRec.fulfillment_link.includes('.json'))) {
           if (!savedSnapshot && (bRec.fulfillment_link.startsWith('http://') || bRec.fulfillment_link.startsWith('https://'))) {
             try {
-              const resp = await fetch(bRec.fulfillment_link);
-              if (resp.ok) savedSnapshot = await resp.json();
+              const fetchUrl = bRec.fulfillment_link + (bRec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
+              const resp = await fetch(fetchUrl, { cache: 'no-store' });
+              if (resp.ok) {
+                savedSnapshot = await resp.json();
+                savedSnapshot.fulfillment_link = bRec.fulfillment_link;
+              }
             } catch (eSnap) {}
           }
         }
@@ -1765,8 +1769,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     if (localSnapshot && savedSnapshot) {
       const localTime = new Date(localSnapshot.generatedAt || localSnapshot.publishedAt || 0).getTime();
       const remoteTime = new Date(savedSnapshot.generatedAt || savedSnapshot.publishedAt || 0).getTime();
-      if (localTime > remoteTime) {
-        console.log('[BillingGenerator] Restaurando snapshot local más reciente que el de Storage:', { localTime, remoteTime });
+      // Si el snapshot oficial de Storage es igual o más reciente que el local, prevalece Storage
+      if (remoteTime >= localTime) {
+        console.log('[BillingGenerator] Sincronizando con snapshot oficial de Storage:', { remoteTime, localTime, version: savedSnapshot.version });
+        try {
+          localStorage.setItem(`stocka_fulfillment_details_${billingState.currentPeriodId}_${commerceName}`, JSON.stringify(savedSnapshot));
+        } catch (e) {}
+      } else {
+        console.log('[BillingGenerator] Restaurando snapshot local con cambios pendientes:', { localTime, remoteTime });
         savedSnapshot = localSnapshot;
         if (typeof uploadBillingSnapshotToStorage === 'function') {
           uploadBillingSnapshotToStorage(localSnapshot).catch(e => console.warn('Aviso sincronizando snapshot local a Storage:', e));
@@ -1774,6 +1784,10 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       }
     } else if (!savedSnapshot && localSnapshot) {
       savedSnapshot = localSnapshot;
+    }
+
+    if (savedSnapshot) {
+      billingState.snapshotVersion = savedSnapshot.version || (billingState.isPublished ? 1 : 0);
     }
   }
 
@@ -2730,6 +2744,19 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
           <span style="background: rgba(95, 6, 250, 0.08); color: #5f06fa; border: 1px solid rgba(95, 6, 250, 0.25); padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;">
             ${b.currentPeriodName || b.periodName || 'PERIODO'}
           </span>
+          ${b.version ? `
+            <span style="background: rgba(16, 185, 129, 0.08); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 5px;" title="Versión oficial: v${b.version}${b.publishedAt ? ` (Publicado: ${new Date(b.publishedAt).toLocaleString('es-CL')})` : ''}">
+              <i class="ri-git-commit-line"></i> Versión Oficial: <strong>v${b.version}</strong>
+            </span>
+          ` : (b.publishedAt ? `
+            <span style="background: rgba(16, 185, 129, 0.08); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 5px;">
+              <i class="ri-checkbox-circle-line"></i> Versión Publicada
+            </span>
+          ` : `
+            <span style="background: rgba(245, 158, 11, 0.08); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 5px;">
+              <i class="ri-draft-line"></i> Borrador de Trabajo
+            </span>
+          `)}
           <span style="background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; padding: 0.4rem 0.85rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem; ${!isClient ? 'cursor: pointer;' : ''} display: inline-flex; align-items: center; gap: 6px;" ${!isClient ? 'onclick="window.openEditDesgloseHeaderModal()" title="Haga clic para editar fechas y plazo de pago"' : ''}>
             <span>Plazo de Pago: ${termLabel} (${vencimientoStr})</span>
             ${!isClient ? '<i class="ri-edit-line no-print" style="color: #5f06fa; font-size: 0.9rem;"></i>' : ''}
@@ -3378,6 +3405,7 @@ export function exportBillingToExcel(customState = null) {
     ["www.stocka.cl", "", "Fecha Emisión:", emisionStr],
     ["", "", "Fecha Límite Pago:", `${vencimientoStr} (${b.invoiceDates?.termLabel || ''})`],
     ["", "", "UF Referencia:", b.ufValue],
+    ...(b.version ? [["", "", "Versión Oficial:", `v${b.version} (${b.publishedAt ? new Date(b.publishedAt).toLocaleString('es-CL') : 'Publicada'})`]] : []),
     ...(b.isConglomerate ? [
       ["", "", "Tipo Facturación:", "Holding / Conglomerado Consolidado"],
       ["", "", "Tiendas Agrupadas:", (b.conglomerateChildren || []).join(', ')]
@@ -3723,10 +3751,15 @@ export async function saveBillingRecordToSupabase() {
       payload.fecha_limite = b.invoiceDates.dueDate;
     }
 
+    const currentVer = billingState.snapshotVersion || 1;
+    billingState.snapshotVersion = currentVer;
+
     const fullSnapshot = {
       periodId: b.currentPeriodId,
       periodName: b.currentPeriodName,
       comercio: b.currentCommerce,
+      version: currentVer,
+      versionLabel: `v${currentVer}${b.isPublished ? '' : ' (Borrador)'}`,
       isConglomerate: Boolean(b.isConglomerate),
       conglomerateName: b.conglomerateName || null,
       conglomerateChildren: b.conglomerateChildren || [],
@@ -3843,24 +3876,54 @@ export async function saveBillingRecordToSupabase() {
 export async function uploadBillingSnapshotToStorage(fullSnapshot) {
   const cleanCommerce = (fullSnapshot.comercio || 'comercio').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
   const periodId = fullSnapshot.periodId;
-  const filePath = `billing_snapshots/${periodId}/${cleanCommerce}_snapshot.json`;
+  const versionNum = fullSnapshot.version || 1;
+  const timestamp = Date.now();
+
+  const versionedFilePath = `billing_snapshots/${periodId}/${cleanCommerce}_snapshot_v${versionNum}_${timestamp}.json`;
+  const canonicalFilePath = `billing_snapshots/${periodId}/${cleanCommerce}_snapshot.json`;
   const jsonString = JSON.stringify(fullSnapshot);
   const blob = new Blob([jsonString], { type: 'application/json' });
 
-  const { data, error } = await supabase.storage
+  // 1. Subir al path versionado inmutable
+  let uploadVersionedSuccess = false;
+  try {
+    const { data: vData, error: vError } = await supabase.storage
+      .from('service_docs')
+      .upload(versionedFilePath, blob, {
+        contentType: 'application/json',
+        cacheControl: '3600',
+        upsert: true
+      });
+    if (!vError && vData) {
+      uploadVersionedSuccess = true;
+    } else if (vError) {
+      console.warn('Aviso subiendo snapshot versionado:', vError);
+    }
+  } catch (eVer) {
+    console.warn('Excepción al subir snapshot versionado:', eVer);
+  }
+
+  // 2. Subir también al path canónico con cacheControl 0
+  const { data: cData, error: cError } = await supabase.storage
     .from('service_docs')
-    .upload(filePath, blob, {
+    .upload(canonicalFilePath, blob, {
       contentType: 'application/json',
+      cacheControl: '0',
       upsert: true
     });
 
-  if (error) throw error;
+  if (cError && !uploadVersionedSuccess) throw cError;
 
+  const targetPath = uploadVersionedSuccess ? versionedFilePath : canonicalFilePath;
   const { data: publicData } = supabase.storage
     .from('service_docs')
-    .getPublicUrl(filePath);
+    .getPublicUrl(targetPath);
 
-  return publicData.publicUrl;
+  const finalUrl = uploadVersionedSuccess 
+    ? publicData.publicUrl 
+    : `${publicData.publicUrl}?v=${versionNum}&t=${timestamp}`;
+
+  return finalUrl;
 }
 
 // --- CONFIRMAR Y PUBLICAR COBRO AL COMERCIO (INTERACTIVO) ---
@@ -3930,10 +3993,16 @@ export async function confirmAndPublishBillingToCommerce() {
       didOpen: () => { Swal.showLoading(); }
     });
 
+    const prevVer = billingState.snapshotVersion || 0;
+    const publishedVersion = prevVer + 1;
+    billingState.snapshotVersion = publishedVersion;
+
     const fullSnapshot = {
       periodId: b.currentPeriodId,
       periodName: b.currentPeriodName,
       comercio: b.currentCommerce,
+      version: publishedVersion,
+      versionLabel: `v${publishedVersion}`,
       isConglomerate: Boolean(b.isConglomerate),
       conglomerateName: b.conglomerateName || null,
       conglomerateChildren: b.conglomerateChildren || [],
@@ -3959,22 +4028,24 @@ export async function confirmAndPublishBillingToCommerce() {
       abonos: b.abonos || [],
       pricingConfig: b.pricingConfig,
       checklist: (typeof getChecklistDataForSnapshot === 'function') ? getChecklistDataForSnapshot() : null,
+      generatedAt: new Date().toISOString(),
       publishedAt: new Date().toISOString()
     };
 
-    // 1. Guardar en localStorage para acceso local instantáneo
+    // 1. Subir Snapshot JSON a Supabase Storage (obtiene URL versionada inmutable)
+    let publicSnapshotUrl = null;
+    try {
+      publicSnapshotUrl = await uploadBillingSnapshotToStorage(fullSnapshot);
+      fullSnapshot.fulfillment_link = publicSnapshotUrl;
+    } catch (storageErr) {
+      console.warn('Error subiendo snapshot a Supabase Storage:', storageErr);
+    }
+
+    // 2. Guardar en localStorage para acceso local instantáneo
     const storageKey = `stocka_fulfillment_details_${b.currentPeriodId}_${b.currentCommerce}`;
     try {
       localStorage.setItem(storageKey, JSON.stringify(fullSnapshot));
     } catch (e) {}
-
-    // 2. Subir Snapshot JSON a Supabase Storage
-    let publicSnapshotUrl = null;
-    try {
-      publicSnapshotUrl = await uploadBillingSnapshotToStorage(fullSnapshot);
-    } catch (storageErr) {
-      console.warn('Error subiendo snapshot a Supabase Storage:', storageErr);
-    }
 
     // 3. Actualizar o insertar registro en base de datos
     const updatePayload = {
@@ -8345,7 +8416,19 @@ export function openEditDesgloseHeaderModal() {
             localStorage.setItem(storageKey, JSON.stringify(cachedObj));
 
             if (b.isPublished) {
-              uploadBillingSnapshotToStorage(cachedObj).catch(errUp => console.warn('Aviso sincronizando snapshot en Storage:', errUp));
+              uploadBillingSnapshotToStorage(cachedObj).then(newUrl => {
+                if (newUrl) {
+                  cachedObj.fulfillment_link = newUrl;
+                  try { localStorage.setItem(storageKey, JSON.stringify(cachedObj)); } catch (e) {}
+                  supabase
+                    .from('billing_records')
+                    .update({ fulfillment_link: newUrl, updated_at: new Date().toISOString() })
+                    .eq('period_id', b.currentPeriodId)
+                    .eq('comercio', b.currentCommerce)
+                    .then(() => {})
+                    .catch(e => console.warn('Aviso actualizando fulfillment_link en DB:', e));
+                }
+              }).catch(errUp => console.warn('Aviso sincronizando snapshot en Storage:', errUp));
             }
           }
         } catch (e) {}
@@ -10263,26 +10346,56 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
     return;
   }
 
-  // 1. Intentar obtener snapshot desde localStorage o desde Supabase Storage (fulfillment_link)
+  // 1. Obtener snapshot oficial desde Supabase Storage (fulfillment_link) o cache local validado
   const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
-  let snapshot = null;
-
+  let cached = null;
   try {
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) snapshot = JSON.parse(cached);
+    const raw = localStorage.getItem(cacheKey);
+    if (raw) cached = JSON.parse(raw);
   } catch (e) {}
 
+  let snapshot = null;
+  const recUpdatedTime = rec.updated_at ? new Date(rec.updated_at).getTime() : 0;
+  const cachedTime = cached ? new Date(cached.publishedAt || cached.generatedAt || 0).getTime() : 0;
+  const cachedLink = cached?.fulfillment_link || '';
+
+  // El cache local es válido únicamente si coincide con el enlace publicado oficial, el monto facturado y su vigencia
+  const isCacheUpToDate = cached && 
+    (!rec.fulfillment_link || cachedLink === rec.fulfillment_link) &&
+    (rec.total_fulfillment === undefined || rec.total_fulfillment === null || cached.totals?.totalGross === rec.total_fulfillment) &&
+    (!recUpdatedTime || cachedTime >= (recUpdatedTime - 5000));
+
+  if (isCacheUpToDate) {
+    snapshot = cached;
+  } else if (cached) {
+    console.log('[BillingGenerator] Cache local desactualizado detectado. Se forzará descarga de versión oficial de la nube.', {
+      cacheTotal: cached.totals?.totalGross,
+      dbTotal: rec.total_fulfillment,
+      cacheLink: cachedLink,
+      dbLink: rec.fulfillment_link
+    });
+    try { localStorage.removeItem(cacheKey); } catch (e) {}
+  }
+
+  // Descargar el snapshot oficial de Storage si no hay snapshot o el local está desactualizado respecto a la DB
   if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
     try {
       const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
-      const resp = await fetch(fetchUrl);
+      const resp = await fetch(fetchUrl, { cache: 'no-store' });
       if (resp.ok) {
         snapshot = await resp.json();
+        snapshot.fulfillment_link = rec.fulfillment_link;
         try { localStorage.setItem(cacheKey, JSON.stringify(snapshot)); } catch (e) {}
       }
     } catch (fetchErr) {
       console.warn('Error al descargar snapshot JSON de Storage:', fetchErr);
     }
+  }
+
+  // Fallback de contingencia ante falla de conectividad
+  if (!snapshot && cached) {
+    console.warn('[BillingGenerator] Usando cache local como fallback de contingencia');
+    snapshot = cached;
   }
 
   // Fallback si no hay snapshot (registro tradicional no interactivo)
@@ -10433,12 +10546,18 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
           <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="Stocka" class="modal-stocka-logo-light" style="height: 34px; width: auto; object-fit: contain;">
           <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="Stocka" class="modal-stocka-logo-dark" style="height: 34px; width: auto; object-fit: contain;">
           <div>
-            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main, #0f172a); display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main, #0f172a); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <span>Facturación Fulfillment 360</span>
               <span style="font-size: 0.75rem; background: rgba(95, 6, 250, 0.1); color: #5f06fa; padding: 2px 8px; border-radius: 50px; font-weight: 800;">${escapeHtml(snapshot.comercio)}</span>
+              ${snapshot.version ? `
+                <span style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 50px; font-weight: 800; display: inline-flex; align-items: center; gap: 4px;" title="Versión oficial publicada">
+                  <i class="ri-git-commit-line"></i> v${snapshot.version}
+                </span>
+              ` : ''}
             </h3>
             <p style="margin: 0.2rem 0 0 0; font-size: 0.775rem; color: var(--color-text-muted, #64748b);">
               Periodo: <strong>${escapeHtml(snapshot.periodName || '')}</strong> • 
+              ${snapshot.publishedAt ? `Publicado: <strong>${new Date(snapshot.publishedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</strong> • ` : ''}
               ${(totals.totalAbonos > 0)
                 ? `Monto a Facturar: <strong>${formatCLP(totals.totalGross || 0)}</strong> • Abonos: <strong style="color: #10b981;">-${formatCLP(totals.totalAbonos)}</strong> • Monto a Pagar: <strong style="color: #5f06fa; font-size: 0.88rem;">${formatCLP(totals.totalToPay || 0)}</strong> (IVA incl.)`
                 : `Total a Facturar / Pagar: <strong style="color: #5f06fa; font-size: 0.85rem;">${formatCLP(totals.totalGross || totals.totalToPay || rec.total_fulfillment || 0)}</strong> (IVA incl.)`}
@@ -10745,13 +10864,37 @@ export async function downloadClientBillingPdf(recordId) {
 
       if (rec) {
         const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
-        try { snapshot = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+
+        const recUpdatedTime = rec.updated_at ? new Date(rec.updated_at).getTime() : 0;
+        const cachedTime = cached ? new Date(cached.publishedAt || cached.generatedAt || 0).getTime() : 0;
+        const isCacheValid = cached && 
+          (!rec.fulfillment_link || cached.fulfillment_link === rec.fulfillment_link) &&
+          (rec.total_fulfillment === undefined || rec.total_fulfillment === null || cached.totals?.totalGross === rec.total_fulfillment) &&
+          (!recUpdatedTime || cachedTime >= (recUpdatedTime - 5000));
+
+        if (isCacheValid) {
+          snapshot = cached;
+        } else if (cached) {
+          try { localStorage.removeItem(cacheKey); } catch (e) {}
+        }
 
         if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
-          const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
-          const resp = await fetch(fetchUrl);
-          if (resp.ok) snapshot = await resp.json();
+          try {
+            const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
+            const resp = await fetch(fetchUrl, { cache: 'no-store' });
+            if (resp.ok) {
+              snapshot = await resp.json();
+              snapshot.fulfillment_link = rec.fulfillment_link;
+              try { localStorage.setItem(cacheKey, JSON.stringify(snapshot)); } catch (e) {}
+            }
+          } catch (eF) {
+            console.warn('Error descargando snapshot para PDF:', eF);
+          }
         }
+
+        if (!snapshot && cached) snapshot = cached;
       }
     } catch (e) {
       console.warn('Error recuperando snapshot para PDF:', e);
@@ -10834,12 +10977,37 @@ export async function downloadClientBillingExcel(recordId) {
 
       if (rec) {
         const cacheKey = `stocka_fulfillment_details_${rec.period_id}_${rec.comercio}`;
-        try { snapshot = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem(cacheKey)); } catch (e) {}
+
+        const recUpdatedTime = rec.updated_at ? new Date(rec.updated_at).getTime() : 0;
+        const cachedTime = cached ? new Date(cached.publishedAt || cached.generatedAt || 0).getTime() : 0;
+        const isCacheValid = cached && 
+          (!rec.fulfillment_link || cached.fulfillment_link === rec.fulfillment_link) &&
+          (rec.total_fulfillment === undefined || rec.total_fulfillment === null || cached.totals?.totalGross === rec.total_fulfillment) &&
+          (!recUpdatedTime || cachedTime >= (recUpdatedTime - 5000));
+
+        if (isCacheValid) {
+          snapshot = cached;
+        } else if (cached) {
+          try { localStorage.removeItem(cacheKey); } catch (e) {}
+        }
 
         if (!snapshot && rec.fulfillment_link && (rec.fulfillment_link.startsWith('http://') || rec.fulfillment_link.startsWith('https://'))) {
-          const resp = await fetch(rec.fulfillment_link);
-          if (resp.ok) snapshot = await resp.json();
+          try {
+            const fetchUrl = rec.fulfillment_link + (rec.fulfillment_link.includes('?') ? '&' : '?') + 't=' + Date.now();
+            const resp = await fetch(fetchUrl, { cache: 'no-store' });
+            if (resp.ok) {
+              snapshot = await resp.json();
+              snapshot.fulfillment_link = rec.fulfillment_link;
+              try { localStorage.setItem(cacheKey, JSON.stringify(snapshot)); } catch (e) {}
+            }
+          } catch (eF) {
+            console.warn('Error descargando snapshot para Excel:', eF);
+          }
         }
+
+        if (!snapshot && cached) snapshot = cached;
       }
     } catch (e) {
       console.warn('Error recuperando snapshot para Excel:', e);
