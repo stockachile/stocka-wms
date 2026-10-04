@@ -394,7 +394,7 @@ BEGIN
                 OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
               WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
                 OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
-              ELSE 'En proceso'
+              ELSE 'Pendiente'
             END
           ),
           'picked_at', COALESCE(
@@ -535,7 +535,7 @@ BEGIN
                 OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
               WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
                 OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
-              ELSE 'En proceso'
+              ELSE 'Pendiente'
             END
           ),
           'picked_at', COALESCE(
@@ -669,7 +669,7 @@ BEGIN
                 OR LOWER(COALESCE(o.status, '')) IN ('despachado', 'preparado') THEN 'Completado'
               WHEN LOWER(COALESCE(o.estado_wms, '')) LIKE '%prep%'
                 OR LOWER(COALESCE(o.status, '')) LIKE '%prep%' THEN 'En preparación'
-              ELSE 'En proceso'
+              ELSE 'Pendiente'
             END
           ),
           'picked_at', COALESCE(

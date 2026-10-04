@@ -756,11 +756,26 @@
     .picking-status-tag {
       font-size: 0.72rem;
       font-weight: 800;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+    .picking-status-tag.completado {
       background: #ecfdf5;
       color: #065f46;
       border: 1px solid #a7f3d0;
-      padding: 0.2rem 0.6rem;
-      border-radius: 9999px;
+    }
+    .picking-status-tag.proceso {
+      background: #eff6ff;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+    .picking-status-tag.pendiente {
+      background: #f8fafc;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
     }
     .picking-units-tag {
       font-size: 0.72rem;
@@ -1658,6 +1673,23 @@
         const pickingItems = picking.items || [];
         const totalUnits = picking.total_units || pickingItems.reduce((acc, it) => acc + (it.quantity || 1), 0);
 
+        // Picking state calculation (Safe, strictly tied to real picking status)
+        const isOrderPicked = step2Done;
+        const isOrderInPrep = step2Active || (picking.status && (picking.status.toLowerCase().includes('prep') || picking.status.toLowerCase().includes('proceso')));
+
+        let pickingStatusClass = 'pendiente';
+        let pickingStatusLabel = 'Pendiente';
+        if (isOrderPicked) {
+          pickingStatusClass = 'completado';
+          pickingStatusLabel = 'Completado';
+        } else if (isOrderInPrep) {
+          pickingStatusClass = 'proceso';
+          pickingStatusLabel = 'En preparación';
+        } else {
+          pickingStatusClass = 'pendiente';
+          pickingStatusLabel = 'Pendiente';
+        }
+
         // Optiroute / Flota Propia Stocka X
         const opti = order.optiroute_info || {};
         const isOptiroute = (opti.is_optiroute || 
@@ -1775,53 +1807,76 @@
                     <span>Preparación en Bodega: <strong>${escapeHtml(picking.warehouse || 'Centro de Distribución Stocka')}</strong></span>
                   </div>
                   <div class="picking-header-badge">
-                    <span class="picking-status-tag">${escapeHtml(picking.status || (step2Done ? 'Completado' : 'En proceso'))}</span>
+                    <span class="picking-status-tag ${pickingStatusClass}">${escapeHtml(pickingStatusLabel)}</span>
                     ${totalUnits > 0 ? `<span class="picking-units-tag">${totalUnits} ${totalUnits === 1 ? 'unidad' : 'unidades'}</span>` : ''}
                     <i class="ri-arrow-down-s-line picking-toggle-icon" id="picking-icon-${escapeHtml(order.id)}"></i>
                   </div>
                 </div>
                 <div class="picking-card-body" id="picking-body-${escapeHtml(order.id)}" style="display: none;">
                   <div class="picking-details-grid">
-                    <div class="picking-detail-row">
-                      <i class="ri-checkbox-circle-fill" style="color: var(--success); font-size: 1.15rem; margin-top: 2px;"></i>
-                      <div>
-                        <strong>Control de Calidad y Embalaje:</strong><br>
-                        <span style="font-size: 0.78rem; color: var(--text-muted);">Productos inspeccionados, embalados y precintados bajo estándares WMS Stocka.</span>
-                      </div>
-                    </div>
-                    ${picking.picked_at ? `
+                    ${isOrderPicked ? `
                       <div class="picking-detail-row">
-                        <i class="ri-calendar-check-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                        <i class="ri-checkbox-circle-fill" style="color: var(--success); font-size: 1.15rem; margin-top: 2px;"></i>
                         <div>
-                          <strong>Fecha de Armado:</strong><br>
-                          <span style="font-size: 0.78rem; color: var(--text-muted);">${formatDate(picking.picked_at)}</span>
+                          <strong>Control de Calidad y Embalaje:</strong><br>
+                          <span style="font-size: 0.78rem; color: var(--text-muted);">Productos inspeccionados, embalados y precintados bajo estándares WMS Stocka.</span>
                         </div>
                       </div>
-                    ` : ''}
-                    ${picking.scanned_label ? `
+                      ${picking.picked_at ? `
+                        <div class="picking-detail-row">
+                          <i class="ri-calendar-check-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                          <div>
+                            <strong>Fecha de Armado:</strong><br>
+                            <span style="font-size: 0.78rem; color: var(--text-muted);">${formatDate(picking.picked_at)}</span>
+                          </div>
+                        </div>
+                      ` : ''}
+                      ${picking.scanned_label ? `
+                        <div class="picking-detail-row">
+                          <i class="ri-barcode-box-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                          <div>
+                            <strong>Etiqueta de Bulto Escaneada:</strong><br>
+                            <span style="font-size: 0.78rem; font-family: monospace; color: #334155;">${escapeHtml(picking.scanned_label)}</span>
+                          </div>
+                        </div>
+                      ` : ''}
+                    ` : (isOrderInPrep ? `
                       <div class="picking-detail-row">
-                        <i class="ri-barcode-box-line" style="color: var(--primary); font-size: 1.15rem; margin-top: 2px;"></i>
+                        <i class="ri-time-line" style="color: #2563eb; font-size: 1.15rem; margin-top: 2px;"></i>
                         <div>
-                          <strong>Etiqueta de Bulto Escaneada:</strong><br>
-                          <span style="font-size: 0.78rem; font-family: monospace; color: #334155;">${escapeHtml(picking.scanned_label)}</span>
+                          <strong>En Proceso de Preparación:</strong><br>
+                          <span style="font-size: 0.78rem; color: var(--text-muted);">Pedido en mesón de empaque para recolección física y control de calidad.</span>
                         </div>
                       </div>
-                    ` : ''}
+                    ` : `
+                      <div class="picking-detail-row">
+                        <i class="ri-inbox-line" style="color: #64748b; font-size: 1.15rem; margin-top: 2px;"></i>
+                        <div>
+                          <strong>Pendiente de Preparación en Bodega:</strong><br>
+                          <span style="font-size: 0.78rem; color: var(--text-muted);">Tu pedido está confirmado en sistema y a la espera de ser recolectado y embalado por el equipo de operaciones.</span>
+                        </div>
+                      </div>
+                    `)}
                   </div>
                   ${pickingItems.length > 0 ? `
                     <div class="picking-items-list">
-                      <span class="picking-items-heading">Contenido verificado del paquete:</span>
+                      <span class="picking-items-heading">${isOrderPicked ? 'Contenido verificado del paquete:' : (isOrderInPrep ? 'Artículos en preparación:' : 'Artículos incluidos en este pedido:')}</span>
                       <ul>
                         ${pickingItems.map(it => `
                           <li>
                             <div style="display: flex; flex-direction: column; gap: 0.2rem;">
                               <span>${escapeHtml(it.name)}</span>
-                              ${it.barcode ? `
+                              ${isOrderPicked && it.barcode ? `
                                 <span style="font-size: 0.72rem; color: #64748b; font-family: monospace; display: inline-flex; align-items: center; gap: 0.35rem;">
                                   <i class="ri-barcode-line" style="font-size: 0.85rem; color: var(--primary);"></i>
                                   <span>Código escaneado: <strong>${escapeHtml(it.barcode)}</strong></span>
                                 </span>
-                              ` : ''}
+                              ` : (it.sku ? `
+                                <span style="font-size: 0.72rem; color: #64748b; font-family: monospace; display: inline-flex; align-items: center; gap: 0.35rem;">
+                                  <i class="ri-hashtag" style="font-size: 0.85rem; color: #94a3b8;"></i>
+                                  <span>SKU: <strong>${escapeHtml(it.sku)}</strong></span>
+                                </span>
+                              ` : '')}
                             </div>
                             <span class="item-qty">x${it.quantity}</span>
                           </li>
