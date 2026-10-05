@@ -224,11 +224,37 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
   const finalGroupId = await resolveMeliOrderNumber(integration.comercio, groupId);
 
+  // Determinar comercios del holding (mismo RUT)
+  let holdingComercios = [integration.comercio];
+  try {
+    const { data: currentCommConfig } = await supabase
+      .from('comercios_adicional_config')
+      .select('rut')
+      .eq('comercio', integration.comercio)
+      .maybeSingle();
+
+    if (currentCommConfig && currentCommConfig.rut) {
+      const cleanRut = currentCommConfig.rut.trim();
+      if (cleanRut) {
+        const { data: siblingConfigs } = await supabase
+          .from('comercios_adicional_config')
+          .select('comercio')
+          .eq('rut', cleanRut);
+
+        if (siblingConfigs && siblingConfigs.length > 0) {
+          holdingComercios = siblingConfigs.map((sc: any) => sc.comercio);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn("Error al obtener holding para el comercio:", integration.comercio, err.message);
+  }
+
   const cleanMeliId = groupId.replace(/\D/g, "");
   const { data: existingOrders } = await supabase
     .from('orders')
     .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
-    .eq('comercio', integration.comercio)
+    .in('comercio', holdingComercios)
     .eq('external_platform', 'MercadoLibre')
     .ilike('external_order_number', `%${cleanMeliId}`);
 
@@ -264,7 +290,8 @@ async function handleOrderNotification(orderId: string, integration: any, access
         updatePayload.tracking_number = meliTrackingNumber;
       }
 
-      if (existingOrder.status !== 'cancelado') {
+      const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+      if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
         updatePayload.status = targetStatus;
       }
 

@@ -1,4 +1,6 @@
 import supabase from './supabase.js';
+window.supabaseClient = supabase;
+window.supabaseDb = supabase;
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
@@ -297,6 +299,84 @@ window.getComunaCoverageBadge = function(orderOrComuna) {
   const covBorder = isCovActive ? covInfo.activeBorder : covInfo.border;
 
   return `<span class="badge wms-coverage-tag ${covActiveClass}" onclick="event.stopPropagation(); window.filterByComunaCoverage('${safeCovKey}', event)" style="background-color: ${covBg}; color: ${covColor}; border: 1px solid ${covBorder}; padding: 0.12rem 0.45rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem; cursor: pointer; transition: all 0.15s;" title="${safeCovTitle}"><i class="${covInfo.icon}" style="font-size: 0.75rem;"></i> ${safeCovLabel}</span>`;
+};
+
+// Conjunto sincronizado de referencias confirmadas en RUTAS ACTIVAS de Optiroute
+window.optirouteActiveAssignedRefs = window.optirouteActiveAssignedRefs || new Set();
+window.optirouteActiveAssignedMap = window.optirouteActiveAssignedMap || new Map();
+try {
+  const savedActiveRefs = localStorage.getItem('wms_optiroute_active_assigned_refs');
+  if (savedActiveRefs) {
+    const arr = JSON.parse(savedActiveRefs);
+    if (Array.isArray(arr)) {
+      window.optirouteActiveAssignedRefs = new Set(arr.map(r => String(r).trim().toLowerCase()));
+    }
+  }
+  const savedActiveMap = localStorage.getItem('wms_optiroute_active_assigned_map');
+  if (savedActiveMap) {
+    const obj = JSON.parse(savedActiveMap);
+    if (obj && typeof obj === 'object') {
+      window.optirouteActiveAssignedMap = new Map(Object.entries(obj));
+    }
+  }
+} catch (e) {}
+
+window.getOptirouteActiveAssignedInfo = function(order) {
+  if (!order) return null;
+  if (!window.optirouteActiveAssignedMap || window.optirouteActiveAssignedMap.size === 0) {
+    return null;
+  }
+  const candidates = [
+    order.external_order_number,
+    order.numero_orden,
+    order.numero_pedido
+  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+
+  for (const c of candidates) {
+    if (window.optirouteActiveAssignedMap.has(c)) {
+      return window.optirouteActiveAssignedMap.get(c);
+    }
+    const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
+    if (window.optirouteActiveAssignedMap.has(unhashed)) {
+      return window.optirouteActiveAssignedMap.get(unhashed);
+    }
+  }
+  return null;
+};
+
+window.isOrderOptirouteConfirmado = function(order) {
+  if (!order) return false;
+
+  // 1. Excluir órdenes en estados finales terminales (Despachado, Cancelado, Archivado, Entregado)
+  const wmsStatus = String(order.estado_wms || '').trim().toLowerCase();
+  const origStatus = String(order.status || '').trim().toLowerCase();
+  if (['despachado', 'cancelado', 'archivado', 'entregado'].includes(wmsStatus) ||
+      ['despachado', 'cancelado', 'archivado', 'entregado'].includes(origStatus)) {
+    return false;
+  }
+
+  // 2. Solo aplicar para pedidos con conductor asignado pertenecientes a RUTAS ACTIVAS (como STK 05-10-26)
+  if (!window.optirouteActiveAssignedRefs || window.optirouteActiveAssignedRefs.size === 0) {
+    return false;
+  }
+
+  const candidates = [
+    order.external_order_number,
+    order.numero_orden,
+    order.numero_pedido
+  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+
+  for (const c of candidates) {
+    if (window.optirouteActiveAssignedRefs.has(c)) {
+      return true;
+    }
+    const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
+    if (window.optirouteActiveAssignedRefs.has(unhashed)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 let userRole = 'admin';
@@ -1067,7 +1147,7 @@ window.fetchInventoryForOrders = async function(orders) {
   }
 };
 
-window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+window.agendaOptions = ['RM', 'STK', 'RM-STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
 window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE', 'RIPLEY'];
 window.retiroKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
 
@@ -1079,7 +1159,7 @@ window.loadConfigOptions = async function() {
       
     if (error) throw error;
 
-    const defaultAgendas = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+    const defaultAgendas = ['RM', 'STK', 'RM-STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
     const defaultOperadores = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE', 'RIPLEY'];
     const defaultKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
 
@@ -1090,7 +1170,26 @@ window.loadConfigOptions = async function() {
     if (dbOptions) {
       agendas = dbOptions.filter(o => o.type === 'agenda').map(o => o.value);
       operadores = dbOptions.filter(o => o.type === 'operador').map(o => o.value);
-      keywords = dbOptions.filter(o => o.type === 'keyword_retiro').map(o => o.value);
+      keywords = dbOptions.filter(o => o.type === 'keyword_retiro' && !o.value.startsWith('__STK_COMUNAS__:')).map(o => o.value);
+      
+      const stkComunas = dbOptions.filter(o => o.type === 'cobertura_stk_comuna').map(o => o.value);
+      if (stkComunas.length > 0) {
+        window.coberturaStkComunas = new Set(stkComunas);
+        localStorage.setItem('wms_cobertura_stk_comunas', JSON.stringify(stkComunas));
+      } else {
+        const stkMarker = dbOptions.find(o => o.type === 'keyword_retiro' && o.value && o.value.startsWith('__STK_COMUNAS__:'));
+        if (stkMarker) {
+          try {
+            const parsed = JSON.parse(stkMarker.value.replace('__STK_COMUNAS__:', ''));
+            if (Array.isArray(parsed)) {
+              window.coberturaStkComunas = new Set(parsed);
+              localStorage.setItem('wms_cobertura_stk_comunas', JSON.stringify(parsed));
+            }
+          } catch (e) {
+            console.warn('Error parsing __STK_COMUNAS__ in admin.js:', e);
+          }
+        }
+      }
     }
 
     // Cargar y poblar Agendas
@@ -1145,7 +1244,7 @@ window.manageWmsConfigOptions = async function() {
     </div>
   `).join('');
 
-  const keywordsListHtml = (window.retiroKeywords || []).map(opt => `
+  const keywordsListHtml = (window.retiroKeywords || []).filter(opt => !opt.startsWith('__STK_COMUNAS__:')).map(opt => `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.9rem; background:var(--color-bg); padding:0.4rem 0.75rem; border-radius:var(--radius-md); border:1px solid var(--color-border); color:var(--color-text-main);">
       <span>${opt}</span>
       <button onclick="window.deleteWmsConfigOption('keyword_retiro', '${opt}')" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0.2rem;" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
@@ -1185,6 +1284,17 @@ window.manageWmsConfigOptions = async function() {
           <div style="max-height: 120px; overflow-y: auto; border: 1px solid var(--color-border); padding: 0.5rem; border-radius: var(--radius-md); background: var(--color-surface);">
             ${keywordsListHtml || '<span style="color:var(--color-text-muted);">Sin palabras clave custom.</span>'}
           </div>
+        </div>
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-border);">
+          <h4 style="margin-bottom: 0.35rem; color: #0f766e; font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-map-pin-range-line"></i> Sub-cobertura STK (RM-STK)
+          </h4>
+          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.6rem;">
+            Configura cuáles de las 36 comunas de Santiago RM tienen cobertura STK para sugerir 'RM-STK' a pedidos en procesamiento sin agenda.
+          </p>
+          <button type="button" class="btn btn-outline" onclick="window.openCoberturaStkModal ? window.openCoberturaStkModal() : null" style="font-size: 0.82rem; padding: 0.35rem 0.8rem; border-color: #99f6e4; color: #0f766e; background: rgba(13, 148, 136, 0.05); font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-checkbox-multiple-line"></i> Seleccionar Comunas STK (${(window.coberturaStkComunas || new Set()).size}/36)
+          </button>
         </div>
       </div>
     `,
@@ -4375,6 +4485,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         categoria_entrega,
         agenda,
         operador,
+        estado_ruta_optiroute,
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
@@ -4404,12 +4515,22 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
           attempts++;
           res = await q;
           if (!res.error) break;
+          if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute')) {
+            break;
+          }
           if (attempts < 3) {
             await new Promise(r => setTimeout(r, 600 * attempts));
           }
         }
 
-        if (res.error) throw res.error;
+        if (res.error) {
+          if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute')) {
+            console.warn('[Admin] Columna estado_ruta_optiroute aún no existe en orders, reintentando consulta sin esa columna...');
+            selectStr = selectStr.replace(/,?\s*estado_ruta_optiroute/g, '');
+            continue;
+          }
+          throw res.error;
+        }
         const data = res.data || [];
         if (data.length === 0) break;
         allOrders = allOrders.concat(data);
@@ -5951,6 +6072,11 @@ async function renderAdminOrders() {
         tags.add(`COBERTURA: ${covInfo.badgeText}`);
       }
 
+      // 16. Asignado Optiroute (confirmado en ruta activa con conductor)
+      if (typeof window.isOrderOptirouteConfirmado === 'function' ? window.isOrderOptirouteConfirmado(order) : false) {
+        tags.add('Asignado Optiroute');
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -5971,6 +6097,7 @@ async function renderAdminOrders() {
       });
 
       const orderPillTags = [
+        { key: 'Asignado Optiroute', label: 'Asignado Optiroute', icon: '🛣️' },
         { key: 'Con Packs', label: 'Con Packs', icon: '📦' },
         { key: 'CON NOTA', label: 'CON NOTA', icon: '💬' },
         { key: 'Etiqueta', label: 'Etiqueta Generada', icon: '🏷️' },
@@ -6304,7 +6431,7 @@ async function renderAdminOrders() {
           <button type="button" id="btn-subnav-agendas-grid" class="orders-subnav-tab" onclick="window.switchOrdersSubView('agendas_grid')">
             <i class="ri-table-line tab-icon"></i>
             <span>Gestión de Agendas</span>
-            <span class="tab-badge" id="agendas-tab-count">${(window.loadedOrders || []).length}</span>
+            <span class="tab-badge" id="agendas-tab-count">${typeof window.getEligibleAgendasCount === 'function' ? window.getEligibleAgendasCount() : (window.loadedOrders || []).filter(o => !['despachado','cancelado','entregado','retirado','archivado'].includes((o.status||'').toLowerCase()) && !['Despachado','Cancelado','Archivado','Pickeado'].includes(o.estado_wms)).length}</span>
           </button>
         </div>
       </div>
@@ -8677,6 +8804,31 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
+    // Tag Asignado Optiroute (solo cuando el pedido está confirmado en una RUTA ACTIVA con conductor)
+    const isOptiConfirmado = typeof window.isOrderOptirouteConfirmado === 'function'
+      ? window.isOrderOptirouteConfirmado(order)
+      : false;
+
+    let optirouteAssignedTagHtml = '';
+    if (isOptiConfirmado) {
+      const activeOptiInfo = typeof window.getOptirouteActiveAssignedInfo === 'function' ? window.getOptirouteActiveAssignedInfo(order) : null;
+      const isTagActive = (document.getElementById('filter-order-tag')?.value || '') === 'Asignado Optiroute';
+      const tooltipText = activeOptiInfo 
+        ? `Ruta Activa Optiroute: ${activeOptiInfo.planName || ''} | Conductor: ${activeOptiInfo.driver || 'Asignado'}${activeOptiInfo.vehicle ? ' (' + activeOptiInfo.vehicle + ')' : ''}. Clic para filtrar.`
+        : 'Ruta Activa Optiroute: Confirmado con conductor asignado. Clic para filtrar.';
+
+      optirouteAssignedTagHtml = `
+        <div style="margin-top: 0.18rem; display: flex; align-items: center;">
+          <span class="badge wms-optiroute-assigned-tag ${isTagActive ? 'wms-tag-active' : ''}" 
+                onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('Asignado Optiroute', event);" 
+                style="background-color: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer; transition: all 0.15s; line-height: 1.2; letter-spacing: 0.2px; ${isTagActive ? 'outline: 2px solid #047857; box-shadow: 0 0 6px rgba(4,120,87,0.35);' : ''}" 
+                title="${tooltipText.replace(/"/g, '&quot;')}">
+            <i class="ri-route-line" style="font-size: 0.72rem;"></i> asignado optiroute
+          </span>
+        </div>
+      `;
+    }
+
     const shippingFullAddress = [order.shipping_address, order.shipping_complement].filter(Boolean).join(', ').trim();
 
     rowsHtml += `
@@ -8731,6 +8883,7 @@ window.applyWmsFiltersAndRender = function() {
               </span>
               ${coverageCellBadgeHtml}
             </div>
+            ${optirouteAssignedTagHtml}
           </div>
         </td>
         <td style="text-align: center;"><strong style="color: var(--color-text-main); font-size: 0.85rem;">${qtyStr}</strong></td>
@@ -8799,6 +8952,7 @@ window.applyWmsFiltersAndRender = function() {
                   <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
                   ${window.renderCopyFieldBtn(order.shipping_city || comuna_destino, 'Comuna')}
                   ${window.getComunaCoverageBadge(order.shipping_city || comuna_destino)}
+                  ${optirouteAssignedTagHtml ? `<span style="margin-left: 0.25rem;">${optirouteAssignedTagHtml}</span>` : ''}
                   <button onclick="window.editWmsOrderComuna('${order.id}')" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem; height: 22px;">
                     <i class="ri-edit-line"></i> Editar
                   </button>
@@ -10605,7 +10759,7 @@ window.applyBulkWmsStatus = async function() {
         title: 'Stock Insuficiente Detectado',
         subtitle: successIds.length > 0
           ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de un total de ${ids.length} seleccionados. Hay <strong>${successIds.length} pedidos listos</strong> para ser enviados al Picker:`
-          : `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y no pueden ser enviados al Picker:`,
+          : `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su bodega asignada y no pueden ser enviados al Picker:`,
         failuresByOrder,
         validOrdersCount: successIds.length,
         actionButtonText: `<i class="ri-send-plane-line"></i> Enviar los ${successIds.length} pedidos restantes al Picker`,
@@ -10616,8 +10770,8 @@ window.applyBulkWmsStatus = async function() {
 
       if (shortageSwalRes && shortageSwalRes.isReassigned) {
         Swal.fire({
-          title: 'Reasignando bodega de destino...',
-          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);">Reasignando <strong>${shortageSwalRes.orderIds.length}</strong> pedido(s) a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
+          title: 'Cambiando bodega de preparación...',
+          html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Reasignando <strong>${shortageSwalRes.orderIds.length}</strong> pedido(s) a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
           allowOutsideClick: false,
           didOpen: () => { Swal.showLoading(); }
         });
@@ -11420,7 +11574,7 @@ window.onManifestCreated = async function (newManifest, shipmentIds) {
   }
 };
 
-window.getFormattedStockByWarehouse = async function(productId, targetWarehouseId) {
+window.getFormattedStockByWarehouse = async function(productId, targetWarehouseId, targetItem = null) {
   if (!productId) return '';
   try {
     const { data: warehouses } = await supabase
@@ -11440,19 +11594,44 @@ window.getFormattedStockByWarehouse = async function(productId, targetWarehouseI
       invMap[inv.warehouse_id] = inv.quantity || 0;
     });
 
+    const getSucursalVal = (whName) => {
+      const n = (whName || '').toLowerCase();
+      if (n.includes('reina')) return 'Sucursal La Reina';
+      if (n.includes('ñuñoa') || n.includes('nunoa')) return 'Sucursal Ñuñoa';
+      if (n.includes('recoleta')) return 'Sucursal Recoleta';
+      if (n.includes('central') || n.includes('hub')) return 'Sucursal Virtual (Hub)';
+      return '';
+    };
+
     let rowsHtml = warehouses.map(wh => {
       const qty = invMap[wh.id] || 0;
       const isTarget = wh.id === targetWarehouseId;
       const color = qty > 0 ? '#10b981' : '#ef4444';
       const weight = isTarget ? '700' : '600';
-      const badge = isTarget ? ' <span style="font-size:0.65rem; background:rgba(239,68,68,0.12); color:#ef4444; padding:0.1rem 0.35rem; border-radius:4px; margin-left:0.35rem; font-weight:700;">(Sucursal Asignada)</span>' : '';
-      
+      const badge = isTarget ? ' <span style="font-size:0.65rem; background:rgba(239,68,68,0.12); color:#ef4444; padding:0.1rem 0.35rem; border-radius:4px; margin-left:0.35rem; font-weight:700;">(Bodega Asignada Actual)</span>' : '';
+      const sucursalVal = getSucursalVal(wh.name);
+      const canSelect = qty > 0 && !isTarget && sucursalVal;
+
+      if (targetItem && qty >= (targetItem.requested || 1) && !isTarget && sucursalVal) {
+        if (!targetItem.availableWarehouses) targetItem.availableWarehouses = [];
+        if (!targetItem.availableWarehouses.includes(sucursalVal)) {
+          targetItem.availableWarehouses.push(sucursalVal);
+        }
+      }
+
+      const actionBadge = canSelect
+        ? `<span class="stock-pick-hint" style="font-size: 0.72rem; color: #2563eb; background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.25); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 600; margin-left: 0.5rem; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-cursor-line"></i> Descontar de aquí</span>`
+        : '';
+
       return `
-        <tr style="border-bottom: 1px solid var(--color-border); ${isTarget ? 'background: rgba(239, 68, 68, 0.05);' : ''}">
-          <td style="padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--color-text-main); font-weight: ${weight};">
-            ${wh.name}${badge}
+        <tr class="stock-warehouse-row ${canSelect ? 'clickable-wh-row' : ''}" 
+            data-sucursal-val="${canSelect ? sucursalVal : ''}" 
+            style="border-bottom: 1px solid var(--color-border); ${isTarget ? 'background: rgba(239, 68, 68, 0.05);' : ''} ${canSelect ? 'cursor: pointer;' : ''}"
+            ${canSelect ? `title="Haz clic para seleccionar ${wh.name} como bodega de descuento"` : ''}>
+          <td style="padding: 0.45rem 0.6rem; font-size: 0.8rem; color: var(--color-text-main); font-weight: ${weight};">
+            ${wh.name}${badge}${actionBadge}
           </td>
-          <td style="padding: 0.4rem 0.6rem; font-size: 0.8rem; text-align: right; color: ${color}; font-weight: 700;">
+          <td style="padding: 0.45rem 0.6rem; font-size: 0.8rem; text-align: right; color: ${color}; font-weight: 700;">
             ${qty} un.
           </td>
         </tr>
@@ -11461,9 +11640,14 @@ window.getFormattedStockByWarehouse = async function(productId, targetWarehouseI
 
     return `
       <div style="margin-top: 0.85rem;">
-        <strong style="font-size: 0.825rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem;">
-          <i class="ri-store-2-line" style="color: var(--color-primary);"></i> Disponibilidad de Stock en todas las bodegas:
-        </strong>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.25rem;">
+          <strong style="font-size: 0.825rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary);"></i> Disponibilidad de Stock en todas las bodegas:
+          </strong>
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+            (Haz clic en una bodega con stock para seleccionarla)
+          </span>
+        </div>
         <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; background: var(--color-surface);">
           <thead>
             <tr style="background: var(--color-bg); color: var(--color-text-muted); text-align: left; font-size: 0.75rem; border-bottom: 1px solid var(--color-border);">
@@ -11501,7 +11685,7 @@ window.showStockShortageSlidesModal = async function({
     for (const item of (orderFail.items || [])) {
       if (!item.stockBreakdownHtml && item.productId) {
         breakdownPromises.push(
-          window.getFormattedStockByWarehouse(item.productId, item.warehouseId).then(html => {
+          window.getFormattedStockByWarehouse(item.productId, item.warehouseId, item).then(html => {
             item.stockBreakdownHtml = html;
           }).catch(e => {
             console.warn('Error cargando desglose de stock para item:', item.sku, e);
@@ -11545,7 +11729,7 @@ window.showStockShortageSlidesModal = async function({
           </div>
           ${comercio ? `<span style="font-size: 0.75rem; background: var(--color-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); font-weight: 600;">${comercio}</span>` : ''}
           ${customer ? `<div style="width: 100%; font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.1rem;"><strong>Cliente:</strong> ${customer}</div>` : ''}
-          <div style="width: 100%; font-size: 0.8rem; color: var(--color-text-muted);"><strong>Sucursal Asignada:</strong> <span style="color: var(--color-text-main); font-weight: 600;">${whName}</span></div>
+          <div style="width: 100%; font-size: 0.8rem; color: var(--color-text-muted);"><strong>Bodega Asignada Actual:</strong> <span style="color: var(--color-text-main); font-weight: 600;">${whName}</span></div>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -11553,7 +11737,7 @@ window.showStockShortageSlidesModal = async function({
         </div>
 
         <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-          Si el stock se encuentra en Bodega Central u otra sucursal, puedes cambiar la sucursal de destino directamente abajo o realizar un traslado desde <strong>Hub Central / Reubicar</strong>.
+          Si el stock se encuentra en otra bodega o sucursal, puedes <strong>cambiar la bodega de descuento directamente abajo</strong> o hacer clic sobre una bodega disponible en la tabla para seleccionarla.
         </p>
       </div>
     `;
@@ -11587,40 +11771,45 @@ window.showStockShortageSlidesModal = async function({
   ];
 
   let suggestedSucursal = 'Sucursal La Reina';
-  const firstWhName = (failuresByOrder[0]?.warehouseName || '').toLowerCase();
-  if (firstWhName.includes('ñuñoa')) suggestedSucursal = 'Sucursal La Reina';
-  else if (firstWhName.includes('la reina')) suggestedSucursal = 'Sucursal Ñuñoa';
-  else if (firstWhName.includes('recoleta')) suggestedSucursal = 'Sucursal La Reina';
+  const firstItems = failuresByOrder[0]?.items || [];
+  if (firstItems.length > 0 && firstItems[0].availableWarehouses && firstItems[0].availableWarehouses.length > 0) {
+    suggestedSucursal = firstItems[0].availableWarehouses[0];
+  } else {
+    const firstWhName = (failuresByOrder[0]?.warehouseName || '').toLowerCase();
+    if (firstWhName.includes('ñuñoa')) suggestedSucursal = 'Sucursal La Reina';
+    else if (firstWhName.includes('la reina')) suggestedSucursal = 'Sucursal Ñuñoa';
+    else if (firstWhName.includes('recoleta')) suggestedSucursal = 'Sucursal La Reina';
+  }
 
   const reassignBoxHtml = allowReassignment ? `
-    <div id="shortage-reassign-container" style="background: rgba(37, 99, 235, 0.05); border: 1.5px solid rgba(37, 99, 235, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-top: 0.85rem; text-align: left;">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap;">
-        <span style="font-weight: 700; color: #1d4ed8; font-size: 0.88rem; display: flex; align-items: center; gap: 0.35rem;">
-          <i class="ri-store-2-line" style="font-size: 1.15rem;"></i> Cambiar Bodega de Destino Asignada
+    <div id="shortage-reassign-container" style="background: rgba(37, 99, 235, 0.06); border: 1.5px solid rgba(37, 99, 235, 0.35); border-radius: 8px; padding: 0.85rem 1rem; margin-top: 0.85rem; text-align: left; transition: all 0.3s ease;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; flex-wrap: wrap;">
+        <span style="font-weight: 700; color: #1d4ed8; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-store-2-line" style="font-size: 1.2rem;"></i> Cambiar bodega de donde se descuenta el stock
         </span>
-        <span style="font-size: 0.75rem; color: var(--color-text-muted);">Reasigna la sucursal de pickeo directamente desde este modal</span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted);">Reasigna la bodega de despacho y descuenta el stock físico desde allí</span>
       </div>
 
       <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <div style="flex: 1 1 200px; min-width: 170px;">
-          <select id="swal-shortage-reassign-select" class="swal2-select" style="width: 100%; height: 38px; font-size: 0.85rem; margin: 0; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface, #fff); color: var(--color-text-main); font-weight: 600;">
+        <div style="flex: 1 1 200px; min-width: 180px;">
+          <select id="swal-shortage-reassign-select" class="swal2-select" style="width: 100%; height: 38px; font-size: 0.85rem; margin: 0; padding: 0 0.5rem; border: 1.5px solid #2563eb; border-radius: 6px; background: var(--color-surface, #fff); color: var(--color-text-main); font-weight: 600;">
             ${sucursalesList.map(s => `<option value="${s.value}" ${s.value === suggestedSucursal ? 'selected' : ''}>${s.label}</option>`).join('')}
           </select>
         </div>
 
         <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
-          <button type="button" id="btn-reassign-shortage-failed" class="btn" style="background: #2563eb; color: #fff; border: none; font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(37,99,235,0.25); height: 38px;" title="Cambiar la sucursal de destino a los pedidos con stock insuficiente y revalidar">
-            <i class="ri-refresh-line"></i> Reasignar pedidos sin stock (${totalSlides})
+          <button type="button" id="btn-reassign-shortage-failed" class="btn" style="background: #2563eb; color: #fff; border: none; font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 4px rgba(37,99,235,0.25); height: 38px;" title="Descontar el stock desde la bodega seleccionada para los pedidos sin stock y procesar">
+            <i class="ri-refresh-line"></i> Descontar y despachar pedidos sin stock (${totalSlides})
           </button>
 
           ${totalCount > totalSlides ? `
-          <button type="button" id="btn-reassign-shortage-all" class="btn btn-outline" style="border: 1px solid #2563eb; color: #2563eb; background: rgba(37,99,235,0.06); font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; height: 38px;" title="Cambiar la sucursal a todos los ${totalCount} pedidos seleccionados y revalidar">
-            <i class="ri-checkbox-multiple-line"></i> Reasignar a todos (${totalCount})
+          <button type="button" id="btn-reassign-shortage-all" class="btn btn-outline" style="border: 1px solid #2563eb; color: #2563eb; background: rgba(37,99,235,0.06); font-weight: 600; padding: 0.45rem 0.85rem; font-size: 0.82rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; height: 38px;" title="Descontar el stock desde la bodega seleccionada para todos los pedidos seleccionados">
+            <i class="ri-checkbox-multiple-line"></i> Descontar a todos (${totalCount})
           </button>
           ` : ''}
 
           ${totalSlides > 1 ? `
-          <button type="button" id="btn-reassign-shortage-current" class="btn btn-outline" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); font-weight: 600; padding: 0.45rem 0.75rem; font-size: 0.78rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; height: 38px;" title="Reasignar solo al pedido que estás visualizando">
+          <button type="button" id="btn-reassign-shortage-current" class="btn btn-outline" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); font-weight: 600; padding: 0.45rem 0.75rem; font-size: 0.78rem; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; height: 38px;" title="Cambiar bodega de descuento solo para el pedido visualizado">
             Solo este (<span id="reassign-current-order-badge">${failuresByOrder[0]?.orderNum || 'este'}</span>)
           </button>
           ` : ''}
@@ -11630,6 +11819,11 @@ window.showStockShortageSlidesModal = async function({
   ` : '';
 
   const modalHtml = `
+    <style>
+      .clickable-wh-row:hover {
+        background: rgba(37, 99, 235, 0.09) !important;
+      }
+    </style>
     <div style="text-align: left; font-size: 0.9rem;">
       <p style="margin-bottom: 0.6rem; color: var(--color-text-muted);">
         ${subtitle || (totalSlides > 1 ? `Se detectaron <strong>${totalSlides} pedidos con stock insuficiente</strong> en su sucursal:` : 'No se puede procesar el pedido por falta de stock físico:')}
@@ -11716,6 +11910,27 @@ window.showStockShortageSlidesModal = async function({
           scope: 'single'
         };
         Swal.close();
+      });
+
+      // Clic en filas de la tabla de stock para seleccionar bodega automáticamente
+      document.querySelectorAll('.clickable-wh-row[data-sucursal-val]').forEach(row => {
+        row.addEventListener('click', () => {
+          const val = row.getAttribute('data-sucursal-val');
+          if (!val) return;
+          const selectEl = document.getElementById('swal-shortage-reassign-select');
+          if (selectEl) {
+            selectEl.value = val;
+            const container = document.getElementById('shortage-reassign-container');
+            if (container) {
+              container.style.transition = 'all 0.3s ease';
+              container.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.45)';
+              container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              setTimeout(() => {
+                container.style.boxShadow = 'none';
+              }, 1200);
+            }
+          }
+        });
       });
 
       if (totalSlides <= 1) return;
@@ -12276,8 +12491,8 @@ async function validateOrderStockForDispatch(ordersList) {
 
     if (swalRes && swalRes.isReassigned) {
       Swal.fire({
-        title: 'Reasignando bodega de despacho...',
-        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Reasignando <strong>${swalRes.orderIds.length}</strong> pedido(s) a <strong>${swalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
+        title: 'Cambiando bodega de despacho...',
+        html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Reasignando <strong>${swalRes.orderIds.length}</strong> pedido(s) a <strong>${swalRes.targetSucursal}</strong> para descontar stock y revalidando...</div>`,
         allowOutsideClick: false,
         allowEscapeKey: false,
         showConfirmButton: false,
@@ -12615,8 +12830,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
           if (shortageSwalRes && shortageSwalRes.isReassigned) {
             Swal.fire({
-              title: 'Reasignando bodega de destino...',
-              html: `<div style="font-size:0.9rem; color:var(--color-text-muted);">Reasignando pedido a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock...</div>`,
+              title: 'Cambiando bodega de preparación...',
+              html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Reasignando pedido a <strong>${shortageSwalRes.targetSucursal}</strong> y revalidando stock disponible...</div>`,
               allowOutsideClick: false,
               didOpen: () => { Swal.showLoading(); }
             });
@@ -17979,13 +18194,17 @@ async function renderAdminInventory() {
 
   const isStockTab = window.activeAdminInventoryTab === 'stock';
   const isReqsTab = window.activeAdminInventoryTab === 'requests';
+  const isLocationsTab = window.activeAdminInventoryTab === 'locations';
 
   appContent.innerHTML = `
     <!-- PESTAÑAS DE NAVEGACIÓN EN INVENTARIO ADMIN -->
     <div style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--color-border); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
-      <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         <button id="tab-admin-inv-stock" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isStockTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
           <i class="ri-box-3-line" style="margin-right: 0.35rem;"></i> Stock y Catálogo
+        </button>
+        <button id="tab-admin-inv-locations" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isLocationsTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
+          <i class="ri-map-pin-2-line" style="margin-right: 0.35rem;"></i> Ubicaciones
         </button>
         <button id="tab-admin-inv-requests" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isReqsTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
           <i class="ri-survey-line" style="margin-right: 0.35rem;"></i> Solicitudes de Inventario
@@ -18009,12 +18228,13 @@ async function renderAdminInventory() {
     </div>
 
     <div id="admin-inv-tab-content">
-      <!-- Se inyecta la vista de stock o de solicitudes según la pestaña activa -->
+      <!-- Se inyecta la vista de stock, ubicaciones o solicitudes según la pestaña activa -->
     </div>
   `;
 
   // Listeners de pestañas
   const tabStock = document.getElementById('tab-admin-inv-stock');
+  const tabLocations = document.getElementById('tab-admin-inv-locations');
   const tabRequests = document.getElementById('tab-admin-inv-requests');
   const tabMobileCount = document.getElementById('tab-admin-inv-mobile-count');
   const quickNewReq = document.getElementById('btn-admin-quick-new-request');
@@ -18038,6 +18258,10 @@ async function renderAdminInventory() {
         updateAdminInventoryRequestsTabBadge();
         if (window.activeAdminInventoryTab === 'requests') {
           await renderAdminInventoryRequestsWorkspace();
+        } else if (window.activeAdminInventoryTab === 'locations') {
+          if (typeof window.renderAdminLocationsTab === 'function') {
+            await window.renderAdminLocationsTab(document.getElementById('admin-inv-tab-content'));
+          }
         } else {
           if (window.activeAdminInventoryCommerce) {
             await renderAdminInventoryWorkspace(window.activeAdminInventoryCommerce);
@@ -18057,6 +18281,13 @@ async function renderAdminInventory() {
   if (tabStock) {
     tabStock.addEventListener('click', () => {
       window.activeAdminInventoryTab = 'stock';
+      renderAdminInventory();
+    });
+  }
+
+  if (tabLocations) {
+    tabLocations.addEventListener('click', () => {
+      window.activeAdminInventoryTab = 'locations';
       renderAdminInventory();
     });
   }
@@ -18089,6 +18320,10 @@ async function renderAdminInventory() {
 
   if (window.activeAdminInventoryTab === 'requests') {
     await renderAdminInventoryRequestsWorkspace();
+  } else if (window.activeAdminInventoryTab === 'locations') {
+    if (typeof window.renderAdminLocationsTab === 'function') {
+      await window.renderAdminLocationsTab(document.getElementById('admin-inv-tab-content'));
+    }
   } else {
     await renderAdminInventoryStockTab();
   }
@@ -55851,6 +56086,19 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
 // Módulo de Gestión de Comercios (Admin)
 // ==========================================
 
+// Catálogo Oficial de los 45 Proveedores Registrados en Optiroute
+const OPTIROUTE_SUPPLIERS = (typeof window !== 'undefined' && window.OPTIROUTE_SUPPLIERS) || [
+  'AIRPURE', 'ANACONDA HAITI', 'ANLU STORE', 'AQUALAT', 'ASTERFAIRO', 'B4LIFE',
+  'BACK IN TIME', 'BE NATIVE', 'BLESSNUSS', 'CROMO', 'DG ORAL CARE', 'DORMILONES',
+  'EL MUNDO DEL CAFE', 'FORTE MAX', 'FRUTZ', 'GLOSS', 'GRANJA MAGDALENA PET',
+  'LA MANTA CHILENA', 'LAQU', 'LIVROS', 'LUTAI', 'MAESE', 'MAGIC MAKEUP',
+  'MARINA VITAL', 'MEDSKILLS', 'MENPRIME', 'MMEDD', 'MUKAVA', 'NATIVA ELEMENTS',
+  'NOMAD', 'OPARD', 'POM KIDS', 'PORTONESAUTOMAT', 'RCT CHILE', 'RELAJARTE',
+  'RTT DEL SUR', 'SAGUAROSHOES', 'SERPA', 'SILVER FOX', 'SIMPLEMENTE CAFE',
+  'SMILE FOR PETS', 'STOCKA', 'STREET GYM', 'THE SKIN STORE', 'VITALITYFOODS'
+];
+if (typeof window !== 'undefined') window.OPTIROUTE_SUPPLIERS = OPTIROUTE_SUPPLIERS;
+
 async function renderMerchantsAdmin() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando módulo de comercios...</p>`;
@@ -55949,6 +56197,7 @@ async function renderMerchantsAdmin() {
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
+        optiroute_proveedor: (extra.optiroute_proveedor || extra.plat_siglas_config?.optiroute_proveedor || '').trim(),
         picking_match_strict: extra.picking_match_strict || false,
         onboarding_checklist: extra.onboarding_checklist || {},
         default_warehouse_id: extra.default_warehouse_id || null,
@@ -56181,12 +56430,14 @@ async function renderMerchantsAdmin() {
           ? `<span class="badge-status active" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', false)" title="Clic para desactivar Guía de Inicio en este comercio"><i class="ri-rocket-line"></i> Activo</span>`
           : `<span class="badge-status disabled" style="cursor: pointer; user-select: none;" onclick="window.toggleMerchantOnboardingQuick('${c.nombre.replace(/'/g, "\\'")}', true)" title="Clic para activar Guía de Inicio en este comercio"><i class="ri-forbid-line"></i> Inactivo</span>`;
 
-        const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id)
+        const optiProv = c.optiroute_proveedor || (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(c.nombre) : '');
+        const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id || optiProv)
           ? `<div>
                <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${c.rut || 'Sin RUT'}</div>
                ${c.email_colaborador ? `<div style="font-size: 0.7rem; color: var(--color-primary); margin-top: 0.15rem; word-break: break-all;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.email_colaborador}</div>` : ''}
                ${c.enviame_id ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-barcode-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>ID Enviame: ${c.enviame_id}</div>` : ''}
+               ${optiProv ? `<div style="font-size: 0.7rem; color: #4f46e5; margin-top: 0.15rem; font-weight: 600;"><i class="ri-truck-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>Optiroute: ${optiProv}</div>` : ''}
              </div>`
           : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
 
@@ -57674,6 +57925,7 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     plat_siglas_config JSONB DEFAULT '{}'::jsonb,
     email_colaborador TEXT,
     enviame_id TEXT,
+    optiroute_proveedor TEXT,
     default_warehouse_id UUID REFERENCES public.warehouses(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
@@ -57690,6 +57942,7 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_nombr
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_email TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_telefono TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_notas TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS optiroute_proveedor TEXT;
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -58580,6 +58833,17 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">
+              <i class="ri-truck-line" style="color: #4f46e5; margin-right: 0.25rem;"></i> Proveedor Optiroute
+            </label>
+            <select id="merchant-create-optiroute-proveedor" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="">-- Asignación Automática (STOCKA) --</option>
+              ${OPTIROUTE_SUPPLIERS.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Proveedor oficial asociado en Optiroute para ruteo de despachos y planillas.</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
             <select id="merchant-create-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
               <option value="activo" selected>Activo (Servicio habilitado)</option>
@@ -58970,6 +59234,7 @@ window.showMerchantCreateModal = function() {
     const kamNotas = document.getElementById('merchant-create-kam-notas')?.value.trim() || '';
     const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
     const enviameId = document.getElementById('merchant-create-enviame-id').value.trim();
+    const optirouteProveedor = (document.getElementById('merchant-create-optiroute-proveedor')?.value || '').trim().toUpperCase() || 'STOCKA';
     const billing = document.getElementById('merchant-create-billing').value;
     const createInventoryInput = document.getElementById('merchant-create-inventory');
     const inventory = createInventoryInput ? createInventoryInput.checked : false;
@@ -59027,57 +59292,72 @@ window.showMerchantCreateModal = function() {
 
       // 4. Crear configuración adicional en comercios_adicional_config si la tabla existe
       if (!isMigration) {
-        const { error: configErr } = await supabase
-          .from('comercios_adicional_config')
-          .upsert({
-            comercio: nombre,
-            comercio_id: id,
-            inventario_seguimiento: inventory,
-            pedido_trae_sigla: !platSiglasConfig.Manual?.agregar_prefijo,
-            rut: rut || null,
-            razon_social: razonSocial || null,
-            rep_legal_nombre: repNombre || null,
-            rep_legal_rut: repRut || null,
-            rep_legal_telefono: repTelefono || null,
-            rep_legal_email: repEmail || null,
-            kam_nombre: kamNombre || null,
-            kam_email: kamEmail || null,
-            kam_telefono: kamTelefono || null,
-            kam_notas: kamNotas || null,
-            plat_siglas_config: platSiglasConfig,
-            email_colaborador: emailColaborador || null,
-            enviame_id: enviameId || null,
-            picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false,
-            onboarding_checklist: {
-              enabled: document.getElementById('merchant-create-onboarding-active')?.checked !== false,
-              integrations: false,
-              catalog_ready: inventory,
-              shipping_configured: !!(enviameId && String(enviameId).trim().toLowerCase() !== 'null'),
-              sku_guide: false,
-              stock_declared: false,
-              dismissed: false,
-              pos_active: document.getElementById('merchant-create-pos-active')?.checked === true,
-              pos_machine: {
-                brand: document.getElementById('merchant-create-pos-brand')?.value.trim() || '',
-                color: document.getElementById('merchant-create-pos-color')?.value.trim() || '',
-                color_hex: document.getElementById('merchant-create-pos-color')?.getAttribute('data-color-hex') || document.getElementById('merchant-create-pos-color-picker')?.value || '',
-                model: document.getElementById('merchant-create-pos-model')?.value.trim() || '',
-                owner: document.getElementById('merchant-create-pos-owner')?.value.trim() || '',
-                notes: document.getElementById('merchant-create-pos-notes')?.value.trim() || ''
-              },
-              pos_bank_transfer: {
-                bank: document.getElementById('merchant-create-pos-bank')?.value.trim() || '',
-                account_type: document.getElementById('merchant-create-pos-bank-type')?.value || 'Cuenta Corriente',
-                account_number: document.getElementById('merchant-create-pos-bank-number')?.value.trim() || '',
-                holder_name: document.getElementById('merchant-create-pos-bank-holder')?.value.trim() || '',
-                holder_rut: document.getElementById('merchant-create-pos-bank-rut')?.value.trim() || '',
-                email: document.getElementById('merchant-create-pos-bank-email')?.value.trim() || '',
-                notes: document.getElementById('merchant-create-pos-bank-notes')?.value.trim() || ''
-              }
+        const insertPayload = {
+          comercio: nombre,
+          comercio_id: id,
+          inventario_seguimiento: inventory,
+          pedido_trae_sigla: !platSiglasConfig.Manual?.agregar_prefijo,
+          rut: rut || null,
+          razon_social: razonSocial || null,
+          rep_legal_nombre: repNombre || null,
+          rep_legal_rut: repRut || null,
+          rep_legal_telefono: repTelefono || null,
+          rep_legal_email: repEmail || null,
+          kam_nombre: kamNombre || null,
+          kam_email: kamEmail || null,
+          kam_telefono: kamTelefono || null,
+          kam_notas: kamNotas || null,
+          plat_siglas_config: { ...platSiglasConfig, optiroute_proveedor: optirouteProveedor },
+          optiroute_proveedor: optirouteProveedor,
+          email_colaborador: emailColaborador || null,
+          enviame_id: enviameId || null,
+          picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false,
+          onboarding_checklist: {
+            enabled: document.getElementById('merchant-create-onboarding-active')?.checked !== false,
+            integrations: false,
+            catalog_ready: inventory,
+            shipping_configured: !!(enviameId && String(enviameId).trim().toLowerCase() !== 'null'),
+            sku_guide: false,
+            stock_declared: false,
+            dismissed: false,
+            pos_active: document.getElementById('merchant-create-pos-active')?.checked === true,
+            pos_machine: {
+              brand: document.getElementById('merchant-create-pos-brand')?.value.trim() || '',
+              color: document.getElementById('merchant-create-pos-color')?.value.trim() || '',
+              color_hex: document.getElementById('merchant-create-pos-color')?.getAttribute('data-color-hex') || document.getElementById('merchant-create-pos-color-picker')?.value || '',
+              model: document.getElementById('merchant-create-pos-model')?.value.trim() || '',
+              owner: document.getElementById('merchant-create-pos-owner')?.value.trim() || '',
+              notes: document.getElementById('merchant-create-pos-notes')?.value.trim() || ''
+            },
+            pos_bank_transfer: {
+              bank: document.getElementById('merchant-create-pos-bank')?.value.trim() || '',
+              account_type: document.getElementById('merchant-create-pos-bank-type')?.value || 'Cuenta Corriente',
+              account_number: document.getElementById('merchant-create-pos-bank-number')?.value.trim() || '',
+              holder_name: document.getElementById('merchant-create-pos-bank-holder')?.value.trim() || '',
+              holder_rut: document.getElementById('merchant-create-pos-bank-rut')?.value.trim() || '',
+              email: document.getElementById('merchant-create-pos-bank-email')?.value.trim() || '',
+              notes: document.getElementById('merchant-create-pos-bank-notes')?.value.trim() || ''
             }
-          });
+          }
+        };
+
+        let { error: configErr } = await supabase
+          .from('comercios_adicional_config')
+          .upsert(insertPayload);
+
+        if (configErr && (configErr.code === '42703' || String(configErr.message || '').includes('optiroute_proveedor'))) {
+          console.warn('[Admin] Columna optiroute_proveedor no encontrada, reintentando con plat_siglas_config...');
+          delete insertPayload.optiroute_proveedor;
+          const retryRes = await supabase.from('comercios_adicional_config').upsert(insertPayload);
+          configErr = retryRes.error;
+        }
 
         if (configErr) throw configErr;
+
+        if (typeof window !== 'undefined') {
+          if (!window.optirouteMerchantsConfigMap) window.optirouteMerchantsConfigMap = {};
+          window.optirouteMerchantsConfigMap[nombre.toUpperCase()] = optirouteProveedor;
+        }
       }
 
       // 5. Insertar contactos iniciales del comercio si existen
@@ -59766,6 +60046,24 @@ window.showMerchantEditModal = async function(comercioName) {
                   <input type="email" id="merchant-edit-email-colaborador" class="form-input" value="${commerce.email_colaborador || ''}" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
                   <p class="merchant-form-hint">Correo utilizado en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
                 </div>
+
+                <div class="form-group" style="margin: 0; grid-column: 1 / -1; margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+                  <label class="merchant-form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                    <span><i class="ri-truck-line" style="color: #4f46e5; margin-right: 0.25rem;"></i> Proveedor Oficial en Optiroute</span>
+                    <span style="font-size: 0.7rem; font-weight: normal; color: var(--color-text-muted);">45 Proveedores disponibles</span>
+                  </label>
+                  <select id="merchant-edit-optiroute-proveedor" class="form-input" style="width: 100%; box-sizing: border-box; font-weight: 600;">
+                    ${(() => {
+                      const currentOpti = (commerce.optiroute_proveedor || (typeof window.getOptirouteProveedorForComercio === 'function' ? window.getOptirouteProveedorForComercio(commerce.nombre) : 'STOCKA') || 'STOCKA').toUpperCase();
+                      const suppliers = window.OPTIROUTE_SUPPLIERS || OPTIROUTE_SUPPLIERS || [];
+                      return suppliers.map(s => {
+                        const isSelected = (s === currentOpti);
+                        return `<option value="${s}" ${isSelected ? 'selected' : ''}>${s} ${s === 'STOCKA' ? '(Por Defecto / Stocka)' : ''}</option>`;
+                      }).join('');
+                    })()}
+                  </select>
+                  <p class="merchant-form-hint">Nombre oficial del proveedor en Optiroute asignado a los despachos y planillas de este comercio.</p>
+                </div>
               </div>
 
               <!-- Switch Correo E3 -->
@@ -60344,6 +60642,7 @@ window.showMerchantEditModal = async function(comercioName) {
     const rawEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const isValidEnviame = !!(rawEnviameId && rawEnviameId.toLowerCase() !== 'null');
     const newEnviameId = isValidEnviame ? rawEnviameId : null;
+    const newOptirouteProveedor = (document.getElementById('merchant-edit-optiroute-proveedor')?.value || '').trim().toUpperCase() || 'STOCKA';
     const sendE3 = document.getElementById('merchant-edit-send-e3')?.checked || false;
     const inventoryInput = document.getElementById('merchant-edit-inventory');
     const newInventory = inventoryInput ? inventoryInput.checked : (commerce.inventario_seguimiento || false);
@@ -60411,6 +60710,7 @@ window.showMerchantEditModal = async function(comercioName) {
           prefijo_origen: originInput ? originInput.value.trim().toUpperCase() : ''
         };
       });
+      newPlatSiglasConfig.optiroute_proveedor = newOptirouteProveedor;
     }
 
     // Obtener los límites iniciales de pedidos por canal
@@ -60450,31 +60750,41 @@ window.showMerchantEditModal = async function(comercioName) {
 
       // 3. Guardar en comercios_adicional_config si la tabla existe
       if (!isMigration) {
-        const { error: configErr } = await supabase
+        const updatePayload = {
+          comercio: commerce.nombre,
+          comercio_id: commerce.id,
+          inventario_seguimiento: newInventory,
+          pedido_trae_sigla: !newPlatSiglasConfig.Manual?.agregar_prefijo,
+          inventario_inicio_pedidos: startOrdersObj,
+          rut: newRut || null,
+          razon_social: newRazonSocial || null,
+          rep_legal_nombre: newRepNombre || null,
+          rep_legal_rut: newRepRut || null,
+          rep_legal_telefono: newRepTelefono || null,
+          rep_legal_email: newRepEmail || null,
+          kam_nombre: newKamNombre || null,
+          kam_email: newKamEmail || null,
+          kam_telefono: newKamTelefono || null,
+          kam_notas: newKamNotas || null,
+          plat_siglas_config: newPlatSiglasConfig,
+          optiroute_proveedor: newOptirouteProveedor,
+          email_colaborador: newEmailColaborador || null,
+          enviame_id: newEnviameId || null,
+          picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false,
+          onboarding_checklist: updatedChecklist,
+          default_warehouse_id: newDefaultWh || null
+        };
+
+        let { error: configErr } = await supabase
           .from('comercios_adicional_config')
-          .upsert({
-            comercio: commerce.nombre,
-            comercio_id: commerce.id,
-            inventario_seguimiento: newInventory,
-            pedido_trae_sigla: !newPlatSiglasConfig.Manual?.agregar_prefijo,
-            inventario_inicio_pedidos: startOrdersObj,
-            rut: newRut || null,
-            razon_social: newRazonSocial || null,
-            rep_legal_nombre: newRepNombre || null,
-            rep_legal_rut: newRepRut || null,
-            rep_legal_telefono: newRepTelefono || null,
-            rep_legal_email: newRepEmail || null,
-            kam_nombre: newKamNombre || null,
-            kam_email: newKamEmail || null,
-            kam_telefono: newKamTelefono || null,
-            kam_notas: newKamNotas || null,
-            plat_siglas_config: newPlatSiglasConfig,
-            email_colaborador: newEmailColaborador || null,
-            enviame_id: newEnviameId || null,
-            picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false,
-            onboarding_checklist: updatedChecklist,
-            default_warehouse_id: newDefaultWh || null
-          });
+          .upsert(updatePayload);
+
+        if (configErr && (configErr.code === '42703' || String(configErr.message || '').includes('optiroute_proveedor'))) {
+          console.warn('[Admin] Columna optiroute_proveedor no encontrada, reintentando con plat_siglas_config...');
+          delete updatePayload.optiroute_proveedor;
+          const retryRes = await supabase.from('comercios_adicional_config').upsert(updatePayload);
+          configErr = retryRes.error;
+        }
 
         if (configErr) throw configErr;
 
@@ -60483,6 +60793,11 @@ window.showMerchantEditModal = async function(comercioName) {
         commerce.al_dia = (newBilling === 'activo');
         commerce.inventario_seguimiento = newInventory;
         commerce.onboarding_checklist = updatedChecklist;
+        commerce.optiroute_proveedor = newOptirouteProveedor;
+        if (typeof window !== 'undefined') {
+          if (!window.optirouteMerchantsConfigMap) window.optirouteMerchantsConfigMap = {};
+          window.optirouteMerchantsConfigMap[commerce.nombre.toUpperCase()] = newOptirouteProveedor;
+        }
 
         // Si cambió de false a true, enviar el correo
         if (!oldCatalogReady && newCatalogReady) {
@@ -61393,6 +61708,7 @@ const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
 
 const pickerSupabase = window.supabase ? window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY) : null;
+window.pickerSupabase = pickerSupabase;
 
 window.editWmsOrderComuna = async function(orderId) {
   const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
@@ -61534,6 +61850,23 @@ window.editWmsOrderComuna = async function(orderId) {
           order.shipping_city = newComuna;
           if (rawKey && updatePayload[rawKey]) {
             order[rawKey] = updatePayload[rawKey];
+          }
+        }
+
+        // Sincronizar en Picker active_orders si existe
+        if (pickerSupabase && order) {
+          const orderNumber = String(order.external_order_number || order.id);
+          try {
+            await pickerSupabase
+              .from('active_orders')
+              .update({ contact_data_t: newComuna })
+              .eq('order_number', orderNumber);
+            console.log(`✅ Comuna sincronizada en Picker active_orders para ${orderNumber}: ${newComuna}`);
+          } catch (pErr) {
+            console.warn('Aviso sincronizando comuna con Picker:', pErr);
+          }
+          if (order.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
+            window.propagateOrderUpdateToPicker(order).catch(err => console.warn('Picker prop error:', err));
           }
         }
 
@@ -62621,7 +62954,7 @@ window.registerPickupIfNeeded = async function(order) {
   }
 };
 
-window.propagateOrderUpdateToPicker = async function(order) {
+window.propagateOrderUpdateToPicker = async function(order, options = {}) {
   if (!pickerSupabase) return;
   await window.registerPickupIfNeeded(order);
 
@@ -62643,9 +62976,10 @@ window.propagateOrderUpdateToPicker = async function(order) {
     }
   }
 
+  // 1. Consultar ítems existentes en Picker
   const { data: existingItems, error: getErr } = await pickerSupabase
     .from('active_orders')
-    .select('id, tracking, operator')
+    .select('id, tracking, operator, sheet_status, observation, sku, quantity')
     .eq('order_number', orderNumber);
 
   if (getErr) {
@@ -62660,6 +62994,49 @@ window.propagateOrderUpdateToPicker = async function(order) {
     return;
   }
 
+  const cleanStkTrack = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
+  const isStkAgenda = (order.agenda || '').trim().toUpperCase() === 'STK';
+  const isRetiro = (order.agenda || '').trim().toUpperCase() === 'RETIRO';
+  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
+  let finalTrack = '';
+  if (isStkAgenda) {
+    finalTrack = cleanStkTrack;
+  } else if (resolvedTrack && resolvedTrack !== '-' && resolvedTrack.toLowerCase() !== 'no informado') {
+    finalTrack = resolvedTrack;
+  } else if (existingItems && existingItems[0]?.tracking) {
+    finalTrack = existingItems[0].tracking;
+  } else {
+    finalTrack = cleanStkTrack;
+  }
+
+  const finalOperator = order.operador || (existingItems && existingItems[0]?.operator) || (isRetiro ? 'SUCURSAL ÑUÑOA' : '');
+
+  // 2. Si solo se cambiaron datos de cabecera / ruta (agenda, operador, comuna, tracking, etc.) y NO los ítems físicos:
+  // Actualizar directamente en active_orders sin borrar ni agregar observaciones de [MODIFICADO]
+  const forceItemsUpdate = Boolean(options && options.itemsChanged);
+  if (!forceItemsUpdate) {
+    const updatePayload = {
+      operator: finalOperator,
+      tracking: finalTrack,
+      agenda: order.agenda || 'STK',
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      contact_data_s: order.shipping_address || '',
+      contact_data_t: order.shipping_city || '',
+      contact_data_u: order.shipping_complement || ''
+    };
+
+    const { error: updErr } = await pickerSupabase
+      .from('active_orders')
+      .update(updatePayload)
+      .eq('order_number', orderNumber);
+
+    if (updErr) {
+      console.warn("Aviso actualizando datos en Picker:", updErr);
+    }
+    return;
+  }
+
+  // 3. Si se editaron explícitamente productos/ítems en el modal de edición de pedido:
   const { error: delErr } = await pickerSupabase
     .from('active_orders')
     .delete()
@@ -62689,25 +63066,22 @@ window.propagateOrderUpdateToPicker = async function(order) {
   const physicalItems = items.filter(item => !item.products?.is_virtual);
   const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
-  const now = new Date();
-  const shortDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  const cleanStkTrack = String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber;
-  const isStkAgenda = (order.agenda || '').trim().toUpperCase() === 'STK';
-  const isRetiro = (order.agenda || '').trim().toUpperCase() === 'RETIRO';
-  const resolvedTrack = window.resolveOrderTracking ? window.resolveOrderTracking(order) : (order.tracking_number || '');
-  let finalTrack = '';
-  if (isStkAgenda) {
-    finalTrack = cleanStkTrack;
-  } else if (resolvedTrack && resolvedTrack !== '-' && resolvedTrack.toLowerCase() !== 'no informado') {
-    finalTrack = resolvedTrack;
-  } else if (existingItems && existingItems[0]?.tracking) {
-    finalTrack = existingItems[0].tracking;
-  } else {
-    finalTrack = cleanStkTrack;
-  }
+  // Mantener estado y observaciones limpios sin advertencia intrusiva a menos que se indique alertItemsModified
+  const previousStatus = existingItems[0]?.sheet_status;
+  const targetSheetStatus = (previousStatus === 'Completado' || previousStatus === 'COMPLETADO') 
+    ? previousStatus 
+    : 'EN PREPARACIÓN';
 
-  const finalOperator = order.operador || (existingItems && existingItems[0]?.operator) || (isRetiro ? 'SUCURSAL ÑUÑOA' : '');
+  const cleanExistingObs = (existingItems[0]?.observation || '')
+    .replace(/\|\s*⚠️?\s*\[MODIFICADO\][\s\S]*?escanear\.?/gi, '')
+    .replace(/⚠️?\s*\[MODIFICADO\][\s\S]*?escanear\.?\s*\|?/gi, '')
+    .replace(/antes de escanear\.?/gi, '')
+    .trim();
+
+  const finalObs = window.buildPickerObservation 
+    ? window.buildPickerObservation(order, cleanExistingObs) 
+    : (cleanExistingObs || order.observation || '');
 
   for (const item of physicalItems) {
     const prod = item.products || {};
@@ -62759,8 +63133,8 @@ window.propagateOrderUpdateToPicker = async function(order) {
       tracking: finalTrack,
       operator: finalOperator,
       totu: totu,
-      sheet_status: 'Pendiente (Obs)',
-      observation: window.buildPickerObservation ? window.buildPickerObservation(order, `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`) : `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`,
+      sheet_status: targetSheetStatus,
+      observation: finalObs,
       contact_data_q: order.customer_email || '',
       contact_data_r: order.customer_phone || '',
       contact_data_s: order.shipping_address || '',

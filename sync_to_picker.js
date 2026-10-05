@@ -223,11 +223,77 @@ function resolveOrderTracking(order) {
   return '';
 }
 
+async function syncLocationsBidirectional() {
+  try {
+    // 1. Obtener todas las ubicaciones de WMS
+    const { data: wmsLocs, error: wmsErr } = await wmsClient.from('product_locations').select('*');
+    if (wmsErr) {
+      console.warn("⚠️ [SYNC LOCS] Error al consultar product_locations de WMS:", wmsErr.message);
+      return;
+    }
+
+    // 2. Obtener ubicaciones existentes en Picker
+    const { data: pickerLocs, error: pickerErr } = await pickerClient.from('product_locations').select('*');
+    if (pickerErr) {
+      console.warn("⚠️ [SYNC LOCS] Error al consultar product_locations de Picker:", pickerErr.message);
+      return;
+    }
+
+    const pickerLocsMap = new Map((pickerLocs || []).map(l => [String(l.id), l]));
+
+    // 3. Si en Picker se marcó '0 stock', reflejarlo en WMS
+    for (const pLoc of (pickerLocs || [])) {
+      if (pLoc.is_zero_stock) {
+        const wLoc = (wmsLocs || []).find(l => String(l.id) === String(pLoc.id));
+        if (wLoc && !wLoc.is_zero_stock) {
+          console.log(`🔄 [SYNC LOCS] Sincronizando 0 Stock desde Picker a WMS para SKU: ${pLoc.sku} en ${pLoc.bodega_nombre}`);
+          await wmsClient.from('product_locations').update({
+            is_zero_stock: true,
+            stock: 0,
+            updated_at: new Date().toISOString()
+          }).eq('id', pLoc.id);
+        }
+      }
+    }
+
+    // 4. Asegurar que todas las ubicaciones de WMS existan en Picker
+    if (wmsLocs && wmsLocs.length > 0) {
+      const toUpsert = wmsLocs.map(l => {
+        const pExisting = pickerLocsMap.get(String(l.id));
+        return {
+          id: l.id,
+          sku: l.sku,
+          comercio: l.comercio,
+          bodega_nombre: l.bodega_nombre,
+          zona: l.zona,
+          espacio: l.espacio,
+          posicion: l.posicion || null,
+          stock: (pExisting && pExisting.is_zero_stock) ? 0 : (l.stock != null ? l.stock : 1),
+          is_zero_stock: pExisting ? Boolean(pExisting.is_zero_stock) : Boolean(l.is_zero_stock),
+          created_at: l.created_at,
+          updated_at: l.updated_at
+        };
+      });
+
+      for (let i = 0; i < toUpsert.length; i += 100) {
+        const batch = toUpsert.slice(i, i + 100);
+        await pickerClient.from('product_locations').upsert(batch, { onConflict: 'id' });
+      }
+      console.log(`📍 [SYNC LOCS] Sincronizadas ${toUpsert.length} ubicaciones físicas WMS -> Picker.`);
+    }
+  } catch (err) {
+    console.warn("⚠️ [SYNC LOCS] Excepción al sincronizar ubicaciones:", err.message);
+  }
+}
+
 async function run() {
   console.log(`[${new Date().toISOString()}] Iniciando sincronización bidireccional WMS <-> Picker...`);
 
   try {
-    // 0. Obtener comercios con lectura estricta obligatoria
+    // 0. Sincronizar catálogo maestro de ubicaciones físicas WMS <-> Picker
+    await syncLocationsBidirectional();
+
+    // 0.1 Obtener comercios con lectura estricta obligatoria
     const { data: strictComercios } = await wmsClient
       .from('comercios_adicional_config')
       .select('comercio')
@@ -293,6 +359,95 @@ async function run() {
       .in('order_number', orderNumbers);
 
     if (pickerErr) throw pickerErr;
+
+    // 2.1 Cargar ubicaciones físicas de los productos de estos pedidos
+    const skusInOrders = new Set();
+    wmsOrders.forEach(o => {
+      (o.order_items || []).forEach(oi => {
+        if (oi.products?.sku) skusInOrders.add(String(oi.products.sku).trim().toUpperCase());
+      });
+    });
+
+    const locationsBySku = {};
+    if (skusInOrders.size > 0) {
+      try {
+        let { data: locs, error: locErr } = await wmsClient
+          .from('product_locations')
+          .select('*')
+          .in('sku', Array.from(skusInOrders));
+
+        if (locErr || !locs || locs.length === 0) {
+          const { data: pLocs } = await pickerClient
+            .from('product_locations')
+            .select('*')
+            .in('sku', Array.from(skusInOrders));
+          if (pLocs) locs = pLocs;
+        }
+
+        if (locs) {
+          locs.forEach(l => {
+            const s = String(l.sku || '').trim().toUpperCase();
+            if (!locationsBySku[s]) locationsBySku[s] = [];
+            locationsBySku[s].push(l);
+          });
+        }
+      } catch (err) {
+        console.warn("⚠️ Aviso al consultar ubicaciones físicas para sync:", err.message);
+      }
+    }
+
+    function resolvePickerItemLocation(sku, sucursal) {
+      const s = String(sku || '').trim().toUpperCase();
+      const allLocs = locationsBySku[s] || [];
+      if (allLocs.length === 0) {
+        return { location_info: '', locations_json: null };
+      }
+
+      const clean = str => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      const sucursalClean = clean(sucursal);
+
+      const keywords = ['nunoa', 'lareina', 'recoleta', 'central', 'pudahuel', 'sanbernardo', 'vitacura'];
+      const matchBodega = (locBodega) => {
+        const lbClean = clean(locBodega);
+        for (const kw of keywords) {
+          if (sucursalClean.includes(kw) && lbClean.includes(kw)) return true;
+        }
+        return sucursalClean === lbClean || sucursalClean.includes(lbClean) || lbClean.includes(sucursalClean);
+      };
+
+      const inBranch = allLocs.filter(l => matchBodega(l.bodega_nombre));
+      const activeInBranch = inBranch.filter(l => !l.is_zero_stock);
+
+      let locationInfo = '';
+      if (activeInBranch.length > 0) {
+        const loc = activeInBranch[0];
+        const pos = loc.posicion ? ` > ${loc.posicion}` : '';
+        locationInfo = `${loc.zona} > ${loc.espacio}${pos}`;
+        if (activeInBranch.length > 1) {
+          locationInfo += ` (+${activeInBranch.length - 1} más)`;
+        }
+      } else if (inBranch.length > 0) {
+        locationInfo = '0 Stock';
+      } else if (allLocs.length > 0) {
+        const activeLocs = allLocs.filter(l => !l.is_zero_stock);
+        if (activeLocs.length > 0) {
+          const first = activeLocs[0];
+          const pos = first.posicion ? ` > ${first.posicion}` : '';
+          const bShort = first.bodega_nombre.replace(/^(Matriz|CDD|Bodega)\s*/i, '');
+          locationInfo = `${first.zona} > ${first.espacio}${pos} (${bShort})`;
+          if (activeLocs.length > 1) {
+            locationInfo += ` (+${activeLocs.length - 1})`;
+          }
+        } else {
+          locationInfo = '0 Stock';
+        }
+      }
+
+      return {
+        location_info: locationInfo,
+        locations_json: allLocs
+      };
+    }
 
     for (const wmsOrder of wmsOrders) {
       const orderNo = String(wmsOrder.external_order_number || wmsOrder.id);
@@ -471,12 +626,15 @@ async function run() {
 
             const commerceName = String(wmsOrder.comercio || '').trim().toUpperCase();
             const commerceStrict = strictComerciosSet.has(commerceName);
+            const targetSku = resolvePickerSku(prod, wmsOrder, commerceStrict);
+            const locData = resolvePickerItemLocation(prod?.sku || targetSku, wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)');
+
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)',
               order_number: orderNo,
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: resolvePickerSku(prod, wmsOrder, commerceStrict),
+              sku: targetSku,
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
               color: colorVal ? String(colorVal).trim() : null,
               color_bg: opt.color_bg || null,
@@ -498,7 +656,9 @@ async function run() {
               extra_col_v: prod.image_url || '',
               comercio: wmsOrder.comercio || 'MAGIC MAKEUP',
               created_by: 'Sistema WMS',
-              picking_match_strict: commerceStrict || prod.picking_match_strict || false
+              picking_match_strict: commerceStrict || prod.picking_match_strict || false,
+              location_info: locData.location_info || '',
+              locations_json: locData.locations_json || null
             });
           });
 
@@ -507,7 +667,30 @@ async function run() {
             if (insErr) console.error(`Error re-insertando pedido ${orderNo} en Picker:`, insErr.message);
           }
         } else {
-          console.log(`✅ Pedido ${orderNo} está al día en el Picker. Sin cambios.`);
+          // Si el pedido no cambió en ítems, verificar si necesita actualizar o completar ubicaciones físicas
+          let locsUpdated = false;
+          for (const pi of pickerItemsForOrder) {
+            const prod = (wmsOrder.order_items || []).find(oi => {
+              const sku = resolvePickerSku(oi.products, wmsOrder, commerceStrict).trim().toUpperCase();
+              return sku === String(pi.sku || '').trim().toUpperCase();
+            })?.products;
+
+            const locData = resolvePickerItemLocation(prod?.sku || pi.sku, wmsOrder.sucursal_pickeo || pi.sucursal || 'Sucursal Virtual (Hub)');
+            const newLocInfo = locData.location_info || '';
+
+            if (newLocInfo && (!pi.location_info || pi.location_info !== newLocInfo || !pi.locations_json)) {
+              await pickerClient.from('active_orders').update({
+                location_info: newLocInfo,
+                locations_json: locData.locations_json || null
+              }).eq('id', pi.id);
+              locsUpdated = true;
+            }
+          }
+          if (locsUpdated) {
+            console.log(`📍 Ubicaciones físicas actualizadas en Picker para pedido ${orderNo}.`);
+          } else {
+            console.log(`✅ Pedido ${orderNo} está al día en el Picker. Sin cambios.`);
+          }
         }
 
       } else {
@@ -629,12 +812,15 @@ async function run() {
               cuelloVal = tmp;
             }
 
+            const targetSku = resolvePickerSku(prod, wmsOrder, commerceStrict);
+            const locData = resolvePickerItemLocation(prod?.sku || targetSku, wmsOrder.sucursal_pickeo || defaultSucursal);
+
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || defaultSucursal,
               order_number: orderNo,
               agenda: wmsOrder.agenda || (isRetiro ? 'RETIRO' : 'STK'),
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: resolvePickerSku(prod, wmsOrder, commerceStrict),
+              sku: targetSku,
               name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim())
                 ? prod.alias.trim()
                 : (prod.name || 'Producto WMS'),
@@ -659,7 +845,9 @@ async function run() {
               extra_col_v: prod.image_url || '',
               comercio: wmsOrder.comercio || 'STOCKA',
               created_by: 'Self-Healing Sync',
-              picking_match_strict: commerceStrict || prod.picking_match_strict || false
+              picking_match_strict: commerceStrict || prod.picking_match_strict || false,
+              location_info: locData.location_info || '',
+              locations_json: locData.locations_json || null
             });
           });
 

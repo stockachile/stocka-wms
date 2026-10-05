@@ -318,11 +318,12 @@ async function syncMerchantOrders(integration) {
     throw new Error("No hay bodega configurada para este comercio");
   }
 
-  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  // Obtener sigla del comercio, configuración de prefijos y holding (RUT compartido)
   let siglaComercio = '';
   let prefijoOrigen = '';
   let agregarPrefijo = false; // MercadoLibre default is false
   let hasPlatConfig = false;
+  let holdingComercios = [integration.comercio];
 
   if (integration.comercio) {
     try {
@@ -338,7 +339,7 @@ async function syncMerchantOrders(integration) {
 
       const { data: adicionalConfig } = await supabase
         .from('comercios_adicional_config')
-        .select('pedido_trae_sigla, plat_siglas_config')
+        .select('pedido_trae_sigla, plat_siglas_config, rut')
         .eq('comercio', integration.comercio)
         .maybeSingle();
 
@@ -352,13 +353,27 @@ async function syncMerchantOrders(integration) {
           // Fallback legacy
           agregarPrefijo = false;
         }
+
+        if (adicionalConfig.rut) {
+          const cleanRut = adicionalConfig.rut.trim();
+          if (cleanRut) {
+            const { data: siblingConfigs } = await supabase
+              .from('comercios_adicional_config')
+              .select('comercio')
+              .eq('rut', cleanRut);
+
+            if (siblingConfigs && siblingConfigs.length > 0) {
+              holdingComercios = siblingConfigs.map(sc => sc.comercio);
+            }
+          }
+        }
       } else {
         // Fallback default
         agregarPrefijo = false;
       }
-      console.log(`ℹ️ Configuración de prefijo para MercadoLibre: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+      console.log(`ℹ️ Configuración para MercadoLibre: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}", Holding=[${holdingComercios.join(', ')}]`);
     } catch (err) {
-      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+      console.error('⚠️ Error al consultar configuración para el comercio:', err.message);
     }
   }
 
@@ -546,12 +561,12 @@ async function syncMerchantOrders(integration) {
         }
       }
 
-      // B. Verificar si el pedido ya existe en el WMS (buscando por comercio y número de pedido base para evitar duplicados por cambios en los prefijos)
+      // B. Verificar si el pedido ya existe en el WMS (buscando dentro de los comercios del holding y número de pedido base para evitar duplicados por marcas hermanas)
       const cleanMeliId = groupId.replace(/\D/g, "");
       const { data: existingOrders } = await supabase
         .from('orders')
         .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
-        .eq('comercio', integration.comercio)
+        .in('comercio', holdingComercios)
         .eq('external_platform', 'MercadoLibre')
         .ilike('external_order_number', `%${cleanMeliId}`);
 
@@ -591,7 +606,7 @@ async function syncMerchantOrders(integration) {
           }
           
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-          if (!terminalStatuses.includes(existingOrder.status)) {
+          if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
             updatePayload.status = targetStatus;
           }
 
@@ -681,32 +696,7 @@ async function syncMerchantOrders(integration) {
 
         const customerPhone = receiverAddress?.receiver_phone || 'No especificado';
 
-        // Determinar comercio a asignar basado en el catálogo de productos a nivel de holding (RUT compartido)
-        let holdingComercios = [integration.comercio];
-        try {
-          const { data: currentCommConfig } = await supabase
-            .from('comercios_adicional_config')
-            .select('rut')
-            .eq('comercio', integration.comercio)
-            .maybeSingle();
-            
-          if (currentCommConfig && currentCommConfig.rut) {
-            const cleanRut = currentCommConfig.rut.trim();
-            if (cleanRut) {
-              const { data: siblingConfigs } = await supabase
-                .from('comercios_adicional_config')
-                .select('comercio')
-                .eq('rut', cleanRut);
-              
-              if (siblingConfigs && siblingConfigs.length > 0) {
-                holdingComercios = siblingConfigs.map(sc => sc.comercio);
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Error al obtener holding para el comercio:", integration.comercio, err.message);
-        }
-
+        // holdingComercios ya fue resuelto a nivel de holding al inicio de la sincronización
         const itemComercios = [];
         for (const sku of Object.keys(itemQuantities)) {
           // Buscamos de forma restringida dentro del holding (comercios que comparten RUT)
