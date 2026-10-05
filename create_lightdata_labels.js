@@ -1043,69 +1043,274 @@ async function handleBulkMode(limiteCarga) {
     }
 
     const listDids = [...new Set(createdDidsList)];
-    console.log(`📥 Descargando etiquetas consolidadas para ${listDids.length} envíos...`);
+    console.log(`📋 Total de DIDs reportados por el controlador de LightData: ${listDids.length}`);
 
-    const printData = {
-      "didEmpresa": 61,
-      "didEnvios": listDids,
-      "tipoEtiqueta": 1, // Formato 10x15
-      "calidad": 0,
-      "quien": 108
-    };
+    // =========================================================================
+    // BLINDAJE: Conciliar DIDs con pedidos reales de forma estricta por referencia/tracking
+    // NUNCA asignar por índice de array (listDids[index]), para evitar desfases si una fila es omitida.
+    // =========================================================================
+    console.log('🛡️ [BLINDAJE] Descargando reporte oficial de LightData para conciliar cada DID con su pedido...');
+    await page.waitForTimeout(2000);
 
-    const printResponse = await fetch("https://printserver.lightdata.app/print/etiqueta", {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(printData)
+    // Cerrar cualquier modal residual para asegurar acceso a los controles principales
+    await page.evaluate(() => {
+      try {
+        if (typeof appEnviosNoFlex !== 'undefined' && appEnviosNoFlex.close) appEnviosNoFlex.close();
+        if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
+        document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert, .swal-modal').forEach(el => el.remove());
+      } catch (e) {}
     });
 
-    if (!printResponse.ok) {
-      throw new Error(`Error del Print Server al descargar etiquetas consolidadas: ${printResponse.status}`);
-    }
+    const ldReportMap = new Map();
+    let reportDownloaded = false;
 
-    const printBuffer = await printResponse.arrayBuffer();
-    const consolidatedBase64 = Buffer.from(printBuffer).toString('base64');
-    console.log(`💾 Etiquetas consolidadas descargadas con éxito (Base64 length: ${consolidatedBase64.length})`);
+    try {
+      const downloadButtonSelector = 'a[onclick="appEnviosListados.downloadExcel();"]';
+      await page.locator(downloadButtonSelector).first().waitFor({ state: 'visible', timeout: 10000 });
 
-    // Actualizar todos los pedidos procesados en Supabase
-    // Al ser una descarga consolidada, para simplificar y asegurar que todos los pedidos tengan la etiqueta disponible,
-    // guardaremos la etiqueta consolidada completa en todos los registros procesados en este lote.
-    console.log('📡 Actualizando pedidos en Supabase con sus números de tracking y etiqueta...');
-    const fechaProcesamientoVal = getFechaProcesamiento();
+      const reportExcelPath = path.join(DOWNLOADS_DIR, `reconcile_${Date.now()}.xlsx`);
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 25000 }),
+        page.locator(downloadButtonSelector).first().click()
+      ]);
 
-    for (let index = 0; index < activeOrdersList.length; index++) {
-      const order = activeOrdersList[index];
-      const sigla = await getCommerceSigla(order.comercio);
-      const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
-      
-      const did = listDids[index] || '';
-      if (!did) {
-        console.warn(`⚠️ No se encontró did para el pedido ${order.external_order_number} en el índice ${index}, usando fallback trackingCode`);
+      await download.saveAs(reportExcelPath);
+      const reportWb = xlsx.readFile(reportExcelPath);
+      const reportWs = reportWb.Sheets[reportWb.SheetNames[0]];
+      const reportRows = xlsx.utils.sheet_to_json(reportWs, { header: 1 }).slice(5);
+
+      const ldUpserts = [];
+      reportRows.forEach(r => {
+        if (!r || !r[0]) return;
+        const id = String(r[0]).trim();
+        const trk = String(r[1] || '').trim();
+        const recipient = String(r[12] || '').trim();
+        const phone = String(r[13] || '').replace(/[^0-9]/g, '');
+        const addr = String(r[17] || '').trim();
+        const comuna = String(r[19] || '').trim();
+        const st = String(r[23] || '').trim();
+        const trkUrl = String(r[31] || '').trim() || `https://alphagroup.lightdata.com.ar/tracking.php?token=${id}d54df4s8a88`;
+
+        const itemData = {
+          id: id,
+          did: id,
+          tracking: trk,
+          nombre_destinatario: recipient,
+          telefono_destino: phone,
+          direccion_destino: addr,
+          comuna_destino: comuna,
+          status: st,
+          tracking_url: trkUrl,
+          raw_data: r
+        };
+
+        if (trk) {
+          const cleanTrk = trk.toUpperCase().replace(/#/g, '').trim();
+          ldReportMap.set(cleanTrk, itemData);
+          ldReportMap.set(trk.toUpperCase().trim(), itemData);
+          const numMatch = cleanTrk.match(/\d+$/);
+          if (numMatch) ldReportMap.set(numMatch[0], itemData);
+        }
+        if (phone && phone.length >= 8) {
+          ldReportMap.set(`PHONE_${phone.slice(-8)}`, itemData);
+        }
+        ldReportMap.set(`DID_${id}`, itemData);
+
+        ldUpserts.push({
+          id: id,
+          tracking: trk || null,
+          nombre_destinatario: recipient || null,
+          telefono_destino: phone || null,
+          direccion_destino: addr || null,
+          comuna_destino: comuna || null,
+          status: st || null,
+          tracking_url: trkUrl || null,
+          updated_at: new Date().toISOString()
+        });
+      });
+
+      // Subir a lightdata_envios para tener la tabla de envíos sincronizada en WMS
+      if (ldUpserts.length > 0) {
+        supabase.from('lightdata_envios').upsert(ldUpserts, { onConflict: 'id' }).then(() => {}).catch(() => {});
       }
 
+      if (fs.existsSync(reportExcelPath)) fs.unlinkSync(reportExcelPath);
+      reportDownloaded = true;
+      console.log(`✅ [BLINDAJE] Reporte de LightData procesado: ${reportRows.length} envíos mapeados para conciliación estricta.`);
+    } catch (reportErr) {
+      console.warn('⚠️ [BLINDAJE] No se pudo descargar el Excel de conciliación, intentando respaldo vía API interna:', reportErr.message);
+    }
+
+    // Respaldo secundario: si falló la descarga del Excel, consultar la API interna procesar_listado.php
+    if (!reportDownloaded || ldReportMap.size === 0) {
+      try {
+        const apiData = await page.evaluate(async () => {
+          const resp = await fetch('modules/envios/listado/procesar_listado.php?cantxpagina=100&pagina=1&estado=-1');
+          return await resp.json();
+        });
+        if (apiData && Array.isArray(apiData.rows)) {
+          apiData.rows.forEach(r => {
+            const id = String(r.did || '').trim();
+            const trk = String(r.tracking || '').trim();
+            const recipient = String(r.nombre || '').trim();
+            const phone = String(r.telefono || '').replace(/[^0-9]/g, '');
+            const trkUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${id}d54df4s8a88`;
+            const itemData = {
+              id: id,
+              did: id,
+              tracking: trk,
+              nombre_destinatario: recipient,
+              telefono_destino: phone,
+              tracking_url: trkUrl
+            };
+            if (trk) {
+              const cleanTrk = trk.toUpperCase().replace(/#/g, '').trim();
+              ldReportMap.set(cleanTrk, itemData);
+              ldReportMap.set(trk.toUpperCase().trim(), itemData);
+              const numMatch = cleanTrk.match(/\d+$/);
+              if (numMatch) ldReportMap.set(numMatch[0], itemData);
+            }
+            if (id) ldReportMap.set(`DID_${id}`, itemData);
+          });
+          console.log(`✅ [BLINDAJE API] Cargados ${apiData.rows.length} envíos desde API interna para conciliación.`);
+        }
+      } catch (apiErr) {
+        console.warn('⚠️ [BLINDAJE] Error al consultar API de listado:', apiErr.message);
+      }
+    }
+
+    // Función de búsqueda exacta para asociar pedido con su registro en LightData
+    function findExactLightDataMatch(order, expectedTrackingCode) {
+      const candidates = new Set();
+      if (expectedTrackingCode) {
+        candidates.add(expectedTrackingCode.toUpperCase().trim());
+        candidates.add(expectedTrackingCode.toUpperCase().replace(/#/g, '').trim());
+      }
+      if (order.external_order_number) {
+        const ext = String(order.external_order_number).toUpperCase().trim();
+        candidates.add(ext);
+        candidates.add(ext.replace(/#/g, ''));
+        const numOnly = ext.replace(/^[^0-9]+/i, '');
+        if (numOnly && numOnly.length >= 3) candidates.add(numOnly);
+      }
+
+      for (const cand of candidates) {
+        if (ldReportMap.has(cand)) {
+          return ldReportMap.get(cand);
+        }
+      }
+
+      // Fallback por teléfono
+      const cleanPhone = String(order.customer_phone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone.length >= 8 && ldReportMap.has(`PHONE_${cleanPhone.slice(-8)}`)) {
+        return ldReportMap.get(`PHONE_${cleanPhone.slice(-8)}`);
+      }
+
+      return null;
+    }
+
+    // 1. Vincular cada pedido de la lista con su DID real verificado
+    const verifiedOrderMatches = [];
+    const unmatchedOrders = [];
+
+    for (const order of activeOrdersList) {
+      const sigla = await getCommerceSigla(order.comercio);
+      const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
+      const matched = findExactLightDataMatch(order, trackingCode);
+
+      if (matched && matched.id) {
+        console.log(`🎯 [MATCH EXACTO] Pedido ${order.external_order_number} vinculado correctamente con DID ${matched.id} (${matched.nombre_destinatario || order.customer_name})`);
+        verifiedOrderMatches.push({
+          order: order,
+          did: matched.id,
+          trackingUrl: matched.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${matched.id}d54df4s8a88`
+        });
+      } else {
+        console.warn(`🚨 [OMISIÓN LIGHTDATA] El pedido ${order.external_order_number} (${order.customer_name}) NO fue creado en LightData (fue rechazado o no se insertó). NO se le asignará un DID ajeno.`);
+        unmatchedOrders.push(order);
+      }
+    }
+
+    // Registrar incidencias para pedidos omitidos
+    for (const unOrder of unmatchedOrders) {
+      try {
+        await supabase
+          .from('incidencias')
+          .insert({
+            comercio: unOrder.comercio,
+            title: `Error generación LightData - Pedido ${unOrder.external_order_number || unOrder.id}`,
+            description: `El pedido ${unOrder.external_order_number || unOrder.id} (${unOrder.customer_name}) fue omitido o rechazado durante la subida masiva a LightData. No se generó etiqueta y no se envió al Picker para evitar cruces.`,
+            type: 'pedido',
+            severity: 'critico',
+            status: 'pendiente'
+          });
+      } catch (_) {}
+    }
+
+    // 2. Descargar etiquetas únicamente para los DIDs efectivamente generados y verificados
+    const verifiedDids = Array.from(new Set(verifiedOrderMatches.map(m => m.did)));
+    let consolidatedBase64 = null;
+
+    if (verifiedDids.length > 0) {
+      console.log(`📥 Descargando etiquetas consolidadas para ${verifiedDids.length} envíos verificados...`);
+      const printData = {
+        "didEmpresa": 61,
+        "didEnvios": verifiedDids,
+        "tipoEtiqueta": 1, // Formato 10x15
+        "calidad": 0,
+        "quien": 108
+      };
+
+      try {
+        const printResponse = await fetch("https://printserver.lightdata.app/print/etiqueta", {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(printData)
+        });
+
+        if (printResponse.ok) {
+          const printBuffer = await printResponse.arrayBuffer();
+          consolidatedBase64 = Buffer.from(printBuffer).toString('base64');
+          console.log(`💾 Etiquetas consolidadas descargadas con éxito (Base64 length: ${consolidatedBase64.length})`);
+        } else {
+          console.warn(`⚠️ Error del Print Server al descargar etiquetas consolidadas: ${printResponse.status}`);
+        }
+      } catch (printErr) {
+        console.error('❌ Excepción al descargar etiquetas del Print Server:', printErr.message);
+      }
+    }
+
+    // 3. Actualizar en Supabase y enviar al Picker únicamente los pedidos con DID verificado
+    console.log(`📡 Actualizando ${verifiedOrderMatches.length} pedidos verificados en Supabase y sincronizando al Picker...`);
+    const fechaProcesamientoVal = getFechaProcesamiento();
+
+    for (const matchItem of verifiedOrderMatches) {
+      const { order, did, trackingUrl } = matchItem;
+
       const updatedOrderData = {
-        tracking_number: did || trackingCode, // Usar el ID de LightData (did) como tracking, o fallback
+        tracking_number: did,
+        tracking_url: trackingUrl,
         courier: 'CARRIER EXTERNO',
         label_base64: consolidatedBase64,
         estado_wms: 'En preparación',
         fecha_procesamiento: fechaProcesamientoVal,
         agenda: 'RM',
         operador: 'ALPHA',
-        raw_lightdata_data: did ? { did: did } : null
+        raw_lightdata_data: {
+          did: did,
+          id: did,
+          tracking: order.external_order_number,
+          tracking_url: trackingUrl
+        }
       };
 
-      // Actualizar bodega de los order_items correspondientes a la sucursal de pickeo antes del cambio de estado
       const targetWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
-      const { error: itemsUpdateError } = await supabase
+      await supabase
         .from('order_items')
         .update({ warehouse_id: targetWarehouseId })
         .eq('order_id', order.id);
-
-      if (itemsUpdateError) {
-        console.warn(`⚠️ Error al actualizar bodega de los order_items para el pedido ${order.external_order_number}:`, itemsUpdateError.message);
-      }
 
       const { error: updateError } = await supabase
         .from('orders')
@@ -1119,7 +1324,6 @@ async function handleBulkMode(limiteCarga) {
           ...order,
           ...updatedOrderData
         };
-        // Enviar al sistema Picker
         try {
           await sendSingleOrderToPicker(mergedOrder);
         } catch (pickerErr) {
@@ -1128,7 +1332,7 @@ async function handleBulkMode(limiteCarga) {
       }
     }
 
-    console.log('🎉 Carga masiva y actualización completada con éxito.');
+    console.log(`🎉 Carga masiva completada: ${verifiedOrderMatches.length} pedidos vinculados exactamente, ${unmatchedOrders.length} omitidos sin riesgo de desfase.`);
 
     // Limpiar archivos temporales
     if (fs.existsSync(excelPath)) fs.unlinkSync(excelPath);

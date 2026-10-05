@@ -574,6 +574,58 @@ body.resizing-columns * {
   letter-spacing: 0.02em;
 }
 
+/* Badges Estado WMS */
+.excel-badge-wms {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  white-space: normal;
+  line-height: 1.15;
+  max-width: 100%;
+}
+
+.excel-badge-wms-procesamiento {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border: 1px solid rgba(2, 132, 199, 0.28);
+}
+
+.excel-badge-wms-preparacion {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+}
+
+.excel-badge-wms-pickeado {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.excel-badge-wms-despachado {
+  background: rgba(99, 102, 241, 0.15);
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.excel-badge-wms-incidencia {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+
+.excel-badge-wms-cancelado {
+  background: rgba(100, 116, 139, 0.15);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+
 
 /* ==========================================================================
    4.b Menú Desplegable Flotante para Celdas (AGENDA & OPERADOR)

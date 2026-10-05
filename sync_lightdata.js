@@ -41,8 +41,13 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-// Inicializar cliente de Supabase
+// Inicializar cliente de Supabase WMS
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+// Inicializar cliente de Supabase Picker para autorrecuperación de trackings
+const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+const pickerClient = createClient(PICKER_URL, PICKER_KEY);
 
 /**
  * Mapea los estados de envío de LightData a los estados internos del WMS STOCKA
@@ -347,8 +352,13 @@ async function syncLightData() {
               raw_lightdata_data: shipmentPayload
             };
 
-            if (!dbOrder.tracking_number) {
-              updatePayload.tracking_number = id || tracking;
+            const currentTrack = String(dbOrder.tracking_number || '').trim();
+            const extNum = String(dbOrder.external_order_number || '').trim();
+            const isGenericTrack = !currentTrack || currentTrack.toLowerCase() === 'no informado' || currentTrack === extNum;
+            const isDifferentTrack = id && currentTrack && currentTrack !== id && (dbOrder.courier === 'CARRIER EXTERNO' || dbOrder.courier === 'LIGHTDATA');
+
+            if (isGenericTrack || isDifferentTrack) {
+              updatePayload.tracking_number = id;
             }
 
             if (!dbOrder.tracking_url && shipmentPayload.tracking_url) {
@@ -361,13 +371,23 @@ async function syncLightData() {
 
             const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
             const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
-            const needsUpdate = hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
+            const hasTrackingChange = Boolean(updatePayload.tracking_number && updatePayload.tracking_number !== currentTrack);
+            const needsUpdate = hasLightDataStatusChange || hasCourierChange || hasTrackingChange;
 
             if (needsUpdate) {
               await supabase
                 .from('orders')
                 .update(updatePayload)
                 .eq('id', dbOrder.id);
+
+              if (hasTrackingChange && pickerClient && extNum) {
+                try {
+                  await pickerClient
+                    .from('active_orders')
+                    .update({ tracking: updatePayload.tracking_number })
+                    .eq('order_number', extNum);
+                } catch (pErr) {}
+              }
             }
           }
         }

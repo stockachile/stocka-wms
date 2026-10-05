@@ -476,7 +476,7 @@
     }
   }, 1000);
 
-  // Definición de las 17 Columnas (con anchos compactos por defecto que caben en 100% de pantalla)
+  // Definición de las 18 Columnas (con anchos compactos por defecto que caben en 100% de pantalla)
   const COLUMN_DEFS = [
     { key: 'numero_pedido', label: 'N° Pedido', letter: 'A', defaultWidth: 85, editable: false, align: 'left' },
     { key: 'comercio', label: 'Comercio', letter: 'B', defaultWidth: 85, editable: false, align: 'left' },
@@ -491,10 +491,11 @@
     { key: 'valor_total', label: 'Valor Total', letter: 'K', defaultWidth: 75, editable: false, align: 'right' },
     { key: 'metodo_envio', label: 'Método de Envío', letter: 'L', defaultWidth: 85, editable: false, align: 'left' },
     { key: 'canal_ventas', label: 'Canal de Ventas', letter: 'M', defaultWidth: 75, editable: false, align: 'center' },
-    { key: 'categoria_entrega', label: 'CATEGORÍA', letter: 'N', defaultWidth: 95, editable: true, align: 'center', isSpecial: true },
-    { key: 'agenda', label: 'AGENDA', letter: 'O', defaultWidth: 85, editable: true, align: 'center', isSpecial: true },
-    { key: 'operador', label: 'OPERADOR', letter: 'P', defaultWidth: 90, editable: true, align: 'center', isSpecial: true },
-    { key: 'estado_ruta_optiroute', label: 'RUTA OPTIROUTE', letter: 'Q', defaultWidth: 135, editable: true, align: 'center', isSpecial: true }
+    { key: 'estado_wms', label: 'ESTADO WMS', letter: 'N', defaultWidth: 110, editable: true, align: 'center', isSpecial: true },
+    { key: 'categoria_entrega', label: 'CATEGORÍA', letter: 'O', defaultWidth: 95, editable: true, align: 'center', isSpecial: true },
+    { key: 'agenda', label: 'AGENDA', letter: 'P', defaultWidth: 85, editable: true, align: 'center', isSpecial: true },
+    { key: 'operador', label: 'OPERADOR', letter: 'Q', defaultWidth: 90, editable: true, align: 'center', isSpecial: true },
+    { key: 'estado_ruta_optiroute', label: 'RUTA OPTIROUTE', letter: 'R', defaultWidth: 135, editable: true, align: 'center', isSpecial: true }
   ];
 
   function getSavedColumnWidth(key, defaultWidth) {
@@ -653,6 +654,9 @@
       case 'canal_ventas':
         return String(order.origen || order.external_platform || 'Manual').trim();
 
+      case 'estado_wms':
+        return String(order.estado_wms || 'En procesamiento').trim();
+
       case 'categoria_entrega':
       case 'categoria':
         if (order.categoria_entrega) {
@@ -791,6 +795,39 @@
         <div class="excel-cell-content excel-cell-dropdown-wrapper" style="text-align: center;">
           ${badgeHtml}
           <i class="ri-arrow-down-s-line excel-cell-caret" title="Cambiar estado en ruta Optiroute"></i>
+        </div>
+      `;
+    }
+
+    if (col.key === 'estado_wms') {
+      const displayVal = rawVal || 'En procesamiento';
+      let badgeCls = 'excel-badge-wms-procesamiento';
+      let icon = 'ri-loader-4-line';
+      const norm = displayVal.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+      if (norm.includes('preparacion')) {
+        badgeCls = 'excel-badge-wms-preparacion';
+        icon = 'ri-time-line';
+      } else if (norm.includes('pickeado') || norm.includes('preparado')) {
+        badgeCls = 'excel-badge-wms-pickeado';
+        icon = 'ri-checkbox-circle-line';
+      } else if (norm.includes('despachado')) {
+        badgeCls = 'excel-badge-wms-despachado';
+        icon = 'ri-truck-line';
+      } else if (norm.includes('incidencia')) {
+        badgeCls = 'excel-badge-wms-incidencia';
+        icon = 'ri-error-warning-line';
+      } else if (norm.includes('cancelado')) {
+        badgeCls = 'excel-badge-wms-cancelado';
+        icon = 'ri-close-circle-line';
+      }
+
+      return `
+        <div class="excel-cell-content excel-cell-dropdown-wrapper" style="text-align: center;">
+          <span class="excel-badge-wms ${badgeCls}" style="display: inline-flex; align-items: center; gap: 0.2rem; max-width: calc(100% - 14px); white-space: normal; line-height: 1.15; padding: 0.12rem 0.35rem; font-size: 0.68rem;" title="${displayVal}">
+            <i class="${icon}"></i> ${displayVal}
+          </span>
+          <i class="ri-arrow-down-s-line excel-cell-caret" title="Cambiar Estado WMS"></i>
         </div>
       `;
     }
@@ -954,8 +991,9 @@
         const cityStr = String(order.shipping_city || order.comuna || '').toLowerCase();
         const covStr = String(getOrderFieldValue(order, 'cobertura_sugerida') || '').toLowerCase();
         const catStr = String(getOrderFieldValue(order, 'categoria_entrega') || '').toLowerCase();
+        const estadoWmsStr = String(getOrderFieldValue(order, 'estado_wms') || '').toLowerCase();
         const optiRouteStr = String(getOrderFieldValue(order, 'estado_ruta_optiroute') || '').toLowerCase();
-        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || addrStr.includes(queryNorm) || compStr.includes(queryNorm) || dateStr.includes(queryNorm) || timeStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm) || covStr.includes(queryNorm) || catStr.includes(queryNorm) || optiRouteStr.includes(queryNorm);
+        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || addrStr.includes(queryNorm) || compStr.includes(queryNorm) || dateStr.includes(queryNorm) || timeStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm) || covStr.includes(queryNorm) || catStr.includes(queryNorm) || estadoWmsStr.includes(queryNorm) || optiRouteStr.includes(queryNorm);
         if (!matchGlobal) return false;
       }
 
@@ -994,8 +1032,9 @@
         const cityStr = String(order.shipping_city || order.comuna || '').toLowerCase();
         const covStr = String(getOrderFieldValue(order, 'cobertura_sugerida') || '').toLowerCase();
         const catStr = String(getOrderFieldValue(order, 'categoria_entrega') || '').toLowerCase();
+        const estadoWmsStr = String(getOrderFieldValue(order, 'estado_wms') || '').toLowerCase();
         const optiRouteStr = String(getOrderFieldValue(order, 'estado_ruta_optiroute') || '').toLowerCase();
-        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || addrStr.includes(queryNorm) || compStr.includes(queryNorm) || dateStr.includes(queryNorm) || timeStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm) || covStr.includes(queryNorm) || catStr.includes(queryNorm) || optiRouteStr.includes(queryNorm);
+        const matchGlobal = idStr.includes(queryNorm) || clientStr.includes(queryNorm) || addrStr.includes(queryNorm) || compStr.includes(queryNorm) || dateStr.includes(queryNorm) || timeStr.includes(queryNorm) || commStr.includes(queryNorm) || cityStr.includes(queryNorm) || covStr.includes(queryNorm) || catStr.includes(queryNorm) || estadoWmsStr.includes(queryNorm) || optiRouteStr.includes(queryNorm);
         if (!matchGlobal) return false;
       }
 
@@ -1309,8 +1348,8 @@
 
         setActiveCell(cell);
 
-        // Desplegar inmediatamente las opciones configuradas al hacer clic en CATEGORÍA, AGENDA, OPERADOR, RUTA OPTIROUTE o COMUNA
-        if (colKey === 'categoria_entrega' || colKey === 'categoria' || colKey === 'agenda' || colKey === 'operador' || colKey === 'estado_ruta_optiroute' || colKey === 'comuna') {
+        // Desplegar inmediatamente las opciones configuradas al hacer clic en ESTADO WMS, CATEGORÍA, AGENDA, OPERADOR, RUTA OPTIROUTE o COMUNA
+        if (colKey === 'estado_wms' || colKey === 'categoria_entrega' || colKey === 'categoria' || colKey === 'agenda' || colKey === 'operador' || colKey === 'estado_ruta_optiroute' || colKey === 'comuna') {
           openCellDropdown(cell);
         } else {
           closeCellDropdown();
@@ -1321,7 +1360,7 @@
       cell.addEventListener('dblclick', (e) => {
         if (e.target.classList.contains('excel-fill-handle')) return;
         const colKey = cell.getAttribute('data-col-key');
-        if (colKey === 'categoria_entrega' || colKey === 'categoria' || colKey === 'agenda' || colKey === 'operador' || colKey === 'estado_ruta_optiroute' || colKey === 'comuna') {
+        if (colKey === 'estado_wms' || colKey === 'categoria_entrega' || colKey === 'categoria' || colKey === 'agenda' || colKey === 'operador' || colKey === 'estado_ruta_optiroute' || colKey === 'comuna') {
           openCellDropdown(cell);
         }
       });
@@ -1423,9 +1462,9 @@
         resolvedSourceValue = textSpan ? textSpan.textContent.trim() : '';
         if (resolvedSourceValue === 'Por definir' || resolvedSourceValue === '-') resolvedSourceValue = '';
       } else {
-        const badge = sourceCell.querySelector('.excel-badge-agenda, .excel-badge-operador, [class*="excel-badge-cat-"], [class*="excel-badge-opti-"]');
+        const badge = sourceCell.querySelector('.excel-badge-agenda, .excel-badge-operador, [class*="excel-badge-cat-"], [class*="excel-badge-opti-"], [class*="excel-badge-wms-"]');
         if (badge) {
-          resolvedSourceValue = colKey === 'estado_ruta_optiroute' ? badge.textContent.trim().toLowerCase() : badge.textContent.trim().toUpperCase();
+          resolvedSourceValue = colKey === 'estado_ruta_optiroute' ? badge.textContent.trim().toLowerCase() : (colKey === 'estado_wms' ? badge.textContent.trim() : badge.textContent.trim().toUpperCase());
         }
       }
     }
@@ -1573,10 +1612,11 @@
     const isCategoria = colKey === 'categoria_entrega' || colKey === 'categoria';
     const isEstadoRutaOptiroute = colKey === 'estado_ruta_optiroute';
     const isComuna = colKey === 'comuna';
+    const isEstadoWms = colKey === 'estado_wms';
 
     if (isComuna && (currentValue === 'Por definir' || currentValue === '-')) {
       currentValue = '';
-    } else if (!isComuna) {
+    } else if (!isComuna && !isEstadoWms) {
       currentValue = currentValue.toUpperCase();
     }
 
@@ -1605,6 +1645,10 @@
       configOptions = ['creado', 'confirmado', 'descartado'];
       title = 'Ruta Optiroute';
       icon = 'ri-route-line';
+    } else if (isEstadoWms) {
+      configOptions = ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
+      title = 'Estado WMS';
+      icon = 'ri-loader-4-line';
     } else if (isComuna) {
       title = 'Comuna de Destino';
       icon = 'ri-map-pin-2-line';
@@ -1662,6 +1706,38 @@
         } else {
           badgeContent = `<span>${opt}</span>`;
         }
+      } else if (isEstadoWms) {
+        const normOpt = opt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        let optCls = 'excel-badge-wms-procesamiento';
+        let optIco = 'ri-loader-4-line';
+        let optDesc = '';
+        if (normOpt.includes('preparacion')) {
+          optCls = 'excel-badge-wms-preparacion';
+          optIco = 'ri-time-line';
+          optDesc = 'Enviar a sistema Picker para preparación';
+        } else if (normOpt.includes('pickeado') || normOpt.includes('preparado')) {
+          optCls = 'excel-badge-wms-pickeado';
+          optIco = 'ri-checkbox-circle-line';
+          optDesc = 'Preparación completada en mesa de empaque';
+        } else if (normOpt.includes('despachado')) {
+          optCls = 'excel-badge-wms-despachado';
+          optIco = 'ri-truck-line';
+          optDesc = 'Pedido despachado / entregado a transportista';
+        } else if (normOpt.includes('incidencia')) {
+          optCls = 'excel-badge-wms-incidencia';
+          optIco = 'ri-error-warning-line';
+          optDesc = 'Problema reportado en preparación o stock';
+        } else if (normOpt.includes('cancelado')) {
+          optCls = 'excel-badge-wms-cancelado';
+          optIco = 'ri-close-circle-line';
+          optDesc = 'Pedido cancelado';
+        } else {
+          optDesc = 'Pendiente de inicio de preparación';
+        }
+        badgeContent = `<span class="excel-badge-wms ${optCls}"><i class="${optIco}"></i> ${opt}</span>`;
+        if (optDesc) {
+          subDesc = `<span style="font-size: 0.68rem; color: var(--color-text-muted); display: block; margin-top: 1px;">${optDesc}</span>`;
+        }
       } else if (isComuna) {
         const cObj = allComunasMap.get(opt.toLowerCase());
         const isRM = isComunaRM(opt);
@@ -1715,7 +1791,7 @@
         <input type="text" class="excel-dropdown-search-input" placeholder="Buscar o escribir opción..." autocomplete="off" />
       </div>
       <div class="excel-dropdown-list">
-        ${!isCategoria ? `
+        ${(!isCategoria && !isEstadoWms) ? `
         <div class="excel-dropdown-item ${!currentValue ? 'selected' : ''}" data-value="" data-text="vacio sin asignar ninguno limpiar - sin ruta sin comuna" style="border-bottom: 1px dashed var(--color-border); margin-bottom: 2px;">
           <div style="display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-muted); font-size: 0.76rem; font-style: italic;">
             <i class="ri-forbid-line"></i> ${isEstadoRutaOptiroute ? '(Sin ruta asignada / -)' : (isComuna ? '(Sin comuna / Por definir)' : '(Sin asignar / Vacío)')}
@@ -1731,7 +1807,7 @@
 
     // Posicionamiento dinámico adaptado a la celda y bordes de la pantalla
     const rect = cellElement.getBoundingClientRect();
-    const popoverWidth = isComuna ? 300 : (isEstadoRutaOptiroute ? 280 : 230);
+    const popoverWidth = isComuna ? 300 : ((isEstadoRutaOptiroute || isEstadoWms) ? 280 : 230);
     const popoverHeight = Math.min(340, popover.offsetHeight || 280);
 
     let left = rect.left;
@@ -1766,6 +1842,14 @@
 
       if (window.agendasGridState.activeCell) {
         window.agendasGridState.activeCell.value = newVal;
+      }
+
+      if (colKey === 'estado_wms' && typeof window.updateWmsOrderStatus === 'function') {
+        await window.updateWmsOrderStatus(orderId, newVal);
+        if (typeof window.renderAgendasGrid === 'function') {
+          window.renderAgendasGrid();
+        }
+        return;
       }
 
       await window.batchUpdateAgendasOrders([{
@@ -1817,6 +1901,14 @@
 
             if (window.agendasGridState.activeCell) {
               window.agendasGridState.activeCell.value = newVal;
+            }
+
+            if (colKey === 'estado_wms' && typeof window.updateWmsOrderStatus === 'function') {
+              await window.updateWmsOrderStatus(orderId, newVal);
+              if (typeof window.renderAgendasGrid === 'function') {
+                window.renderAgendasGrid();
+              }
+              return;
             }
 
             await window.batchUpdateAgendasOrders([{
@@ -2058,9 +2150,9 @@
           valToCopy = span ? span.textContent.trim() : '';
           if (valToCopy === 'Por definir' || valToCopy === '-') valToCopy = '';
         } else {
-          const badge = active.element.querySelector('.excel-badge-agenda, .excel-badge-operador, [class*="excel-badge-cat-"], [class*="excel-badge-opti-"]');
+          const badge = active.element.querySelector('.excel-badge-agenda, .excel-badge-operador, [class*="excel-badge-cat-"], [class*="excel-badge-opti-"], [class*="excel-badge-wms-"]');
           if (badge) {
-            valToCopy = active.colKey === 'estado_ruta_optiroute' ? badge.textContent.trim().toLowerCase() : badge.textContent.trim().toUpperCase();
+            valToCopy = active.colKey === 'estado_ruta_optiroute' ? badge.textContent.trim().toLowerCase() : (active.colKey === 'estado_wms' ? badge.textContent.trim() : badge.textContent.trim().toUpperCase());
           }
         }
       }
@@ -2088,8 +2180,8 @@
     if (!active) return;
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
 
-    // Solo permitir pegar en columnas editables (agenda, operador, categoría, comuna o ruta optiroute)
-    const isPasteAllowed = ['agenda', 'operador', 'categoria_entrega', 'categoria', 'estado_ruta_optiroute', 'comuna'].includes(active.colKey);
+    // Solo permitir pegar en columnas editables (agenda, operador, categoría, comuna, ruta optiroute o estado wms)
+    const isPasteAllowed = ['agenda', 'operador', 'categoria_entrega', 'categoria', 'estado_ruta_optiroute', 'comuna', 'estado_wms'].includes(active.colKey);
     if (!isPasteAllowed) {
       const toast = Swal.mixin({
         toast: true,
@@ -2099,7 +2191,7 @@
       });
       toast.fire({
         icon: 'warning',
-        title: 'Solo se puede pegar en COMUNA, CATEGORÍA, AGENDA, OPERADOR o RUTA OPTIROUTE'
+        title: 'Solo se puede pegar en ESTADO WMS, COMUNA, CATEGORÍA, AGENDA, OPERADOR o RUTA OPTIROUTE'
       });
       return;
     }
@@ -2140,6 +2232,14 @@
           else if (lVal.includes('descart') || lVal.includes('omit') || lVal.includes('cancel')) cellVal = 'descartado';
           else if (lVal === '-' || lVal === 'ninguno' || lVal === 'vacio' || lVal === 'sin asignar') cellVal = '';
           else cellVal = lVal;
+        } else if (active.colKey === 'estado_wms') {
+          const lVal = cellVal.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          if (lVal.includes('prepar')) cellVal = 'En preparación';
+          else if (lVal.includes('pick') || lVal.includes('listo')) cellVal = 'Pickeado';
+          else if (lVal.includes('despach')) cellVal = 'Despachado';
+          else if (lVal.includes('incid')) cellVal = 'Incidencia';
+          else if (lVal.includes('cancel')) cellVal = 'Cancelado';
+          else cellVal = 'En procesamiento';
         } else if (active.colKey === 'comuna') {
           const allComs = typeof window.getChileCommunesList === 'function' ? window.getChileCommunesList() : [];
           const normInput = resolveComunaNorm(rawCellVal);
@@ -2240,6 +2340,14 @@
         } else {
           const payload = {};
           payload[grp.field] = grp.value || null;
+          if (grp.field === 'estado_wms') {
+            const normG = String(grp.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            if (normG.includes('cancelado')) payload.status = 'cancelado';
+            else if (normG.includes('procesamiento')) payload.status = 'para procesar';
+            else if (normG.includes('preparacion')) payload.status = 'en preparación';
+            else if (normG.includes('pickeado') || normG.includes('preparado')) payload.status = 'preparado';
+            else if (normG.includes('despachado')) payload.status = 'despachado';
+          }
 
           promises.push(
             sb
@@ -2319,6 +2427,13 @@
         if (u.field === 'comuna') {
           updatesMap.get(idKey)['shipping_city'] = u.value;
           updatesMap.get(idKey)['comuna'] = u.value;
+        } else if (u.field === 'estado_wms') {
+          const normU = String(u.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          if (normU.includes('cancelado')) updatesMap.get(idKey)['status'] = 'cancelado';
+          else if (normU.includes('procesamiento')) updatesMap.get(idKey)['status'] = 'para procesar';
+          else if (normU.includes('preparacion')) updatesMap.get(idKey)['status'] = 'en preparación';
+          else if (normU.includes('pickeado') || normU.includes('preparado')) updatesMap.get(idKey)['status'] = 'preparado';
+          else if (normU.includes('despachado')) updatesMap.get(idKey)['status'] = 'despachado';
         }
 
         // Si la celda activa corresponde a este pedido y campo, actualizar su activeCell.value
@@ -2374,6 +2489,14 @@
             if (u.field === 'comuna') {
               order.shipping_city = u.value;
               order.comuna = u.value;
+            }
+            if (u.field === 'estado_wms') {
+              const normVal = String(u.value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              if (normVal.includes('cancelado')) order.status = 'cancelado';
+              else if (normVal.includes('procesamiento')) order.status = 'para procesar';
+              else if (normVal.includes('preparacion')) order.status = 'en preparación';
+              else if (normVal.includes('pickeado') || normVal.includes('preparado')) order.status = 'preparado';
+              else if (normVal.includes('despachado')) order.status = 'despachado';
             }
             const isActive = cell.classList.contains('excel-cell-active');
             cell.innerHTML = renderCellHtml(order, colDef, parseInt(cell.getAttribute('data-row-index'), 10));
@@ -3635,8 +3758,12 @@
         }
       };
 
+      const effectiveProv = provName || o.comercio || 'STOCKA';
+      payload.supplier = {
+        name: effectiveProv
+      };
       if (suppId) {
-        payload.supplier = { id: suppId };
+        payload.supplier.id = suppId;
       }
 
       try {

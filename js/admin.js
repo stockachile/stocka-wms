@@ -154,10 +154,41 @@ window.normalizeComunaKey = function(str) {
     .trim();
 };
 
+window.COMMON_COMUNA_ALIASES = {
+  'santiago centro': 'santiago',
+  'stgo': 'santiago',
+  'stgo centro': 'santiago',
+  'santiago de chile': 'santiago',
+  'santiago rm': 'santiago',
+  'stgo rm': 'santiago',
+  'valpo': 'valparaiso',
+  'vina': 'vina del mar',
+  'vina del mar': 'vina del mar',
+  'vina mar': 'vina del mar',
+  'la calera': 'calera',
+  'la serena centro': 'la serena',
+  'san felipe centro': 'san felipe',
+  'san bernardo centro': 'san bernardo',
+  'puente alto centro': 'puente alto',
+  'pto montt': 'puerto montt',
+  'pto varas': 'puerto varas',
+  'antofa': 'antofagasta',
+  'rancagua centro': 'rancagua',
+  'conce': 'concepcion',
+  'talca centro': 'talca',
+  'temuco centro': 'temuco'
+};
+
+window.resolveComunaAlias = function(comunaName) {
+  if (!comunaName) return '';
+  const norm = window.normalizeComunaKey(comunaName);
+  return window.COMMON_COMUNA_ALIASES[norm] || norm;
+};
+
 window.isAlphaComunaExact = function(comunaName) {
   if (!comunaName) return false;
-  const normalized = window.normalizeComunaKey(comunaName);
-  return window.ALPHA_COBERTURA_36.includes(normalized);
+  const resolved = window.resolveComunaAlias(comunaName);
+  return window.ALPHA_COBERTURA_36.includes(resolved);
 };
 
 window.isChileComuna = function(comunaName) {
@@ -165,23 +196,10 @@ window.isChileComuna = function(comunaName) {
   const norm = window.normalizeComunaKey(comunaName);
   if (!norm) return false;
 
-  if (window.shippingRates && window.shippingRates[norm]) return true;
+  const resolved = window.resolveComunaAlias(norm);
 
-  const aliases = {
-    'santiago centro': 'santiago',
-    'stgo': 'santiago',
-    'santiago de chile': 'santiago',
-    'valpo': 'valparaiso',
-    'vina': 'vina del mar',
-    'la calera': 'calera',
-    'la serena centro': 'la serena',
-    'san felipe centro': 'san felipe',
-    'san bernardo centro': 'san bernardo',
-    'puente alto centro': 'puente alto'
-  };
-  if (aliases[norm] && window.shippingRates && window.shippingRates[aliases[norm]]) return true;
-
-  if (window.ALPHA_COBERTURA_36.includes(norm)) return true;
+  if (window.shippingRates && (window.shippingRates[norm] || window.shippingRates[resolved])) return true;
+  if (window.ALPHA_COBERTURA_36.includes(resolved)) return true;
 
   return false;
 };
