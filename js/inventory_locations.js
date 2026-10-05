@@ -261,7 +261,7 @@ async function loadProductLocations(filters = {}) {
       let query = supa.from('product_locations').select('*');
       if (filters.comercio) query = query.eq('comercio', filters.comercio);
       const { data, error } = await query.order('created_at', { ascending: false });
-      if (!error && data && data.length > 0) {
+      if (!error && Array.isArray(data)) {
         locationsData = data;
       }
     } catch (err) {
@@ -269,32 +269,18 @@ async function loadProductLocations(filters = {}) {
     }
   }
 
-  // Intento 2: Consultar Picker Supabase (siempre activo y funcionando)
-  if (pickerClient && (!locationsData || locationsData.length === 0)) {
+  // Intento 2: Consultar Picker Supabase solo si WMS falló (error de conexión o tabla no creada)
+  if (pickerClient && locationsData === null) {
     try {
       let pQuery = pickerClient.from('product_locations').select('*');
       if (filters.comercio) pQuery = pQuery.eq('comercio', filters.comercio);
       const { data, error } = await pQuery.order('created_at', { ascending: false });
-      if (!error && data) {
+      if (!error && Array.isArray(data)) {
         locationsData = data;
       }
     } catch (pErr) {
       console.warn('Picker product_locations query error:', pErr);
     }
-  }
-
-  // Intento 3: Si se filtró por un comercio y dio 0, consultar sin filtro para no perder ubicaciones
-  if ((!locationsData || locationsData.length === 0) && filters.comercio && pickerClient) {
-    try {
-      const { data: allPLocs } = await pickerClient.from('product_locations').select('*').order('created_at', { ascending: false });
-      if (allPLocs && allPLocs.length > 0) {
-        const normFilter = filters.comercio.trim().toUpperCase();
-        const matched = allPLocs.filter(l => (l.comercio || '').trim().toUpperCase() === normFilter);
-        if (matched.length > 0) {
-          locationsData = matched;
-        }
-      }
-    } catch (_) {}
   }
 
   window.locationsState.locations = locationsData || [];
@@ -637,7 +623,19 @@ function renderLocationsWorkspace(container) {
   });
 
   // 2. Incluir ubicaciones huérfanas (SKUs que tienen ubicación pero no están en el catálogo descargado)
-  const orphanLocs = locations.filter(l => l.sku && !catalogSkus.has(l.sku.trim().toUpperCase()));
+  const orphanLocs = locations.filter(l => {
+    if (!l.sku) return false;
+    const s = l.sku.trim().toUpperCase();
+    if (catalogSkus.has(s)) return false;
+    // Si este SKU pertenece comprobadamente a otro comercio, no mostrarlo en este comercio
+    if (window.currentMasterProducts && Array.isArray(window.currentMasterProducts)) {
+      const known = window.currentMasterProducts.find(p => (p.sku || '').trim().toUpperCase() === s);
+      if (known && known.comercio && normalizeCommerceName(known.comercio) !== normalizeCommerceName(activeCommerce)) {
+        return false;
+      }
+    }
+    return true;
+  });
   const orphanBySku = {};
   orphanLocs.forEach(ol => {
     const s = ol.sku.trim().toUpperCase();
