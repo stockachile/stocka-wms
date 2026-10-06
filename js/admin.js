@@ -341,24 +341,38 @@ try {
 
 window.getOptirouteActiveAssignedInfo = function(order) {
   if (!order) return null;
-  if (!window.optirouteActiveAssignedMap || window.optirouteActiveAssignedMap.size === 0) {
-    return null;
-  }
   const candidates = [
     order.external_order_number,
     order.numero_orden,
-    order.numero_pedido
+    order.numero_pedido,
+    order.id
   ].filter(Boolean).map(x => String(x).trim().toLowerCase());
 
-  for (const c of candidates) {
-    if (window.optirouteActiveAssignedMap.has(c)) {
-      return window.optirouteActiveAssignedMap.get(c);
-    }
-    const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
-    if (window.optirouteActiveAssignedMap.has(unhashed)) {
-      return window.optirouteActiveAssignedMap.get(unhashed);
+  if (window.optirouteActiveAssignedMap && window.optirouteActiveAssignedMap.size > 0) {
+    for (const c of candidates) {
+      if (window.optirouteActiveAssignedMap.has(c)) {
+        return window.optirouteActiveAssignedMap.get(c);
+      }
+      const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
+      if (window.optirouteActiveAssignedMap.has(unhashed)) {
+        return window.optirouteActiveAssignedMap.get(unhashed);
+      }
     }
   }
+
+  // Si tiene ruta o plan guardado en el pedido
+  const rName = (order.ruta_optiroute || order.plan_optiroute || '').trim();
+  if (rName) {
+    return {
+      reference: order.external_order_number || order.id,
+      planName: rName,
+      routeName: rName,
+      driver: order.operador || 'Asignado',
+      vehicle: '',
+      status: order.estado_ruta_optiroute || 'creado'
+    };
+  }
+
   return null;
 };
 
@@ -373,24 +387,29 @@ window.isOrderOptirouteConfirmado = function(order) {
     return false;
   }
 
-  // 2. Solo aplicar para pedidos con conductor asignado pertenecientes a RUTAS ACTIVAS (como STK 05-10-26)
-  if (!window.optirouteActiveAssignedRefs || window.optirouteActiveAssignedRefs.size === 0) {
-    return false;
+  // 2. Si el pedido ya tiene estado de ruta Optiroute activo en BD ('creado' o 'confirmado')
+  const optiDbStatus = String(order.estado_ruta_optiroute || '').trim().toLowerCase();
+  if (optiDbStatus === 'creado' || optiDbStatus === 'confirmado') {
+    return true;
   }
 
-  const candidates = [
-    order.external_order_number,
-    order.numero_orden,
-    order.numero_pedido
-  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+  // 3. Si pertenece a las referencias confirmadas en rutas activas de Optiroute
+  if (window.optirouteActiveAssignedRefs && window.optirouteActiveAssignedRefs.size > 0) {
+    const candidates = [
+      order.external_order_number,
+      order.numero_orden,
+      order.numero_pedido,
+      order.id
+    ].filter(Boolean).map(x => String(x).trim().toLowerCase());
 
-  for (const c of candidates) {
-    if (window.optirouteActiveAssignedRefs.has(c)) {
-      return true;
-    }
-    const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
-    if (window.optirouteActiveAssignedRefs.has(unhashed)) {
-      return true;
+    for (const c of candidates) {
+      if (window.optirouteActiveAssignedRefs.has(c)) {
+        return true;
+      }
+      const unhashed = c.startsWith('#') ? c.substring(1) : ('#' + c);
+      if (window.optirouteActiveAssignedRefs.has(unhashed)) {
+        return true;
+      }
     }
   }
 
@@ -4606,6 +4625,12 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         if (window.fetchInventoryForOrders) {
           await window.fetchInventoryForOrders(orders);
         }
+
+        if (typeof window.loadOptirouteActiveAssignedRefs === 'function') {
+          window.loadOptirouteActiveAssignedRefs({ silent: true }).catch(err => {
+            console.warn('[Admin] Aviso cargando rutas activas de Optiroute:', err);
+          });
+        }
       } else {
         window.loadedShipments = [];
       }
@@ -6093,6 +6118,11 @@ async function renderAdminOrders() {
       // 16. Asignado Optiroute (confirmado en ruta activa con conductor)
       if (typeof window.isOrderOptirouteConfirmado === 'function' ? window.isOrderOptirouteConfirmado(order) : false) {
         tags.add('Asignado Optiroute');
+        const activeOpti = typeof window.getOptirouteActiveAssignedInfo === 'function' ? window.getOptirouteActiveAssignedInfo(order) : null;
+        const rName = (activeOpti?.planName || activeOpti?.routeName || '').trim();
+        if (rName) {
+          tags.add(`Ruta Optiroute: ${rName}`);
+        }
       }
 
       order._wmsTags = Array.from(tags);
@@ -6179,18 +6209,22 @@ async function renderAdminOrders() {
 
       const slaTags = [];
       const deliveryTypeTags = [];
+      const optirouteRouteTags = [];
       const customPlatformTags = [];
       tagCounts.forEach((count, tagKey) => {
         if (tagKey.startsWith('SLA:')) {
           slaTags.push({ key: tagKey, label: tagKey, icon: '⏰' });
         } else if (tagKey.startsWith('ENTREGA:')) {
           deliveryTypeTags.push({ key: tagKey, label: tagKey.replace(/^ENTREGA:\s*/, ''), icon: '🚚' });
+        } else if (tagKey.startsWith('Ruta Optiroute:')) {
+          optirouteRouteTags.push({ key: tagKey, label: tagKey.replace(/^Ruta Optiroute:\s*/, ''), icon: '🗺️' });
         } else if (!knownKeys.has(tagKey) && !tagKey.startsWith('Picker:')) {
           customPlatformTags.push({ key: tagKey, label: tagKey, icon: '🏷️' });
         }
       });
       slaTags.sort((a, b) => a.key.localeCompare(b.key));
       deliveryTypeTags.sort((a, b) => a.label.localeCompare(b.label));
+      optirouteRouteTags.sort((a, b) => a.label.localeCompare(b.label));
 
       const buildOptgroup = (label, list) => {
         const present = list.filter(item => (tagCounts.get(item.key) || 0) > 0);
@@ -6204,6 +6238,9 @@ async function renderAdminOrders() {
 
       let html = `<option value="">Todas las etiquetas (${orders.length})</option>`;
       html += buildOptgroup('Cobertura Comuna Destino', coverageTags);
+      if (optirouteRouteTags.length > 0) {
+        html += buildOptgroup('Rutas Activas Optiroute', optirouteRouteTags);
+      }
       if (deliveryTypeTags.length > 0) {
         html += buildOptgroup('Tipo de Entrega (Marketplaces)', deliveryTypeTags);
       }
@@ -8828,21 +8865,67 @@ window.applyWmsFiltersAndRender = function() {
       : false;
 
     let optirouteAssignedTagHtml = '';
+    let optirouteBadgesHtml = '';
     if (isOptiConfirmado) {
       const activeOptiInfo = typeof window.getOptirouteActiveAssignedInfo === 'function' ? window.getOptirouteActiveAssignedInfo(order) : null;
-      const isTagActive = (document.getElementById('filter-order-tag')?.value || '') === 'Asignado Optiroute';
+      const isTagActive = (document.getElementById('filter-order-tag')?.value || '') === 'Asignado Optiroute' || selectedTag === 'Asignado Optiroute';
       const tooltipText = activeOptiInfo 
         ? `Ruta Activa Optiroute: ${activeOptiInfo.planName || ''} | Conductor: ${activeOptiInfo.driver || 'Asignado'}${activeOptiInfo.vehicle ? ' (' + activeOptiInfo.vehicle + ')' : ''}. Clic para filtrar.`
         : 'Ruta Activa Optiroute: Confirmado con conductor asignado. Clic para filtrar.';
 
+      // Extraer nombre de la ruta
+      const routePlanName = (activeOptiInfo?.planName || order.ruta_optiroute || order.plan_optiroute || '').trim();
+      const routeSubName = (activeOptiInfo?.routeName || '').trim();
+      let displayRoute = routePlanName;
+      if (!displayRoute) {
+        displayRoute = routeSubName;
+      } else if (routeSubName && routeSubName.toLowerCase() !== routePlanName.toLowerCase() && routeSubName.toLowerCase() !== 'ruta') {
+        displayRoute = `${routePlanName} · ${routeSubName}`;
+      }
+
+      const routeFilterTag = routePlanName ? `Ruta Optiroute: ${routePlanName}` : (displayRoute ? `Ruta Optiroute: ${displayRoute}` : '');
+      const isRouteFilterActive = routeFilterTag && ((document.getElementById('filter-order-tag')?.value || '') === routeFilterTag || selectedTag === routeFilterTag);
+      const routeTooltip = activeOptiInfo 
+        ? `Ruta Optiroute: ${displayRoute}${activeOptiInfo.driver ? ' | Conductor: ' + activeOptiInfo.driver : ''}${activeOptiInfo.vehicle ? ' (' + activeOptiInfo.vehicle + ')' : ''}. Clic para filtrar por esta ruta.`
+        : `Ruta Optiroute: ${displayRoute}. Clic para filtrar por esta ruta.`;
+
+      // Badge para la fila principal de tags (order-badges-row)
+      optirouteBadgesHtml = `
+        <span class="badge wms-order-tag-badge wms-optiroute-assigned-tag ${isTagActive ? 'wms-tag-active' : ''}" 
+              onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('Asignado Optiroute', event);" 
+              style="background-color: rgba(16, 185, 129, 0.14); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px; width: fit-content; margin-top: 0.25rem; ${isTagActive ? 'outline: 2px solid #047857; box-shadow: 0 0 6px rgba(4,120,87,0.4);' : ''}" 
+              title="${tooltipText.replace(/"/g, '&quot;')}">
+          <i class="ri-route-line" style="font-size: 0.72rem;"></i> asignado optiroute
+        </span>
+        ${displayRoute ? `
+          <span class="badge wms-order-tag-badge wms-optiroute-route-tag ${isRouteFilterActive ? 'wms-tag-active' : ''}" 
+                onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('${routeFilterTag.replace(/'/g, "\\'")}', event);" 
+                style="background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px; width: fit-content; margin-top: 0.25rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; ${isRouteFilterActive ? 'outline: 2px solid #1d4ed8; box-shadow: 0 0 6px rgba(29,78,216,0.4);' : ''}" 
+                title="${routeTooltip.replace(/"/g, '&quot;')}">
+            <i class="ri-direction-line" style="font-size: 0.72rem; color: #2563eb; flex-shrink: 0;"></i> 
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayRoute}</span>
+          </span>
+        ` : ''}
+      `;
+
+      // Badge compacto para la columna de Envío / Comuna
       optirouteAssignedTagHtml = `
-        <div style="margin-top: 0.18rem; display: flex; align-items: center;">
+        <div style="margin-top: 0.18rem; display: flex; align-items: center; gap: 0.28rem; flex-wrap: wrap;">
           <span class="badge wms-optiroute-assigned-tag ${isTagActive ? 'wms-tag-active' : ''}" 
                 onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('Asignado Optiroute', event);" 
                 style="background-color: rgba(16, 185, 129, 0.12); color: #047857; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer; transition: all 0.15s; line-height: 1.2; letter-spacing: 0.2px; ${isTagActive ? 'outline: 2px solid #047857; box-shadow: 0 0 6px rgba(4,120,87,0.35);' : ''}" 
                 title="${tooltipText.replace(/"/g, '&quot;')}">
             <i class="ri-route-line" style="font-size: 0.72rem;"></i> asignado optiroute
           </span>
+          ${displayRoute ? `
+            <span class="badge wms-optiroute-route-tag ${isRouteFilterActive ? 'wms-tag-active' : ''}" 
+                  onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('${routeFilterTag.replace(/'/g, "\\'")}', event);" 
+                  style="background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.38rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.22rem; cursor: pointer; transition: all 0.15s; line-height: 1.2; letter-spacing: 0.2px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; ${isRouteFilterActive ? 'outline: 2px solid #1d4ed8; box-shadow: 0 0 6px rgba(29,78,216,0.35);' : ''}" 
+                  title="${routeTooltip.replace(/"/g, '&quot;')}">
+              <i class="ri-direction-line" style="font-size: 0.72rem; color: #2563eb; flex-shrink: 0;"></i> 
+              <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayRoute}</span>
+            </span>
+          ` : ''}
         </div>
       `;
     }
@@ -8930,7 +9013,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>

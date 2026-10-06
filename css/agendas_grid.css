@@ -574,6 +574,24 @@ body.resizing-columns * {
   letter-spacing: 0.02em;
 }
 
+.excel-badge-opti-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.66rem;
+  background: rgba(37, 99, 235, 0.09);
+  color: #1d4ed8;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  letter-spacing: 0.01em;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Badges Estado WMS */
 .excel-badge-wms {
   display: inline-flex;

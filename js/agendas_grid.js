@@ -448,6 +448,9 @@
       } catch (lsErr) {}
 
       // 4. Si la tabla de Torre de Control o Grilla de Agendas está en pantalla, actualizar
+      if (typeof window.clearWmsTagsCache === 'function') {
+        window.clearWmsTagsCache();
+      }
       if (typeof window.updateOrderTagFilterOptions === 'function') {
         window.updateOrderTagFilterOptions();
       }
@@ -781,10 +784,27 @@
     if (col.key === 'estado_ruta_optiroute') {
       const displayVal = (rawVal || '').toLowerCase().trim();
       let badgeHtml = '';
+      const optiInfo = typeof window.getOptirouteActiveAssignedInfo === 'function' ? window.getOptirouteActiveAssignedInfo(order) : null;
+      const rPlan = (optiInfo?.planName || order.ruta_optiroute || order.plan_optiroute || '').trim();
+      const rSub = (optiInfo?.routeName || '').trim();
+      let rName = rPlan;
+      if (!rName) {
+        rName = rSub;
+      } else if (rSub && rSub.toLowerCase() !== rPlan.toLowerCase() && rSub.toLowerCase() !== 'ruta') {
+        rName = `${rPlan} · ${rSub}`;
+      }
+      const driverTip = optiInfo?.driver ? ` | Conductor: ${optiInfo.driver}${optiInfo.vehicle ? ' (' + optiInfo.vehicle + ')' : ''}` : '';
+
       if (displayVal === 'creado') {
-        badgeHtml = `<span class="excel-badge-opti-creado" title="Creado: Es parte de una ruta que se está creando"><i class="ri-route-line"></i> Creado</span>`;
+        const rBadge = rName 
+          ? `<span class="excel-badge-opti-route" style="background: rgba(37, 99, 235, 0.08); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.32rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.25rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Plan Optiroute: ${rName}"><i class="ri-direction-line"></i> ${rName}</span>`
+          : '';
+        badgeHtml = `<span class="excel-badge-opti-creado" title="Creado: Es parte de una ruta que se está creando"><i class="ri-route-line"></i> Creado</span>${rBadge}`;
       } else if (displayVal === 'confirmado') {
-        badgeHtml = `<span class="excel-badge-opti-confirmado" title="Confirmado: Ya es parte de la ruta de un conductor"><i class="ri-user-follow-line"></i> Confirmado</span>`;
+        const rBadge = rName 
+          ? `<span class="excel-badge-opti-route" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.32rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.25rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Ruta Optiroute: ${rName}${driverTip}"><i class="ri-direction-line"></i> ${rName}</span>`
+          : '';
+        badgeHtml = `<span class="excel-badge-opti-confirmado" title="Confirmado: Ya es parte de la ruta de un conductor${driverTip}"><i class="ri-user-follow-line"></i> Confirmado</span>${rBadge}`;
       } else if (displayVal === 'descartado') {
         badgeHtml = `<span class="excel-badge-opti-descartado" title="Descartado: No considerado en ninguna ruta de conductor"><i class="ri-close-circle-line"></i> Descartado</span>`;
       } else {
@@ -3136,15 +3156,33 @@
     const rawComercio = String(comercioName).trim();
     if (!rawComercio) return 'STOCKA';
     const upperComercio = rawComercio.toUpperCase();
+    const cleanUpper = upperComercio.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
 
-    // 1. Verificar si está en window.optirouteMerchantsConfigMap (cargado de DB)
-    if (window.optirouteMerchantsConfigMap && window.optirouteMerchantsConfigMap[upperComercio]) {
-      return window.optirouteMerchantsConfigMap[upperComercio];
+    // 1. Prioridad Máxima: Configuración por Comercios (window.optirouteMerchantsConfigMap cargado de DB)
+    if (window.optirouteMerchantsConfigMap) {
+      if (window.optirouteMerchantsConfigMap[upperComercio]) {
+        return window.optirouteMerchantsConfigMap[upperComercio];
+      }
+      if (cleanUpper) {
+        for (const [key, val] of Object.entries(window.optirouteMerchantsConfigMap)) {
+          if (key && val) {
+            const cleanKey = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
+            if (cleanKey === cleanUpper) {
+              return val;
+            }
+          }
+        }
+      }
     }
 
-    // 2. Verificar si está en window.cachedAdminMerchants
+    // 2. Verificar si está en window.cachedAdminMerchants (datos en memoria de Administración de Comercios)
     if (Array.isArray(window.cachedAdminMerchants)) {
-      const foundM = window.cachedAdminMerchants.find(m => (m.nombre || '').trim().toUpperCase() === upperComercio);
+      const foundM = window.cachedAdminMerchants.find(m => {
+        const mName = (m.nombre || '').trim().toUpperCase();
+        if (mName === upperComercio) return true;
+        const cleanM = mName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '');
+        return cleanM === cleanUpper;
+      });
       if (foundM) {
         const customOpti = (foundM.optiroute_proveedor || foundM.plat_siglas_config?.optiroute_proveedor || '').trim();
         if (customOpti && OPTIROUTE_SUPPLIERS.includes(customOpti)) {
@@ -3157,6 +3195,13 @@
     if (DEFAULT_WMS_TO_OPTIROUTE_MAP[upperComercio]) {
       return DEFAULT_WMS_TO_OPTIROUTE_MAP[upperComercio];
     }
+    if (cleanUpper) {
+      for (const [aliasKey, provVal] of Object.entries(DEFAULT_WMS_TO_OPTIROUTE_MAP)) {
+        if (aliasKey.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '') === cleanUpper) {
+          return provVal;
+        }
+      }
+    }
 
     // 4. Coincidencia directa exacta en el catálogo de los 45 proveedores oficiales
     if (OPTIROUTE_SUPPLIERS.includes(upperComercio)) {
@@ -3164,7 +3209,6 @@
     }
 
     // 5. Coincidencia normalizada (sin espacios ni caracteres especiales)
-    const cleanUpper = upperComercio.replace(/[^A-Z0-9]/g, '');
     const normMatch = OPTIROUTE_SUPPLIERS.find(s => s.replace(/[^A-Z0-9]/g, '') === cleanUpper);
     if (normMatch) {
       return normMatch;
@@ -3442,6 +3486,12 @@
     if (typeof XLSX === 'undefined') {
       Swal.fire('Error', 'La biblioteca XLSX no está disponible.', 'error');
       return;
+    }
+
+    try {
+      await loadOptirouteMerchantsConfig();
+    } catch (eCfg) {
+      console.warn('Aviso cargando configuración de comercios para Excel:', eCfg);
     }
 
     const routeName = (config.routeName || 'Ruta Optiroute').trim();
@@ -3780,6 +3830,24 @@
           const data = await resp.json();
           if (data && data.id) {
             createdServiceRequestIds.push(data.id);
+            // La API de Optiroute valida el proveedor en POST pero no asigna la clave foránea en create().
+            // Al hacer un PATCH inmediato con { supplier: { id: suppId } }, Optiroute sí persiste el proveedor correctamente.
+            if (suppId) {
+              try {
+                await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${data.id}/`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Authorization': `Token ${token}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    supplier: { id: suppId }
+                  })
+                });
+              } catch (ePatchSupp) {
+                console.warn(`Aviso vinculando proveedor a pedido #${data.id} en Optiroute:`, ePatchSupp);
+              }
+            }
           }
           successCount++;
         } else {
@@ -3797,6 +3865,9 @@
               successCount++;
               try {
                 const patchPayload = { ...payload };
+                if (suppId) {
+                  patchPayload.supplier = { id: suppId };
+                }
                 const patchResp = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${existingId}/`, {
                   method: 'PATCH',
                   headers: {
@@ -3912,6 +3983,30 @@
       const hadError = errors.some(e => String(e.ref) === orderRef);
       if (!hadError) {
         updates.push({ orderId: o.id, field: 'estado_ruta_optiroute', value: 'creado' });
+        if (routeName) {
+          const rawRef = String(o.external_order_number || o.numero_orden || o.id).trim();
+          const lowRef = rawRef.toLowerCase();
+          const altRef = lowRef.startsWith('#') ? lowRef.substring(1) : ('#' + lowRef);
+          if (window.optirouteActiveAssignedRefs) {
+            window.optirouteActiveAssignedRefs.add(lowRef);
+            window.optirouteActiveAssignedRefs.add(altRef);
+          }
+          if (window.optirouteActiveAssignedMap) {
+            const rInfo = {
+              reference: rawRef,
+              planId: targetRoutePlanId,
+              planName: routeName,
+              routeId: null,
+              routeName: routeName,
+              driver: config.operatorValue || 'Asignado',
+              vehicle: '',
+              departureTime: null,
+              status: 'creado'
+            };
+            window.optirouteActiveAssignedMap.set(lowRef, rInfo);
+            window.optirouteActiveAssignedMap.set(altRef, rInfo);
+          }
+        }
       }
       if (config.updateOperator && config.operatorValue) {
         updates.push({ orderId: o.id, field: 'operador', value: config.operatorValue });
@@ -3920,6 +4015,17 @@
         updates.push({ orderId: o.id, field: 'estado_wms', value: 'En preparación' });
       }
     });
+
+    if (routeName && window.optirouteActiveAssignedMap) {
+      try {
+        localStorage.setItem('wms_optiroute_active_assigned_refs', JSON.stringify(Array.from(window.optirouteActiveAssignedRefs || [])));
+        const mapObj = {};
+        for (const [k, v] of window.optirouteActiveAssignedMap.entries()) {
+          mapObj[k] = v;
+        }
+        localStorage.setItem('wms_optiroute_active_assigned_map', JSON.stringify(mapObj));
+      } catch (eLs) {}
+    }
 
     if (updates.length > 0) {
       try {
