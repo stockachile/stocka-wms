@@ -36,3 +36,4 @@ downloads/*.png
 
 # Production build output
 dist/
+supabase/.temp/

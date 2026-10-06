@@ -2340,68 +2340,33 @@ window.resyncEnviameOrder = async function(orderId) {
       }
     }
 
-    if (!deliveryId) {
-      throw new Error(`No se encontró un delivery ID de Envíame asociado al pedido ${order.external_order_number || order.id}.`);
-    }
-
-    // Consultar directamente a la API de Envíame (CORS habilitado por defecto)
-    const API_KEY = "6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n";
-    const res = await fetch(`https://api.enviame.io/api/s2/v2/deliveries/${deliveryId}`, {
+    // Invocar la Edge Function en Supabase (servidor Deno sin restricciones CORS)
+    const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/resync-enviame-order', {
+      method: 'POST',
       headers: {
-        'Accept': 'application/json',
-        'api-key': API_KEY
-      }
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        order_id: orderId,
+        delivery_id: deliveryId
+      })
     });
 
-    if (!res.ok) {
-      throw new Error(`Envíame API respondió con código ${res.status}`);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Error del servidor (${response.status})`);
     }
 
-    const json = await res.json();
-    const d = json.data;
-    if (!d) {
-      throw new Error('No se recibieron datos de la entrega en Envíame.');
-    }
+    const courier = result.courier || order.courier || 'STARKEN';
+    const mappedOperador = result.operador || 'STARKEN';
+    const cleanTrack = result.trackingNumber || null;
+    const trackingUrl = result.trackingUrl || null;
+    const labelUrl = result.labelUrl || null;
+    const statusName = result.status || 'Creado';
 
-    const rawTrack = d.tracking_number || d.carrier_tracking_number || d.barcodes || null;
-    const cleanTrack = (rawTrack && !['NO INFORMADO', 'NOINFORMADO', 'NULL', 'UNDEFINED', 'N/A', '-'].includes(String(rawTrack).trim().toUpperCase())) ? String(rawTrack).trim() : null;
-    const courier = (d.carrier || d.courier?.name || order.courier || 'STARKEN').trim();
-    const statusName = d.status?.name || d.status || 'Creado';
-
-    let labelUrl = null;
-    if (d.label && typeof d.label === 'object') {
-      labelUrl = d.label.PDF || d.label.PNG || null;
-    } else if (typeof d.label === 'string' && d.label.startsWith('http')) {
-      labelUrl = d.label;
-    }
-
-    let trackingUrl = null;
-    if (d.links && Array.isArray(d.links)) {
-      const webLink = d.links.find(l => l.rel === 'tracking-web');
-      if (webLink?.href) trackingUrl = webLink.href;
-    }
-    if (!trackingUrl && cleanTrack) {
-      trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(cleanTrack)}`;
-    }
-
-    // Mapear operador
-    let mappedOperador = 'STOCKA';
-    const cUpper = courier.toUpperCase();
-    if (cUpper.includes('STARKEN')) mappedOperador = 'STARKEN';
-    else if (cUpper.includes('BLUEXPRESS') || cUpper.includes('BLUE')) mappedOperador = 'BLUEXPRESS';
-    else if (cUpper.includes('CHILEXPRESS')) mappedOperador = 'CHILEXPRESS';
-    else if (cUpper.includes('ALPHA') || cUpper.includes('LIGHTDATA')) mappedOperador = 'ALPHA';
-    else if (cUpper.includes('FALABELLA')) mappedOperador = 'FALABELLA';
-    else if (cUpper.includes('MERCADO')) mappedOperador = 'MERCADOLIBRE';
-    else if (cUpper.includes('PARIS')) mappedOperador = 'PARIS';
-    else if (cUpper.includes('RIPLEY')) mappedOperador = 'RIPLEY';
-    else if (cUpper.includes('WALMART')) mappedOperador = 'WALMART';
-    else if (cUpper.includes('RECIBELO') || cUpper.includes('RECÍBELO') || cUpper.includes('WELIVERY') || cUpper.includes('WOODELIVERY') || cUpper.includes('WODELY')) mappedOperador = 'STOCKA X';
-    else mappedOperador = cUpper;
-
-    // Actualizar pedido en Supabase
+    // Actualizar en memoria local
     const orderUpdate = {
-      enviame_delivery_id: String(deliveryId),
+      enviame_delivery_id: result.deliveryId || deliveryId,
       enviame_status: statusName,
       courier: courier,
       operador: mappedOperador
@@ -2414,21 +2379,6 @@ window.resyncEnviameOrder = async function(orderId) {
       orderUpdate.label_url = labelUrl;
     }
 
-    await supabase.from('orders').update(orderUpdate).eq('id', orderId);
-
-    // Actualizar enviame_shipments
-    await supabase.from('enviame_shipments').upsert({
-      id: String(deliveryId),
-      order_id: order.external_order_number || String(deliveryId),
-      tracking_number: cleanTrack || 'No informado',
-      tracking_url: trackingUrl,
-      label_url: labelUrl,
-      courier: courier,
-      status: statusName,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'id' });
-
-    // Actualizar en memoria local
     const idx = (window.loadedOrders || []).findIndex(o => o.id === orderId);
     if (idx !== -1) {
       window.loadedOrders[idx] = { ...window.loadedOrders[idx], ...orderUpdate };
@@ -2443,15 +2393,15 @@ window.resyncEnviameOrder = async function(orderId) {
 
     if (typeof Swal !== 'undefined' && Swal.fire) {
       Swal.fire({
-        icon: 'success',
-        title: '¡Envíame Sincronizado!',
+        icon: cleanTrack ? 'success' : 'info',
+        title: cleanTrack ? '¡Envíame Sincronizado!' : 'Consulta a Envíame exitosa',
         html: `
           <div style="text-align: left; font-size: 0.9rem;">
             <p><strong>Pedido:</strong> ${order.external_order_number || order.id}</p>
             <p><strong>Courier:</strong> ${courier} (${mappedOperador})</p>
-            <p><strong>Tracking:</strong> ${cleanTrack || '<span style="color:orange;">Pendiente de asignación por courier</span>'}</p>
+            <p><strong>Tracking:</strong> ${cleanTrack ? `<span style="font-weight:700; color:#059669;">${cleanTrack}</span>` : '<span style="color:#d97706; font-weight:600;">Pendiente de asignación por courier</span>'}</p>
             <p><strong>Estado Envíame:</strong> ${statusName}</p>
-            ${labelUrl ? `<p><a href="${labelUrl}" target="_blank" style="color: #2563eb; font-weight: 600;">Ver Etiqueta PDF</a></p>` : ''}
+            ${labelUrl ? `<p style="margin-top:0.5rem;"><a href="${labelUrl}" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">📄 Ver Etiqueta PDF</a></p>` : ''}
           </div>
         `,
         confirmButtonColor: '#0ea5e9'
@@ -2462,7 +2412,16 @@ window.resyncEnviameOrder = async function(orderId) {
 
   } catch (err) {
     console.error('Error al actualizar desde Envíame:', err);
-    alert(`Error al actualizar desde Envíame: ${err.message}`);
+    if (typeof Swal !== 'undefined' && Swal.fire) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error de Sincronización',
+        text: err.message || 'No se pudo consultar el pedido en Envíame.',
+        confirmButtonColor: '#ef4444'
+      });
+    } else {
+      alert(`Error al actualizar desde Envíame: ${err.message}`);
+    }
   } finally {
     if (btn) {
       btn.disabled = false;
