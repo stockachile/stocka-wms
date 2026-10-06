@@ -2673,6 +2673,44 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
   btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando...`;
   
   try {
+    const now = new Date();
+    const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const targetSucursal = order?.sucursal_pickeo || 'Sucursal Virtual (Hub)';
+    const effWarehouseId = getWarehouseIdFromSucursal(targetSucursal);
+
+    // 1. Inmediatamente actualizar bodega en order_items y datos de preparación en Supabase
+    await supabase
+      .from('order_items')
+      .update({ warehouse_id: effWarehouseId })
+      .eq('order_id', orderId);
+
+    const { error: updError } = await supabase
+      .from('orders')
+      .update({
+        estado_wms: 'En preparación',
+        status: 'en preparación',
+        agenda: 'RM',
+        operador: 'ALPHA',
+        courier: 'CARRIER EXTERNO',
+        fecha_procesamiento: todayDDMM
+      })
+      .eq('id', orderId);
+
+    if (updError) throw updError;
+
+    // 2. Reflejar en memoria local y actualizar vista del WMS
+    if (order) {
+      order.estado_wms = 'En preparación';
+      order.status = 'en preparación';
+      order.agenda = 'RM';
+      order.operador = 'ALPHA';
+      order.courier = 'CARRIER EXTERNO';
+      order.fecha_procesamiento = todayDDMM;
+      delete order._wmsTags;
+    }
+    window.applyWmsFiltersAndRender();
+
+    // 3. Disparar Edge Function para generar etiqueta en LightData
     const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
@@ -2680,8 +2718,8 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
     
     Swal.fire({
       icon: 'success',
-      title: 'Solicitud enviada',
-      text: 'La creación de la etiqueta se ha iniciado en segundo plano. La página se recargará automáticamente en unos minutos.',
+      title: 'Pedido en preparación',
+      text: 'El pedido fue asignado a Agenda RM, Operador ALPHA y pasado a "En preparación". La creación de su etiqueta en LightData se está procesando en segundo plano.',
       confirmButtonColor: '#7117eb'
     });
     btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
@@ -2769,6 +2807,45 @@ window.bulkCreateLightDataLabels = async function(btn) {
   btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando masivo...`;
   
   try {
+    const now = new Date();
+    const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // 1. Inmediatamente actualizar bodega en order_items y datos de preparación en Supabase
+    for (const ord of selectedOrders) {
+      const effWarehouseId = getWarehouseIdFromSucursal(ord.sucursal_pickeo || 'Sucursal Virtual (Hub)');
+      await supabase
+        .from('order_items')
+        .update({ warehouse_id: effWarehouseId })
+        .eq('order_id', ord.id);
+    }
+
+    const { error: updError } = await supabase
+      .from('orders')
+      .update({
+        estado_wms: 'En preparación',
+        status: 'en preparación',
+        agenda: 'RM',
+        operador: 'ALPHA',
+        courier: 'CARRIER EXTERNO',
+        fecha_procesamiento: todayDDMM
+      })
+      .in('id', ids);
+
+    if (updError) throw updError;
+
+    // 2. Reflejar en memoria local y actualizar vista del WMS
+    selectedOrders.forEach(o => {
+      o.estado_wms = 'En preparación';
+      o.status = 'en preparación';
+      o.agenda = 'RM';
+      o.operador = 'ALPHA';
+      o.courier = 'CARRIER EXTERNO';
+      o.fecha_procesamiento = todayDDMM;
+      delete o._wmsTags;
+    });
+    window.applyWmsFiltersAndRender();
+
+    // 3. Disparar Edge Function para generar etiquetas en segundo plano en GitHub Actions
     const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
       body: JSON.stringify({ mode: 'bulk', orderIds: ids.join(',') })
@@ -2776,8 +2853,8 @@ window.bulkCreateLightDataLabels = async function(btn) {
     
     Swal.fire({
       icon: 'success',
-      title: 'Creación masiva iniciada',
-      text: `Se ha solicitado la generación de etiquetas para los ${ids.length} pedidos. El proceso se ejecutará en segundo plano y las etiquetas se actualizarán en minutos.`,
+      title: 'Pedidos en preparación',
+      text: `Se actualizaron ${ids.length} pedidos a "En preparación" (Agenda RM, Operador ALPHA) y se inició la creación de etiquetas en LightData en segundo plano.`,
       confirmButtonColor: '#7117eb'
     });
     
