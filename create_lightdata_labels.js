@@ -294,13 +294,17 @@ async function sendSingleOrderToPicker(order) {
 const args = {};
 process.argv.slice(2).forEach(arg => {
   if (arg.startsWith('--')) {
-    const [key, value] = arg.slice(2).split('=');
-    args[key] = value || true;
+    const eqIdx = arg.indexOf('=');
+    if (eqIdx !== -1) {
+      args[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+    } else {
+      args[arg.slice(2)] = true;
+    }
   }
 });
 
 const mode = args.mode || 'individual'; // 'individual' o 'bulk'
-const orderId = args.orderId;
+const orderId = typeof args.orderId === 'string' ? args.orderId.trim() : null;
 const limit = parseInt(args.limit || '10', 10);
 
 async function main() {
@@ -748,7 +752,7 @@ async function handleBulkMode(limiteCarga) {
   
   let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))');
 
-  if (args.orderIds && args.orderIds.trim() !== '') {
+  if (typeof args.orderIds === 'string' && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
     console.log(`🔍 Filtrando búsqueda por ${idsList.length} IDs específicos seleccionados en el WMS...`);
     query = query.in('id', idsList);
@@ -1039,200 +1043,150 @@ async function handleBulkMode(limiteCarga) {
       if (postSwal) {
         console.error(`💬 Estado SweetAlert al fallar: [Título: "${postSwal.title}"] [Texto: "${postSwal.text}"]`);
       }
-      process.exit(1);
+      throw new Error('No se pudieron capturar los dids de la respuesta de subida.');
     }
 
     const listDids = [...new Set(createdDidsList)];
     console.log(`📋 Total de DIDs reportados por el controlador de LightData: ${listDids.length}`);
 
     // =========================================================================
-    // BLINDAJE: Conciliar DIDs con pedidos reales de forma estricta por referencia/tracking
+    // BLINDAJE: Conciliar DIDs con pedidos reales de forma estricta por referencia/destinatario
     // NUNCA asignar por índice de array (listDids[index]), para evitar desfases si una fila es omitida.
     // =========================================================================
-    console.log('🛡️ [BLINDAJE] Descargando reporte oficial de LightData para conciliar cada DID con su pedido...');
-    await page.waitForTimeout(2000);
+    console.log(`🛡️ [BLINDAJE] Consultando información de seguimiento para ${listDids.length} DIDs creados en LightData...`);
 
-    // Cerrar cualquier modal residual para asegurar acceso a los controles principales
-    await page.evaluate(() => {
+    const ldTrackingList = await Promise.all(listDids.map(async did => {
       try {
-        if (typeof appEnviosNoFlex !== 'undefined' && appEnviosNoFlex.close) appEnviosNoFlex.close();
-        if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
-        document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert, .swal-modal').forEach(el => el.remove());
-      } catch (e) {}
-    });
-
-    const ldReportMap = new Map();
-    let reportDownloaded = false;
-
-    try {
-      const downloadButtonSelector = 'a[onclick="appEnviosListados.downloadExcel();"]';
-      await page.locator(downloadButtonSelector).first().waitFor({ state: 'visible', timeout: 10000 });
-
-      const reportExcelPath = path.join(DOWNLOADS_DIR, `reconcile_${Date.now()}.xlsx`);
-      const [download] = await Promise.all([
-        page.waitForEvent('download', { timeout: 25000 }),
-        page.locator(downloadButtonSelector).first().click()
-      ]);
-
-      await download.saveAs(reportExcelPath);
-      const reportWb = xlsx.readFile(reportExcelPath);
-      const reportWs = reportWb.Sheets[reportWb.SheetNames[0]];
-      const reportRows = xlsx.utils.sheet_to_json(reportWs, { header: 1 }).slice(5);
-
-      const ldUpserts = [];
-      reportRows.forEach(r => {
-        if (!r || !r[0]) return;
-        const id = String(r[0]).trim();
-        const trk = String(r[1] || '').trim();
-        const recipient = String(r[12] || '').trim();
-        const phone = String(r[13] || '').replace(/[^0-9]/g, '');
-        const addr = String(r[17] || '').trim();
-        const comuna = String(r[19] || '').trim();
-        const st = String(r[23] || '').trim();
-        const trkUrl = String(r[31] || '').trim() || `https://alphagroup.lightdata.com.ar/tracking.php?token=${id}d54df4s8a88`;
-
-        const itemData = {
-          id: id,
-          did: id,
-          tracking: trk,
-          nombre_destinatario: recipient,
-          telefono_destino: phone,
-          direccion_destino: addr,
-          comuna_destino: comuna,
-          status: st,
-          tracking_url: trkUrl,
-          raw_data: r
+        const res = await fetch(`https://alphagroup.lightdata.com.ar/tracking.php?token=${did}d54df4s8a88`);
+        if (!res.ok) return { did: String(did), destinatario: null, localidad: null, nroGuia: null, trackingUrl: `https://alphagroup.lightdata.com.ar/tracking.php?token=${did}d54df4s8a88` };
+        const html = await res.text();
+        const destMatch = html.match(/id="destinatario"[^>]*><i[^>]*>[^<]*<\/i>([^<]+)<\/p>/i);
+        const locMatch = html.match(/id="localidad"[^>]*><i[^>]*>[^<]*<\/i>([^<]+)<\/p>/i);
+        const guiaMatch = html.match(/id="nroGuia"[^>]*>([^<]+)<\/p>/i);
+        return {
+          did: String(did),
+          destinatario: destMatch ? destMatch[1].trim() : null,
+          localidad: locMatch ? locMatch[1].trim() : null,
+          nroGuia: guiaMatch ? guiaMatch[1].trim() : null,
+          trackingUrl: `https://alphagroup.lightdata.com.ar/tracking.php?token=${did}d54df4s8a88`
         };
+      } catch (e) {
+        return {
+          did: String(did),
+          destinatario: null,
+          localidad: null,
+          nroGuia: null,
+          trackingUrl: `https://alphagroup.lightdata.com.ar/tracking.php?token=${did}d54df4s8a88`
+        };
+      }
+    }));
 
-        if (trk) {
-          const cleanTrk = trk.toUpperCase().replace(/#/g, '').trim();
-          ldReportMap.set(cleanTrk, itemData);
-          ldReportMap.set(trk.toUpperCase().trim(), itemData);
-          const numMatch = cleanTrk.match(/\d+$/);
-          if (numMatch) ldReportMap.set(numMatch[0], itemData);
-        }
-        if (phone && phone.length >= 8) {
-          ldReportMap.set(`PHONE_${phone.slice(-8)}`, itemData);
-        }
-        ldReportMap.set(`DID_${id}`, itemData);
+    // Sincronizar en background con la tabla lightdata_envios
+    const ldUpserts = ldTrackingList
+      .filter(item => item.destinatario)
+      .map(item => ({
+        id: item.did,
+        nombre_destinatario: item.destinatario,
+        direccion_destino: item.localidad,
+        tracking_url: item.trackingUrl,
+        updated_at: new Date().toISOString()
+      }));
+    if (ldUpserts.length > 0) {
+      supabase.from('lightdata_envios').upsert(ldUpserts, { onConflict: 'id' }).then(() => {}).catch(() => {});
+    }
 
-        ldUpserts.push({
-          id: id,
-          tracking: trk || null,
-          nombre_destinatario: recipient || null,
-          telefono_destino: phone || null,
-          direccion_destino: addr || null,
-          comuna_destino: comuna || null,
-          status: st || null,
-          tracking_url: trkUrl || null,
-          updated_at: new Date().toISOString()
-        });
+    // Funciones auxiliares para normalización y coincidencia estricta 1 a 1
+    function normStr(s) {
+      return String(s || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    function calculateMatchScore(order, ldItem) {
+      if (!ldItem || !ldItem.destinatario) return 0;
+      let score = 0;
+
+      // 1. Coincidencia con nroGuia si contiene el número de orden externo
+      if (ldItem.nroGuia) {
+        const guiaNorm = normStr(ldItem.nroGuia);
+        const extNorm = normStr(order.external_order_number);
+        if (extNorm && (guiaNorm.includes(extNorm) || extNorm.includes(guiaNorm))) {
+          score += 100;
+        }
+      }
+
+      // 2. Coincidencia de nombre de destinatario (palabras completas >= 3 letras)
+      const destNorm = normStr(ldItem.destinatario);
+      const custWords = String(order.customer_name || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .split(/\s+/).filter(w => w.length >= 3);
+
+      let wordMatches = 0;
+      custWords.forEach(w => {
+        if (destNorm.includes(w)) wordMatches++;
       });
 
-      // Subir a lightdata_envios para tener la tabla de envíos sincronizada en WMS
-      if (ldUpserts.length > 0) {
-        supabase.from('lightdata_envios').upsert(ldUpserts, { onConflict: 'id' }).then(() => {}).catch(() => {});
+      if (custWords.length > 0 && wordMatches === custWords.length) {
+        score += 70;
+      } else if (wordMatches >= 2 || (custWords.length === 1 && wordMatches === 1)) {
+        score += 50;
+      } else if (wordMatches === 1 && custWords.length > 1) {
+        score += 25;
       }
 
-      if (fs.existsSync(reportExcelPath)) fs.unlinkSync(reportExcelPath);
-      reportDownloaded = true;
-      console.log(`✅ [BLINDAJE] Reporte de LightData procesado: ${reportRows.length} envíos mapeados para conciliación estricta.`);
-    } catch (reportErr) {
-      console.warn('⚠️ [BLINDAJE] No se pudo descargar el Excel de conciliación, intentando respaldo vía API interna:', reportErr.message);
-    }
+      // 3. Coincidencia de comuna / localidad
+      const cityNorm = normStr(order.shipping_city);
+      const locNorm = normStr(ldItem.localidad);
+      if (cityNorm && locNorm.includes(cityNorm)) {
+        score += 30;
+      }
 
-    // Respaldo secundario: si falló la descarga del Excel, consultar la API interna procesar_listado.php
-    if (!reportDownloaded || ldReportMap.size === 0) {
-      try {
-        const apiData = await page.evaluate(async () => {
-          const resp = await fetch('modules/envios/listado/procesar_listado.php?cantxpagina=100&pagina=1&estado=-1');
-          return await resp.json();
+      // 4. Coincidencia de número de dirección
+      const numMatch = String(order.shipping_address || '').match(/\d+/g);
+      if (numMatch) {
+        numMatch.forEach(n => {
+          if (n.length >= 2 && locNorm.includes(n)) score += 20;
         });
-        if (apiData && Array.isArray(apiData.rows)) {
-          apiData.rows.forEach(r => {
-            const id = String(r.did || '').trim();
-            const trk = String(r.tracking || '').trim();
-            const recipient = String(r.nombre || '').trim();
-            const phone = String(r.telefono || '').replace(/[^0-9]/g, '');
-            const trkUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${id}d54df4s8a88`;
-            const itemData = {
-              id: id,
-              did: id,
-              tracking: trk,
-              nombre_destinatario: recipient,
-              telefono_destino: phone,
-              tracking_url: trkUrl
-            };
-            if (trk) {
-              const cleanTrk = trk.toUpperCase().replace(/#/g, '').trim();
-              ldReportMap.set(cleanTrk, itemData);
-              ldReportMap.set(trk.toUpperCase().trim(), itemData);
-              const numMatch = cleanTrk.match(/\d+$/);
-              if (numMatch) ldReportMap.set(numMatch[0], itemData);
-            }
-            if (id) ldReportMap.set(`DID_${id}`, itemData);
-          });
-          console.log(`✅ [BLINDAJE API] Cargados ${apiData.rows.length} envíos desde API interna para conciliación.`);
-        }
-      } catch (apiErr) {
-        console.warn('⚠️ [BLINDAJE] Error al consultar API de listado:', apiErr.message);
       }
+
+      return score;
     }
 
-    // Función de búsqueda exacta para asociar pedido con su registro en LightData
-    function findExactLightDataMatch(order, expectedTrackingCode) {
-      const candidates = new Set();
-      if (expectedTrackingCode) {
-        candidates.add(expectedTrackingCode.toUpperCase().trim());
-        candidates.add(expectedTrackingCode.toUpperCase().replace(/#/g, '').trim());
-      }
-      if (order.external_order_number) {
-        const ext = String(order.external_order_number).toUpperCase().trim();
-        candidates.add(ext);
-        candidates.add(ext.replace(/#/g, ''));
-        const numOnly = ext.replace(/^[^0-9]+/i, '');
-        if (numOnly && numOnly.length >= 3) candidates.add(numOnly);
-      }
-
-      for (const cand of candidates) {
-        if (ldReportMap.has(cand)) {
-          return ldReportMap.get(cand);
-        }
-      }
-
-      // Fallback por teléfono
-      const cleanPhone = String(order.customer_phone || '').replace(/[^0-9]/g, '');
-      if (cleanPhone.length >= 8 && ldReportMap.has(`PHONE_${cleanPhone.slice(-8)}`)) {
-        return ldReportMap.get(`PHONE_${cleanPhone.slice(-8)}`);
-      }
-
-      return null;
-    }
-
-    // 1. Vincular cada pedido de la lista con su DID real verificado
-    const verifiedOrderMatches = [];
-    const unmatchedOrders = [];
-
+    // Generar candidatos de coincidencia orden-DID con puntaje mínimo >= 50
+    const candidates = [];
     for (const order of activeOrdersList) {
-      const sigla = await getCommerceSigla(order.comercio);
-      const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
-      const matched = findExactLightDataMatch(order, trackingCode);
-
-      if (matched && matched.id) {
-        console.log(`🎯 [MATCH EXACTO] Pedido ${order.external_order_number} vinculado correctamente con DID ${matched.id} (${matched.nombre_destinatario || order.customer_name})`);
-        verifiedOrderMatches.push({
-          order: order,
-          did: matched.id,
-          trackingUrl: matched.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${matched.id}d54df4s8a88`
-        });
-      } else {
-        console.warn(`🚨 [OMISIÓN LIGHTDATA] El pedido ${order.external_order_number} (${order.customer_name}) NO fue creado en LightData (fue rechazado o no se insertó). NO se le asignará un DID ajeno.`);
-        unmatchedOrders.push(order);
+      for (const ld of ldTrackingList) {
+        const score = calculateMatchScore(order, ld);
+        if (score >= 50) {
+          candidates.push({ order, ld, score });
+        }
       }
     }
 
-    // Registrar incidencias para pedidos omitidos
+    // Ordenar de mayor a menor puntuación para asegurar los emparejamientos más fuertes primero
+    candidates.sort((a, b) => b.score - a.score);
+
+    const matchedOrderIds = new Set();
+    const matchedDids = new Set();
+    const verifiedOrderMatches = [];
+
+    for (const cand of candidates) {
+      if (!matchedOrderIds.has(cand.order.id) && !matchedDids.has(cand.ld.did)) {
+        matchedOrderIds.add(cand.order.id);
+        matchedDids.add(cand.ld.did);
+        verifiedOrderMatches.push({
+          order: cand.order,
+          did: cand.ld.did,
+          trackingUrl: cand.ld.trackingUrl,
+          score: cand.score
+        });
+        console.log(`🎯 [MATCH EXACTO] Pedido ${cand.order.external_order_number} (${cand.order.customer_name}) -> DID ${cand.ld.did} (${cand.ld.destinatario}) [Score: ${cand.score}]`);
+      }
+    }
+
+    const unmatchedOrders = activeOrdersList.filter(o => !matchedOrderIds.has(o.id));
     for (const unOrder of unmatchedOrders) {
+      console.warn(`🚨 [OMISIÓN LIGHTDATA] El pedido ${unOrder.external_order_number} (${unOrder.customer_name}) no tuvo coincidencia verificada en LightData. NO se le asignará un DID ajeno.`);
       try {
         await supabase
           .from('incidencias')
@@ -1247,38 +1201,32 @@ async function handleBulkMode(limiteCarga) {
       } catch (_) {}
     }
 
-    // 2. Descargar etiquetas únicamente para los DIDs efectivamente generados y verificados
-    const verifiedDids = Array.from(new Set(verifiedOrderMatches.map(m => m.did)));
-    let consolidatedBase64 = null;
-
-    if (verifiedDids.length > 0) {
-      console.log(`📥 Descargando etiquetas consolidadas para ${verifiedDids.length} envíos verificados...`);
-      const printData = {
-        "didEmpresa": 61,
-        "didEnvios": verifiedDids,
-        "tipoEtiqueta": 1, // Formato 10x15
-        "calidad": 0,
-        "quien": 108
-      };
-
+    // 2. Descargar etiqueta térmica individual para cada pedido verificado
+    console.log(`📥 Descargando etiquetas individuales para ${verifiedOrderMatches.length} pedidos verificados...`);
+    for (const matchItem of verifiedOrderMatches) {
+      const didNum = parseInt(matchItem.did, 10);
       try {
         const printResponse = await fetch("https://printserver.lightdata.app/print/etiqueta", {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(printData)
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            "didEmpresa": 61,
+            "didEnvios": [didNum],
+            "tipoEtiqueta": 1, // Formato 10x15
+            "calidad": 0,
+            "quien": 108
+          })
         });
 
         if (printResponse.ok) {
           const printBuffer = await printResponse.arrayBuffer();
-          consolidatedBase64 = Buffer.from(printBuffer).toString('base64');
-          console.log(`💾 Etiquetas consolidadas descargadas con éxito (Base64 length: ${consolidatedBase64.length})`);
+          matchItem.labelBase64 = Buffer.from(printBuffer).toString('base64');
+          console.log(`💾 Etiqueta descargada para pedido ${matchItem.order.external_order_number} (DID ${matchItem.did}, ${matchItem.labelBase64.length} chars)`);
         } else {
-          console.warn(`⚠️ Error del Print Server al descargar etiquetas consolidadas: ${printResponse.status}`);
+          console.warn(`⚠️ Error del Print Server al descargar etiqueta para DID ${matchItem.did}: ${printResponse.status}`);
         }
       } catch (printErr) {
-        console.error('❌ Excepción al descargar etiquetas del Print Server:', printErr.message);
+        console.error(`❌ Excepción al descargar etiqueta del Print Server para DID ${matchItem.did}:`, printErr.message);
       }
     }
 
@@ -1287,13 +1235,13 @@ async function handleBulkMode(limiteCarga) {
     const fechaProcesamientoVal = getFechaProcesamiento();
 
     for (const matchItem of verifiedOrderMatches) {
-      const { order, did, trackingUrl } = matchItem;
+      const { order, did, trackingUrl, labelBase64 } = matchItem;
 
       const updatedOrderData = {
         tracking_number: did,
         tracking_url: trackingUrl,
         courier: 'CARRIER EXTERNO',
-        label_base64: consolidatedBase64,
+        label_base64: labelBase64 || null,
         estado_wms: 'En preparación',
         fecha_procesamiento: fechaProcesamientoVal,
         agenda: 'RM',
@@ -1339,8 +1287,9 @@ async function handleBulkMode(limiteCarga) {
 
   } catch (err) {
     console.error('❌ Excepción durante handleBulkMode:', err.message);
+    throw err;
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
