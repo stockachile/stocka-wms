@@ -1,0 +1,33 @@
+name: Sync Envíame to Supabase
+
+on:
+  schedule:
+    # Se ejecuta cada 20 minutos para mantener al día los números de seguimiento y etiquetas
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+    # Permite gatillar la sincronización manualmente desde GitHub Actions o desde el WMS
+
+jobs:
+  sync:
+    name: Run Envíame Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Sincronización Envíame
+        env:
+          ENVIAME_API_KEY: ${{ secrets.ENVIAME_API_KEY || '6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n' }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node sync_enviame.js

@@ -177,8 +177,21 @@ function resolvePickerSku(prod, order, commerceStrict) {
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
 function resolveOrderTracking(order) {
   if (!order) return '';
-  if (order.tracking_number && String(order.tracking_number).trim() && String(order.tracking_number).trim().toLowerCase() !== 'no informado') {
-    return String(order.tracking_number).trim();
+  const isAlpha = order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO';
+  const alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
+  if (isAlpha && alphaDid) {
+    return String(alphaDid).trim();
+  }
+
+  const trk = String(order.tracking_number || '').trim();
+  if (trk && trk.toLowerCase() !== 'no informado' && trk !== order.external_order_number) {
+    if (!isAlpha || !trk.startsWith('460')) {
+      return trk;
+    }
+  }
+
+  if (alphaDid) {
+    return String(alphaDid).trim();
   }
   // Shopify fulfillments tracking fallback
   if (order.raw_shopify_data?.fulfillments && Array.isArray(order.raw_shopify_data.fulfillments)) {
@@ -329,6 +342,7 @@ async function run() {
         raw_paris_data,
         raw_ripley_data,
         raw_walmart_data,
+        raw_lightdata_data,
         order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2))
       `)
       .eq('estado_wms', 'En preparación');
@@ -518,7 +532,7 @@ async function run() {
               tracking: cleanTracking,
               operator: wmsOrder.operador || firstAct.operator || ''
             })
-            .eq('order_number', orderNo);
+            .in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
           if (trkErr) {
             console.error(`Error actualizando tracking en Picker para ${orderNo}:`, trkErr.message);
           } else {

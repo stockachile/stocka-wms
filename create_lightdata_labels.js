@@ -213,11 +213,31 @@ async function sendSingleOrderToPicker(order) {
     }
   }
 
-  // Eliminar si ya existe para evitar duplicados
-  await pickerSupabase
+  const cleanDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || order.tracking_number || '').trim();
+  const searchNumbers = [orderNumber, '#' + orderNumber.replace(/^#/, ''), orderNumber.replace(/^#/, '')];
+
+  // Si ya existe en active_orders, actualizar el tracking y operador directamente para no perder datos ni duplicar
+  const { data: existingActive } = await pickerSupabase
     .from('active_orders')
-    .delete()
-    .eq('order_number', orderNumber);
+    .select('id, tracking')
+    .in('order_number', searchNumbers);
+
+  if (existingActive && existingActive.length > 0) {
+    const { error: updErr } = await pickerSupabase
+      .from('active_orders')
+      .update({
+        tracking: cleanDid,
+        operator: 'ALPHA'
+      })
+      .in('order_number', searchNumbers);
+
+    if (updErr) {
+      console.warn(`⚠️ Error actualizando tracking en active_orders para ${orderNumber}:`, updErr.message);
+    } else {
+      console.log(`✅ Tracking actualizado exitosamente en Picker active_orders para ${orderNumber}: ${cleanDid}`);
+    }
+    return;
+  }
 
   const items = order.order_items || [];
   const physicalItems = items.filter(item => !item.products?.is_virtual);
@@ -261,8 +281,8 @@ async function sendSingleOrderToPicker(order) {
       manga: mangaVal ? String(mangaVal).trim() : null,
       cuello: cuelloVal ? String(cuelloVal).trim() : null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : (order.tracking_number || ''),
-      operator: order.operador || '',
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? (String(orderNumber).replace(/[^a-zA-Z0-9]/g, '') || orderNumber) : cleanDid,
+      operator: 'ALPHA',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
       observation: order.observation || prod.description || '',
@@ -688,16 +708,27 @@ async function handleIndividualMode(idPedido) {
 
     // Actualizar el pedido en Supabase
     console.log('📡 Actualizando pedido en Supabase...');
+    const cleanDid = String(createdDid).trim();
+    const trackingUrlVal = `https://alphagroup.lightdata.com.ar/tracking.php?token=${cleanDid}d54df4s8a88`;
     const fechaProcesamientoVal = getFechaProcesamiento();
     const updatedOrderData = {
-      tracking_number: createdDid, // Usar el ID de LightData como tracking
+      tracking_number: cleanDid, // Usar el ID de LightData como tracking
+      tracking_url: trackingUrlVal,
       courier: 'CARRIER EXTERNO',
       label_base64: pdfBase64,
       estado_wms: 'En preparación',
       fecha_procesamiento: fechaProcesamientoVal,
       agenda: 'RM',
       operador: 'ALPHA',
-      raw_lightdata_data: { did: createdDid }
+      raw_lightdata_data: {
+        did: cleanDid,
+        id: cleanDid,
+        tracking: order.external_order_number || String(idPedido),
+        tracking_url: trackingUrlVal,
+        status: 'A retirar',
+        courier: 'CARRIER EXTERNO',
+        comercio: order.comercio
+      }
     };
 
     // Actualizar bodega de los order_items correspondientes a la sucursal de pickeo antes del cambio de estado
@@ -719,7 +750,25 @@ async function handleIndividualMode(idPedido) {
     if (updateError) {
       console.error('❌ Error al guardar datos en Supabase:', updateError.message);
     } else {
-      console.log('🎉 Sincronización individual completada con éxito.');
+      console.log('🎉 Sincronización individual completada con éxito en orders.');
+      // Sincronizar en la tabla lightdata_envios para que envios_unificados lo asocie de inmediato
+      try {
+        const fullDestAddress = [(order.shipping_address || '').trim(), (order.shipping_city || '').trim()].filter(Boolean).join(' - ');
+        await supabase.from('lightdata_envios').upsert({
+          id: cleanDid,
+          tracking: order.external_order_number || String(idPedido),
+          comercio: order.comercio || null,
+          courier: 'CARRIER EXTERNO',
+          nombre_destinatario: order.customer_name || null,
+          direccion_destino: fullDestAddress || null,
+          tracking_url: trackingUrlVal,
+          status: 'A retirar',
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+        console.log(`✅ Registro sincronizado en lightdata_envios para DID ${cleanDid} (Pedido: ${order.external_order_number})`);
+      } catch (ldErr) {
+        console.warn('⚠️ No se pudo guardar en lightdata_envios:', ldErr.message);
+      }
       const mergedOrder = {
         ...order,
         ...updatedOrderData
@@ -1152,13 +1201,19 @@ async function handleBulkMode(limiteCarga) {
       return score;
     }
 
-    // Generar candidatos de coincidencia orden-DID con puntaje mínimo >= 50
+    // Generar candidatos de coincidencia orden-DID con puntaje mínimo >= 30
     const candidates = [];
-    for (const order of activeOrdersList) {
-      for (const ld of ldTrackingList) {
-        const score = calculateMatchScore(order, ld);
-        if (score >= 50) {
-          candidates.push({ order, ld, score });
+    for (let i = 0; i < activeOrdersList.length; i++) {
+      const order = activeOrdersList[i];
+      for (let j = 0; j < ldTrackingList.length; j++) {
+        const ld = ldTrackingList[j];
+        let score = calculateMatchScore(order, ld);
+        // Si la cantidad total coincide y están en la misma posición relativa del Excel, bonificar correspondencia
+        if (activeOrdersList.length === ldTrackingList.length && i === j) {
+          score += 25;
+        }
+        if (score >= 30) {
+          candidates.push({ order, ld, score, orderIdx: i, ldIdx: j });
         }
       }
     }
@@ -1181,6 +1236,27 @@ async function handleBulkMode(limiteCarga) {
           score: cand.score
         });
         console.log(`🎯 [MATCH EXACTO] Pedido ${cand.order.external_order_number} (${cand.order.customer_name}) -> DID ${cand.ld.did} (${cand.ld.destinatario}) [Score: ${cand.score}]`);
+      }
+    }
+
+    // Si la cantidad de pedidos y DIDs es idéntica y quedaron pedidos sin emparejar:
+    if (activeOrdersList.length === ldTrackingList.length && matchedOrderIds.size < activeOrdersList.length) {
+      const unassignedOrders = activeOrdersList.filter(o => !matchedOrderIds.has(o.id));
+      const unassignedDids = ldTrackingList.filter(l => !matchedDids.has(l.did));
+      if (unassignedOrders.length === unassignedDids.length) {
+        for (let k = 0; k < unassignedOrders.length; k++) {
+          const uOrder = unassignedOrders[k];
+          const uLd = unassignedDids[k];
+          matchedOrderIds.add(uOrder.id);
+          matchedDids.add(uLd.did);
+          verifiedOrderMatches.push({
+            order: uOrder,
+            did: uLd.did,
+            trackingUrl: uLd.trackingUrl,
+            score: 50 // Match por correspondencia posicional estricta 1:1
+          });
+          console.log(`🎯 [MATCH POSICIONAL 1:1] Pedido ${uOrder.external_order_number} -> DID ${uLd.did}`);
+        }
       }
     }
 
@@ -1234,6 +1310,30 @@ async function handleBulkMode(limiteCarga) {
     console.log(`📡 Actualizando ${verifiedOrderMatches.length} pedidos verificados en Supabase y sincronizando al Picker...`);
     const fechaProcesamientoVal = getFechaProcesamiento();
 
+    // Guardar en lightdata_envios con referencia de pedido completa para que envios_unificados funcione de inmediato
+    const bulkLdUpserts = verifiedOrderMatches.map(m => {
+      const fullDest = [(m.order.shipping_address || '').trim(), (m.order.shipping_city || '').trim()].filter(Boolean).join(' - ');
+      return {
+        id: String(m.did).trim(),
+        tracking: m.order.external_order_number || String(m.order.id),
+        comercio: m.order.comercio || null,
+        courier: 'CARRIER EXTERNO',
+        nombre_destinatario: m.order.customer_name || null,
+        direccion_destino: fullDest || null,
+        tracking_url: m.trackingUrl,
+        status: 'A retirar',
+        updated_at: new Date().toISOString()
+      };
+    });
+    if (bulkLdUpserts.length > 0) {
+      try {
+        await supabase.from('lightdata_envios').upsert(bulkLdUpserts, { onConflict: 'id' });
+        console.log(`✅ ${bulkLdUpserts.length} envíos vinculados en lightdata_envios.`);
+      } catch (upsertErr) {
+        console.warn('⚠️ Error al actualizar lightdata_envios:', upsertErr.message);
+      }
+    }
+
     for (const matchItem of verifiedOrderMatches) {
       const { order, did, trackingUrl, labelBase64 } = matchItem;
 
@@ -1250,7 +1350,10 @@ async function handleBulkMode(limiteCarga) {
           did: did,
           id: did,
           tracking: order.external_order_number,
-          tracking_url: trackingUrl
+          tracking_url: trackingUrl,
+          courier: 'CARRIER EXTERNO',
+          comercio: order.comercio,
+          status: 'A retirar'
         }
       };
 

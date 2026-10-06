@@ -1979,8 +1979,21 @@ window.buildPickerObservation = function(order, prodDescription) {
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
 window.resolveOrderTracking = function(order) {
   if (!order) return '';
-  if (order.tracking_number && String(order.tracking_number).trim() && String(order.tracking_number).trim().toLowerCase() !== 'no informado') {
-    return String(order.tracking_number).trim();
+  const isAlpha = order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO';
+  const alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
+  if (isAlpha && alphaDid) {
+    return String(alphaDid).trim();
+  }
+
+  const trk = String(order.tracking_number || '').trim();
+  if (trk && trk.toLowerCase() !== 'no informado' && trk !== order.external_order_number) {
+    if (!isAlpha || !trk.startsWith('460')) {
+      return trk;
+    }
+  }
+
+  if (alphaDid) {
+    return String(alphaDid).trim();
   }
   // Shopify fulfillments tracking fallback
   if (order.raw_shopify_data?.fulfillments && Array.isArray(order.raw_shopify_data.fulfillments)) {
@@ -2293,6 +2306,171 @@ window.resyncShopifyOrder = async function(orderId) {
   }
 };
 
+// Función global para sincronizar un pedido bajo demanda directamente con Envíame
+window.resyncEnviameOrder = async function(orderId) {
+  const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (!order) {
+    alert('Pedido no encontrado en memoria.');
+    return;
+  }
+
+  const btn = document.getElementById(`btn-resync-enviame-${orderId}`);
+  const origBtnHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line" style="display:inline-block; animation: wms-spin 1s linear infinite;"></i> Consultando Envíame...';
+  }
+
+  try {
+    let deliveryId = order.enviame_delivery_id;
+    
+    // Si no tiene deliveryId guardado en la orden, buscar en enviame_shipments
+    if (!deliveryId) {
+      const cleanRef = String(order.external_order_number || order.id || '').replace(/^#/, '').trim();
+      const numOnly = cleanRef.replace(/^[A-Za-z]{2,5}/, '');
+      const { data: shipRows } = await supabase
+        .from('enviame_shipments')
+        .select('id, tracking_number, courier')
+        .or(`order_id.eq.${order.external_order_number},order_id.eq.${cleanRef},order_id.eq.${numOnly}`)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (shipRows && shipRows.length > 0) {
+        deliveryId = shipRows[0].id;
+      }
+    }
+
+    if (!deliveryId) {
+      throw new Error(`No se encontró un delivery ID de Envíame asociado al pedido ${order.external_order_number || order.id}.`);
+    }
+
+    // Consultar directamente a la API de Envíame (CORS habilitado por defecto)
+    const API_KEY = "6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n";
+    const res = await fetch(`https://api.enviame.io/api/s2/v2/deliveries/${deliveryId}`, {
+      headers: {
+        'Accept': 'application/json',
+        'api-key': API_KEY
+      }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Envíame API respondió con código ${res.status}`);
+    }
+
+    const json = await res.json();
+    const d = json.data;
+    if (!d) {
+      throw new Error('No se recibieron datos de la entrega en Envíame.');
+    }
+
+    const rawTrack = d.tracking_number || d.carrier_tracking_number || d.barcodes || null;
+    const cleanTrack = (rawTrack && !['NO INFORMADO', 'NOINFORMADO', 'NULL', 'UNDEFINED', 'N/A', '-'].includes(String(rawTrack).trim().toUpperCase())) ? String(rawTrack).trim() : null;
+    const courier = (d.carrier || d.courier?.name || order.courier || 'STARKEN').trim();
+    const statusName = d.status?.name || d.status || 'Creado';
+
+    let labelUrl = null;
+    if (d.label && typeof d.label === 'object') {
+      labelUrl = d.label.PDF || d.label.PNG || null;
+    } else if (typeof d.label === 'string' && d.label.startsWith('http')) {
+      labelUrl = d.label;
+    }
+
+    let trackingUrl = null;
+    if (d.links && Array.isArray(d.links)) {
+      const webLink = d.links.find(l => l.rel === 'tracking-web');
+      if (webLink?.href) trackingUrl = webLink.href;
+    }
+    if (!trackingUrl && cleanTrack) {
+      trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(cleanTrack)}`;
+    }
+
+    // Mapear operador
+    let mappedOperador = 'STOCKA';
+    const cUpper = courier.toUpperCase();
+    if (cUpper.includes('STARKEN')) mappedOperador = 'STARKEN';
+    else if (cUpper.includes('BLUEXPRESS') || cUpper.includes('BLUE')) mappedOperador = 'BLUEXPRESS';
+    else if (cUpper.includes('CHILEXPRESS')) mappedOperador = 'CHILEXPRESS';
+    else if (cUpper.includes('ALPHA') || cUpper.includes('LIGHTDATA')) mappedOperador = 'ALPHA';
+    else if (cUpper.includes('FALABELLA')) mappedOperador = 'FALABELLA';
+    else if (cUpper.includes('MERCADO')) mappedOperador = 'MERCADOLIBRE';
+    else if (cUpper.includes('PARIS')) mappedOperador = 'PARIS';
+    else if (cUpper.includes('RIPLEY')) mappedOperador = 'RIPLEY';
+    else if (cUpper.includes('WALMART')) mappedOperador = 'WALMART';
+    else if (cUpper.includes('RECIBELO') || cUpper.includes('RECÍBELO') || cUpper.includes('WELIVERY') || cUpper.includes('WOODELIVERY') || cUpper.includes('WODELY')) mappedOperador = 'STOCKA X';
+    else mappedOperador = cUpper;
+
+    // Actualizar pedido en Supabase
+    const orderUpdate = {
+      enviame_delivery_id: String(deliveryId),
+      enviame_status: statusName,
+      courier: courier,
+      operador: mappedOperador
+    };
+    if (cleanTrack) {
+      orderUpdate.tracking_number = cleanTrack;
+      if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
+    }
+    if (labelUrl) {
+      orderUpdate.label_url = labelUrl;
+    }
+
+    await supabase.from('orders').update(orderUpdate).eq('id', orderId);
+
+    // Actualizar enviame_shipments
+    await supabase.from('enviame_shipments').upsert({
+      id: String(deliveryId),
+      order_id: order.external_order_number || String(deliveryId),
+      tracking_number: cleanTrack || 'No informado',
+      tracking_url: trackingUrl,
+      label_url: labelUrl,
+      courier: courier,
+      status: statusName,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' });
+
+    // Actualizar en memoria local
+    const idx = (window.loadedOrders || []).findIndex(o => o.id === orderId);
+    if (idx !== -1) {
+      window.loadedOrders[idx] = { ...window.loadedOrders[idx], ...orderUpdate };
+    }
+
+    // Refrescar UI manteniendo scroll
+    const scrollY = window.scrollY;
+    if (typeof window.applyWmsFiltersAndRender === 'function') {
+      window.applyWmsFiltersAndRender();
+    }
+    window.scrollTo(0, scrollY);
+
+    if (typeof Swal !== 'undefined' && Swal.fire) {
+      Swal.fire({
+        icon: 'success',
+        title: '¡Envíame Sincronizado!',
+        html: `
+          <div style="text-align: left; font-size: 0.9rem;">
+            <p><strong>Pedido:</strong> ${order.external_order_number || order.id}</p>
+            <p><strong>Courier:</strong> ${courier} (${mappedOperador})</p>
+            <p><strong>Tracking:</strong> ${cleanTrack || '<span style="color:orange;">Pendiente de asignación por courier</span>'}</p>
+            <p><strong>Estado Envíame:</strong> ${statusName}</p>
+            ${labelUrl ? `<p><a href="${labelUrl}" target="_blank" style="color: #2563eb; font-weight: 600;">Ver Etiqueta PDF</a></p>` : ''}
+          </div>
+        `,
+        confirmButtonColor: '#0ea5e9'
+      });
+    } else {
+      alert(`¡Envíame Sincronizado!\nCourier: ${courier}\nTracking: ${cleanTrack || 'Pendiente'}\nEstado: ${statusName}`);
+    }
+
+  } catch (err) {
+    console.error('Error al actualizar desde Envíame:', err);
+    alert(`Error al actualizar desde Envíame: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+};
+
 // Función global para descargar la etiqueta de un pedido desde Supabase bajo demanda
 window.downloadOrderLabel = async function(orderId, orderNumber) {
   try {
@@ -2305,13 +2483,48 @@ window.downloadOrderLabel = async function(orderId, orderNumber) {
 
     const { data, error } = await supabase
       .from('orders')
-      .select('label_base64')
+      .select('label_base64, tracking_number, operador, courier, raw_lightdata_data')
       .eq('id', orderId)
       .single();
 
     if (error) throw error;
-    if (!data || !data.label_base64) {
-      alert("La etiqueta en formato PDF base64 no está disponible para este pedido (puede que requiera descargarse desde la plataforma de origen o no se haya generado correctamente).");
+    let base64 = data ? data.label_base64 : null;
+
+    if (!base64) {
+      const isAlpha = data?.operador === 'ALPHA' || data?.courier === 'LIGHTDATA' || data?.courier === 'CARRIER EXTERNO';
+      const trkNum = String(data?.tracking_number || '').trim();
+      const alphaDid = data?.raw_lightdata_data?.did || data?.raw_lightdata_data?.id || (/^\d+$/.test(trkNum) && !trkNum.startsWith('460') ? trkNum : null);
+      if (isAlpha && alphaDid) {
+        try {
+          const resp = await fetch("https://printserver.lightdata.app/print/etiqueta", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              "didEmpresa": 61,
+              "didEnvios": [parseInt(alphaDid, 10)],
+              "tipoEtiqueta": 1,
+              "calidad": 0,
+              "quien": 108
+            })
+          });
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            base64 = window.btoa(binary);
+            supabase.from('orders').update({ label_base64: base64 }).eq('id', orderId).then(() => {});
+          }
+        } catch (fetchErr) {
+          console.warn("No se pudo obtener la etiqueta en tiempo real desde el Print Server:", fetchErr);
+        }
+      }
+    }
+
+    if (!base64) {
+      alert("La etiqueta en formato PDF no está disponible para este pedido (puede que requiera descargarse desde la plataforma de origen o no se haya generado correctamente).");
       if (btn) {
         btn.innerHTML = originalContent;
         btn.disabled = false;
@@ -2319,7 +2532,7 @@ window.downloadOrderLabel = async function(orderId, orderNumber) {
       return;
     }
 
-    window.downloadBase64Pdf(data.label_base64, `etiqueta_${orderNumber || orderId}.pdf`);
+    window.downloadBase64Pdf(base64, `etiqueta_${orderNumber || orderId}.pdf`);
 
     if (btn) {
       btn.innerHTML = originalContent;
@@ -2616,6 +2829,98 @@ window.fetchWmsEdgeFunction = async function(functionName, options = {}) {
   return result;
 };
 
+// Sondeo en segundo plano para actualizar pedidos y etiquetas generadas en LightData/Alpha
+window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
+  if (!orderIds || orderIds.length === 0) return;
+  const startTime = Date.now();
+  const pollIntervalMs = 4000;
+  const pendingSet = new Set(orderIds);
+
+  const intervalId = setInterval(async () => {
+    try {
+      const elapsed = (Date.now() - startTime) / 1000;
+      if (elapsed > maxWaitSeconds || pendingSet.size === 0) {
+        clearInterval(intervalId);
+        return;
+      }
+
+      const { data: updatedOrders, error } = await supabase
+        .from('orders')
+        .select('id, tracking_number, tracking_url, courier, operador, label_url, label_base64, raw_lightdata_data, estado_wms')
+        .in('id', Array.from(pendingSet));
+
+      if (error || !updatedOrders) return;
+
+      let changedCount = 0;
+      for (const uOrd of updatedOrders) {
+        const trk = String(uOrd.tracking_number || '').trim();
+        const hasTracking = trk !== '' && trk !== 'null' && trk !== 'undefined';
+        if (hasTracking || uOrd.label_base64 || uOrd.raw_lightdata_data?.did) {
+          pendingSet.delete(uOrd.id);
+          changedCount++;
+          if (Array.isArray(window.loadedOrders)) {
+            const localOrd = window.loadedOrders.find(o => o.id === uOrd.id);
+            if (localOrd) {
+              Object.assign(localOrd, uOrd);
+              delete localOrd._wmsTags;
+
+              // Sincronizar inmediatamente en Picker active_orders si está configurado
+              if (typeof pickerSupabase !== 'undefined' && pickerSupabase) {
+                const ordNo = String(localOrd.external_order_number || localOrd.id);
+                const effTrack = String(localOrd.raw_lightdata_data?.did || localOrd.raw_lightdata_data?.id || localOrd.tracking_number || '').trim();
+                if (effTrack) {
+                  pickerSupabase
+                    .from('active_orders')
+                    .update({ tracking: effTrack, operator: 'ALPHA' })
+                    .in('order_number', [ordNo, '#' + ordNo.replace(/^#/, ''), ordNo.replace(/^#/, '')])
+                    .then(() => {})
+                    .catch(() => {});
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (changedCount > 0) {
+        try {
+          const { data: newShips } = await supabase
+            .from('envios_unificados')
+            .select('*')
+            .eq('source_table', 'lightdata_envios')
+            .order('created_at', { ascending: false })
+            .limit(100);
+          if (newShips && Array.isArray(window.loadedShipments)) {
+            const shipMap = new Map(window.loadedShipments.map(s => [s.id, s]));
+            newShips.forEach(s => shipMap.set(s.id, s));
+            window.loadedShipments = Array.from(shipMap.values());
+          }
+        } catch (_) {}
+
+        if (window.applyWmsFiltersAndRender) {
+          window.applyWmsFiltersAndRender();
+        }
+
+        if (pendingSet.size === 0) {
+          clearInterval(intervalId);
+          if (window.Swal) {
+            Swal.fire({
+              toast: true,
+              position: 'top-end',
+              icon: 'success',
+              title: '¡Etiquetas Alpha y tracking asignados exitosamente!',
+              timer: 4500,
+              showConfirmButton: false
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Error en sondeo de tracking LightData:", err);
+    }
+  }, pollIntervalMs);
+};
+
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
   // Validación previa de fono y comuna
@@ -2716,6 +3021,9 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
     });
     
+    // Iniciar sondeo activo para auto-refrescar cuando se asigne el tracking
+    window.pollForLightDataTracking([orderId]);
+
     Swal.fire({
       icon: 'success',
       title: 'Pedido en preparación',
@@ -2851,6 +3159,9 @@ window.bulkCreateLightDataLabels = async function(btn) {
       body: JSON.stringify({ mode: 'bulk', orderIds: ids.join(',') })
     });
     
+    // Iniciar sondeo activo para auto-refrescar pedidos masivos conforme se asignen etiquetas
+    window.pollForLightDataTracking(ids);
+
     Swal.fire({
       icon: 'success',
       title: 'Pedidos en preparación',
@@ -4676,15 +4987,24 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
           }
           if (o.tracking_number) {
             const tr = String(o.tracking_number).trim();
-            orderRefs.push(tr);
-            const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
-            if (cleanAlphaTrack) orderRefs.push(cleanAlphaTrack);
+            const trUp = tr.toUpperCase();
+            if (trUp && trUp !== 'NO INFORMADO' && trUp !== 'NOINFORMADO' && trUp !== 'NULL' && trUp !== 'UNDEFINED' && trUp !== 'N/A' && trUp !== '-' && trUp !== 'SIN INFORMACION' && trUp !== 'SIN INFORMACIÓN') {
+              orderRefs.push(tr);
+              const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
+              if (cleanAlphaTrack && cleanAlphaTrack.toUpperCase() !== 'NOINFORMADO') orderRefs.push(cleanAlphaTrack);
+            }
           }
           if (o.raw_lightdata_data) {
             const ld = o.raw_lightdata_data;
             if (ld.id) orderRefs.push(String(ld.id).trim());
             if (ld.did) orderRefs.push(String(ld.did).trim());
-            if (ld.tracking) orderRefs.push(String(ld.tracking).trim());
+            if (ld.tracking) {
+              const ldTrk = String(ld.tracking).trim();
+              const ldTrkUp = ldTrk.toUpperCase();
+              if (ldTrkUp && ldTrkUp !== 'NO INFORMADO' && ldTrkUp !== 'NOINFORMADO' && ldTrkUp !== 'N/A') {
+                orderRefs.push(ldTrk);
+              }
+            }
           }
         });
         const allRefs = [...new Set(orderRefs.filter(Boolean))];
@@ -5213,36 +5533,45 @@ async function renderAdminOrders() {
           return false;
         }
 
+        const isValidTrack = (t) => {
+          if (!t) return false;
+          const up = String(t).trim().toUpperCase();
+          return up !== '' && up !== 'NO INFORMADO' && up !== 'NOINFORMADO' && up !== 'N/A' && up !== '-' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
+        };
+
         const alpha = (val) => String(val || '').replace(/[^a-zA-Z0-9]/g, '').trim().toUpperCase();
         const cleanRef = (s.pedido_referencia || '').replace(/^#/, '').trim();
         const cleanOrderExt = (order.external_order_number || '').replace(/^#/, '').trim();
         const cleanOrderId = String(order.id || '').replace(/^#/, '').trim();
 
+        const validOrderTrack = isValidTrack(order.tracking_number) ? order.tracking_number : null;
+        const validShipTrack = isValidTrack(s.tracking) ? s.tracking : null;
+
         const alphaOrderExt = alpha(order.external_order_number);
         const alphaOrderId = alpha(order.id);
-        const alphaOrderTrack = alpha(order.tracking_number);
+        const alphaOrderTrack = validOrderTrack ? alpha(validOrderTrack) : null;
         const alphaShipRef = alpha(s.pedido_referencia);
-        const alphaShipTrack = alpha(s.tracking);
+        const alphaShipTrack = validShipTrack ? alpha(validShipTrack) : null;
         const alphaShipSourceId = alpha(s.source_id);
         const ldDid = String(order.raw_lightdata_data?.did || order.raw_lightdata_data?.id || '').trim();
-        const alphaLdTrack = alpha(order.raw_lightdata_data?.tracking);
+        const alphaLdTrack = isValidTrack(order.raw_lightdata_data?.tracking) ? alpha(order.raw_lightdata_data?.tracking) : null;
 
         const refMatches = s.pedido_referencia === order.id || 
                            (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-                           (order.tracking_number && (s.pedido_referencia === order.tracking_number || s.tracking === order.tracking_number || s.source_id === order.tracking_number || s.id === 'lightdata_envios:' + order.tracking_number)) ||
+                           (validOrderTrack && (s.pedido_referencia === validOrderTrack || validShipTrack === validOrderTrack || s.source_id === validOrderTrack || s.id === 'lightdata_envios:' + validOrderTrack)) ||
                            (cleanRef && (cleanRef === cleanOrderExt || cleanRef === cleanOrderId)) ||
-                           (alphaOrderExt && (alphaShipRef === alphaOrderExt || alphaShipTrack === alphaOrderExt)) ||
-                           (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || alphaShipTrack === alphaOrderTrack || alphaShipSourceId === alphaOrderTrack)) ||
-                           (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || s.tracking === ldDid)) ||
-                           (alphaLdTrack && (alphaShipTrack === alphaLdTrack || alphaShipRef === alphaLdTrack));
+                           (alphaOrderExt && (alphaShipRef === alphaOrderExt || (alphaShipTrack && alphaShipTrack === alphaOrderExt))) ||
+                           (alphaOrderTrack && (alphaShipRef === alphaOrderTrack || (alphaShipTrack && alphaShipTrack === alphaOrderTrack) || alphaShipSourceId === alphaOrderTrack)) ||
+                           (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid || s.pedido_referencia === ldDid || (validShipTrack && validShipTrack === ldDid))) ||
+                           (alphaLdTrack && ((alphaShipTrack && alphaShipTrack === alphaLdTrack) || alphaShipRef === alphaLdTrack));
         if (!refMatches) return false;
 
         let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
         const orderCommerce = (order.comercio || '').trim().toUpperCase();
         if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
-        if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-        if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
-        if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
+        if (validShipTrack && validOrderTrack && validShipTrack === validOrderTrack) return true;
+        if (s.source_id && validOrderTrack && s.source_id === validOrderTrack) return true;
+        if (s.id && validOrderTrack && s.id === 'lightdata_envios:' + validOrderTrack) return true;
         if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
         if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
@@ -5255,35 +5584,43 @@ async function renderAdminOrders() {
         return shipCommerce === orderCommerce;
       });
 
-      if (orderShipments.length === 0 && order.raw_lightdata_data && order.raw_lightdata_data.status) {
-        const ldRaw = order.raw_lightdata_data;
-        let globStatus = 'SIN MOVIMIENTO';
-        let statusText = ldRaw.status || '';
-        if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
-          statusText = ldRaw.raw_data[23];
+      if (orderShipments.length > 1 && (order.operador === 'ALPHA' || order.courier === 'LIGHTDATA')) {
+        orderShipments.sort((a, b) => (b.source_table === 'lightdata_envios' ? 1 : 0) - (a.source_table === 'lightdata_envios' ? 1 : 0));
+      }
+
+      if (orderShipments.length === 0 && (order.operador === 'ALPHA' || order.courier === 'LIGHTDATA' || order.courier === 'CARRIER EXTERNO') && (order.raw_lightdata_data || order.tracking_number)) {
+        const ldRaw = order.raw_lightdata_data || {};
+        const effDid = String(ldRaw.did || ldRaw.id || order.tracking_number || '').trim();
+        if (effDid && effDid !== 'null' && effDid !== 'undefined' && !effDid.startsWith('460')) {
+          let globStatus = 'SIN MOVIMIENTO';
+          let statusText = ldRaw.status || 'A retirar';
+          if (/^-?\d+\.\d+$/.test(statusText.trim()) && ldRaw.raw_data && ldRaw.raw_data[23]) {
+            statusText = ldRaw.raw_data[23];
+          }
+          const rawStatusLower = statusText.toLowerCase().trim();
+          if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
+            globStatus = 'ENTREGADO';
+          } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
+            globStatus = 'EN TRÁNSITO';
+          } else if (rawStatusLower === 'cancelado') {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+          orderShipments = [{
+            id: `lightdata_envios:${effDid}`,
+            source_table: 'lightdata_envios',
+            source_id: effDid,
+            tracking: ldRaw.tracking || order.external_order_number || effDid,
+            pedido_referencia: order.external_order_number || effDid,
+            tracking_url: ldRaw.tracking_url || order.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${effDid}d54df4s8a88`,
+            courier: 'ALPHA',
+            status: statusText,
+            global_status: globStatus,
+            created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
+            updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
+          }];
         }
-        const rawStatusLower = statusText.toLowerCase().trim();
-        if (rawStatusLower.includes('entregado') || rawStatusLower.includes('entregada') || rawStatusLower.includes('delivered')) {
-          globStatus = 'ENTREGADO';
-        } else if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
-          globStatus = 'EN TRÁNSITO';
-        } else if (rawStatusLower === 'cancelado') {
-          globStatus = 'ALERTA';
-        } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
-          globStatus = 'SIN MOVIMIENTO';
-        }
-        orderShipments = [{
-          id: `lightdata_envios:${ldRaw.id || order.tracking_number}`,
-          source_table: 'lightdata_envios',
-          source_id: String(ldRaw.id || order.tracking_number || ''),
-          tracking: ldRaw.tracking || order.tracking_number || 'N/A',
-          tracking_url: ldRaw.tracking_url || order.tracking_url || null,
-          courier: ldRaw.courier || order.courier || 'CARRIER EXTERNO',
-          status: statusText,
-          global_status: globStatus,
-          created_at: ldRaw.fecha_creacion_lightdata || order.created_at,
-          updated_at: ldRaw.fecha_actualizacion_lightdata || ldRaw.updated_at || order.created_at
-        }];
       }
 
       // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris, Ripley, Walmart, simular uno a partir del estado de la orden
@@ -8231,34 +8568,68 @@ window.applyWmsFiltersAndRender = function() {
                              orderOperadorUpper.includes('RECIBELO') || orderOperadorUpper.includes('RECÍBELO') || 
                              orderOperadorUpper.includes('WELIVERY');
 
+    const isAlphaOrder = orderOperadorUpper === 'ALPHA' || 
+                         orderCourierUpper === 'LIGHTDATA' || 
+                         orderCourierUpper === 'PENDIENTE_LIGHTDATA' || 
+                         (orderShipments.length > 0 && orderShipments[0].source_table === 'lightdata_envios');
+
+    // Resolver DID / Tracking de Alpha si corresponde
+    let alphaDid = null;
+    if (isAlphaOrder) {
+      if (order.raw_lightdata_data?.did) alphaDid = String(order.raw_lightdata_data.did).trim();
+      else if (order.raw_lightdata_data?.id) alphaDid = String(order.raw_lightdata_data.id).trim();
+      else {
+        const ldShip = orderShipments.find(s => s.source_table === 'lightdata_envios');
+        if (ldShip && ldShip.source_id && /^\d+$/.test(String(ldShip.source_id).trim())) {
+          alphaDid = String(ldShip.source_id).trim();
+        }
+      }
+      if (!alphaDid && order.tracking_number && !isIgnoredCourier) {
+        const trkStr = String(order.tracking_number).trim();
+        if (!trkStr.startsWith('460') && trkStr !== order.external_order_number) {
+          alphaDid = trkStr;
+        }
+      }
+    }
+
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
     if (order.label_url && !isIgnoredCourier) {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+    } else if (isAlphaOrder && alphaDid) {
+      labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
     } else if (order.tracking_number && !isIgnoredCourier) {
       labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA' || isIgnoredCourier) {
+    } else if (isAlphaOrder || isIgnoredCourier) {
       labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
     }
 
     let courier_destino = '';
     let comuna_destino = '';
-    let trackingNum = isIgnoredCourier ? null : order.tracking_number;
-    let trackingUrl = isIgnoredCourier ? null : order.tracking_url;
+    let trackingNum = isAlphaOrder ? alphaDid : (isIgnoredCourier ? null : order.tracking_number);
+    let trackingUrl = isAlphaOrder && alphaDid ? (order.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${alphaDid}d54df4s8a88`) : (isIgnoredCourier ? null : order.tracking_url);
 
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       courier_destino = shipment.courier;
       comuna_destino = shipment.comuna_destino;
-      const effTrack = shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null);
-      if (effTrack) {
-        trackingNum = effTrack;
-        let sUrl = shipment.tracking_url;
-        if (!sUrl && shipment.source_table === 'optiroute_orders' && effTrack) {
-          sUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
+      if (shipment.source_table === 'lightdata_envios' || isAlphaOrder) {
+        const effTrack = alphaDid || shipment.source_id || order.tracking_number;
+        if (effTrack) {
+          trackingNum = effTrack;
+          trackingUrl = shipment.tracking_url || order.tracking_url || `https://alphagroup.lightdata.com.ar/tracking.php?token=${effTrack}d54df4s8a88`;
         }
-        trackingUrl = sUrl;
+      } else {
+        const effTrack = shipment.tracking || (shipment.source_table === 'optiroute_orders' ? shipment.raw_data?.uuid : null);
+        if (effTrack) {
+          trackingNum = effTrack;
+          let sUrl = shipment.tracking_url;
+          if (!sUrl && shipment.source_table === 'optiroute_orders' && effTrack) {
+            sUrl = `https://app.optiroute.cl/service_requets/tracking/${encodeURIComponent(effTrack)}/`;
+          }
+          trackingUrl = sUrl;
+        }
       }
     }
 
@@ -8292,9 +8663,22 @@ window.applyWmsFiltersAndRender = function() {
       trackingUrl = null;
     }
 
-    const courierName = (orderShipments.length > 0 && orderShipments[0].courier)
-      ? orderShipments[0].courier
-      : ((order.courier && order.courier !== 'CARRIER EXTERNO' && !isIgnoredCourier) ? order.courier : ((courier_destino && !courier_destino.toUpperCase().includes('RECIBELO') && !courier_destino.toUpperCase().includes('WELIVERY')) ? courier_destino : ((order.courier && !isIgnoredCourier) ? order.courier : 'Courier')));
+    if (isAlphaOrder && trackingNum && !trackingUrl) {
+      trackingUrl = `https://alphagroup.lightdata.com.ar/tracking.php?token=${trackingNum}d54df4s8a88`;
+    }
+
+    let courierName = 'Courier';
+    if (isAlphaOrder || (orderShipments.length > 0 && orderShipments[0].source_table === 'lightdata_envios')) {
+      courierName = 'ALPHA';
+    } else if (orderShipments.length > 0 && orderShipments[0].courier) {
+      courierName = orderShipments[0].courier;
+    } else if (order.courier && order.courier !== 'CARRIER EXTERNO' && !isIgnoredCourier) {
+      courierName = order.courier;
+    } else if (courier_destino && !courier_destino.toUpperCase().includes('RECIBELO') && !courier_destino.toUpperCase().includes('WELIVERY')) {
+      courierName = courier_destino;
+    } else if (order.courier && !isIgnoredCourier) {
+      courierName = order.courier;
+    }
 
     if (trackingNum) {
       const trackingLink = trackingUrl && trackingUrl !== 'N/A'
@@ -9347,6 +9731,11 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.wmsCreateManifestFromSingleOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.04); transition: all 0.2s;" title="Generar manifiesto de retiro para este pedido">
                       <i class="ri-file-paper-2-line"></i> Crear Manifiesto
                     </button>
+                    ${(order.enviame_delivery_id || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.operador || '').toUpperCase()) || ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS'].includes((order.courier || '').toUpperCase()) || ['RELAJARTE', 'DORMILONES', 'JOYAS GLOSS', 'THE SKIN STORE', 'MAGIC MAKEUP', 'DGORAL', 'HI TECH', 'FLORACTIVE'].includes((order.comercio || '').toUpperCase()) || order.enviame_status) ? `
+                      <button id="btn-resync-enviame-${order.id}" onclick="window.resyncEnviameOrder('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 0.35rem; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: #ea580c; color: #ea580c; background: rgba(234, 88, 12, 0.05); transition: all 0.2s;" title="Consultar en Envíame para obtener courier oficial, tracking real y etiqueta">
+                        <i class="ri-refresh-line"></i> Consultar Envíame
+                      </button>
+                    ` : ''}
                   </div>
                 </div>
 
@@ -9576,15 +9965,24 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
       }
       if (o.tracking_number) {
         const tr = String(o.tracking_number).trim();
-        orderRefs.push(tr);
-        const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
-        if (cleanAlphaTrack) orderRefs.push(cleanAlphaTrack);
+        const trUp = tr.toUpperCase();
+        if (trUp && trUp !== 'NO INFORMADO' && trUp !== 'NOINFORMADO' && trUp !== 'NULL' && trUp !== 'UNDEFINED' && trUp !== 'N/A' && trUp !== '-' && trUp !== 'SIN INFORMACION' && trUp !== 'SIN INFORMACIÓN') {
+          orderRefs.push(tr);
+          const cleanAlphaTrack = tr.replace(/[^a-zA-Z0-9]/g, '').trim();
+          if (cleanAlphaTrack && cleanAlphaTrack.toUpperCase() !== 'NOINFORMADO') orderRefs.push(cleanAlphaTrack);
+        }
       }
       if (o.raw_lightdata_data) {
         const ld = o.raw_lightdata_data;
         if (ld.id) orderRefs.push(String(ld.id).trim());
         if (ld.did) orderRefs.push(String(ld.did).trim());
-        if (ld.tracking) orderRefs.push(String(ld.tracking).trim());
+        if (ld.tracking) {
+          const ldTrk = String(ld.tracking).trim();
+          const ldTrkUp = ldTrk.toUpperCase();
+          if (ldTrkUp && ldTrkUp !== 'NO INFORMADO' && ldTrkUp !== 'NOINFORMADO' && ldTrkUp !== 'N/A') {
+            orderRefs.push(ldTrk);
+          }
+        }
       }
     });
     const uniqueSubsetRefs = [...new Set(orderRefs.filter(Boolean))];

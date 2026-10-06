@@ -354,14 +354,22 @@ async function syncLightData() {
 
             const currentTrack = String(dbOrder.tracking_number || '').trim();
             const extNum = String(dbOrder.external_order_number || '').trim();
-            const isGenericTrack = !currentTrack || currentTrack.toLowerCase() === 'no informado' || currentTrack === extNum;
-            const isDifferentTrack = id && currentTrack && currentTrack !== id && (dbOrder.courier === 'CARRIER EXTERNO' || dbOrder.courier === 'LIGHTDATA');
+            const dbCourier = String(dbOrder.courier || '').toUpperCase().trim();
+            const dbOperador = String(dbOrder.operador || '').toUpperCase().trim();
 
-            if (isGenericTrack || isDifferentTrack) {
+            const isIgnoredCourier = dbCourier.includes('RECIBELO') || dbCourier.includes('RECÍBELO') || 
+                                     dbCourier.includes('WELIVERY') || dbCourier.includes('WOODELIVERY') || dbCourier.includes('WODELY') ||
+                                     dbOperador.includes('RECIBELO') || dbOperador.includes('RECÍBELO') || dbOperador.includes('WELIVERY');
+
+            const isAlpha = dbOperador === 'ALPHA' || dbCourier === 'LIGHTDATA' || dbCourier === 'CARRIER EXTERNO';
+            const isGenericTrack = !currentTrack || currentTrack.toLowerCase() === 'no informado' || currentTrack === extNum;
+            const isDifferentTrack = id && currentTrack && currentTrack !== id && (isAlpha || isIgnoredCourier);
+
+            if (isGenericTrack || isDifferentTrack || isIgnoredCourier || isAlpha) {
               updatePayload.tracking_number = id;
             }
 
-            if (!dbOrder.tracking_url && shipmentPayload.tracking_url) {
+            if (shipmentPayload.tracking_url) {
               updatePayload.tracking_url = shipmentPayload.tracking_url;
             }
 
@@ -380,13 +388,16 @@ async function syncLightData() {
                 .update(updatePayload)
                 .eq('id', dbOrder.id);
 
-              if (hasTrackingChange && pickerClient && extNum) {
-                try {
-                  await pickerClient
-                    .from('active_orders')
-                    .update({ tracking: updatePayload.tracking_number })
-                    .eq('order_number', extNum);
-                } catch (pErr) {}
+              if (pickerClient && extNum) {
+                const activeTrack = updatePayload.tracking_number || currentTrack || id;
+                if (activeTrack && !activeTrack.startsWith('460') && activeTrack !== extNum) {
+                  try {
+                    await pickerClient
+                      .from('active_orders')
+                      .update({ tracking: activeTrack, operator: 'ALPHA' })
+                      .in('order_number', [extNum, '#' + extNum.replace(/^#/, ''), extNum.replace(/^#/, '')]);
+                  } catch (pErr) {}
+                }
               }
             }
           }

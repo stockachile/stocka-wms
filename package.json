@@ -10,7 +10,8 @@
     "login:starken": "node login_starken_interactive.js",
     "session:starken": "node save_starken_session.js",
     "schedule:starken": "node scheduler_sync_starken.js",
-    "sync:lightdata": "node sync_lightdata.js"
+    "sync:lightdata": "node sync_lightdata.js",
+    "sync:enviame": "node sync_enviame.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.0",

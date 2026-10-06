@@ -8246,16 +8246,21 @@ window._clientShipmentsIndex = null;
 
 window.buildClientShipmentsIndex = function(shipments) {
   const index = new Map();
+  const isValidRef = (v) => {
+    if (!v) return false;
+    const up = String(v).trim().toUpperCase();
+    return up !== '' && up !== 'NO INFORMADO' && up !== 'NOINFORMADO' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'N/A' && up !== '-' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
+  };
+
   const addKey = (k, s) => {
-    if (!k) return;
+    if (!isValidRef(k)) return;
     const str = String(k).trim();
-    if (!str) return;
     const upper = str.toUpperCase();
     const clean = upper.replace(/^#/, '');
     const alpha = upper.replace(/[^A-Z0-9]/g, '');
 
     [upper, clean, alpha].forEach(keyVal => {
-      if (!keyVal) return;
+      if (!isValidRef(keyVal)) return;
       if (!index.has(keyVal)) index.set(keyVal, []);
       const arr = index.get(keyVal);
       if (!arr.includes(s)) arr.push(s);
@@ -8298,15 +8303,20 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
 
   const index = window._clientShipmentsIndex || window.buildClientShipmentsIndex(shipments);
 
+  const isValidRef = (v) => {
+    if (!v) return false;
+    const up = String(v).trim().toUpperCase();
+    return up !== '' && up !== 'NO INFORMADO' && up !== 'NOINFORMADO' && up !== 'NULL' && up !== 'UNDEFINED' && up !== 'N/A' && up !== '-' && up !== 'SIN INFORMACION' && up !== 'SIN INFORMACIÓN';
+  };
+
   const lookupKeys = new Set();
   const addOrderKey = (k) => {
-    if (!k) return;
+    if (!isValidRef(k)) return;
     const str = String(k).trim().toUpperCase();
-    if (!str) return;
     lookupKeys.add(str);
     lookupKeys.add(str.replace(/^#/, ''));
     const alpha = str.replace(/[^A-Z0-9]/g, '');
-    if (alpha) lookupKeys.add(alpha);
+    if (isValidRef(alpha)) lookupKeys.add(alpha);
   };
 
   addOrderKey(order.id);
@@ -8338,9 +8348,9 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
   let orderShipments = candidateShipments.filter(s => {
     let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
     if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce.includes('STOCKA')) return true;
-    if (s.tracking && order.tracking_number && s.tracking === order.tracking_number) return true;
-    if (s.source_id && order.tracking_number && s.source_id === order.tracking_number) return true;
-    if (s.id && order.tracking_number && s.id === 'lightdata_envios:' + order.tracking_number) return true;
+    if (isValidRef(s.tracking) && isValidRef(order.tracking_number) && s.tracking === order.tracking_number) return true;
+    if (s.source_id && isValidRef(order.tracking_number) && s.source_id === order.tracking_number) return true;
+    if (s.id && isValidRef(order.tracking_number) && s.id === 'lightdata_envios:' + order.tracking_number) return true;
     if (ldDid && (s.source_id === ldDid || s.id === 'lightdata_envios:' + ldDid)) return true;
     if (s.source_table === 'bluex_envios' || s.source_table === 'starken_envios' || s.source_table === 'optiroute_orders') return true;
 
@@ -9268,18 +9278,25 @@ async function renderOrders() {
       }
       if (o.tracking_number) {
         const trk = String(o.tracking_number).trim();
-        allRefsSet.add(trk);
-        allRefsSet.add(trk.replace(/#/g, '').trim());
-        const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
-        if (cleanTrk) allRefsSet.add(cleanTrk);
+        const trkUp = trk.toUpperCase();
+        if (trkUp && trkUp !== 'NO INFORMADO' && trkUp !== 'NOINFORMADO' && trkUp !== 'NULL' && trkUp !== 'UNDEFINED' && trkUp !== 'N/A' && trkUp !== '-' && trkUp !== 'SIN INFORMACION' && trkUp !== 'SIN INFORMACIÓN') {
+          allRefsSet.add(trk);
+          allRefsSet.add(trk.replace(/#/g, '').trim());
+          const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
+          if (cleanTrk && cleanTrk.toUpperCase() !== 'NOINFORMADO') allRefsSet.add(cleanTrk);
+        }
       }
       if (o.raw_lightdata_data) {
         const ld = o.raw_lightdata_data;
         if (ld.id) allRefsSet.add(String(ld.id).trim());
         if (ld.did) allRefsSet.add(String(ld.did).trim());
         if (ld.tracking) {
-          allRefsSet.add(String(ld.tracking).trim());
-          allRefsSet.add(String(ld.tracking).replace(/#/g, '').trim());
+          const ldTrk = String(ld.tracking).trim();
+          const ldTrkUp = ldTrk.toUpperCase();
+          if (ldTrkUp && ldTrkUp !== 'NO INFORMADO' && ldTrkUp !== 'NOINFORMADO' && ldTrkUp !== 'N/A') {
+            allRefsSet.add(ldTrk);
+            allRefsSet.add(ldTrk.replace(/#/g, '').trim());
+          }
         }
       }
     });
@@ -9384,18 +9401,25 @@ async function renderOrders() {
             }
             if (o.tracking_number) {
               const trk = String(o.tracking_number).trim();
-              allHistRefsSet.add(trk);
-              allHistRefsSet.add(trk.replace(/#/g, '').trim());
-              const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
-              if (cleanTrk) allHistRefsSet.add(cleanTrk);
+              const trkUp = trk.toUpperCase();
+              if (trkUp && trkUp !== 'NO INFORMADO' && trkUp !== 'NOINFORMADO' && trkUp !== 'NULL' && trkUp !== 'UNDEFINED' && trkUp !== 'N/A' && trkUp !== '-' && trkUp !== 'SIN INFORMACION' && trkUp !== 'SIN INFORMACIÓN') {
+                allHistRefsSet.add(trk);
+                allHistRefsSet.add(trk.replace(/#/g, '').trim());
+                const cleanTrk = trk.replace(/[^a-zA-Z0-9]/g, '').trim();
+                if (cleanTrk && cleanTrk.toUpperCase() !== 'NOINFORMADO') allHistRefsSet.add(cleanTrk);
+              }
             }
             if (o.raw_lightdata_data) {
               const ld = o.raw_lightdata_data;
               if (ld.id) allHistRefsSet.add(String(ld.id).trim());
               if (ld.did) allHistRefsSet.add(String(ld.did).trim());
               if (ld.tracking) {
-                allHistRefsSet.add(String(ld.tracking).trim());
-                allHistRefsSet.add(String(ld.tracking).replace(/#/g, '').trim());
+                const ldTrk = String(ld.tracking).trim();
+                const ldTrkUp = ldTrk.toUpperCase();
+                if (ldTrkUp && ldTrkUp !== 'NO INFORMADO' && ldTrkUp !== 'NOINFORMADO' && ldTrkUp !== 'N/A') {
+                  allHistRefsSet.add(ldTrk);
+                  allHistRefsSet.add(ldTrk.replace(/#/g, '').trim());
+                }
               }
             }
           });
