@@ -279,6 +279,8 @@ async function handleOrderNotification(orderId: string, integration: any, access
         payment_status: group.status,
         raw_meli_data: {
           ...(Array.isArray(group.orders) ? { orders: group.orders } : group.orders),
+          ...(shippingData ? { shipping: shippingData } : {}),
+          ...(shippingStatus ? { shipping_status: shippingStatus } : {}),
           ...(isWmsItemsEdited ? { wms_items_edited: true } : {}),
           ...(isWmsShippingEdited ? { wms_shipping_edited: true } : {}),
           ...((existingRaw.wms_custom_edited || isWmsItemsEdited || isWmsShippingEdited) ? { wms_custom_edited: true } : {})
@@ -428,7 +430,11 @@ async function handleOrderNotification(orderId: string, integration: any, access
       shipping_city: shippingCity,
       shipping_complement: shippingComplement,
       tracking_number: meliTrackingNumber || null,
-      raw_meli_data: group.orders,
+      raw_meli_data: {
+        orders: group.orders,
+        ...(shippingData ? { shipping: shippingData } : {}),
+        ...(shippingStatus ? { shipping_status: shippingStatus } : {})
+      },
       origen: 'MercadoLibre',
       item: flatItemName,
       cantidad: flatQuantity,

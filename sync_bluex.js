@@ -455,25 +455,6 @@ async function syncBlueExpress() {
       }
     }
 
-    // Fallback por teléfono destinatario (últimos 8 dígitos) si no hubo coincidencia directa
-    if (!matchedOrder && receiverPhone) {
-      const cleanPhone = String(receiverPhone).replace(/[^0-9]/g, '');
-      if (cleanPhone.length >= 8) {
-        const last8 = cleanPhone.slice(-8);
-        let phoneQuery = supabase
-          .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, bluex_status, comercio')
-          .ilike('customer_phone', `%${last8}`);
-
-        if (resolvedComercio) {
-          phoneQuery = phoneQuery.eq('comercio', resolvedComercio);
-        }
-
-        const { data: phoneOrders } = await phoneQuery;
-        if (phoneOrders && phoneOrders.length > 0) {
-          matchedOrder = phoneOrders[0];
-        }
-      }
     // Si se encontró la orden en el WMS, adoptar el comercio real de la orden para que coincida en AutoTrack y filtros
     if (matchedOrder && matchedOrder.comercio) {
       resolvedComercio = matchedOrder.comercio;

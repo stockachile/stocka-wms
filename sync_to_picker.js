@@ -374,6 +374,25 @@ async function run() {
 
     if (pickerErr) throw pickerErr;
 
+    // 2.0.1 Consultar logs de completado en Picker en masa para estos pedidos
+    const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
+    const { data: pickerCompletedLogs, error: pLogsErr } = await pickerClient
+      .from('history_logs')
+      .select('pedido, estado, comentarios, picker, scanned_label, created_at')
+      .in('pedido', orderNumbers)
+      .in('estado', completedStatuses)
+      .order('created_at', { ascending: false });
+
+    const completedLogsMap = new Map();
+    if (!pLogsErr && pickerCompletedLogs) {
+      pickerCompletedLogs.forEach(log => {
+        const pNorm = String(log.pedido || '').replace(/^#/, '').trim().toUpperCase();
+        if (!completedLogsMap.has(pNorm)) {
+          completedLogsMap.set(pNorm, log);
+        }
+      });
+    }
+
     // 2.1 Cargar ubicaciones físicas de los productos de estos pedidos
     const skusInOrders = new Set();
     wmsOrders.forEach(o => {
@@ -506,7 +525,7 @@ async function run() {
       } else if (isBodegaCompra || isSucursal) {
         cleanTracking = resolvedTrack || String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || '-';
       } else {
-        cleanTracking = resolvedTrack;
+        cleanTracking = resolvedTrack || (String(orderNo).replace(/[^a-zA-Z0-9]/g, '') || orderNo);
       }
 
       const isCourier = !isStk && !isRetiro && !isPorPagar && !isBodegaCompra && !isSucursal;
@@ -514,6 +533,36 @@ async function run() {
       if (pickerItemsForOrder.length > 0) {
         const firstAct = pickerItemsForOrder[0];
         const currentPickerTrack = String(firstAct.tracking || '').trim();
+
+        // 0. Si el pedido ya figura como COMPLETADO en active_orders o en history_logs, sincronizar a 'Pickeado' de inmediato
+        const isCompletedInActive = completedStatuses.includes(firstAct.sheet_status) ||
+          pickerItemsForOrder.some(it => completedStatuses.includes(it.sheet_status));
+        const matchedLog = completedLogsMap.get(cleanOrderNo);
+        const isCompletedInHistory = Boolean(matchedLog);
+
+        if (isCompletedInActive || isCompletedInHistory) {
+          const finalStatus = (matchedLog && matchedLog.estado) || firstAct.sheet_status || 'Completado';
+          const finalOp = (matchedLog && matchedLog.picker) || firstAct.operator || null;
+          console.log(`🎉 [SYNC PICKER] Pedido ${orderNo} completado en Picker (${finalStatus}). Sincronizando WMS a 'Pickeado'...`);
+
+          try {
+            const completedPayload = {
+              estado_wms: 'Pickeado',
+              status: 'preparado',
+              picker_status: finalStatus,
+              picker_operator: finalOp,
+              picker_last_synced_at: new Date().toISOString()
+            };
+            const scLabel = (matchedLog && matchedLog.scanned_label) || firstAct.scanned_label;
+            if (scLabel) completedPayload.picker_scanned_label = scLabel;
+
+            const res = await wmsClient.from('orders').update(completedPayload).eq('id', wmsOrder.id);
+            if (res.error) throw res.error;
+          } catch (_) {
+            await wmsClient.from('orders').update({ estado_wms: 'Pickeado', status: 'preparado' }).eq('id', wmsOrder.id);
+          }
+          continue;
+        }
 
         // 1. Si el pedido requiere courier pero no tiene tracking ni en Picker ni en WMS, y aún está EN PREPARACIÓN,
         // retirarlo temporalmente de active_orders para que el operario NO reciba pedidos "SIN TRACKING".
@@ -739,21 +788,28 @@ async function run() {
         if (isPickupHandled) continue;
 
         // B.2 Consultar en logs de completado del Picker (normalizando #)
-        const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
-        const { data: logs, error: logsErr } = await pickerClient
-          .from('history_logs')
-          .select('pedido, estado, comentarios, picker, scanned_label')
-          .in('pedido', searchLogKeys)
-          .in('estado', ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'])
-          .order('created_at', { ascending: false })
-          .limit(1);
+        let matchedCompletedLog = completedLogsMap.get(cleanOrderNo);
+        if (!matchedCompletedLog) {
+          const searchLogKeys = [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')];
+          const { data: logs, error: logsErr } = await pickerClient
+            .from('history_logs')
+            .select('pedido, estado, comentarios, picker, scanned_label')
+            .in('pedido', searchLogKeys)
+            .in('estado', completedStatuses)
+            .order('created_at', { ascending: false })
+            .limit(1);
 
-        if (logsErr) {
-          console.error(`Error consultando logs para ${orderNo}:`, logsErr.message);
-          continue;
+          if (logsErr) {
+            console.error(`Error consultando logs para ${orderNo}:`, logsErr.message);
+            continue;
+          }
+          if (logs && logs.length > 0) {
+            matchedCompletedLog = logs[0];
+          }
         }
 
-        if (logs && logs.length > 0) {
+        if (matchedCompletedLog) {
+          const logs = [matchedCompletedLog];
           // El pedido fue completado en el Picker, actualizamos el WMS a 'Pickeado'
           console.log(`🎉 ¡Pedido ${orderNo} completado en Picker con estado: "${logs[0].estado}"! Sincronizando WMS...`);
           

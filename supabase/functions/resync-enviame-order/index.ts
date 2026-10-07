@@ -63,6 +63,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const orderId = body.order_id || body.orderId;
     let deliveryId = body.delivery_id || body.deliveryId;
+    const requestedComercio = body.comercio ? String(body.comercio).trim() : null;
 
     if (!orderId && !deliveryId) {
       return new Response(JSON.stringify({ error: "Se requiere 'order_id' o 'delivery_id'" }), {
@@ -87,6 +88,34 @@ serve(async (req) => {
       }
     }
 
+    const orderComercio = targetOrder?.comercio || requestedComercio;
+    let expectedEnviameId: string | null = null;
+    let comercioSigla: string | null = null;
+
+    if (orderComercio) {
+      const { data: cConfig } = await supabase
+        .from("comercios_adicional_config")
+        .select("comercio, enviame_id, sigla")
+        .ilike("comercio", orderComercio)
+        .maybeSingle();
+
+      if (cConfig?.enviame_id) {
+        expectedEnviameId = String(cConfig.enviame_id).trim();
+      }
+      if (cConfig?.sigla) {
+        comercioSigla = String(cConfig.sigla).trim().toUpperCase();
+      }
+
+      if (!comercioSigla) {
+        const { data: vCom } = await supabase
+          .from("v_comercios_config")
+          .select("sigla")
+          .ilike("nombre", orderComercio)
+          .maybeSingle();
+        if (vCom?.sigla) comercioSigla = String(vCom.sigla).trim().toUpperCase();
+      }
+    }
+
     // Resolver deliveryId
     if (!deliveryId && targetOrder?.enviame_delivery_id) {
       deliveryId = targetOrder.enviame_delivery_id;
@@ -94,13 +123,35 @@ serve(async (req) => {
 
     if (!deliveryId && targetOrder?.external_order_number) {
       const extNum = String(targetOrder.external_order_number);
-      const cleanNum = extNum.replace(/^#/, "").replace(/^[A-Za-z]{2,5}/, "");
-      const { data: shipRows } = await supabase
+      let cleanNum = extNum.replace(/^#+/, "");
+      if (comercioSigla) {
+        cleanNum = cleanNum.replace(new RegExp(`^${comercioSigla}[#\\-_]?`, "i"), "");
+      }
+      cleanNum = cleanNum.replace(/^[A-Za-z]{2,5}/, "");
+
+      const candidateNumbers = [
+        extNum,
+        `#${cleanNum}`,
+        cleanNum,
+        comercioSigla ? `${comercioSigla}#${cleanNum}` : null,
+        comercioSigla ? `${comercioSigla}${cleanNum}` : null
+      ].filter(Boolean);
+
+      let shipQ = supabase
         .from("enviame_shipments")
-        .select("id")
-        .or(`order_id.eq.${extNum},order_id.eq.#${cleanNum},order_id.eq.${cleanNum}`)
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .select("id, seller_name, raw_payload")
+        .in("order_id", candidateNumbers)
+        .order("created_at", { ascending: false });
+
+      if (expectedEnviameId) {
+        const allowed = expectedEnviameId.split(",").map(x => x.trim().replace(/^ID\s*:?\s*/i, ""));
+        const orClauses = allowed.map(id => `seller_name.ilike.%${id}%`).concat(`seller_name.ilike.%${orderComercio}%`).join(",");
+        shipQ = shipQ.or(orClauses);
+      } else if (orderComercio) {
+        shipQ = shipQ.ilike("seller_name", `%${orderComercio}%`);
+      }
+
+      const { data: shipRows } = await shipQ.limit(1);
 
       if (shipRows && shipRows.length > 0) {
         deliveryId = shipRows[0].id;
@@ -109,14 +160,14 @@ serve(async (req) => {
 
     if (!deliveryId) {
       return new Response(JSON.stringify({
-        error: `No se encontró un delivery ID de Envíame para el pedido ${targetOrder?.external_order_number || orderId}.`
+        error: `No se encontró un delivery ID de Envíame para el pedido ${targetOrder?.external_order_number || orderId} en el comercio ${orderComercio || "desconocido"}.`
       }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
-    // Consultar directamente a la API de Envíame desde el backend Deno (sin restricciones CORS)
+    // Consultar directamente a la API de Envíame desde el backend Deno
     const enviameRes = await fetch(`https://api.enviame.io/api/s2/v2/deliveries/${deliveryId}`, {
       headers: {
         "Accept": "application/json",
@@ -139,6 +190,38 @@ serve(async (req) => {
     if (!d) {
       return new Response(JSON.stringify({ error: "No se recibieron datos de Envíame para esta entrega" }), {
         status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // ==========================================
+    // VALIDACIÓN DOBLE-CHECK POR ID DE ENVÍAME
+    // ==========================================
+    let delCompanyId: string | null = d.company?.id ? String(d.company.id).trim() : null;
+    if (!delCompanyId && d.seller_id) delCompanyId = String(d.seller_id).trim();
+    if (!delCompanyId && d.links && Array.isArray(d.links)) {
+      const link = d.links.find((l: any) => l.href && l.href.includes("/companies/"));
+      const m = link?.href?.match(/\/companies\/(\d+)\//);
+      if (m) delCompanyId = m[1];
+    }
+    const delCompanyName = d.company?.name ? d.company.name.trim().toUpperCase() : null;
+    const ordComercioUpper = (orderComercio || "").trim().toUpperCase();
+
+    if (targetOrder && expectedEnviameId && delCompanyId) {
+      const allowedIds = expectedEnviameId.split(",").map((s: string) => s.trim().replace(/^ID\s*:?\s*/i, ""));
+      if (!allowedIds.includes(delCompanyId)) {
+        return new Response(JSON.stringify({
+          error: `Discrepancia de comercio: El delivery ${deliveryId} en Envíame pertenece a la empresa ID ${delCompanyId} (${delCompanyName || 'Otro comercio'}), pero este pedido es de '${targetOrder.comercio}' (ID Envíame asignado: ${expectedEnviameId}). Asignación rechazada para prevenir cruce de pedidos.`
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    } else if (targetOrder && delCompanyName && ordComercioUpper && !delCompanyName.includes(ordComercioUpper) && !ordComercioUpper.includes(delCompanyName)) {
+      return new Response(JSON.stringify({
+        error: `Discrepancia de comercio: El delivery ${deliveryId} pertenece a '${delCompanyName}', pero el pedido es de '${targetOrder.comercio}'. Asignación rechazada para evitar cruce de pedidos.`
+      }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -166,6 +249,8 @@ serve(async (req) => {
       trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(validTracking)}`;
     }
 
+    const sellerNameRecord = delCompanyName || (delCompanyId ? `ID: ${delCompanyId}` : (orderComercio || null));
+
     // 1. Actualizar enviame_shipments
     await supabase.from("enviame_shipments").upsert({
       id: String(deliveryId),
@@ -175,7 +260,7 @@ serve(async (req) => {
       label_url: labelUrl,
       courier: courier,
       status: statusName,
-      seller_name: d.company?.name || targetOrder?.comercio || null,
+      seller_name: sellerNameRecord,
       service_type: d.service || null,
       recipient_name: cleanValue(d.customer?.full_name),
       recipient_phone: cleanValue(d.customer?.phone),
@@ -193,7 +278,7 @@ serve(async (req) => {
       id: `enviame_shipments:${deliveryId}`,
       source_table: "enviame_shipments",
       source_id: String(deliveryId),
-      empresa_comercio_proveedor: d.company?.name || targetOrder?.comercio || null,
+      empresa_comercio_proveedor: orderComercio || delCompanyName || null,
       tracking: validTracking || "No informado",
       tracking_url: trackingUrl,
       courier: courier,
@@ -211,7 +296,7 @@ serve(async (req) => {
     };
     await supabase.from("envios_unificados").upsert(unifiedPayload, { onConflict: "id" });
 
-    // 3. Actualizar tabla orders si existe targetOrder
+    // 3. Actualizar tabla orders sólo si targetOrder coincide de manera validada
     if (targetOrder) {
       const orderUpdate: any = {
         enviame_delivery_id: String(deliveryId),
@@ -239,6 +324,7 @@ serve(async (req) => {
       deliveryId: String(deliveryId),
       orderId: targetOrder?.id || null,
       externalOrderNumber: targetOrder?.external_order_number || d.imported_id,
+      comercio: orderComercio,
       courier: courier,
       operador: mappedOperador,
       trackingNumber: validTracking,
@@ -247,8 +333,8 @@ serve(async (req) => {
       status: statusName,
       globalStatus: globalStatus,
       message: validTracking
-        ? `Sincronizado: Courier ${courier}, Tracking ${validTracking}`
-        : `Envíame consultado: Estado '${statusName}' (Courier aún no asigna tracking)`
+        ? `Sincronizado [${orderComercio}]: Courier ${courier}, Tracking ${validTracking}`
+        : `Envíame consultado [${orderComercio}]: Estado '${statusName}' (Courier aún no asigna tracking)`
     }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" }

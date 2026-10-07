@@ -542,6 +542,27 @@
     });
   };
 
+  window.openActiveAgendasOrderModal = function() {
+    let targetOrderId = window.agendasGridState?.activeCell?.orderId;
+    if (!targetOrderId && window.agendasGridState?.selectedOrderIds?.size > 0) {
+      targetOrderId = Array.from(window.agendasGridState.selectedOrderIds)[0];
+    }
+    if (!targetOrderId) {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'info',
+        title: 'Haz clic en una celda o fila para abrir su Ficha',
+        showConfirmButton: false,
+        timer: 2500
+      });
+      return;
+    }
+    if (typeof window.openWmsOrderModal === 'function') {
+      window.openWmsOrderModal(targetOrderId);
+    }
+  };
+
   // ==========================================================================
   // 2. Extracción y Formateo de Datos por Columna
   // ==========================================================================
@@ -651,14 +672,27 @@
         return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(num);
       }
 
-      case 'metodo_envio':
-        return String(order.shipping_method || '-').trim();
+      case 'metodo_envio': {
+        if (typeof window.getOriginShippingMethod === 'function') {
+          const originMethod = window.getOriginShippingMethod(order);
+          if (originMethod) return originMethod;
+        }
+        return String(order.shipping_method || order.raw_shopify_data?.shipping_lines?.[0]?.title || order.raw_woocommerce_data?.shipping_lines?.[0]?.title || order.metodo_envio || '-').trim();
+      }
 
       case 'canal_ventas':
         return String(order.origen || order.external_platform || 'Manual').trim();
 
-      case 'estado_wms':
-        return String(order.estado_wms || 'En procesamiento').trim();
+      case 'estado_wms': {
+        if (order.estado_wms) return String(order.estado_wms).trim();
+        const st = String(order.status || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        if (st.includes('preparacion')) return 'En preparación';
+        if (st === 'preparado' || st === 'pickeado') return 'Pickeado';
+        if (st === 'despachado') return 'Despachado';
+        if (st === 'cancelado') return 'Cancelado';
+        if (st === 'archivado') return 'Archivado';
+        return 'En procesamiento';
+      }
 
       case 'categoria_entrega':
       case 'categoria':
@@ -840,6 +874,9 @@
       } else if (norm.includes('cancelado')) {
         badgeCls = 'excel-badge-wms-cancelado';
         icon = 'ri-close-circle-line';
+      } else if (norm.includes('archivado')) {
+        badgeCls = 'excel-badge-wms-archivado';
+        icon = 'ri-inbox-archive-line';
       }
 
       return `
@@ -913,9 +950,11 @@
     }
 
     if (col.key === 'numero_pedido') {
+      const orderIdStr = String(order.id || '');
       return `
-        <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary); white-space: nowrap; font-size: 0.76rem;" title="${rawVal}">
-          ${rawVal}
+        <div class="excel-cell-content" style="font-family: monospace; font-weight: 700; color: var(--color-primary, #6366f1); white-space: nowrap; font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; width: 100%; cursor: pointer;" title="Abrir Ficha Completa del Pedido (#${rawVal})" onclick="if(window.openWmsOrderModal){window.openWmsOrderModal('${orderIdStr}'); event.stopPropagation();}">
+          <span style="text-decoration: underline; text-underline-offset: 2px;">${rawVal}</span>
+          <i class="ri-external-link-line" style="font-size: 0.75rem; opacity: 0.65; flex-shrink: 0;" title="Abrir Ficha de Pedido"></i>
         </div>
       `;
     }
@@ -953,7 +992,7 @@
 
   // ==========================================================================
   // 4. Regla de Elegibilidad para Gestión de Agendas:
-  // Solo se deben mostrar pedidos en estado WMS 'En procesamiento' y 'En preparación'
+  // Se muestran pedidos en estado WMS 'En procesamiento', 'En preparación' y 'Pickeado'
   // ==========================================================================
   window.isOrderInAgendasAllowedState = function(order) {
     if (!order) return false;
@@ -967,12 +1006,8 @@
       return false;
     }
 
-    // Excluir si ya fue completado de mesa / pickeado
-    if (wms === 'pickeado' || st === 'preparado' || st === 'pickeado') {
-      return false;
-    }
-
-    // 2. Aceptar estrictamente pedidos en estado "En procesamiento" o "En preparación"
+    // 2. Aceptar pedidos operativos activos: "En procesamiento", "En preparación" y "Pickeado"
+    const isPickeado = wms === 'pickeado' || st === 'preparado' || st === 'pickeado';
     const isEnProcesamiento = wms.includes('procesamiento') || wms === 'para procesar' || st === 'para procesar' || st.includes('procesamiento');
     const isEnPreparacion = wms.includes('preparacion') || st.includes('preparacion');
 
@@ -981,7 +1016,7 @@
       return true;
     }
 
-    return isEnProcesamiento || isEnPreparacion;
+    return isEnProcesamiento || isEnPreparacion || isPickeado;
   };
 
   function getEligibleAgendasOrders() {
@@ -1116,6 +1151,11 @@
             <i class="ri-check-double-line"></i>
             <span>Todos los cambios guardados</span>
           </div>
+
+          <!-- Botón Ficha Pedido Completa -->
+          <button type="button" class="btn btn-outline" id="btn-agendas-ficha-pedido" onclick="window.openActiveAgendasOrderModal()" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; border-color: #c084fc; color: #7e22ce; background: rgba(147, 51, 234, 0.05); font-weight: 600;" title="Abrir Ficha Completa del Pedido seleccionado o activo">
+            <i class="ri-file-user-line" style="font-size: 0.95rem;"></i> Ficha Pedido
+          </button>
 
           <!-- Botón Sincronizar Optiroute en Tiempo Real -->
           <button type="button" class="btn btn-outline" id="btn-agendas-sync-optiroute" onclick="window.syncAgendasWithOptiroute()" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; border-color: #c7d2fe; color: #4338ca; background: rgba(79, 70, 229, 0.05); font-weight: 600;" title="Sincronizar estados de rutas y asignación de conductores directamente desde Optiroute API en tiempo real">
@@ -1384,7 +1424,158 @@
           openCellDropdown(cell);
         }
       });
+
+      // Clic derecho (menú contextual rápido de acciones del pedido)
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const orderId = cell.getAttribute('data-order-id');
+        setActiveCell(cell);
+        openAgendasContextMenu(e, orderId);
+      });
     });
+  }
+
+  // ==========================================================================
+  // Menú Contextual Rápido de Filas en Agendas (Right Click Context Menu)
+  // ==========================================================================
+  function closeAgendasContextMenu() {
+    const existing = document.getElementById('agendas-context-menu');
+    if (existing) existing.remove();
+  }
+
+  function openAgendasContextMenu(event, orderId) {
+    if (!orderId) return;
+    closeAgendasContextMenu();
+    closeCellDropdown();
+
+    const order = (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === String(orderId))
+      || (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+
+    const orderNum = order ? (order.external_order_number || order.id) : orderId;
+
+    const menu = document.createElement('div');
+    menu.id = 'agendas-context-menu';
+    menu.className = 'agendas-context-menu';
+    menu.style.cssText = `
+      position: fixed;
+      z-index: 10050;
+      background: var(--color-surface, #ffffff);
+      border: 1px solid var(--color-border, #e2e8f0);
+      border-radius: 8px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      min-width: 220px;
+      padding: 0.35rem 0;
+      font-size: 0.82rem;
+      color: var(--color-text-main, #0f172a);
+      animation: agendasFadeIn 0.12s ease-out;
+    `;
+
+    const x = Math.min(event.clientX, window.innerWidth - 235);
+    const y = Math.min(event.clientY, window.innerHeight - 275);
+    menu.style.left = `${Math.max(10, x)}px`;
+    menu.style.top = `${Math.max(10, y)}px`;
+
+    menu.innerHTML = `
+      <div style="padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--color-border, #e2e8f0); font-weight: 700; color: var(--color-primary, #6366f1); font-size: 0.76rem; display: flex; align-items: center; justify-content: space-between;">
+        <span><i class="ri-file-list-3-line"></i> Pedido #${orderNum}</span>
+      </div>
+      <div class="agendas-menu-item" data-action="ficha" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s; font-weight: 600;">
+        <i class="ri-file-user-line" style="color: #7e22ce; font-size: 0.95rem;"></i> Abrir Ficha Completa
+      </div>
+      <div class="agendas-menu-item" data-action="comuna" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
+        <i class="ri-map-pin-line" style="color: #059669; font-size: 0.95rem;"></i> Editar Comuna
+      </div>
+      <div class="agendas-menu-item" data-action="despacho" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
+        <i class="ri-truck-line" style="color: #2563eb; font-size: 0.95rem;"></i> Editar Datos de Despacho
+      </div>
+      <div class="agendas-menu-item" data-action="picking" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
+        <i class="ri-box-3-line" style="color: #d97706; font-size: 0.95rem;"></i> Editar Sucursal y Picking
+      </div>
+      <div class="agendas-menu-item" data-action="courier" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
+        <i class="ri-qr-code-line" style="color: #0891b2; font-size: 0.95rem;"></i> Editar Courier y Tracking
+      </div>
+      <div class="agendas-menu-item" data-action="estado_wms" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s;">
+        <i class="ri-flag-2-line" style="color: #6366f1; font-size: 0.95rem;"></i> Cambiar Estado WMS
+      </div>
+      <div style="border-top: 1px solid var(--color-border, #e2e8f0); margin: 0.25rem 0;"></div>
+      <div class="agendas-menu-item" data-action="historial" style="padding: 0.45rem 0.75rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: background 0.1s; color: var(--color-text-muted);">
+        <i class="ri-history-line" style="font-size: 0.95rem;"></i> Historial Auditoría Picker
+      </div>
+    `;
+
+    menu.querySelectorAll('.agendas-menu-item').forEach(item => {
+      item.addEventListener('mouseenter', () => {
+        item.style.background = 'rgba(99, 102, 241, 0.08)';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'transparent';
+      });
+      item.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const action = item.getAttribute('data-action');
+        closeAgendasContextMenu();
+        if (action === 'ficha' && typeof window.openWmsOrderModal === 'function') {
+          window.openWmsOrderModal(orderId);
+        } else if (action === 'comuna' && typeof window.editWmsOrderComuna === 'function') {
+          window.editWmsOrderComuna(orderId);
+        } else if (action === 'despacho' && typeof window.editWmsOrderShippingDetails === 'function') {
+          window.editWmsOrderShippingDetails(orderId);
+        } else if (action === 'picking' && typeof window.editWmsOrderPickingInfo === 'function') {
+          window.editWmsOrderPickingInfo(orderId);
+        } else if (action === 'courier' && typeof window.editWmsOrderCourierAndTracking === 'function') {
+          window.editWmsOrderCourierAndTracking(orderId);
+        } else if (action === 'estado_wms') {
+          const currentVal = order?.estado_wms || order?.status || 'En preparación';
+          if (typeof Swal !== 'undefined') {
+            Swal.fire({
+              title: `Cambiar Estado WMS - Pedido #${orderNum}`,
+              input: 'select',
+              inputOptions: {
+                'En preparación': '📦 En preparación',
+                'Pickeado': '✅ Pickeado',
+                'En procesamiento': '⚙️ En procesamiento',
+                'Despachado': '🚚 Despachado',
+                'Incidencia': '⚠️ Incidencia',
+                'Cancelado': '❌ Cancelado',
+                'Archivado': '📁 Archivado'
+              },
+              inputValue: currentVal,
+              showCancelButton: true,
+              confirmButtonText: 'Actualizar',
+              cancelButtonText: 'Cancelar',
+              confirmButtonColor: '#6366f1'
+            }).then(async (result) => {
+              if (result.isConfirmed && result.value) {
+                if (typeof window.updateWmsOrderStatus === 'function') {
+                  await window.updateWmsOrderStatus(orderId, result.value);
+                }
+                if (typeof window.refreshAgendasOrderCell === 'function') {
+                  const updatedOrd = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+                  window.refreshAgendasOrderCell(orderId, 'estado_wms', updatedOrd?.estado_wms || result.value);
+                }
+              }
+            });
+          }
+        } else if (action === 'historial' && typeof window.openPickerOrderHistoryModal === 'function') {
+          window.openPickerOrderHistoryModal(orderId);
+        }
+      });
+    });
+
+    document.body.appendChild(menu);
+
+    const outsideClick = (e) => {
+      if (!menu.contains(e.target)) {
+        closeAgendasContextMenu();
+        document.removeEventListener('click', outsideClick);
+        document.removeEventListener('contextmenu', outsideClick);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', outsideClick);
+      document.addEventListener('contextmenu', outsideClick);
+    }, 10);
   }
 
   // ==========================================================================
@@ -1666,7 +1857,7 @@
       title = 'Ruta Optiroute';
       icon = 'ri-route-line';
     } else if (isEstadoWms) {
-      configOptions = ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
+      configOptions = ['En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado', 'Archivado'];
       title = 'Estado WMS';
       icon = 'ri-loader-4-line';
     } else if (isComuna) {
@@ -1751,6 +1942,10 @@
           optCls = 'excel-badge-wms-cancelado';
           optIco = 'ri-close-circle-line';
           optDesc = 'Pedido cancelado';
+        } else if (normOpt.includes('archivado')) {
+          optCls = 'excel-badge-wms-archivado';
+          optIco = 'ri-inbox-archive-line';
+          optDesc = 'Pedido archivado';
         } else {
           optDesc = 'Pendiente de inicio de preparación';
         }
@@ -1866,7 +2061,10 @@
 
       if (colKey === 'estado_wms' && typeof window.updateWmsOrderStatus === 'function') {
         await window.updateWmsOrderStatus(orderId, newVal);
-        if (typeof window.renderAgendasGrid === 'function') {
+        if (typeof window.refreshAgendasOrderCell === 'function') {
+          const updatedOrder = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+          window.refreshAgendasOrderCell(orderId, 'estado_wms', updatedOrder?.estado_wms || newVal);
+        } else if (typeof window.renderAgendasGrid === 'function') {
           window.renderAgendasGrid();
         }
         return;
@@ -1925,7 +2123,10 @@
 
             if (colKey === 'estado_wms' && typeof window.updateWmsOrderStatus === 'function') {
               await window.updateWmsOrderStatus(orderId, newVal);
-              if (typeof window.renderAgendasGrid === 'function') {
+              if (typeof window.refreshAgendasOrderCell === 'function') {
+                const updatedOrder = (window.loadedOrders || []).find(o => String(o.id) === String(orderId));
+                window.refreshAgendasOrderCell(orderId, 'estado_wms', updatedOrder?.estado_wms || newVal);
+              } else if (typeof window.renderAgendasGrid === 'function') {
                 window.renderAgendasGrid();
               }
               return;
@@ -2466,6 +2667,7 @@
         const idKey = String(o.id);
         if (updatesMap.has(idKey)) {
           Object.assign(o, updatesMap.get(idKey));
+          delete o._wmsTags;
           // Propagar al picker si está en preparación (solo si cambiaron campos relevantes para picker)
           const updatedFields = Object.keys(updatesMap.get(idKey) || {});
           const hasPickerField = updatedFields.some(f => ['operador', 'agenda', 'comuna', 'shipping_city', 'sucursal_pickeo'].includes(f));
@@ -2553,6 +2755,15 @@
         saveIndicator.innerHTML = `<i class="ri-check-double-line"></i> <span>Todos los cambios guardados (${updates.length} actualizados)</span>`;
       }
 
+      // Sincronizar en Torre de Control en caliente
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+      const badgeEl = document.getElementById('agendas-tab-count');
+      if (badgeEl && typeof window.getEligibleAgendasCount === 'function') {
+        badgeEl.textContent = window.getEligibleAgendasCount();
+      }
+
       // Notificación toast amigable
       const toast = Swal.mixin({
         toast: true,
@@ -2573,6 +2784,187 @@
         saveIndicator.innerHTML = `<i class="ri-error-warning-line" style="color: #ef4444;"></i> <span style="color: #ef4444;">Error al guardar</span>`;
       }
       Swal.fire('Error', 'No se pudieron guardar los cambios: ' + err.message, 'error');
+    }
+  };
+
+  // ==========================================================================
+  // Sincronización en línea de celdas de la Grilla de Agendas
+  // ==========================================================================
+  const AGENDAS_COL_KEY_MAP = {
+    'shipping_city': 'comuna',
+    'comuna': 'comuna',
+    'customer_name': 'cliente',
+    'cliente': 'cliente',
+    'shipping_address': 'direccion',
+    'direccion': 'direccion',
+    'shipping_complement': 'complemento',
+    'complemento': 'complemento',
+    'shipping_method': 'metodo_envio',
+    'metodo_envio': 'metodo_envio',
+    'total_amount': 'valor_total',
+    'total_value': 'valor_total',
+    'valor_total': 'valor_total',
+    'status': 'estado_wms',
+    'estado_wms': 'estado_wms',
+    'categoria': 'categoria_entrega',
+    'categoria_entrega': 'categoria_entrega',
+    'agenda': 'agenda',
+    'operador': 'operador',
+    'sucursal_pickeo': 'sucursal_pickeo',
+    'estado_ruta_optiroute': 'estado_ruta_optiroute'
+  };
+
+  window.refreshAgendasOrderCell = function(orderId, colKey, newValue) {
+    if (!orderId || !colKey) return;
+    const idStr = String(orderId);
+    const targetColKey = AGENDAS_COL_KEY_MAP[colKey] || colKey;
+    const colDef = COLUMN_DEFS.find(c => c.key === targetColKey);
+
+    // 1. Sincronizar en memoria local (window.loadedOrders y window.agendasGridState.filteredOrders)
+    const ordersToSync = [];
+    const loadedOrd = (window.loadedOrders || []).find(o => String(o.id) === idStr);
+    if (loadedOrd) ordersToSync.push(loadedOrd);
+    const filteredOrd = (window.agendasGridState?.filteredOrders || []).find(o => String(o.id) === idStr);
+    if (filteredOrd && filteredOrd !== loadedOrd) ordersToSync.push(filteredOrd);
+
+    ordersToSync.forEach(ord => {
+      if (newValue !== undefined) {
+        ord[colKey] = newValue;
+        ord[targetColKey] = newValue;
+      }
+      if (targetColKey === 'comuna') {
+        ord.shipping_city = newValue;
+        ord.comuna = newValue;
+      } else if (targetColKey === 'cliente') {
+        ord.customer_name = newValue;
+        ord.cliente = newValue;
+      } else if (targetColKey === 'direccion') {
+        ord.shipping_address = newValue;
+        ord.direccion = newValue;
+      } else if (targetColKey === 'complemento') {
+        ord.shipping_complement = newValue;
+        ord.complemento = newValue;
+      } else if (targetColKey === 'metodo_envio') {
+        ord.shipping_method = newValue;
+        ord.metodo_envio = newValue;
+      } else if (targetColKey === 'categoria_entrega') {
+        ord.categoria_entrega = newValue;
+        ord.categoria = newValue;
+      } else if (targetColKey === 'estado_wms') {
+        ord.estado_wms = newValue;
+        const normVal = String(newValue || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (normVal.includes('cancelado')) ord.status = 'cancelado';
+        else if (normVal.includes('procesamiento') || normVal.includes('procesar')) ord.status = 'para procesar';
+        else if (normVal.includes('preparacion')) ord.status = 'en preparación';
+        else if (normVal.includes('pickeado') || normVal.includes('preparado')) ord.status = 'preparado';
+        else if (normVal.includes('despachado')) ord.status = 'despachado';
+      } else if (targetColKey === 'estado_ruta_optiroute') {
+        ord.estado_ruta_optiroute = newValue;
+        if (newValue === 'descartado' || newValue === 'creado') {
+          const refs = [ord.external_order_number, ord.numero_orden, ord.numero_pedido, ord.id].filter(Boolean).map(x => String(x).trim().toLowerCase());
+          refs.forEach(r => {
+            if (window.optirouteActiveAssignedRefs) {
+              window.optirouteActiveAssignedRefs.delete(r);
+              if (r.startsWith('#')) window.optirouteActiveAssignedRefs.delete(r.substring(1));
+              else window.optirouteActiveAssignedRefs.delete('#' + r);
+            }
+            if (window.optirouteActiveAssignedMap) {
+              window.optirouteActiveAssignedMap.delete(r);
+              if (r.startsWith('#')) window.optirouteActiveAssignedMap.delete(r.substring(1));
+              else window.optirouteActiveAssignedMap.delete('#' + r);
+            }
+          });
+        }
+      }
+      delete ord._wmsTags;
+    });
+
+    const activeOrder = filteredOrd || loadedOrd;
+
+    // Si la celda activa en el state coincide con este pedido y columna, actualizar su valor
+    if (window.agendasGridState?.activeCell && String(window.agendasGridState.activeCell.orderId) === idStr && (window.agendasGridState.activeCell.colKey === targetColKey || window.agendasGridState.activeCell.colKey === colKey)) {
+      if (newValue !== undefined) window.agendasGridState.activeCell.value = newValue;
+    }
+
+    // 2. Actualizar celda en el DOM si la grilla está montada
+    let cell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="${targetColKey}"]`);
+    if (!cell) {
+      const cells = document.querySelectorAll(`.excel-cell[data-col-key="${targetColKey}"]`);
+      for (let c of cells) {
+        if (String(c.getAttribute('data-order-id')) === idStr) {
+          cell = c;
+          break;
+        }
+      }
+    }
+
+    if (cell && activeOrder && colDef) {
+      const rowIndex = parseInt(cell.getAttribute('data-row-index'), 10) || 0;
+      const isActive = cell.classList.contains('excel-cell-active');
+      cell.innerHTML = renderCellHtml(activeOrder, colDef, rowIndex);
+      if (isActive && colDef.editable) {
+        const handle = document.createElement('div');
+        handle.className = 'excel-fill-handle';
+        handle.title = 'Arrastra hacia abajo para copiar en serie';
+        handle.addEventListener('mousedown', initFillDrag);
+        cell.appendChild(handle);
+      }
+    }
+
+    // 2.1 Sincronizar selector de Torre de Control si está montado en el DOM
+    if (targetColKey === 'estado_wms' || colKey === 'status') {
+      const wmsSelect = document.querySelector(`.wms-status-select[data-order-id="${idStr}"]`);
+      if (wmsSelect && newValue) {
+        wmsSelect.value = newValue;
+      }
+    }
+
+    // Si es comuna, actualizar también cobertura_sugerida
+    if (targetColKey === 'comuna') {
+      let covCell = document.querySelector(`.excel-cell[data-order-id="${idStr}"][data-col-key="cobertura_sugerida"]`);
+      if (!covCell) {
+        const covCells = document.querySelectorAll(`.excel-cell[data-col-key="cobertura_sugerida"]`);
+        for (let cc of covCells) {
+          if (String(cc.getAttribute('data-order-id')) === idStr) {
+            covCell = cc;
+            break;
+          }
+        }
+      }
+      if (covCell && activeOrder) {
+        const covDef = COLUMN_DEFS.find(c => c.key === 'cobertura_sugerida');
+        if (covDef) {
+          const rIndex = parseInt(covCell.getAttribute('data-row-index'), 10) || 0;
+          covCell.innerHTML = renderCellHtml(activeOrder, covDef, rIndex);
+        }
+      }
+    }
+
+    // 3. Actualizar contador del badge de pestaña Agendas
+    const badgeEl = document.getElementById('agendas-tab-count');
+    if (badgeEl && typeof window.getEligibleAgendasCount === 'function') {
+      badgeEl.textContent = window.getEligibleAgendasCount();
+    }
+  };
+
+  window.syncAgendasOrderUpdates = function(arg1, arg2) {
+    if (!arg1) return;
+    // Formato 1: syncAgendasOrderUpdates(orderId, { customer_name: '...', shipping_city: '...' })
+    if (typeof arg1 === 'string' || typeof arg1 === 'number') {
+      const orderId = arg1;
+      const updatesObj = arg2 || {};
+      Object.entries(updatesObj).forEach(([field, val]) => {
+        window.refreshAgendasOrderCell(orderId, field, val);
+      });
+      return;
+    }
+    // Formato 2: syncAgendasOrderUpdates([{ orderId, field, value }])
+    if (Array.isArray(arg1)) {
+      arg1.forEach(u => {
+        if (u && u.orderId) {
+          window.refreshAgendasOrderCell(u.orderId, u.field || 'estado_wms', u.value);
+        }
+      });
     }
   };
 
@@ -4219,6 +4611,8 @@
           ? window.isOrderOptirouteConfirmado(order) 
           : (window.optirouteActiveAssignedRefs && window.optirouteActiveAssignedRefs.has(ref));
 
+        delete order._wmsTags;
+
         if (isConfirmadoEnRutaActiva) {
           const currentStatus = String(order.estado_ruta_optiroute || '').trim().toLowerCase();
           if (currentStatus !== 'confirmado') {
@@ -4247,6 +4641,18 @@
 
           if (targetStatus === 'descartado') descCount++;
           else creadCount++;
+        } else {
+          // Si el pedido estaba marcado como 'confirmado' pero ya no está en ninguna ruta activa de Optiroute
+          const currentStatus = String(order.estado_ruta_optiroute || '').trim().toLowerCase();
+          if (currentStatus === 'confirmado') {
+            updates.push({
+              orderId: order.id,
+              field: 'estado_ruta_optiroute',
+              value: 'descartado'
+            });
+            order.estado_ruta_optiroute = 'descartado';
+            descCount++;
+          }
         }
       });
 
@@ -4260,6 +4666,9 @@
       }
 
       // Re-renderizar la cuadrícula y Torre de Control
+      if (typeof window.clearWmsTagsCache === 'function') {
+        window.clearWmsTagsCache();
+      }
       if (typeof window.updateOrderTagFilterOptions === 'function') {
         window.updateOrderTagFilterOptions();
       }

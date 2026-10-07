@@ -102,10 +102,10 @@ function parseAlphaGroupDate(dateStr) {
 /**
  * Genera candidatos de búsqueda para vincular órdenes (con almohadilla #, sin #, con sigla, sin sigla, etc.)
  */
-function buildOrderCandidates(tracking, idml, id) {
+function buildOrderCandidates(tracking, idml) {
   const candidates = new Set();
   
-  [tracking, idml, id].forEach(val => {
+  [tracking, idml].forEach(val => {
     if (!val) return;
     const s = String(val).trim();
     if (!s) return;
@@ -316,33 +316,19 @@ async function syncLightData() {
       upsertPayloads.push(shipmentPayload);
 
       // --- Sincronizar en paralelo con la tabla principal de pedidos (orders) ---
-      const candidates = buildOrderCandidates(tracking, idml, id);
+      const candidates = buildOrderCandidates(tracking, idml);
       if (candidates.length > 0) {
         const candidateFilters = candidates.map(c => `"${c}"`).join(',');
-        let { data: dbOrders, error: findError } = await supabase
+        let orderQuery = supabase
           .from('orders')
-          .select('id, status, external_order_number, tracking_number, courier, lightdata_status, comercio')
+          .select('id, status, external_order_number, tracking_number, courier, operador, lightdata_status, comercio')
           .or(`external_order_number.in.(${candidateFilters}),tracking_number.in.(${candidateFilters})`);
 
-        // Fallback por teléfono si no hubo coincidencia directa
-        if ((!dbOrders || dbOrders.length === 0) && shipmentPayload.telefono_destino) {
-          const cleanPhone = String(shipmentPayload.telefono_destino).replace(/[^0-9]/g, '');
-          if (cleanPhone.length >= 8) {
-            const last8 = cleanPhone.slice(-8);
-            let phoneQuery = supabase
-              .from('orders')
-              .select('id, status, external_order_number, tracking_number, courier, lightdata_status, comercio')
-              .ilike('customer_phone', `%${last8}`);
-            
-            if (resolvedComercio) {
-              phoneQuery = phoneQuery.eq('comercio', resolvedComercio);
-            }
-            const { data: phoneOrders } = await phoneQuery;
-            if (phoneOrders && phoneOrders.length > 0) {
-              dbOrders = phoneOrders;
-            }
-          }
+        if (resolvedComercio) {
+          orderQuery = orderQuery.ilike('comercio', resolvedComercio);
         }
+
+        const { data: dbOrders, error: findError } = await orderQuery;
 
         if (dbOrders && dbOrders.length > 0) {
           matchingOrdersCount++;

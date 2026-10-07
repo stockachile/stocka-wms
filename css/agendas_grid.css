@@ -643,6 +643,12 @@ body.resizing-columns * {
   border: 1px solid rgba(100, 116, 139, 0.3);
 }
 
+.excel-badge-wms-archivado {
+  background: rgba(148, 163, 184, 0.15);
+  color: #475569;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
 
 
 /* ==========================================================================

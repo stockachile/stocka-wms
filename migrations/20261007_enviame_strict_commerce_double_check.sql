@@ -1,7 +1,16 @@
--- WMS STOCKA - Supabase Schema Actualización: Sincronización Automática de Envíame a Pedidos (Orders) con Doble Check Estricto por ID de Envíame y Comercio
--- Ejecuta este script en el SQL Editor de tu proyecto de Supabase (https://supabase.com/dashboard/project/ejtjfaucnxbikrwjwwdu/sql)
+-- =========================================================================================
+-- WMS STOCKA - MIGRACIÓN: Doble Check Estricto por ID de Envíame y Comercio para Envíos
+-- Archivo: migrations/20261007_enviame_strict_commerce_double_check.sql
+-- Ejecuta este script en el SQL Editor de tu proyecto de Supabase:
+-- https://supabase.com/dashboard/project/ejtjfaucnxbikrwjwwdu/sql
+-- =========================================================================================
 
--- 1. Crear o reemplazar la función trigger con doble check estricto por comercio e ID de Envíame
+-- 1. Asegurar mapeo de Envíame ID para comercios activos (ej: MAESE -> 166878)
+UPDATE public.comercios_adicional_config
+SET enviame_id = '166878'
+WHERE comercio = 'MAESE' AND (enviame_id IS NULL OR enviame_id = '');
+
+-- 2. Redefinir la función trigger con salvaguardas estrictas contra asignaciones cruzadas
 CREATE OR REPLACE FUNCTION public.sync_enviame_shipment_to_orders_func()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -207,7 +216,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 2. Asegurar el trigger en la tabla enviame_shipments
+-- 3. Vincular el trigger a la tabla enviame_shipments
 DROP TRIGGER IF EXISTS trg_sync_enviame_shipment_to_orders ON public.enviame_shipments;
 CREATE TRIGGER trg_sync_enviame_shipment_to_orders
   AFTER INSERT OR UPDATE ON public.enviame_shipments

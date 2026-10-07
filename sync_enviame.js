@@ -37,6 +37,124 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ==========================================
+// CACHE Y RESOLUCIÓN DE COMERCIOS / ENVIAME ID
+// ==========================================
+let commerceConfigsCache = null;
+
+async function loadCommerceConfigs() {
+  if (commerceConfigsCache) return commerceConfigsCache;
+
+  const { data: configs } = await supabase
+    .from('comercios_adicional_config')
+    .select('comercio, enviame_id, sigla, pedido_trae_sigla');
+
+  const { data: vComercios } = await supabase
+    .from('v_comercios_config')
+    .select('nombre, sigla');
+
+  const enviameIdToCommerce = {};
+  const commerceToEnviameIds = {};
+  const commerceToSigla = {};
+  const siglaToCommerce = {};
+
+  (vComercios || []).forEach(v => {
+    if (v.nombre && v.sigla) {
+      const cUpper = v.nombre.trim().toUpperCase();
+      const sUpper = v.sigla.trim().toUpperCase();
+      commerceToSigla[cUpper] = sUpper;
+      siglaToCommerce[sUpper] = cUpper;
+    }
+  });
+
+  (configs || []).forEach(c => {
+    if (!c.comercio) return;
+    const cUpper = c.comercio.trim().toUpperCase();
+    if (c.sigla) {
+      const sUpper = c.sigla.trim().toUpperCase();
+      commerceToSigla[cUpper] = sUpper;
+      siglaToCommerce[sUpper] = cUpper;
+    }
+    if (c.enviame_id) {
+      const ids = String(c.enviame_id).split(',').map(s => s.trim().replace(/^ID\s*:?\s*/i, ''));
+      ids.forEach(id => {
+        if (id) enviameIdToCommerce[id] = cUpper;
+      });
+      commerceToEnviameIds[cUpper] = ids;
+    }
+  });
+
+  // Fallbacks conocidos
+  if (!enviameIdToCommerce['166878']) enviameIdToCommerce['166878'] = 'MAESE';
+  if (!commerceToSigla['MAESE']) commerceToSigla['MAESE'] = 'MSE';
+  if (!siglaToCommerce['MSE']) siglaToCommerce['MSE'] = 'MAESE';
+
+  commerceConfigsCache = {
+    enviameIdToCommerce,
+    commerceToEnviameIds,
+    commerceToSigla,
+    siglaToCommerce
+  };
+  return commerceConfigsCache;
+}
+
+// Resolver comercio a partir del payload del delivery de Envíame
+function resolveCommerceForDelivery(d, context = {}, cache) {
+  const { enviameIdToCommerce, commerceToEnviameIds, commerceToSigla, siglaToCommerce } = cache;
+
+  if (context.comercio) {
+    const cUpper = context.comercio.trim().toUpperCase();
+    return {
+      comercio: cUpper,
+      sigla: commerceToSigla[cUpper] || null,
+      companyId: context.enviameId || (commerceToEnviameIds[cUpper] ? commerceToEnviameIds[cUpper][0] : null)
+    };
+  }
+
+  // 1. Extraer company ID de Envíame
+  let companyId = d.company?.id ? String(d.company.id).trim() : null;
+  if (!companyId && d.seller_id) companyId = String(d.seller_id).trim();
+  if (!companyId && d.links && Array.isArray(d.links)) {
+    const link = d.links.find(l => l.href && l.href.includes('/companies/'));
+    const m = link?.href?.match(/\/companies\/(\d+)\//);
+    if (m) companyId = m[1];
+  }
+  if (!companyId && d.seller_name && /^ID\s*:?\s*\d+$/i.test(d.seller_name)) {
+    companyId = d.seller_name.replace(/^ID\s*:?\s*/i, '').trim();
+  }
+
+  // 2. Extraer nombre de la empresa
+  let companyName = d.company?.name ? d.company.name.trim().toUpperCase() : null;
+  if (!companyName && d.seller_name && !/^ID\s*:?\s*\d+$/i.test(d.seller_name)) {
+    companyName = d.seller_name.trim().toUpperCase();
+  }
+
+  // A. Coincidencia estricta por Company ID (Enviame ID)
+  if (companyId && enviameIdToCommerce[companyId]) {
+    const com = enviameIdToCommerce[companyId];
+    return { comercio: com, sigla: commerceToSigla[com] || null, companyId, companyName };
+  }
+
+  // B. Coincidencia por Company Name
+  if (companyName) {
+    for (const [comKey, sVal] of Object.entries(commerceToSigla)) {
+      if (comKey === companyName || companyName.includes(comKey) || comKey.includes(companyName)) {
+        return { comercio: comKey, sigla: sVal, companyId, companyName };
+      }
+    }
+  }
+
+  // C. Coincidencia por Sigla en order_id (ej: BLE#1025, DOR55019059, STG1065)
+  const ref = String(d.imported_id || d.order_number || '').trim();
+  const cleanPrefix = ref.replace(/^[^A-Za-z0-9]+/, '').substring(0, 3).toUpperCase();
+  if (cleanPrefix.length === 3 && siglaToCommerce[cleanPrefix]) {
+    const com = siglaToCommerce[cleanPrefix];
+    return { comercio: com, sigla: cleanPrefix, companyId, companyName };
+  }
+
+  return { comercio: null, sigla: null, companyId, companyName };
+}
+
 // Mapeo estandarizado de Courier a Operador WMS STOCKA
 function mapCourierToOperador(courier) {
   if (!courier) return 'STOCKA';
@@ -103,7 +221,7 @@ async function fetchEnviameDelivery(deliveryId) {
 }
 
 // Procesar y conciliar un delivery de Envíame en Supabase
-async function processEnviameDelivery(d) {
+async function processEnviameDelivery(d, context = {}) {
   if (!d || !d.identifier) return false;
 
   const deliveryId = String(d.identifier);
@@ -114,6 +232,9 @@ async function processEnviameDelivery(d) {
   const importedId = cleanValue(d.imported_id || d.order_number);
   const mappedOperator = mapCourierToOperador(courier);
   const globalStatus = mapStatusToGlobal(statusName);
+
+  const cache = await loadCommerceConfigs();
+  const resolved = resolveCommerceForDelivery(d, context, cache);
 
   let labelUrl = null;
   if (d.label && typeof d.label === 'object') {
@@ -132,6 +253,7 @@ async function processEnviameDelivery(d) {
   }
 
   // 1. Actualizar enviame_shipments
+  const sellerDisplay = resolved.comercio || d.company?.name || (resolved.companyId ? `ID: ${resolved.companyId}` : null);
   const shipmentPayload = {
     id: deliveryId,
     order_id: importedId,
@@ -140,7 +262,7 @@ async function processEnviameDelivery(d) {
     label_url: labelUrl,
     courier: courier,
     status: statusName,
-    seller_name: d.company?.name || null,
+    seller_name: sellerDisplay,
     service_type: d.service || null,
     recipient_name: cleanValue(d.customer?.full_name),
     recipient_phone: cleanValue(d.customer?.phone),
@@ -167,7 +289,7 @@ async function processEnviameDelivery(d) {
     id: unifiedId,
     source_table: 'enviame_shipments',
     source_id: deliveryId,
-    empresa_comercio_proveedor: d.company?.name || null,
+    empresa_comercio_proveedor: resolved.comercio || d.company?.name || null,
     tracking: validTracking || 'No informado',
     tracking_url: trackingUrl,
     courier: courier,
@@ -195,37 +317,54 @@ async function processEnviameDelivery(d) {
   // 3. Buscar y actualizar el pedido en public.orders
   let targetOrder = null;
 
+  // REGLA DE SEGURIDAD ESTRICTA:
+  // Si no se puede validar a qué comercio pertenece la entrega de Envíame,
+  // NO actualizamos ningún pedido en orders. Esto previene que pedidos con números
+  // idénticos (ej: #1067) de tiendas distintas sean sobreescritos incorrectamente.
+  if (!resolved.comercio) {
+    console.log(`⚠️ Delivery ${deliveryId} (Ref: ${importedId}) no tiene comercio identificable. Se guarda en envíos pero NO se vincula a orders para prevenir asignación cruzada.`);
+    return Boolean(validTracking);
+  }
+
   if (importedId) {
-    // A. Buscar por external_order_number exacto
-    const { data: o1 } = await supabase
+    // Normalizar número eliminando '#' y prefijo de sigla del comercio si aplica
+    let cleanNum = importedId.replace(/^#+/, '');
+    if (resolved.sigla) {
+      cleanNum = cleanNum.replace(new RegExp(`^${resolved.sigla}[#\\-_]?`, 'i'), '');
+    }
+    cleanNum = cleanNum.replace(/^[A-Za-z]{2,5}/, '');
+
+    // Construir lista exhaustiva de candidatos exactos
+    const candidates = [
+      importedId,
+      `#${cleanNum}`,
+      cleanNum,
+      resolved.sigla ? `${resolved.sigla}#${cleanNum}` : null,
+      resolved.sigla ? `${resolved.sigla}${cleanNum}` : null
+    ].filter(Boolean);
+
+    const uniqueCandidates = [...new Set(candidates)];
+
+    // Búsqueda ESTRICTA por comercio exacto y candidatos exactos (sin ILIKE comodín)
+    const { data: matchedOrders } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url')
-      .eq('external_order_number', importedId)
-      .maybeSingle();
+      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio')
+      .ilike('comercio', resolved.comercio)
+      .in('external_order_number', uniqueCandidates)
+      .limit(1);
 
-    if (o1) {
-      targetOrder = o1;
-    } else {
-      // B. Buscar quitando prefijos de 2-5 letras (ej: DOR55019059 -> 55019059)
-      const cleanNum = importedId.replace(/^[A-Za-z]{2,5}/, '');
-      const { data: o2 } = await supabase
-        .from('orders')
-        .select('id, external_order_number, tracking_number, courier, operador, label_url')
-        .or(`external_order_number.eq.${cleanNum},external_order_number.eq.#${cleanNum},external_order_number.ilike.%${cleanNum}`)
-        .limit(1);
-
-      if (o2 && o2.length > 0) {
-        targetOrder = o2[0];
-      }
+    if (matchedOrders && matchedOrders.length > 0) {
+      targetOrder = matchedOrders[0];
     }
   }
 
-  // C. Fallback por enviame_delivery_id
+  // Fallback por enviame_delivery_id: SÓLO dentro del mismo comercio
   if (!targetOrder) {
     const { data: o3 } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, operador, label_url')
+      .select('id, external_order_number, tracking_number, courier, operador, label_url, comercio')
       .eq('enviame_delivery_id', deliveryId)
+      .ilike('comercio', resolved.comercio)
       .maybeSingle();
     if (o3) targetOrder = o3;
   }
@@ -242,7 +381,6 @@ async function processEnviameDelivery(d) {
       orderUpdate.tracking_number = validTracking;
       if (trackingUrl) orderUpdate.tracking_url = trackingUrl;
     } else if (targetOrder.tracking_number === 'No informado') {
-      // Si el tracking actual es literalmente "No informado" y aún no hay real, limpiarlo a NULL
       orderUpdate.tracking_number = null;
     }
 
@@ -256,13 +394,13 @@ async function processEnviameDelivery(d) {
       .eq('id', targetOrder.id);
 
     if (ordErr) {
-      console.error(`❌ Error actualizando order ${targetOrder.external_order_number}:`, ordErr.message);
+      console.error(`❌ Error actualizando order ${targetOrder.external_order_number} (${targetOrder.comercio}):`, ordErr.message);
     } else {
-      console.log(`✅ Pedido ${targetOrder.external_order_number} actualizado: Tracking: ${validTracking || '(pendiente)'} | Courier: ${courier} | Estado: ${statusName}`);
+      console.log(`✅ Pedido [${targetOrder.comercio}] ${targetOrder.external_order_number} actualizado: Tracking: ${validTracking || '(pendiente)'} | Courier: ${courier} | Estado: ${statusName}`);
       return true;
     }
   } else {
-    console.log(`ℹ️ Delivery ${deliveryId} (Ref: ${importedId}) registrado en envíos pero sin pedido WMS asociado.`);
+    console.log(`ℹ️ Delivery ${deliveryId} ([${resolved.comercio}] Ref: ${importedId}) registrado en envíos pero sin pedido WMS asociado a este comercio.`);
   }
 
   return Boolean(validTracking);
@@ -292,7 +430,7 @@ async function runSync(options = {}) {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(specificOrder);
     let orderQuery = supabase
       .from('orders')
-      .select('id, external_order_number, enviame_delivery_id, tracking_number');
+      .select('id, external_order_number, comercio, enviame_delivery_id, tracking_number');
 
     if (isUuid) {
       orderQuery = orderQuery.eq('id', specificOrder);
@@ -306,25 +444,43 @@ async function runSync(options = {}) {
       const order = o[0];
       deliveryId = order.enviame_delivery_id;
       if (!deliveryId) {
+        const cache = await loadCommerceConfigs();
+        const ordComUpper = (order.comercio || '').trim().toUpperCase();
+        const expectedIds = cache.commerceToEnviameIds[ordComUpper] || [];
+
         const cleanExt = String(order.external_order_number).replace(/^#/, '');
-        const { data: s } = await supabase
+        let shipQ = supabase
           .from('enviame_shipments')
-          .select('id')
+          .select('id, seller_name, raw_payload')
           .or(`order_id.eq.${order.external_order_number},order_id.eq.${cleanExt}`)
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .order('created_at', { ascending: false });
+
+        if (expectedIds.length > 0) {
+          const filterOr = expectedIds.map(id => `seller_name.ilike.%${id}%`).concat(`seller_name.ilike.%${order.comercio}%`).join(',');
+          shipQ = shipQ.or(filterOr);
+        } else if (order.comercio) {
+          shipQ = shipQ.ilike('seller_name', `%${order.comercio}%`);
+        }
+
+        const { data: s } = await shipQ.limit(1);
         if (s && s[0]) deliveryId = s[0].id;
       }
 
       if (deliveryId) {
-        console.log(`Consultando delivery ${deliveryId} en Envíame...`);
+        console.log(`Consultando delivery ${deliveryId} en Envíame para orden [${order.comercio}] ${order.external_order_number}...`);
         const d = await fetchEnviameDelivery(deliveryId);
         if (d) {
-          await processEnviameDelivery(d);
+          await processEnviameDelivery(d, { comercio: order.comercio });
           console.log(`🎉 Pedido ${specificOrder} sincronizado exitosamente.`);
           return;
         }
+      } else {
+        console.log(`ℹ️ No se encontró ningún delivery en Envíame para el pedido ${specificOrder} asociado al comercio [${order.comercio}].`);
+        return;
       }
+    } else {
+      console.log(`⚠️ Pedido ${specificOrder} no encontrado en orders.`);
+      return;
     }
   }
 
@@ -334,7 +490,7 @@ async function runSync(options = {}) {
 
   const { data: pendingShipments, error: pendErr } = await supabase
     .from('enviame_shipments')
-    .select('id, order_id, courier, tracking_number, status, created_at')
+    .select('id, order_id, courier, tracking_number, status, seller_name, created_at')
     .or('tracking_number.eq.No informado,tracking_number.is.null,status.eq.Creado')
     .gte('created_at', fourteenDaysAgo)
     .order('created_at', { ascending: false })
@@ -380,9 +536,9 @@ async function runSync(options = {}) {
         const deliveries = json.data || [];
         console.log(`  -> Obtenidos ${deliveries.length} envíos recientes.`);
         for (const d of deliveries) {
-          // Si el comercio no viene en el payload, inyectar el nombre
+          // Si el comercio no viene en el payload, inyectar el nombre y el company ID
           if (!d.company) d.company = { id: compId, name: c.comercio };
-          await processEnviameDelivery(d);
+          await processEnviameDelivery(d, { comercio: c.comercio, enviameId: compId });
         }
       } else {
         console.warn(`  ⚠️ Respuesta ${res.status} de Envíame para ${c.comercio}`);
@@ -413,4 +569,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { runSync, fetchEnviameDelivery, processEnviameDelivery };
+module.exports = { runSync, fetchEnviameDelivery, processEnviameDelivery, loadCommerceConfigs, resolveCommerceForDelivery };

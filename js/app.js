@@ -8388,63 +8388,195 @@ window.getClientOrderShipmentGlobalStatus = function(order) {
     }];
   }
 
-  // Fallback para plataformas virtuales (MercadoLibre, Falabella, Paris, Ripley)
-  const isVirtualPlatform = order.origen === 'MercadoLibre' || 
-                            order.external_platform === 'MercadoLibre' || 
-                            order.origen === 'Falabella' || 
-                            order.external_platform === 'Falabella' ||
-                            order.origen === 'Paris' || 
-                            order.external_platform === 'Paris' ||
-                            order.origen === 'Ripley' || 
-                            order.external_platform === 'Ripley';
+  // Fallback para plataformas virtuales (MercadoLibre, Falabella, Paris, Ripley, Walmart)
+  const platStr = String(order.origen || order.external_platform || '').toLowerCase().replace(/\s+/g, '');
+  const isMeli = platStr.includes('mercadolibre') || platStr.includes('meli') || !!order.raw_meli_data;
+  const isFalabella = platStr.includes('falabella') || !!order.raw_falabella_data;
+  const isParis = platStr.includes('paris') || !!order.raw_paris_data;
+  const isRipley = platStr.includes('ripley') || !!order.raw_ripley_data;
+  const isWalmart = platStr.includes('walmart') || !!order.raw_walmart_data;
+  const isVirtualPlatform = isMeli || isFalabella || isParis || isRipley || isWalmart;
 
   if (orderShipments.length === 0 && isVirtualPlatform) {
     let globStatus = 'SIN MOVIMIENTO';
     const wmsStatus = (order.status || '').toLowerCase().trim();
     const channelStatus = (order.payment_status || '').toLowerCase().trim();
-    
-    const isShipped = wmsStatus === 'despachado' || 
-                      wmsStatus === 'entregado' || 
-                      wmsStatus === 'retirado' ||
-                      channelStatus === 'shipped' || 
-                      channelStatus === 'delivered' || 
-                      channelStatus === 'shipped_by_seller' || 
-                      channelStatus === 'received' || 
-                      channelStatus === 'closed';
-                      
-    const isAlert = wmsStatus === 'cancelado' || 
-                    wmsStatus === 'incidencia' || 
-                    channelStatus === 'cancelled' || 
-                    channelStatus === 'refunded' || 
-                    channelStatus === 'refused';
-    
-    const isDelivered = wmsStatus === 'entregado' || 
-                        channelStatus === 'delivered' || 
-                        channelStatus === 'received' || 
-                        channelStatus === 'closed';
+    const estadoWmsLower = (order.estado_wms || '').toLowerCase().trim();
+    const rawFal = order.raw_falabella_data || {};
+    const falabellaStatus = String(rawFal.Statuses?.Status || rawFal.Status || rawFal.status || '').toLowerCase().trim();
 
-    if (isDelivered) {
+    let meliIsDelivered = false;
+    let meliIsShipped = false;
+    let meliIsCancelled = false;
+    let meliTracking = order.tracking_number || null;
+
+    if (isMeli) {
+      const rawMeli = order.raw_meli_data || {};
+      const meliOrdersList = Array.isArray(rawMeli)
+        ? rawMeli
+        : (Array.isArray(rawMeli.orders) ? rawMeli.orders : (rawMeli.id ? [rawMeli] : []));
+
+      const meliTags = new Set();
+      meliOrdersList.forEach(mo => {
+        if (Array.isArray(mo?.tags)) {
+          mo.tags.forEach(t => meliTags.add(String(t).toLowerCase().trim()));
+        }
+      });
+
+      const meliShipObj = rawMeli.shipping || rawMeli.shipment || meliOrdersList[0]?.shipping;
+      if (meliShipObj?.id && !meliTracking) {
+        meliTracking = String(meliShipObj.id).trim();
+      }
+
+      const meliShipStatus = String(rawMeli.shipping_status || meliShipObj?.status || '').toLowerCase().trim();
+      const meliShipSubstatus = String(meliShipObj?.substatus || '').toLowerCase().trim();
+      const meliHistory = meliShipObj?.status_history || {};
+
+      meliIsDelivered = meliShipStatus === 'delivered' || 
+                        meliShipSubstatus === 'delivered' || 
+                        meliTags.has('delivered') || 
+                        wmsStatus === 'entregado' ||
+                        wmsStatus === 'delivered' ||
+                        estadoWmsLower === 'entregado' ||
+                        channelStatus === 'delivered' ||
+                        channelStatus === 'received' ||
+                        Boolean(meliHistory.date_delivered);
+
+      meliIsShipped = meliShipStatus === 'shipped' || 
+                      meliShipSubstatus === 'in_transit' || 
+                      meliShipSubstatus === 'out_for_delivery' || 
+                      meliShipSubstatus === 'in_hub' || 
+                      meliTags.has('shipped') || 
+                      meliTags.has('in_transit') || 
+                      wmsStatus === 'despachado' || 
+                      wmsStatus === 'retirado' ||
+                      wmsStatus === 'shipped' || 
+                      wmsStatus === 'en tránsito' ||
+                      wmsStatus === 'en transito' ||
+                      estadoWmsLower === 'despachado' ||
+                      channelStatus === 'shipped' || 
+                      channelStatus === 'shipped_by_seller' || 
+                      channelStatus === 'closed' ||
+                      Boolean(meliHistory.date_shipped);
+
+      meliIsCancelled = meliShipStatus === 'cancelled' || 
+                        meliTags.has('cancelled') || 
+                        wmsStatus === 'cancelado' || 
+                        wmsStatus === 'incidencia' || 
+                        estadoWmsLower === 'incidencia' ||
+                        estadoWmsLower === 'cancelado' ||
+                        channelStatus === 'cancelled' || 
+                        channelStatus === 'refunded' || 
+                        channelStatus === 'refused';
+    }
+
+    const falIsDelivered = falabellaStatus === 'delivered' || 
+                           wmsStatus === 'entregado' || 
+                           wmsStatus === 'delivered' ||
+                           estadoWmsLower === 'entregado';
+
+    const falIsShipped = falabellaStatus === 'shipped' || 
+                         falabellaStatus === 'despachado' ||
+                         wmsStatus === 'despachado' || 
+                         wmsStatus === 'retirado' ||
+                         wmsStatus === 'shipped' || 
+                         estadoWmsLower === 'despachado' ||
+                         channelStatus === 'shipped' || 
+                         channelStatus === 'shipped_by_seller' || 
+                         channelStatus === 'closed';
+
+    const falIsReturned = falabellaStatus === 'returned' || falabellaStatus === 'devuelto';
+
+    const falIsAlert = falabellaStatus === 'cancelled' || 
+                       falabellaStatus === 'canceled' || 
+                       falabellaStatus === 'fail' || 
+                       falabellaStatus === 'failed' || 
+                       wmsStatus === 'cancelado' || 
+                       wmsStatus === 'incidencia' || 
+                       estadoWmsLower === 'incidencia' || 
+                       estadoWmsLower === 'cancelado' || 
+                       channelStatus === 'cancelled' || 
+                       channelStatus === 'refunded' || 
+                       channelStatus === 'refused';
+
+    const isDelivered = isMeli 
+      ? meliIsDelivered 
+      : (isFalabella 
+          ? falIsDelivered 
+          : (wmsStatus === 'entregado' || wmsStatus === 'delivered' || channelStatus === 'delivered' || channelStatus === 'received'));
+
+    const isShipped = isMeli 
+      ? meliIsShipped 
+      : (isFalabella 
+          ? falIsShipped 
+          : (wmsStatus === 'despachado' || wmsStatus === 'retirado' || wmsStatus === 'shipped' || estadoWmsLower === 'despachado' || channelStatus === 'shipped' || channelStatus === 'shipped_by_seller' || channelStatus === 'closed'));
+
+    const isAlert = isMeli 
+      ? meliIsCancelled 
+      : (isFalabella 
+          ? falIsAlert 
+          : (wmsStatus === 'cancelado' || wmsStatus === 'incidencia' || estadoWmsLower === 'incidencia' || estadoWmsLower === 'cancelado' || channelStatus === 'cancelled' || channelStatus === 'refunded' || channelStatus === 'refused'));
+
+    const isReturnedState = isFalabella ? falIsReturned : false;
+
+    if (isReturnedState) {
+      globStatus = 'DEVOLUCIÓN';
+    } else if (isDelivered) {
       globStatus = 'ENTREGADO';
     } else if (isShipped) {
       globStatus = 'EN TRÁNSITO';
     } else if (isAlert) {
       globStatus = 'ALERTA';
+    } else {
+      globStatus = 'SIN MOVIMIENTO';
     }
 
-    const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
-    const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
-    const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
-    const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
-    const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
-    
+    const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : (isWalmart ? 'Walmart' : 'Mercado Libre')));
+    const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : (isWalmart ? 'walmart' : 'mercadolibre')));
+    const effTracking = meliTracking || order.tracking_number || 'N/A';
+    const effCourierLower = String(order.courier || '').toLowerCase().trim();
+
+    let virtualTrackingUrl = order.tracking_url || 'N/A';
+    if (isMeli && effTracking && effTracking !== 'N/A') {
+      virtualTrackingUrl = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(effTracking)}`;
+    } else if (isFalabella && effTracking && effTracking !== 'N/A') {
+      if (!virtualTrackingUrl || virtualTrackingUrl === 'N/A') {
+        if (effCourierLower.includes('chilexpress')) {
+          virtualTrackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(effTracking)}`;
+        } else if (effCourierLower.includes('blueexpress') || effCourierLower.includes('blue express') || effCourierLower.includes('bluex')) {
+          virtualTrackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTracking)}`;
+        } else if (effCourierLower.includes('starken')) {
+          virtualTrackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTracking)}`;
+        }
+      }
+    }
+
+    let displayCourier = order.courier || defaultCourier;
+    if (isFalabella && order.courier) {
+      if (effCourierLower === 'home delivery corp') displayCourier = 'Home Delivery';
+      else if (effCourierLower === 'chilexpress') displayCourier = 'Chilexpress';
+      else if (effCourierLower.includes('blueexpress') || effCourierLower.includes('blue express')) displayCourier = 'Blue Express';
+      else if (effCourierLower === 'nomad') displayCourier = 'Nomad';
+    }
+
+    let rawStatusDisplay = order.status;
+    if (isMeli) {
+      if (meliIsDelivered) rawStatusDisplay = 'entregado';
+      else if (meliIsShipped) rawStatusDisplay = 'en tránsito';
+    } else if (isFalabella) {
+      if (falIsReturned) rawStatusDisplay = 'devolución';
+      else if (falIsDelivered) rawStatusDisplay = 'entregado';
+      else if (falIsShipped) rawStatusDisplay = 'en tránsito';
+    }
+
     orderShipments = [{
       id: `virtual:${order.id}`,
       source_table: sourceTable,
       source_id: order.id,
-      tracking: order.tracking_number || 'N/A',
-      tracking_url: order.tracking_url || 'N/A',
-      courier: order.courier || defaultCourier,
-      status: order.status,
+      tracking: effTracking,
+      tracking_url: virtualTrackingUrl,
+      courier: displayCourier,
+      status: rawStatusDisplay,
       global_status: globStatus,
       created_at: order.created_at,
       updated_at: order.created_at
@@ -10130,6 +10262,19 @@ window.applyClientWmsFiltersAndRender = function() {
         if (shipment.source_table === 'starken_envios' && !trackingUrl && effTrack) {
           trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTrack)}`;
         }
+        if (shipment.source_table === 'mercadolibre' && (!trackingUrl || trackingUrl === 'N/A') && effTrack) {
+          trackingUrl = `https://envios.mercadolibre.cl/seguimiento/${encodeURIComponent(effTrack)}`;
+        }
+        if (shipment.source_table === 'falabella' && (!trackingUrl || trackingUrl === 'N/A') && effTrack) {
+          const cLower = String(shipment.courier || order.courier || '').toLowerCase();
+          if (cLower.includes('chilexpress')) {
+            trackingUrl = `https://www.chilexpress.cl/seguimiento-envio?numero=${encodeURIComponent(effTrack)}`;
+          } else if (cLower.includes('blueexpress') || cLower.includes('blue express') || cLower.includes('bluex')) {
+            trackingUrl = `https://tracking-unificado.blue.cl/?n_seguimiento=${encodeURIComponent(effTrack)}`;
+          } else if (cLower.includes('starken')) {
+            trackingUrl = `https://www.starken.cl/seguimiento?codigo=${encodeURIComponent(effTrack)}`;
+          }
+        }
         // Limpiar si no es una URL real
         if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
           trackingUrl = null;
@@ -10159,6 +10304,10 @@ window.applyClientWmsFiltersAndRender = function() {
         platformBadge = `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Starken Pro</span>`;
       } else if (shipment.source_table === 'optiroute_orders') {
         platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
+      } else if (shipment.source_table === 'mercadolibre') {
+        platformBadge = `<span class="badge" style="background-color: #fef08a; color: #854d0e; border: 1px solid #fde047; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Mercado Libre</span>`;
+      } else if (shipment.source_table === 'falabella') {
+        platformBadge = `<span class="badge" style="background-color: #dcfce7; color: #166534; border: 1px solid #86efac; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Falabella</span>`;
       }
       
       shipmentStatusHtml = `

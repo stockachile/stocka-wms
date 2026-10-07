@@ -565,20 +565,25 @@ async function syncMerchantOrders(integration) {
 
       // Actualizar al estado real final mapeado
       const targetStatus = mapFalabellaStatus(statusName);
-        if (targetStatus !== 'para procesar') {
-          console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
-          const { error: statusUpdateErr } = await supabase
-            .from('orders')
-            .update({ status: targetStatus })
-            .eq('id', localOrderId);
+      const isNewOrder = !existingOrder;
+      const shouldTransition = isNewOrder 
+        ? (targetStatus !== 'para procesar')
+        : (targetStatus === 'despachado' && existingOrder.status !== 'despachado' && existingOrder.status !== 'cancelado');
 
-          if (statusUpdateErr) {
-            console.error(`   ❌ Error al transicionar a estado ${targetStatus}:`, statusUpdateErr.message);
-          } else {
-            console.log(`   ✅ Estado de la orden transicionado exitosamente a '${targetStatus}' (Trigger de stock disparado).`);
-          }
+      if (shouldTransition) {
+        console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
+        const { error: statusUpdateErr } = await supabase
+          .from('orders')
+          .update({ status: targetStatus })
+          .eq('id', localOrderId);
+
+        if (statusUpdateErr) {
+          console.error(`   ❌ Error al transicionar a estado ${targetStatus}:`, statusUpdateErr.message);
+        } else {
+          console.log(`   ✅ Estado de la orden transicionado exitosamente a '${targetStatus}' (Trigger de stock disparado).`);
         }
       }
+    }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
   }
