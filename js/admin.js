@@ -3595,15 +3595,28 @@ window.bulkSyncLightDataTracking = async function(btn, customOrderIds = null) {
         const rawRef1 = (e.raw_data && e.raw_data[1]) ? String(e.raw_data[1]).trim() : '';
         const rawRef2 = (e.raw_data && e.raw_data[2]) ? String(e.raw_data[2]).trim() : '';
 
-        // Match por referencia directa o por número limpio de pedido
-        for (const cand of candidates) {
-          if (!cand) continue;
-          const candNorm = cand.replace(/#/g, '').toUpperCase();
-          if (rawRef1 && (rawRef1.toUpperCase() === cand.toUpperCase() || rawRef1.replace(/#/g, '').toUpperCase() === candNorm || (cand.length >= 3 && rawRef1.replace(/#/g, '').endsWith(cand)))) return true;
-          if (rawRef2 && (rawRef2.toUpperCase() === cand.toUpperCase() || rawRef2.replace(/#/g, '').toUpperCase() === candNorm || (cand.length >= 3 && rawRef2.replace(/#/g, '').endsWith(cand)))) return true;
-          if (eTracking && (eTracking.toUpperCase() === cand.toUpperCase() || eTracking.replace(/#/g, '').toUpperCase() === candNorm || (cand.length >= 3 && eTracking.replace(/#/g, '').endsWith(cand)))) return true;
-          if (eId && eId === cand) return true;
-        }
+        // Match estricto por referencia de pedido (sin fallbacks sueltos ni sufijos parciales)
+        const orderExt = (order.external_order_number || '').trim().replace(/#/g, '').toUpperCase();
+        const orderDigits = orderExt.replace(/[^0-9]/g, '');
+
+        const matchRef = (ref) => {
+          if (!ref) return false;
+          const cleanRef = String(ref).trim().replace(/#/g, '').toUpperCase();
+          if (!cleanRef) return false;
+          // Coincidencia exacta directa
+          if (cleanRef === orderExt) return true;
+          for (const cand of candidates) {
+            if (cand && cleanRef === cand.replace(/#/g, '').toUpperCase()) return true;
+          }
+          // Coincidencia exacta de la totalidad de los dígitos (mínimo 4 dígitos)
+          const refDigits = cleanRef.replace(/[^0-9]/g, '');
+          if (orderDigits.length >= 4 && refDigits.length >= 4 && orderDigits === refDigits) return true;
+          return false;
+        };
+
+        if (matchRef(rawRef1)) return true;
+        if (matchRef(rawRef2)) return true;
+        if (matchRef(eTracking)) return true;
 
         return false;
       });
