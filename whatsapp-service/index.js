@@ -48,6 +48,17 @@ function getCalendarService() {
   return require('../services/calendar_service');
 }
 
+const OLD_COORDINACION_GROUP = '120363043911687615@g.us';
+const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us';
+
+function resolveTargetWaGroup(group) {
+  const g = group || process.env.TARGET_WA_GROUP;
+  if (!g || g === OLD_COORDINACION_GROUP) {
+    return NOTIFICACIONES_STOX_GROUP;
+  }
+  return g;
+}
+
 // Registro de respuestas automáticas de feriado enviadas (1 por usuario por día)
 const outOfOfficeRepliesSent = new Set();
 
@@ -193,7 +204,9 @@ function requireAuth(req, res, next) {
 // 1. Estado de conexión
 app.get('/status', requireAuth, (req, res) => {
   res.json({
+    version: '1.2.0-stox-notificaciones',
     status: connectionStatus,
+    targetGroup: resolveTargetWaGroup(),
     user: botUser,
     hasQR: !!currentQR,
     qrUrl: currentQR ? `http://localhost:${PORT}/qr?key=${encodeURIComponent(WHATSAPP_API_KEY)}` : null
@@ -582,7 +595,7 @@ async function checkAndSendFiestasPatriasGreeting() {
     const state = loadGreetingsState();
     if (!state.fiestasPatrias2026Sent) {
       console.log('🇨🇱 [Stox] ¡Llegó el 18 de Septiembre a las 12:00 hrs! Enviando saludo de Fiestas Patrias...');
-      const targetGroup = process.env.TARGET_WA_GROUP || '120363413357945543@g.us'; // NOTIFICACIONES STOX
+      const targetGroup = resolveTargetWaGroup();
       const jid = formatJid(targetGroup);
       const greetingMessage = getFiestasPatriasGreetingText();
 
@@ -608,7 +621,7 @@ app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
     return res.json({
       preview: true,
       message,
-      targetGroup: targetGroup || process.env.TARGET_WA_GROUP || '120363413357945543@g.us',
+      targetGroup: resolveTargetWaGroup(targetGroup),
       scheduledFor: '2026-09-18 12:00:00 (America/Santiago)'
     });
   }
@@ -618,7 +631,7 @@ app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
   }
 
   try {
-    const dest = targetGroup || process.env.TARGET_WA_GROUP || '120363413357945543@g.us';
+    const dest = resolveTargetWaGroup(targetGroup);
     const jid = formatJid(dest);
     const result = await sock.sendMessage(jid, { text: message });
     res.json({ success: true, jid, messageId: result?.key?.id, sentMessage: message });

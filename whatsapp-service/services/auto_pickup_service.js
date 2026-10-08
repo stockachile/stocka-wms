@@ -44,7 +44,19 @@ const PICKER_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
 
 const NUNOA_WAREHOUSE_ID = '973da888-8a63-4790-a08f-919e1af41a93'; // Matriz Ñuñoa
-const DEFAULT_GROUP_JID = process.env.TARGET_WA_GROUP || '120363413357945543@g.us'; // NOTIFICACIONES STOX
+
+const OLD_COORDINACION_GROUP = '120363043911687615@g.us';
+const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us';
+
+function resolveTargetGroup(group) {
+  const g = group || process.env.TARGET_WA_GROUP;
+  if (!g || g === OLD_COORDINACION_GROUP) {
+    return NOTIFICACIONES_STOX_GROUP;
+  }
+  return g;
+}
+
+const DEFAULT_GROUP_JID = resolveTargetGroup();
 const IMPRESIONES_GROUP_JID = process.env.IMPRESIONES_WA_GROUP || '120363423098929019@g.us'; // IMPRESIONES - general
 
 // Solo procesar pedidos creados desde hoy en adelante (02 de Septiembre de 2026 en adelante)
@@ -218,7 +230,7 @@ async function insertActiveOrdersWithRetry(client, payloads, orderNo, maxRetries
  * Procesa un pedido individual para validarlo, enviarlo a preparación y notificar por WhatsApp
  */
 async function autoProcessSinglePickupOrder(orderId, options = {}) {
-  const targetGroup = options.targetGroup || DEFAULT_GROUP_JID;
+  const targetGroup = resolveTargetGroup(options.targetGroup);
   const dryRun = options.dryRun || false;
 
   console.log(`[AutoPickup] Analizando pedido ${orderId}...`);

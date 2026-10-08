@@ -36,9 +36,18 @@ const WMS_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_RO
 
 const wmsClient = createClient(WMS_URL, WMS_KEY);
 
-const DEFAULT_COORDINACION_GROUP = process.env.TARGET_WA_GROUP || 
-                                   process.env.COORDINACION_WA_GROUP || 
-                                   '120363413357945543@g.us'; // NOTIFICACIONES STOX
+const OLD_COORDINACION_GROUP = '120363043911687615@g.us';
+const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us';
+
+function resolveTargetGroup(group) {
+  const g = group || process.env.TARGET_WA_GROUP || process.env.COORDINACION_WA_GROUP;
+  if (!g || g === OLD_COORDINACION_GROUP) {
+    return NOTIFICACIONES_STOX_GROUP;
+  }
+  return g;
+}
+
+const DEFAULT_COORDINACION_GROUP = resolveTargetGroup();
 
 // Archivo persistente para controlar el envío único diario
 function getAlertStateFilePath() {
@@ -199,7 +208,7 @@ function formatManualOrdersAlertMessage(orders) {
 async function checkAndNotifyPendingManualOrders(options = {}) {
   const force = !!options.force;
   const dryRun = !!options.dryRun;
-  const targetGroup = options.targetGroup || DEFAULT_COORDINACION_GROUP;
+  const targetGroup = resolveTargetGroup(options.targetGroup);
 
   const todayStr = getSantiagoDateStr();
   const currentHour = getSantiagoHour();
