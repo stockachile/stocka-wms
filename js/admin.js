@@ -323,18 +323,35 @@ window.getComunaCoverageBadge = function(orderOrComuna) {
 window.optirouteActiveAssignedRefs = window.optirouteActiveAssignedRefs || new Set();
 window.optirouteActiveAssignedMap = window.optirouteActiveAssignedMap || new Map();
 try {
-  const savedActiveRefs = localStorage.getItem('wms_optiroute_active_assigned_refs');
-  if (savedActiveRefs) {
-    const arr = JSON.parse(savedActiveRefs);
-    if (Array.isArray(arr)) {
-      window.optirouteActiveAssignedRefs = new Set(arr.map(r => String(r).trim().toLowerCase()));
-    }
-  }
   const savedActiveMap = localStorage.getItem('wms_optiroute_active_assigned_map');
   if (savedActiveMap) {
     const obj = JSON.parse(savedActiveMap);
     if (obj && typeof obj === 'object') {
-      window.optirouteActiveAssignedMap = new Map(Object.entries(obj));
+      // Filtrar estrictamente: solo rutas que realmente tengan conductor asignado y no estén en estado creado/borrador
+      const validEntries = Object.entries(obj).filter(([k, v]) => {
+        if (!v || typeof v !== 'object') return false;
+        if (v.status === 'creado') return false;
+        const driver = String(v.driver || '').trim().toLowerCase();
+        if (!driver || driver === 'asignado' || driver === 'conductor asignado' || driver === 'stocka x') return false;
+        return true;
+      });
+      window.optirouteActiveAssignedMap = new Map(validEntries);
+      window.optirouteActiveAssignedRefs = new Set(validEntries.map(([k]) => k.toLowerCase()));
+      // Si había entradas contaminadas de rutas no confirmadas, sanear localStorage
+      if (validEntries.length !== Object.keys(obj).length) {
+        const cleanMap = {};
+        for (const [k, v] of validEntries) cleanMap[k] = v;
+        localStorage.setItem('wms_optiroute_active_assigned_map', JSON.stringify(cleanMap));
+        localStorage.setItem('wms_optiroute_active_assigned_refs', JSON.stringify(Array.from(window.optirouteActiveAssignedRefs)));
+      }
+    }
+  } else {
+    const savedActiveRefs = localStorage.getItem('wms_optiroute_active_assigned_refs');
+    if (savedActiveRefs) {
+      const arr = JSON.parse(savedActiveRefs);
+      if (Array.isArray(arr)) {
+        window.optirouteActiveAssignedRefs = new Set(arr.map(r => String(r).trim().toLowerCase()));
+      }
     }
   }
 } catch (e) {}
@@ -360,16 +377,16 @@ window.getOptirouteActiveAssignedInfo = function(order) {
     }
   }
 
-  // Si tiene ruta o plan guardado en el pedido
+  // Si tiene ruta guardada en el pedido Y está formalmente confirmada con conductor
   const rName = (order.ruta_optiroute || order.plan_optiroute || '').trim();
-  if (rName) {
+  if (rName && String(order.estado_ruta_optiroute || '').trim().toLowerCase() === 'confirmado') {
     return {
       reference: order.external_order_number || order.id,
       planName: rName,
       routeName: rName,
-      driver: order.operador || 'Asignado',
+      driver: order.operador || 'Conductor asignado',
       vehicle: '',
-      status: order.estado_ruta_optiroute || 'creado'
+      status: 'confirmado'
     };
   }
 
@@ -5192,6 +5209,8 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         raw_falabella_data,
         raw_jumpseller_data,
         raw_tiendanube_data,
+        raw_lightdata_data,
+        lightdata_status,
         comercio,
         categoria_entrega,
         agenda,
@@ -9527,6 +9546,168 @@ window.applyWmsFiltersAndRender = function() {
       shipmentStatusHtml = `<p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-style: italic;">Sin información de despacho unificado</p>`;
     }
 
+    // Fila compacta de Estado informado por el Operador Courier para la celda de Estado WMS/Origen
+    let courierStatusRowHtml = '';
+    const hasCourierOrTrack = (displayCourier && displayCourier !== 'Sin courier') || hasValidTrack || orderShipments.length > 0;
+
+    if (hasCourierOrTrack) {
+      let cGlobStatus = 'SIN MOVIMIENTO';
+      let cStatusText = '';
+      let cBadgeBg = '#f1f5f9';
+      let cBadgeColor = '#475569';
+      let cBadgeIcon = 'ri-time-line';
+
+      if (orderShipments.length > 0) {
+        const shipment = orderShipments[0];
+        cGlobStatus = shipment.global_status || 'SIN MOVIMIENTO';
+        cStatusText = shipment.status || '';
+
+        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(String(cStatusText).trim())) {
+          if (shipment.raw_data && shipment.raw_data[23]) {
+            cStatusText = shipment.raw_data[23];
+          } else if (order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) {
+            cStatusText = order.raw_lightdata_data.raw_data[23];
+          }
+        }
+        if (!cStatusText && order.lightdata_status) {
+          cStatusText = order.lightdata_status;
+        } else if (!cStatusText && order.raw_lightdata_data?.status) {
+          cStatusText = order.raw_lightdata_data.status;
+        }
+
+        if (shipment.source_table === 'optiroute_orders' && (cStatusText.toLowerCase().trim() === 'skipped' || cStatusText.toLowerCase().trim() === 'reviewing' || cStatusText.toLowerCase().trim() === 'scheduled')) {
+          cGlobStatus = 'SIN MOVIMIENTO';
+        }
+
+        const rawLower = String(cStatusText).toLowerCase().trim();
+        if (rawLower.includes('devolucion') || rawLower.includes('devolución') || rawLower === 'devuelto') {
+          cGlobStatus = 'DEVOLUCIÓN';
+        } else if (rawLower.includes('rechazado por courier')) {
+          cGlobStatus = 'SIN MOVIMIENTO';
+        } else if (rawLower.includes('entregad') || rawLower.includes('delivered')) {
+          cGlobStatus = 'ENTREGADO';
+        } else if (rawLower.includes('requiere solucion') || rawLower.includes('requiere solución') || rawLower.includes('pendiente - requiere') || rawLower.includes('retenid')) {
+          cGlobStatus = 'ALERTA';
+        } else if (!cGlobStatus || cGlobStatus === 'SIN MOVIMIENTO' || cGlobStatus === 'DESPACHADO') {
+          if (shipment.source_table === 'lightdata_envios') {
+            if (rawLower.includes('entregado') || rawLower.includes('entregada') || rawLower.includes('delivered')) {
+              cGlobStatus = 'ENTREGADO';
+            } else if (rawLower.includes('camino') || rawLower.includes('planta') || rawLower.includes('recepcionado') || rawLower.includes('procesamiento') || rawLower.includes('clasificado') || rawLower.includes('nadie') || rawLower.includes('reparto') || rawLower.includes('tránsito') || rawLower.includes('transito') || rawLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawLower)) {
+              cGlobStatus = 'EN TRÁNSITO';
+            } else if (rawLower === 'cancelado' || rawLower === 'no entregado' || rawLower.includes('no entregad')) {
+              cGlobStatus = 'ALERTA';
+            } else if (rawLower === 'no retirado' || rawLower === 'a retirar') {
+              cGlobStatus = 'SIN MOVIMIENTO';
+            }
+          } else if (shipment.source_table === 'bluex_envios') {
+            if (rawLower.includes('delivered') || rawLower.includes('entregad')) {
+              cGlobStatus = 'ENTREGADO';
+            } else if (rawLower.includes('transit') || rawLower.includes('delivery') || rawLower.includes('camino') || rawLower.includes('reparto') || rawLower.includes('ruta') || rawLower.includes('pickup') || rawLower.includes('admitid') || rawLower.includes('disponible para retiro')) {
+              cGlobStatus = 'EN TRÁNSITO';
+            } else if (rawLower.includes('cancel') || rawLower.includes('fail') || rawLower.includes('fallid') || rawLower.includes('retenid')) {
+              cGlobStatus = 'ALERTA';
+            }
+          } else if (shipment.source_table === 'starken_envios') {
+            if (rawLower.includes('entregad') || rawLower.includes('delivered')) {
+              cGlobStatus = 'ENTREGADO';
+            } else if (rawLower.includes('transit') || rawLower.includes('destino') || rawLower.includes('reparto') || rawLower.includes('redestin') || rawLower.includes('ruta') || rawLower.includes('camino') || rawLower.includes('disponible para retiro')) {
+              cGlobStatus = 'EN TRÁNSITO';
+            } else if (rawLower.includes('excepcion') || rawLower.includes('cancel') || rawLower.includes('fail') || rawLower.includes('siniestro') || rawLower.includes('retenid')) {
+              cGlobStatus = 'ALERTA';
+            }
+          } else if (shipment.source_table === 'optiroute_orders') {
+            if (rawLower.includes('deliver') || rawLower.includes('entregad')) {
+              cGlobStatus = 'ENTREGADO';
+            } else if (rawLower.includes('route') || rawLower.includes('ruta') || rawLower.includes('camino') || rawLower === 'onroute' || rawLower === 'ongoing' || rawLower === 'arrived') {
+              cGlobStatus = 'EN TRÁNSITO';
+            } else if (rawLower.includes('cancel') || rawLower.includes('elimin') || rawLower.includes('delet')) {
+              cGlobStatus = 'ALERTA';
+            }
+          } else if (shipment.source_table === 'enviame_shipments') {
+            if (rawLower.includes('devolucion') || rawLower.includes('devolución') || rawLower === 'devuelto') {
+              cGlobStatus = 'DEVOLUCIÓN';
+            } else if (rawLower.includes('entregad') || rawLower.includes('delivered')) {
+              cGlobStatus = 'ENTREGADO';
+            } else if (rawLower.includes('rechazado por courier')) {
+              cGlobStatus = 'SIN MOVIMIENTO';
+            } else if (rawLower.includes('requiere solucion') || rawLower.includes('requiere solución') || rawLower.includes('pendiente - requiere') || rawLower.includes('retenid') || rawLower.includes('excepcion') || rawLower.includes('excepción') || rawLower.includes('siniestr') || rawLower.includes('fallid') || rawLower.includes('cancel') || (rawLower.includes('rechazad') && !rawLower.includes('rechazado por courier'))) {
+              cGlobStatus = 'ALERTA';
+            } else if (rawLower.includes('reparto') || rawLower.includes('tránsito') || rawLower.includes('transito') || rawLower.includes('planta') || rawLower.includes('ruta') || rawLower.includes('camino') || rawLower.includes('admitid') || rawLower.includes('disponible para retiro') || rawLower.includes('cambio de direcci') || rawLower.includes('cambió de direcci')) {
+              cGlobStatus = 'EN TRÁNSITO';
+            }
+          }
+        }
+      } else {
+        // Fallback desde campos directos de la orden si aún no cargó orderShipments
+        let ldStatus = order.lightdata_status || order.raw_lightdata_data?.status;
+        if (ldStatus && /^-?\d+\.\d+$/.test(String(ldStatus).trim()) && order.raw_lightdata_data?.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          ldStatus = order.raw_lightdata_data.raw_data[23];
+        }
+        if (ldStatus) {
+          cStatusText = ldStatus;
+          const ldLower = String(ldStatus).toLowerCase().trim();
+          if (ldLower.includes('entregado') || ldLower.includes('entregada') || ldLower.includes('delivered')) {
+            cGlobStatus = 'ENTREGADO';
+          } else if (ldLower.includes('camino') || ldLower.includes('planta') || ldLower.includes('recepcionado') || ldLower.includes('procesamiento') || ldLower.includes('clasificado') || ldLower.includes('nadie') || ldLower.includes('reparto') || ldLower.includes('tránsito') || ldLower.includes('transito') || ldLower.includes('ruta')) {
+            cGlobStatus = 'EN TRÁNSITO';
+          } else if (ldLower === 'cancelado' || ldLower.includes('no entregad')) {
+            cGlobStatus = 'ALERTA';
+          } else {
+            cGlobStatus = 'SIN MOVIMIENTO';
+          }
+        }
+      }
+
+      if (cGlobStatus === 'DESPACHADO') {
+        cGlobStatus = (String(cStatusText).toLowerCase().includes('entregad') || String(cStatusText).toLowerCase().includes('delivered')) ? 'ENTREGADO' : 'EN TRÁNSITO';
+      }
+      if (!cGlobStatus) cGlobStatus = 'SIN MOVIMIENTO';
+      if (isReturned) cGlobStatus = 'DEVOLUCIÓN';
+
+      if (isReturned || cGlobStatus === 'DEVOLUCIÓN') {
+        cBadgeBg = '#ffe4e6';
+        cBadgeColor = '#9f1239';
+        cBadgeIcon = 'ri-arrow-go-back-line';
+      } else if (cGlobStatus === 'ENTREGADO') {
+        cBadgeBg = '#d1fae5';
+        cBadgeColor = '#065f46';
+        cBadgeIcon = 'ri-checkbox-circle-line';
+      } else if (cGlobStatus === 'EN TRÁNSITO') {
+        cBadgeBg = '#e0f2fe';
+        cBadgeColor = '#0369a1';
+        cBadgeIcon = 'ri-truck-line';
+      } else if (cGlobStatus === 'ALERTA') {
+        cBadgeBg = '#fee2e2';
+        cBadgeColor = '#991b1b';
+        cBadgeIcon = 'ri-alert-line';
+      } else {
+        cBadgeBg = '#f1f5f9';
+        cBadgeColor = '#475569';
+        cBadgeIcon = 'ri-time-line';
+      }
+
+      const rawValid = (cStatusText && !/^-?\d+\.\d+$/.test(String(cStatusText).trim()) && cStatusText !== '-') ? String(cStatusText).trim() : '';
+      let displayCourierStatus = isReturned && rawValid.toLowerCase().includes('cancelado') ? 'Devolución' : rawValid;
+
+      if (!displayCourierStatus) {
+        displayCourierStatus = cGlobStatus ? (cGlobStatus.charAt(0).toUpperCase() + cGlobStatus.slice(1).toLowerCase()) : 'Sin movimiento';
+      } else if (displayCourierStatus === displayCourierStatus.toUpperCase() || displayCourierStatus === displayCourierStatus.toLowerCase()) {
+        displayCourierStatus = displayCourierStatus.charAt(0).toUpperCase() + displayCourierStatus.slice(1).toLowerCase();
+      }
+
+      const cTitle = `Estado informado por courier: ${displayCourierStatus}${cGlobStatus && cGlobStatus.toUpperCase() !== displayCourierStatus.toUpperCase() ? ` (${cGlobStatus})` : ''} (Clic para filtrar)`;
+      const filterTag = cGlobStatus || displayCourierStatus;
+
+      courierStatusRowHtml = `
+        <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.68rem; margin-top: 0.05rem; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.2; padding-left: 0.95rem;">
+          <span class="badge" onclick="event.stopPropagation(); if (typeof window.filterByOrderTag === 'function') window.filterByOrderTag('${filterTag.replace(/'/g, "\\'")}', event);" style="background-color: ${cBadgeBg}; color: ${cBadgeColor}; border: 1px solid ${cBadgeColor}28; padding: 0.08rem 0.4rem; border-radius: 99px; font-size: 0.65rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 145px; display: inline-flex; align-items: center; gap: 0.2rem; line-height: 1.25; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='scale(1.02)';" onmouseout="this.style.transform='scale(1)';" title="${cTitle.replace(/"/g, '&quot;')}">
+            <i class="${cBadgeIcon}" style="font-size: 0.68rem; flex-shrink: 0;"></i>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayCourierStatus}</span>
+          </span>
+        </div>
+      `;
+    }
+
     // Items table breakdown (Agrupando por SKU y Bodega)
     let itemsRowsHtml = '';
     if (order.order_items && order.order_items.length > 0) {
@@ -10058,6 +10239,7 @@ window.applyWmsFiltersAndRender = function() {
               <span style="background-color: ${badgeBg}; color: ${badgeTextColor}; padding: 0.1rem 0.45rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; display: inline-block; line-height: 1.25;">${isReturned ? 'devolución' : order.status}</span>
             </div>
             ${courierTrackingRowHtml}
+            ${courierStatusRowHtml}
           </div>
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
@@ -10506,6 +10688,8 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     raw_falabella_data,
     raw_jumpseller_data,
     raw_tiendanube_data,
+    raw_lightdata_data,
+    lightdata_status,
     comercio,
     categoria_entrega,
     agenda,
@@ -11953,7 +12137,7 @@ window.applyBulkWmsStatus = async function() {
           : !!(config && config.inventario_seguimiento);
         if (!isStockTrackingActive) return;
 
-        const effectiveSucursal = order.sucursal_pickeo || formValues.sucursal;
+        const effectiveSucursal = (formValues.keepPicking && order.sucursal_pickeo) ? order.sucursal_pickeo : (formValues.sucursal || order.sucursal_pickeo);
         const orderWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
           ? formValues.bodegaStock
           : getWarehouseIdFromSucursal(effectiveSucursal);
@@ -12037,7 +12221,7 @@ window.applyBulkWmsStatus = async function() {
             customer: o?.customer_name,
             warehouseName: (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
               ? getWarehouseNameFromId(formValues.bodegaStock)
-              : (o?.sucursal_pickeo || formValues.sucursal || 'Sucursal Asignada'),
+              : ((formValues.keepPicking && o?.sucursal_pickeo) ? o.sucursal_pickeo : (formValues.sucursal || o?.sucursal_pickeo || 'Sucursal Asignada')),
             items: []
           });
         }
@@ -12102,8 +12286,9 @@ window.applyBulkWmsStatus = async function() {
           }
         }
 
-        if (shortageSwalRes.scope === 'all') {
+        if (shortageSwalRes.scope === 'all' || shortageSwalRes.orderIds.length === ids.length) {
           formValues.sucursal = shortageSwalRes.targetSucursal;
+          formValues.bodegaStock = 'same_as_prep';
         }
 
         // Bucle revalidará stock con la nueva sucursal asignada
@@ -12157,8 +12342,11 @@ window.applyBulkWmsStatus = async function() {
       });
 
       const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
-      const distinctSucursales = new Set(successOrders.map(o => o.sucursal_pickeo || formValues.sucursal));
+      const distinctSucursales = new Set(successOrders.map(o => (formValues.keepPicking && o.sucursal_pickeo) ? o.sucursal_pickeo : (o.sucursal_pickeo || formValues.sucursal)));
       const hasMixedSucursales = distinctSucursales.size > 1;
+      if (distinctSucursales.size === 1) {
+        formValues.sucursal = Array.from(distinctSucursales)[0];
+      }
 
       window.lastBulkWmsSentPickerCount = 0;
       window.lastBulkWmsDeferredTrackingCount = 0;
@@ -12908,10 +13096,29 @@ window.onManifestCreated = async function (newManifest, shipmentIds) {
 window.getFormattedStockByWarehouse = async function(productId, targetWarehouseId, targetItem = null) {
   if (!productId) return '';
   try {
-    const { data: warehouses } = await supabase
-      .from('warehouses')
-      .select('id, name')
-      .order('name');
+    let warehouses = (window.allWarehousesList && window.allWarehousesList.length > 0) ? window.allWarehousesList : null;
+    if (!warehouses || warehouses.length === 0) {
+      try {
+        const { data: whList } = await supabase
+          .from('warehouses')
+          .select('id, name')
+          .order('name');
+        if (whList && whList.length > 0) {
+          warehouses = whList;
+          window.allWarehousesList = whList;
+        }
+      } catch (whErr) {
+        console.warn('Error al consultar tabla warehouses:', whErr);
+      }
+    }
+    if (!warehouses || warehouses.length === 0) {
+      warehouses = [
+        { id: '414605cb-f926-43d2-8bd2-d9509f7b458a', name: 'CDD La Reina' },
+        { id: '973da888-8a63-4790-a08f-919e1af41a93', name: 'Matriz Ñuñoa' },
+        { id: '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a', name: 'CDD Recoleta' },
+        { id: 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09', name: 'Bodega Central' }
+      ];
+    }
       
     const { data: invData } = await supabase
       .from('inventory')
@@ -34429,7 +34636,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
             <button class="btn btn-warning btn-sm" onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" style="font-size: 0.8rem; font-weight: 700; padding: 0.45rem 0.9rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-warning); color: #000; border: none; cursor: pointer;">
               <i class="ri-external-link-line"></i> Gestionar en WMS
             </button>
-            <button class="btn btn-sm btn-outline" onclick="window.triggerDashboardManualOrdersStoxWA(this)" style="font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-surface); cursor: pointer;" title="Enviar o probar alerta de Stox al grupo de Coordinación vía WhatsApp">
+            <button class="btn btn-sm btn-outline" onclick="window.triggerDashboardManualOrdersStoxWA(this)" style="font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; background: var(--color-surface); cursor: pointer;" title="Enviar o probar alerta de Stox al grupo NOTIFICACIONES STOX vía WhatsApp">
               <i class="ri-whatsapp-line" style="color: #25D366; font-size: 1.05rem;"></i> Notificar por Stox
             </button>
           </div>
@@ -34447,7 +34654,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
           <h4 style="margin: 0 0 0.35rem 0; color: var(--color-text-main); font-size: 1.05rem; font-weight: 700;">No hay pedidos manuales pendientes de procesar</h4>
           <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">Todos los pedidos manuales se encuentran al día o han avanzado a preparación y despacho.</p>
           <div style="margin-top: 0.75rem; font-size: 0.78rem; color: var(--color-text-muted); display: inline-flex; align-items: center; gap: 0.35rem;">
-            <i class="ri-time-line"></i> <span>Alerta automática de Stox al grupo de Coordinación activa diariamente después de las 12:00 hrs.</span>
+            <i class="ri-time-line"></i> <span>Alerta automática de Stox al grupo NOTIFICACIONES STOX activa diariamente después de las 12:00 hrs.</span>
           </div>
         </div>
       `;
@@ -34540,7 +34747,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
             <button onclick="window.goToManualOrdersManager('${selectedCommerce ? escapeHtml(selectedCommerce) : ''}')" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;">
               <i class="ri-external-link-line"></i> Ir al Gestor de Pedidos
             </button>
-            <button onclick="window.triggerDashboardManualOrdersStoxWA(this)" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Enviar alerta Stox al grupo de Coordinación por WhatsApp">
+            <button onclick="window.triggerDashboardManualOrdersStoxWA(this)" class="btn btn-sm btn-outline" style="font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Enviar alerta Stox al grupo NOTIFICACIONES STOX por WhatsApp">
               <i class="ri-whatsapp-line" style="color: #25D366;"></i> Notificar por Stox
             </button>
           </div>
@@ -34759,11 +34966,11 @@ window.goToManualOrdersManager = function(commerceFilter, orderNumber) {
 
 window.triggerDashboardManualOrdersStoxWA = async function(btn) {
   if (typeof Swal === 'undefined') {
-    if (!confirm('¿Deseas enviar la alerta de pedidos manuales por WhatsApp a Coordinación mediante Stox?')) return;
+    if (!confirm('¿Deseas enviar la alerta de pedidos manuales por WhatsApp al grupo NOTIFICACIONES STOX mediante Stox?')) return;
   } else {
     const isConfirmed = await Swal.fire({
-      title: '¿Enviar alerta a Coordinación?',
-      text: 'Stox enviará un mensaje de WhatsApp al grupo de Coordinación con el listado de pedidos manuales pendientes de procesar.',
+      title: '¿Enviar alerta a NOTIFICACIONES STOX?',
+      text: 'Stox enviará un mensaje de WhatsApp al grupo NOTIFICACIONES STOX con el listado de pedidos manuales pendientes de procesar.',
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#25D366',
@@ -34799,12 +35006,12 @@ window.triggerDashboardManualOrdersStoxWA = async function(btn) {
       if (typeof Swal !== 'undefined') {
         Swal.fire({
           title: '¡Alerta de Stox Enviada!',
-          text: `Se notificó exitosamente al grupo de Coordinación (${data.count} pedidos manuales pendientes reportados).`,
+          text: `Se notificó exitosamente al grupo NOTIFICACIONES STOX (${data.count} pedidos manuales pendientes reportados).`,
           icon: 'success',
           confirmButtonColor: '#059669'
         });
       } else {
-        alert(`¡Alerta enviada! Se notificaron ${data.count} pedidos manuales pendientes a Coordinación.`);
+        alert(`¡Alerta enviada! Se notificaron ${data.count} pedidos manuales pendientes al grupo NOTIFICACIONES STOX.`);
       }
     } else {
       const msg = data.reason || data.error || 'No se pudo enviar la alerta.';
@@ -64279,7 +64486,7 @@ window.openWmsOrderModal = async function(orderId) {
           customer_name, customer_email, customer_phone,
           shipping_address, shipping_city, shipping_complement, shipping_method,
           payment_status, tracking_number, tracking_url, courier,
-          raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data,
+          raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_tiendanube_data, raw_lightdata_data, lightdata_status,
           comercio, categoria_entrega, agenda, operador, sucursal_pickeo,
           total_value, total_amount,
           order_items (

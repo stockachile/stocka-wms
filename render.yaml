@@ -16,7 +16,7 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: TARGET_WA_GROUP
-        value: 120363043911687615@g.us
+        value: 120363413357945543@g.us
       - key: AUTH_DIR
         value: /var/data/auth_info_baileys
     disk:

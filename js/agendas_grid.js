@@ -356,7 +356,7 @@
 
       const activePlans = allPlans.filter(p => {
         const st = Number(p.status);
-        if (st === 2 || p.status === '2') return false;
+        if (st === 2 || p.status === '2' || st === -1 || p.status === '-1') return false;
         if (p.departure_datetime) {
           const dep = new Date(p.departure_datetime);
           if (!isNaN(dep.getTime()) && dep < twoDaysAgo) return false;
@@ -390,13 +390,34 @@
                   });
                   if (rRes.ok) {
                     const rData = await rRes.json();
-                    const wps = (rData.waypoints || []).filter(w => w.is_customer);
-                    const driverName = rData.driver?.first_name 
-                      ? `${rData.driver.first_name} ${rData.driver.last_name || ''}`.trim() 
-                      : (rData.driver?.name || routeObj.driver?.name || 'Conductor asignado');
+
+                    // Validación: la ruta no debe estar cancelada ni eliminada
+                    if (rData.status === -1 || rData.status === 3 || rData.is_deleted || rData.is_dropped) {
+                      return;
+                    }
+
+                    // Validación de negocio: la ruta DEBE tener un conductor asignado real
+                    const rawDriver = rData.driver || routeObj.driver || null;
+                    const hasRealDriver = Boolean(
+                      rawDriver &&
+                      (rawDriver.first_name || rawDriver.name || rawDriver.id) &&
+                      String(rawDriver.name || rawDriver.first_name || '').trim().toLowerCase() !== 'sin conductor' &&
+                      String(rawDriver.name || rawDriver.first_name || '').trim().toLowerCase() !== 'conductor asignado'
+                    );
+
+                    if (!hasRealDriver) {
+                      // Si no tiene conductor asignado, no es una ruta activa confirmada
+                      return;
+                    }
+
+                    const driverName = rawDriver.first_name 
+                      ? `${rawDriver.first_name} ${rawDriver.last_name || ''}`.trim() 
+                      : (rawDriver.name || 'Conductor');
                     const vehicleName = rData.vehicle?.license_plate || rData.vehicle?.name || routeObj.vehicle?.license_plate || routeObj.vehicle?.name || '';
                     const rName = rData.name || routeObj.name || plan.name || 'Ruta';
                     const depTime = planDetail.departure_datetime || plan.departure_datetime || null;
+
+                    const wps = (rData.waypoints || []).filter(w => w.is_customer);
 
                     wps.forEach(wp => {
                       const rawRef = String(wp.service_request?.reference || '').trim();
@@ -830,10 +851,7 @@
       const driverTip = optiInfo?.driver ? ` | Conductor: ${optiInfo.driver}${optiInfo.vehicle ? ' (' + optiInfo.vehicle + ')' : ''}` : '';
 
       if (displayVal === 'creado') {
-        const rBadge = rName 
-          ? `<span class="excel-badge-opti-route" style="background: rgba(37, 99, 235, 0.08); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.32rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.25rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Plan Optiroute: ${rName}"><i class="ri-direction-line"></i> ${rName}</span>`
-          : '';
-        badgeHtml = `<span class="excel-badge-opti-creado" title="Creado: Es parte de una ruta que se está creando"><i class="ri-route-line"></i> Creado</span>${rBadge}`;
+        badgeHtml = `<span class="excel-badge-opti-creado" title="Creado: Pedido enviado a Optiroute (pendiente de optimizar y asignar conductor)"><i class="ri-route-line"></i> Creado</span>`;
       } else if (displayVal === 'confirmado') {
         const rBadge = rName 
           ? `<span class="excel-badge-opti-route" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.65rem; font-weight: 700; padding: 0.08rem 0.32rem; border-radius: 3px; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.25rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="Ruta Optiroute: ${rName}${driverTip}"><i class="ri-direction-line"></i> ${rName}</span>`
@@ -4375,49 +4393,34 @@
       const hadError = errors.some(e => String(e.ref) === orderRef);
       if (!hadError) {
         updates.push({ orderId: o.id, field: 'estado_ruta_optiroute', value: 'creado' });
-        if (routeName) {
-          const rawRef = String(o.external_order_number || o.numero_orden || o.id).trim();
-          const lowRef = rawRef.toLowerCase();
-          const altRef = lowRef.startsWith('#') ? lowRef.substring(1) : ('#' + lowRef);
-          if (window.optirouteActiveAssignedRefs) {
-            window.optirouteActiveAssignedRefs.add(lowRef);
-            window.optirouteActiveAssignedRefs.add(altRef);
-          }
-          if (window.optirouteActiveAssignedMap) {
-            const rInfo = {
-              reference: rawRef,
-              planId: targetRoutePlanId,
-              planName: routeName,
-              routeId: null,
-              routeName: routeName,
-              driver: config.operatorValue || 'Asignado',
-              vehicle: '',
-              departureTime: null,
-              status: 'creado'
-            };
-            window.optirouteActiveAssignedMap.set(lowRef, rInfo);
-            window.optirouteActiveAssignedMap.set(altRef, rInfo);
-          }
+        // Asegurar que estos pedidos no queden con marcas de ruta activa confirmada
+        const rawRef = String(o.external_order_number || o.numero_orden || o.id).trim();
+        const lowRef = rawRef.toLowerCase();
+        const altRef = lowRef.startsWith('#') ? lowRef.substring(1) : ('#' + lowRef);
+        if (window.optirouteActiveAssignedRefs) {
+          window.optirouteActiveAssignedRefs.delete(lowRef);
+          window.optirouteActiveAssignedRefs.delete(altRef);
         }
+        if (window.optirouteActiveAssignedMap) {
+          window.optirouteActiveAssignedMap.delete(lowRef);
+          window.optirouteActiveAssignedMap.delete(altRef);
+        }
+        if (window.optirouteOrdersStatusCache) {
+          window.optirouteOrdersStatusCache.set(lowRef, 'creado');
+          window.optirouteOrdersStatusCache.set(altRef, 'creado');
+        }
+        o.estado_ruta_optiroute = 'creado';
+        delete o._wmsTags;
       }
       if (config.updateOperator && config.operatorValue) {
         updates.push({ orderId: o.id, field: 'operador', value: config.operatorValue });
+        o.operador = config.operatorValue;
       }
       if (config.updateStatus) {
         updates.push({ orderId: o.id, field: 'estado_wms', value: 'En preparación' });
+        o.estado_wms = 'En preparación';
       }
     });
-
-    if (routeName && window.optirouteActiveAssignedMap) {
-      try {
-        localStorage.setItem('wms_optiroute_active_assigned_refs', JSON.stringify(Array.from(window.optirouteActiveAssignedRefs || [])));
-        const mapObj = {};
-        for (const [k, v] of window.optirouteActiveAssignedMap.entries()) {
-          mapObj[k] = v;
-        }
-        localStorage.setItem('wms_optiroute_active_assigned_map', JSON.stringify(mapObj));
-      } catch (eLs) {}
-    }
 
     if (updates.length > 0) {
       try {
@@ -4425,6 +4428,40 @@
       } catch (errBatch) {
         console.warn('Error al actualizar pedidos en base de datos:', errBatch);
       }
+    }
+
+    // Persistir limpieza en localStorage
+    try {
+      if (window.optirouteActiveAssignedRefs) {
+        localStorage.setItem('wms_optiroute_active_assigned_refs', JSON.stringify(Array.from(window.optirouteActiveAssignedRefs)));
+      }
+      if (window.optirouteActiveAssignedMap) {
+        const mapObj = {};
+        for (const [k, v] of window.optirouteActiveAssignedMap.entries()) {
+          mapObj[k] = v;
+        }
+        localStorage.setItem('wms_optiroute_active_assigned_map', JSON.stringify(mapObj));
+      }
+    } catch (eLs) {}
+
+    // Limpiar caché de tags para que desaparezcan tags no confirmados
+    if (typeof window.clearWmsTagsCache === 'function') {
+      window.clearWmsTagsCache();
+    }
+    if (typeof window.updateOrderTagFilterOptions === 'function') {
+      window.updateOrderTagFilterOptions();
+    }
+    if (typeof window.applyAgendasFilters === 'function') {
+      window.applyAgendasFilters();
+    } else if (typeof renderGrid === 'function') {
+      renderGrid();
+    }
+
+    // Re-sincronizar referencias activas reales con la API de Optiroute en segundo plano
+    if (typeof window.loadOptirouteActiveAssignedRefs === 'function') {
+      window.loadOptirouteActiveAssignedRefs({ silent: true }).catch(err => {
+        console.warn('[Optiroute] Aviso recargando rutas activas:', err);
+      });
     }
 
     if (progressBar) progressBar.style.width = '100%';
@@ -4565,11 +4602,9 @@
           if (!item.reference) return;
           const refKey = String(item.reference).trim().toLowerCase();
           const rawSt = String(item.status || '').toUpperCase().trim();
+          const rawDriver = item.assigned_driver || item.driver || item.waypoint?.route_driver || null;
           const hasDriver = Boolean(
-            item.assigned_driver || 
-            item.driver || 
-            item.waypoint?.route_driver ||
-            item.waypoint?.route
+            rawDriver && (rawDriver.name || rawDriver.first_name || rawDriver.id)
           );
 
           let derivedStatus = 'creado';
@@ -4578,8 +4613,13 @@
           } else if (hasDriver || ['ONROUTE', 'ONGOING', 'ARRIVED', 'DELIVERED', 'COMPLETED', '6', '2', '3'].includes(rawSt)) {
             derivedStatus = 'confirmado';
           } else if (item.route_plan && (!item.waypoint || !hasDriver)) {
-            // Está en un plan pero no tiene móvil/conductor asignado -> descartado por el optimizador
-            derivedStatus = 'descartado';
+            // Solo marcar como descartado si el plan ya fue finalizado/cerrado o fue saltado
+            const planSt = Number(item.route_plan?.status);
+            if (planSt === 2 || planSt === -1 || rawSt.includes('SKIPPED')) {
+              derivedStatus = 'descartado';
+            } else {
+              derivedStatus = 'creado';
+            }
           }
 
           optiMap.set(refKey, {

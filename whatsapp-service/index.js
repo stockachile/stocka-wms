@@ -582,7 +582,7 @@ async function checkAndSendFiestasPatriasGreeting() {
     const state = loadGreetingsState();
     if (!state.fiestasPatrias2026Sent) {
       console.log('🇨🇱 [Stox] ¡Llegó el 18 de Septiembre a las 12:00 hrs! Enviando saludo de Fiestas Patrias...');
-      const targetGroup = process.env.TARGET_WA_GROUP || '120363043911687615@g.us'; // Coordinación Stocka
+      const targetGroup = process.env.TARGET_WA_GROUP || '120363413357945543@g.us'; // NOTIFICACIONES STOX
       const jid = formatJid(targetGroup);
       const greetingMessage = getFiestasPatriasGreetingText();
 
@@ -591,7 +591,7 @@ async function checkAndSendFiestasPatriasGreeting() {
         state.fiestasPatrias2026Sent = true;
         state.sentAt = new Date().toISOString();
         saveGreetingsState(state);
-        console.log('✅ [Stox] Saludo de Fiestas Patrias enviado con éxito al grupo de Coordinación.');
+        console.log('✅ [Stox] Saludo de Fiestas Patrias enviado con éxito al grupo NOTIFICACIONES STOX.');
       } catch (err) {
         console.error('❌ [Stox] Error enviando saludo de Fiestas Patrias:', err.message);
       }
@@ -608,7 +608,7 @@ app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
     return res.json({
       preview: true,
       message,
-      targetGroup: targetGroup || process.env.TARGET_WA_GROUP || '120363043911687615@g.us',
+      targetGroup: targetGroup || process.env.TARGET_WA_GROUP || '120363413357945543@g.us',
       scheduledFor: '2026-09-18 12:00:00 (America/Santiago)'
     });
   }
@@ -618,7 +618,7 @@ app.post('/test-fiestas-patrias-greeting', requireAuth, async (req, res) => {
   }
 
   try {
-    const dest = targetGroup || process.env.TARGET_WA_GROUP || '120363043911687615@g.us';
+    const dest = targetGroup || process.env.TARGET_WA_GROUP || '120363413357945543@g.us';
     const jid = formatJid(dest);
     const result = await sock.sendMessage(jid, { text: message });
     res.json({ success: true, jid, messageId: result?.key?.id, sentMessage: message });

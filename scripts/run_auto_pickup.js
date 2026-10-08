@@ -15,8 +15,8 @@ async function main() {
   const isForce = args.includes('--force');
   const nonFlagArgs = args.filter(a => !a.startsWith('--'));
 
-  // Target group opcional por CLI o fallback al grupo de Ñuñoa
-  const targetGroup = process.env.TARGET_WA_GROUP || '120363043911687615@g.us'; // Por defecto Coordinación para pruebas seguras
+  // Target group opcional por CLI o fallback al grupo NOTIFICACIONES STOX
+  const targetGroup = process.env.TARGET_WA_GROUP || '120363413357945543@g.us'; // NOTIFICACIONES STOX
 
   if (nonFlagArgs.length > 0) {
     const orderId = nonFlagArgs[0];

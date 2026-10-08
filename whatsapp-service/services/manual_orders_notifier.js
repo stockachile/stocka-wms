@@ -4,8 +4,8 @@
  * Reglas de Negocio:
  * 1. Monitorea pedidos manuales en estado WMS 'En procesamiento'.
  * 2. Horario: Todos los días a partir de las 12:00 hrs (hora de Chile, America/Santiago).
- * 3. Frecuencia: Un solo mensaje al día al grupo de coordinación por este concepto.
- * 4. Destino por defecto: Grupo de Coordinación Stocka (120363043911687615@g.us).
+ * 3. Frecuencia: Un solo mensaje al día al grupo por este concepto.
+ * 4. Destino por defecto: Grupo NOTIFICACIONES STOX (120363413357945543@g.us).
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -38,7 +38,7 @@ const wmsClient = createClient(WMS_URL, WMS_KEY);
 
 const DEFAULT_COORDINACION_GROUP = process.env.TARGET_WA_GROUP || 
                                    process.env.COORDINACION_WA_GROUP || 
-                                   '120363043911687615@g.us';
+                                   '120363413357945543@g.us'; // NOTIFICACIONES STOX
 
 // Archivo persistente para controlar el envío único diario
 function getAlertStateFilePath() {
@@ -159,9 +159,9 @@ function formatManualOrdersAlertMessage(orders) {
 
   const lines = [
     `🤖 *Stox | CONTROL PEDIDOS MANUALES*`,
-    `⚠️ *ALERTA COORDINACIÓN - REVISIÓN 12:00 HRS*`,
+    `⚠️ *ALERTA OPERACIONES - REVISIÓN 12:00 HRS*`,
     `━━━━━━━━━━━━━━━━━━━━`,
-    `Hola equipo de Coordinación, se detectaron *${count} pedido(s) manual(es)* en estado *En procesamiento* (WMS) pendientes de ser revisados:`,
+    `Hola equipo, se detectaron *${count} pedido(s) manual(es)* en estado *En procesamiento* (WMS) pendientes de ser revisados:`,
     ``
   ];
 
@@ -267,7 +267,7 @@ async function checkAndNotifyPendingManualOrders(options = {}) {
   }
 
   // 5. Enviar mensaje por WhatsApp
-  console.log(`[ManualOrdersNotifier] Enviando mensaje WhatsApp a grupo Coordinación (${targetGroup})...`);
+  console.log(`[ManualOrdersNotifier] Enviando mensaje WhatsApp a grupo NOTIFICACIONES STOX (${targetGroup})...`);
   const waResult = await sendWhatsAppMessage(targetGroup, formattedMessage);
 
   // 6. Actualizar estado persistente para no repetir hoy
