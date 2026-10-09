@@ -293,6 +293,92 @@ async function getValidAccessToken(integration) {
 }
 
 /**
+ * Registra o crea productos faltantes e inserta los items en order_items
+ */
+async function insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken) {
+  for (const [sku, qty] of Object.entries(itemQuantities)) {
+    // Buscar producto por SKU
+    let { data: product } = await supabase
+      .from('products')
+      .select('id')
+      .eq('sku', sku)
+      .eq('comercio', resolvedCommerce)
+      .maybeSingle();
+
+    if (!product) {
+      // Buscar información y barcode (GTIN) en la API de MercadoLibre
+      const itemDetail = itemsList.find(i => i.sku === sku);
+      let barcode = sku;
+      let name = 'Producto MercadoLibre ' + sku;
+      let price = 0;
+      let rawItemData = null;
+
+      if (itemDetail) {
+        name = itemDetail.title;
+        price = itemDetail.price;
+        
+        console.log(`🔍 Buscando datos y barcode en MercadoLibre para ítem ID ${itemDetail.itemId}...`);
+        try {
+          const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemDetail.itemId}`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          if (itemRes.ok) {
+            rawItemData = await itemRes.json();
+            if (rawItemData.attributes) {
+              const gtinAttr = rawItemData.attributes.find(a => a.id === 'GTIN' || a.id === 'EAN');
+              if (gtinAttr && gtinAttr.value_name) {
+                barcode = gtinAttr.value_name;
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`⚠️ Error al buscar barcode para ${sku}:`, e.message);
+        }
+      }
+
+      // Auto-crear producto faltante
+      const { data: newProd, error: prodErr } = await supabase
+        .from('products')
+        .insert([{
+          merchant_id: integration.merchant_id,
+          comercio: resolvedCommerce || integration.comercio,
+          sku: sku,
+          name: name,
+          barcode: barcode,
+          price: price,
+          description: 'Creado automáticamente desde integración de MercadoLibre'
+        }])
+        .select('id')
+        .single();
+
+      if (!prodErr && newProd) {
+        console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${name}", Barcode: ${barcode})`);
+        product = newProd;
+      } else {
+        console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
+      }
+    }
+
+    if (product) {
+      const { error: itemErr } = await supabase
+        .from('order_items')
+        .insert([{
+          order_id: localOrderId,
+          product_id: product.id,
+          warehouse_id: warehouseId,
+          quantity: qty
+        }]);
+
+      if (itemErr) {
+        console.error(`   ❌ Error al registrar ítem SKU ${sku}:`, itemErr.message);
+      } else {
+        console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
+      }
+    }
+  }
+}
+
+/**
  * Sincroniza los pedidos de un cliente específico de MercadoLibre
  */
 async function syncMerchantOrders(integration) {
@@ -316,6 +402,26 @@ async function syncMerchantOrders(integration) {
 
   if (!warehouseId) {
     throw new Error("No hay bodega configurada para este comercio");
+  }
+
+  // Resolver sucursal de pickeo según la bodega por defecto
+  let sucursalPickeo = 'Sucursal Ñuñoa';
+  if (warehouseId) {
+    try {
+      const { data: whRow } = await supabase.from('warehouses').select('name').eq('id', warehouseId).maybeSingle();
+      if (whRow && whRow.name) {
+        const whNameLower = whRow.name.toLowerCase();
+        if (whNameLower.includes('la reina')) {
+          sucursalPickeo = 'Sucursal La Reina';
+        } else if (whNameLower.includes('recoleta')) {
+          sucursalPickeo = 'Sucursal Recoleta';
+        } else {
+          sucursalPickeo = 'Sucursal Ñuñoa';
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Error al consultar bodega para sucursal:', err.message);
+    }
   }
 
   // Obtener sigla del comercio, configuración de prefijos y holding (RUT compartido)
@@ -501,8 +607,28 @@ async function syncMerchantOrders(integration) {
       }
 
       // Omitir pedidos que son Meli Full (Fulfillment)
-      if (logisticsType === 'fulfillment') {
+      const isFulfillment = logisticsType === 'fulfillment' || 
+        group.orders.some(o => o.shipping?.logistic_type === 'fulfillment' || o.order_items?.some(it => it.stock?.node_id === 'CLRM03'));
+
+      if (isFulfillment) {
         console.log(`ℹ️ Pedido ${groupId} omitido por ser logística Full (Fulfillment de MercadoLibre).`);
+        try {
+          const cleanMeliId = groupId.replace(/\D/g, "");
+          const { data: exFull } = await supabase
+            .from('orders')
+            .select('id')
+            .in('comercio', holdingComercios)
+            .eq('external_platform', 'MercadoLibre')
+            .ilike('external_order_number', `%${cleanMeliId}`);
+          if (exFull && exFull.length > 0) {
+            const exIds = exFull.map(e => e.id);
+            await supabase.from('order_items').delete().in('order_id', exIds);
+            await supabase.from('orders').delete().in('id', exIds);
+            console.log(`🗑️ Eliminada orden Full existente ${groupId} del WMS.`);
+          }
+        } catch (e) {
+          console.warn(`Error limpiando orden Full ${groupId}:`, e.message);
+        }
         continue;
       }
 
@@ -519,10 +645,22 @@ async function syncMerchantOrders(integration) {
         'not_specified': 'Acordar / Retiro'
       };
       const baseMethod = mapLog[logisticsType] || logisticsType || 'Acordar / Retiro';
+      
+      let slaDateToFormat = expectedDate;
+      let fallbackTime = null;
+
+      if (!slaDateToFormat && shippingData?.shipping_option) {
+        const opt = shippingData.shipping_option;
+        slaDateToFormat = opt.estimated_delivery_limit?.date || opt.estimated_delivery_time?.date;
+        if (opt.estimated_delivery_time?.pay_before) {
+          fallbackTime = opt.estimated_delivery_time.pay_before;
+        }
+      }
+
       let formattedSla = 'N/A';
-      if (expectedDate) {
-        const slaDate = new Date(expectedDate);
+      if (slaDateToFormat) {
         try {
+          const slaDate = new Date(slaDateToFormat);
           const formatter = new Intl.DateTimeFormat('es-CL', {
             timeZone: 'America/Santiago',
             day: '2-digit',
@@ -533,17 +671,33 @@ async function syncMerchantOrders(integration) {
             hour12: false
           });
           const parts = formatter.formatToParts(slaDate);
-          const day = parts.find(p => p.type === 'day').value;
-          const month = parts.find(p => p.type === 'month').value;
-          const year = parts.find(p => p.type === 'year').value;
-          const hour = parts.find(p => p.type === 'hour').value;
-          const minute = parts.find(p => p.type === 'minute').value;
-          formattedSla = `${day}/${month}/${year} ${hour}:${minute}`;
+          const day = parts.find(p => p.type === 'day')?.value;
+          const month = parts.find(p => p.type === 'month')?.value;
+          const year = parts.find(p => p.type === 'year')?.value;
+          let hour = parts.find(p => p.type === 'hour')?.value;
+          let minute = parts.find(p => p.type === 'minute')?.value;
+
+          if (fallbackTime && (hour === '00' || !hour)) {
+            try {
+              const fbDate = new Date(fallbackTime);
+              const fbParts = formatter.formatToParts(fbDate);
+              const fbH = fbParts.find(p => p.type === 'hour')?.value;
+              const fbM = fbParts.find(p => p.type === 'minute')?.value;
+              if (fbH && fbM && (fbH !== '00' || fbM !== '00')) {
+                hour = fbH;
+                minute = fbM;
+              }
+            } catch (e) {}
+          }
+
+          if (day && month && year) {
+            formattedSla = `${day}/${month}/${year} ${hour || '23'}:${minute || '59'}`;
+          }
         } catch (e) {
-          formattedSla = `${slaDate.getDate().toString().padStart(2, '0')}/${(slaDate.getMonth() + 1).toString().padStart(2, '0')}/${slaDate.getFullYear().toString().slice(-2)} ${slaDate.getHours().toString().padStart(2, '0')}:${slaDate.getMinutes().toString().padStart(2, '0')}`;
+          console.warn(`Error formateando SLA para ${groupId}:`, e.message);
         }
       }
-      const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
+      const shippingMethod = formattedSla !== 'N/A' ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
       const targetStatus = mapMeliStatus(shippingStatus);
 
       let orderNumber = groupId.trim();
@@ -561,11 +715,107 @@ async function syncMerchantOrders(integration) {
         }
       }
 
+      // Agrupar ítems por SKU y recolectar nombres
+      const itemsList = [];
+      const itemQuantities = {};
+      const itemNames = [];
+
+      for (const order of (group.orders || [])) {
+        for (const item of (order.order_items || [])) {
+          let sku = item.item.seller_sku || item.item.seller_custom_field || '';
+          if ((!sku || sku === 'Sin SKU') && item.item.variation_attributes) {
+            const vSku = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
+            if (vSku && vSku.value_name) sku = vSku.value_name;
+          }
+          sku = sku ? sku.trim() : '';
+          if (!sku || sku === 'Sin SKU' || sku === 'SinSKU') {
+            sku = item.item.id || 'Sin SKU';
+          }
+          sku = sku.trim().replace(/\s+/g, '');
+          // Aplicar equivalencia de SKU
+          let mappedSku = skuMap[sku] || sku;
+
+          itemsList.push({
+            itemId: item.item.id,
+            variationId: item.item.variation_id ? item.item.variation_id.toString() : null,
+            title: item.item.title,
+            price: Number(item.unit_price || 0),
+            quantity: Number(item.quantity || 1),
+            sku: mappedSku,
+            variation: item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(', ') : 'N/A'
+          });
+
+          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
+          if (item.item.title && !itemNames.includes(item.item.title)) {
+            itemNames.push(item.item.title);
+          }
+        }
+      }
+
+      const flatSku = Object.keys(itemQuantities).join(', ');
+      const flatItemName = itemNames.join(', ');
+      const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
+
+      // Mapear campos comunes del destinatario
+      let customerName = 'Cliente MercadoLibre';
+      if (group.buyer) {
+        customerName = `${group.buyer.first_name || ''} ${group.buyer.last_name || ''}`.trim() || group.buyer.nickname || 'Cliente MercadoLibre';
+      }
+
+      let shippingAddress = 'No especificada';
+      let shippingCity = 'No especificada';
+      let shippingComplement = '';
+      if (receiverAddress) {
+        shippingAddress = (receiverAddress.street_name || '') + ' ' + (receiverAddress.street_number || '');
+        if (shippingAddress.trim() === '' && receiverAddress.address_line) {
+          shippingAddress = receiverAddress.address_line;
+        }
+        shippingCity = receiverAddress.city?.name || receiverAddress.municipality?.name || 'No especificada';
+        shippingComplement = receiverAddress.comment || '';
+      }
+
+      const customerPhone = receiverAddress?.receiver_phone || 'No especificado';
+
+      // holdingComercios ya fue resuelto a nivel de holding al inicio de la sincronización
+      const itemComercios = [];
+      for (const sku of Object.keys(itemQuantities)) {
+        let { data: products } = await supabase
+          .from('products')
+          .select('comercio')
+          .in('comercio', holdingComercios)
+          .eq('sku', sku);
+        
+        if (products && products.length > 0) {
+          products.forEach(p => {
+            if (p.comercio) itemComercios.push(p.comercio);
+          });
+        }
+      }
+
+      let resolvedCommerce = integration.comercio;
+      let resolvedMerchantId = integration.merchant_id;
+      const uniqueComercios = [...new Set(itemComercios)];
+      
+      if (uniqueComercios.length === 1) {
+        resolvedCommerce = uniqueComercios[0];
+        const { data: matchedProduct } = await supabase
+          .from('products')
+          .select('merchant_id')
+          .eq('comercio', resolvedCommerce)
+          .limit(1)
+          .maybeSingle();
+        if (matchedProduct && matchedProduct.merchant_id) {
+          resolvedMerchantId = matchedProduct.merchant_id;
+        }
+      } else if (uniqueComercios.length > 1) {
+        console.log(`⚠️ Pedido mixto detectado. Contiene productos de: ${uniqueComercios.join(', ')}. Asignando a tienda por defecto: ${resolvedCommerce}`);
+      }
+
       // B. Verificar si el pedido ya existe en el WMS (buscando dentro de los comercios del holding y número de pedido base para evitar duplicados por marcas hermanas)
       const cleanMeliId = groupId.replace(/\D/g, "");
       const { data: existingOrders } = await supabase
         .from('orders')
-        .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+        .select('id, status, estado_wms, comercio, external_order_number, tracking_number, raw_meli_data, total_value, sku, item, cantidad, customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement, created_at, sucursal_pickeo')
         .in('comercio', holdingComercios)
         .eq('external_platform', 'MercadoLibre')
         .ilike('external_order_number', `%${cleanMeliId}`);
@@ -573,13 +823,18 @@ async function syncMerchantOrders(integration) {
       const existingOrder = (existingOrders && existingOrders.length > 0) ? existingOrders[0] : null;
 
       let localOrderId = null;
-      let shouldInsertItems = false;
 
       if (existingOrder) {
         localOrderId = existingOrder.id;
         const existingRaw = existingOrder.raw_meli_data || {};
         const isWmsItemsEdited = existingOrder.wms_items_edited === true || existingRaw.wms_items_edited === true;
         const isWmsShippingEdited = existingOrder.wms_shipping_edited === true || existingRaw.wms_shipping_edited === true;
+
+        // Detectar si el pedido local es un registro viejo/fantasma colisionado
+        const incomingDate = group.date_created ? new Date(group.date_created) : new Date();
+        const existingDate = existingOrder.created_at ? new Date(existingOrder.created_at) : null;
+        const daysDiff = existingDate ? (incomingDate - existingDate) / (1000 * 60 * 60 * 24) : 0;
+        const isStaleCollision = (daysDiff > 15 || daysDiff < -15 || (existingOrder.status === 'despachado' && ['ready_to_ship', 'handling'].includes(shippingStatus)));
 
         // Si se canceló en MercadoLibre, cancelarlo en el WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
@@ -588,8 +843,41 @@ async function syncMerchantOrders(integration) {
             .update({ payment_status: group.status, status: 'cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS.`);
+        } else if (isStaleCollision) {
+          console.log(`⚠️ Colisión o desactualización detectada para pedido ${finalGroupId} (WMS: ${existingOrder.status} ${existingOrder.created_at}, ML: ${shippingStatus} ${group.date_created}). Sobreescribiendo con datos reales de MercadoLibre.`);
+
+          const updatePayload = {
+            payment_status: group.status,
+            total_value: group.total_value,
+            customer_name: customerName,
+            customer_phone: customerPhone,
+            shipping_address: shippingAddress,
+            shipping_city: shippingCity,
+            shipping_complement: shippingComplement,
+            tracking_number: meliTrackingNumber || existingOrder.tracking_number,
+            raw_meli_data: {
+              ...(Array.isArray(group.orders) ? { orders: group.orders } : group.orders),
+              ...(shippingData ? { shipping: shippingData } : {}),
+              ...(shippingStatus ? { shipping_status: shippingStatus } : {})
+            },
+            shipping_method: shippingMethod,
+            item: flatItemName,
+            cantidad: flatQuantity,
+            sku: flatSku,
+            status: targetStatus,
+            estado_wms: targetStatus === 'en preparación' ? 'En preparación' : (existingOrder.estado_wms || 'En preparación'),
+            sucursal_pickeo: existingOrder.sucursal_pickeo || sucursalPickeo,
+            created_at: group.date_created
+          };
+
+          await supabase.from('orders').update(updatePayload).eq('id', existingOrder.id);
+
+          // Eliminar items obsoletos y registrar los reales
+          await supabase.from('order_items').delete().eq('order_id', localOrderId);
+          await insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken);
+          console.log(`✅ Pedido ${finalGroupId} reactivado y sincronizado con éxito.`);
         } else {
-          // Actualizar datos del pedido sin sobreescribir el comercio para preservar reasignaciones manuales
+          // Actualización normal
           const updatePayload = {
             payment_status: group.status,
             raw_meli_data: {
@@ -606,10 +894,17 @@ async function syncMerchantOrders(integration) {
           if (meliTrackingNumber && !existingOrder.tracking_number) {
             updatePayload.tracking_number = meliTrackingNumber;
           }
-          
+
+          if (!existingOrder.sucursal_pickeo) {
+            updatePayload.sucursal_pickeo = sucursalPickeo;
+          }
+
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
           if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
             updatePayload.status = targetStatus;
+            if (targetStatus === 'en preparación' && (!existingOrder.estado_wms || existingOrder.estado_wms === 'En procesamiento')) {
+              updatePayload.estado_wms = 'En preparación';
+            }
           }
 
           await supabase
@@ -617,122 +912,24 @@ async function syncMerchantOrders(integration) {
             .update(updatePayload)
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${finalGroupId} (Estado: ${targetStatus}, SLA: ${formattedSla})`);
-        }
 
-        // Verificar si tiene ítems registrados (solo si no fue editado en WMS)
-        if (!isWmsItemsEdited) {
-          const { data: existingItems, error: itemsCheckErr } = await supabase
-            .from('order_items')
-            .select('id')
-            .eq('order_id', localOrderId);
+          // Verificar si tiene ítems registrados (solo si no fue editado en WMS)
+          if (!isWmsItemsEdited) {
+            const { data: existingItems, error: itemsCheckErr } = await supabase
+              .from('order_items')
+              .select('id')
+              .eq('order_id', localOrderId);
 
-          if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-            shouldInsertItems = true;
+            if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+              await insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken);
+            }
           }
         }
       } else {
-        // C. Es un pedido nuevo: Procesar ítems y registrar en WMS
+        // C. Es un pedido nuevo: registrar en WMS
         if (isCancelled) {
           console.log(`ℹ️ Pedido ${groupId} está cancelado en origen y no existe localmente. Omitiendo creación.`);
           continue;
-        }
-
-        // Agrupar ítems por SKU y recolectar nombres
-        const itemsList = [];
-        const itemQuantities = {};
-        const itemNames = [];
-
-        for (const order of group.orders) {
-          for (const item of order.order_items) {
-            let sku = item.item.seller_sku || item.item.seller_custom_field || '';
-            if ((!sku || sku === 'Sin SKU') && item.item.variation_attributes) {
-              const vSku = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
-              if (vSku && vSku.value_name) sku = vSku.value_name;
-            }
-            sku = sku ? sku.trim() : '';
-            if (!sku || sku === 'Sin SKU' || sku === 'SinSKU') {
-              sku = item.item.id || 'Sin SKU';
-            }
-            sku = sku.trim().replace(/\s+/g, '');
-            // Aplicar equivalencia de SKU
-            let mappedSku = skuMap[sku] || sku;
-
-            itemsList.push({
-              itemId: item.item.id,
-              variationId: item.item.variation_id ? item.item.variation_id.toString() : null,
-              title: item.item.title,
-              price: Number(item.unit_price || 0),
-              quantity: Number(item.quantity || 1),
-              sku: mappedSku,
-              variation: item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(', ') : 'N/A'
-            });
-
-            itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
-            if (item.item.title && !itemNames.includes(item.item.title)) {
-              itemNames.push(item.item.title);
-            }
-          }
-        }
-
-        const flatSku = Object.keys(itemQuantities).join(', ');
-        const flatItemName = itemNames.join(', ');
-        const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
-
-        // Mapear campos comunes del destinatario
-        let customerName = 'Cliente MercadoLibre';
-        if (group.buyer) {
-          customerName = `${group.buyer.first_name || ''} ${group.buyer.last_name || ''}`.trim() || group.buyer.nickname || 'Cliente MercadoLibre';
-        }
-
-        let shippingAddress = 'No especificada';
-        let shippingCity = 'No especificada';
-        let shippingComplement = '';
-        if (receiverAddress) {
-          shippingAddress = (receiverAddress.street_name || '') + ' ' + (receiverAddress.street_number || '');
-          if (shippingAddress.trim() === '' && receiverAddress.address_line) {
-            shippingAddress = receiverAddress.address_line;
-          }
-          shippingCity = receiverAddress.city?.name || receiverAddress.municipality?.name || 'No especificada';
-          shippingComplement = receiverAddress.comment || '';
-        }
-
-        const customerPhone = receiverAddress?.receiver_phone || 'No especificado';
-
-        // holdingComercios ya fue resuelto a nivel de holding al inicio de la sincronización
-        const itemComercios = [];
-        for (const sku of Object.keys(itemQuantities)) {
-          // Buscamos de forma restringida dentro del holding (comercios que comparten RUT)
-          let { data: products } = await supabase
-            .from('products')
-            .select('comercio')
-            .in('comercio', holdingComercios)
-            .eq('sku', sku);
-          
-          if (products && products.length > 0) {
-            products.forEach(p => {
-              if (p.comercio) itemComercios.push(p.comercio);
-            });
-          }
-        }
-
-        let resolvedCommerce = integration.comercio;
-        let resolvedMerchantId = integration.merchant_id;
-        const uniqueComercios = [...new Set(itemComercios)];
-        
-        if (uniqueComercios.length === 1) {
-          resolvedCommerce = uniqueComercios[0];
-          // Buscar el merchant_id real que posee este comercio
-          const { data: matchedProduct } = await supabase
-            .from('products')
-            .select('merchant_id')
-            .eq('comercio', resolvedCommerce)
-            .limit(1)
-            .maybeSingle();
-          if (matchedProduct && matchedProduct.merchant_id) {
-            resolvedMerchantId = matchedProduct.merchant_id;
-          }
-        } else if (uniqueComercios.length > 1) {
-          console.log(`⚠️ Pedido mixto detectado. Contiene productos de: ${uniqueComercios.join(', ')}. Asignando a tienda por defecto: ${resolvedCommerce}`);
         }
 
         const orderDataToSave = {
@@ -759,6 +956,7 @@ async function syncMerchantOrders(integration) {
           cantidad: flatQuantity,
           sku: flatSku,
           shipping_method: shippingMethod,
+          sucursal_pickeo: sucursalPickeo,
           status: 'para procesar', // Insertar en para procesar temporalmente
           created_at: group.date_created
         };
@@ -776,94 +974,10 @@ async function syncMerchantOrders(integration) {
 
         console.log(`📥 Insertado nuevo pedido local ${finalGroupId} con estado temporal 'para procesar'`);
         localOrderId = newOrder.id;
-        shouldInsertItems = true;
 
         // Registrar items en order_items
-        if (localOrderId && shouldInsertItems) {
-          for (const [sku, qty] of Object.entries(itemQuantities)) {
-            // Buscar producto por SKU
-            let { data: product } = await supabase
-              .from('products')
-              .select('id')
-              .eq('sku', sku)
-              .eq('comercio', resolvedCommerce)
-              .maybeSingle();
-
-            if (!product) {
-              // Buscar información y barcode (GTIN) en la API de MercadoLibre
-              const itemDetail = itemsList.find(i => i.sku === sku);
-              let barcode = sku;
-              let name = 'Producto MercadoLibre ' + sku;
-              let price = 0;
-              let rawItemData = null;
-              let meliItemId = null;
-              let meliVariationId = null;
-
-              if (itemDetail) {
-                name = itemDetail.title;
-                price = itemDetail.price;
-                meliItemId = itemDetail.itemId;
-                meliVariationId = itemDetail.variationId;
-                
-                console.log(`🔍 Buscando datos y barcode en MercadoLibre para ítem ID ${itemDetail.itemId}...`);
-                try {
-                  const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemDetail.itemId}`, {
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                  });
-                  if (itemRes.ok) {
-                    rawItemData = await itemRes.json();
-                    if (rawItemData.attributes) {
-                      const gtinAttr = rawItemData.attributes.find(a => a.id === 'GTIN' || a.id === 'EAN');
-                      if (gtinAttr && gtinAttr.value_name) {
-                        barcode = gtinAttr.value_name;
-                      }
-                    }
-                  }
-                } catch (e) {
-                  console.error(`⚠️ Error al buscar barcode para ${sku}:`, e.message);
-                }
-              }
-
-              // Auto-crear producto faltante
-              const { data: newProd, error: prodErr } = await supabase
-                .from('products')
-                .insert([{
-                  merchant_id: integration.merchant_id,
-                  comercio: integration.comercio,
-                  sku: sku,
-                  name: name,
-                  barcode: barcode,
-                  price: price,
-                  description: 'Creado automáticamente desde integración de MercadoLibre'
-                }])
-                .select('id')
-                .single();
-
-              if (!prodErr && newProd) {
-                console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${name}", Barcode: ${barcode})`);
-                product = newProd;
-              } else {
-                console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
-              }
-            }
-
-            if (product) {
-              const { error: itemErr } = await supabase
-                .from('order_items')
-                .insert([{
-                  order_id: localOrderId,
-                  product_id: product.id,
-                  warehouse_id: warehouseId,
-                  quantity: qty
-                }]);
-
-              if (itemErr) {
-                console.error(`   ❌ Error al registrar ítem SKU ${sku}:`, itemErr.message);
-              } else {
-                console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
-              }
-            }
-          }
+        if (localOrderId) {
+          await insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken);
         }
 
         // Transicionar al estado real final mapeado
@@ -871,7 +985,7 @@ async function syncMerchantOrders(integration) {
           console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
           const { error: statusUpdateErr } = await supabase
             .from('orders')
-            .update({ status: targetStatus })
+            .update({ status: targetStatus, estado_wms: targetStatus === 'en preparación' ? 'En preparación' : undefined })
             .eq('id', localOrderId);
 
           if (statusUpdateErr) {

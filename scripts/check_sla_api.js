@@ -1,0 +1,53 @@
+const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
+const path = require('path');
+
+const envConfig = fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf-8');
+const envVars = {};
+envConfig.split(/\r?\n/).forEach(l => {
+  const [k, ...v] = l.split('=');
+  if (k && v.length) envVars[k.trim()] = v.join('=').trim().replace(/^['"]|['"]$/g, '');
+});
+const supabase = createClient(envVars.SUPABASE_URL, envVars.SUPABASE_SERVICE_ROLE_KEY);
+
+async function test() {
+  const { data: order } = await supabase
+    .from('orders')
+    .select('id, external_order_number, comercio, tracking_number, raw_meli_data')
+    .eq('external_order_number', 'MSE2000015423645405')
+    .single();
+
+  const { data: int } = await supabase
+    .from('merchant_integrations')
+    .select('*')
+    .eq('comercio', order.comercio)
+    .eq('platform', 'MercadoLibre')
+    .single();
+
+  const tokenUrl = 'https://api.mercadolibre.com/oauth/token';
+  const params = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: int.client_id,
+    client_secret: int.client_secret,
+    refresh_token: int.refresh_token
+  });
+  const res = await fetch(tokenUrl, { method: 'POST', body: params });
+  const d = await res.json();
+  const token = d.access_token;
+
+  const shipId = order.tracking_number || order.raw_meli_data?.shipping?.id;
+  console.log('Shipment ID:', shipId);
+
+  const shipRes = await fetch(`https://api.mercadolibre.com/shipments/${shipId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  console.log('Shipment HTTP Status:', shipRes.status);
+  const shipJson = await shipRes.json();
+  console.log('logistic_type:', shipJson.logistic_type);
+  console.log('shipping_option:', JSON.stringify(shipJson.shipping_option, null, 2));
+  console.log('status_history:', JSON.stringify(shipJson.status_history, null, 2));
+  console.log('lead_time:', shipJson.lead_time);
+  console.log('shipping_items:', JSON.stringify(shipJson.shipping_items, null, 2));
+}
+
+test();

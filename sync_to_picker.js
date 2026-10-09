@@ -364,6 +364,11 @@ async function run() {
       orderNumbersSet.add(raw);
       orderNumbersSet.add('#' + raw.replace(/^#/, ''));
       orderNumbersSet.add(raw.replace(/^#/, ''));
+      const withoutLetters = raw.replace(/\D/g, '');
+      if (withoutLetters && withoutLetters.length >= 8) {
+        orderNumbersSet.add(withoutLetters);
+        orderNumbersSet.add('#' + withoutLetters);
+      }
     });
     const orderNumbers = Array.from(orderNumbersSet);
 
@@ -493,7 +498,10 @@ async function run() {
 
       const pickerItemsForOrder = (pickerActiveOrders || []).filter(item => {
         const pNo = String(item.order_number || '').replace(/^#/, '').trim().toUpperCase();
-        return pNo === cleanOrderNo;
+        if (pNo === cleanOrderNo) return true;
+        const pCleanDigits = pNo.replace(/\D/g, '');
+        const wmsCleanDigits = cleanOrderNo.replace(/\D/g, '');
+        return Boolean(wmsCleanDigits && pCleanDigits && wmsCleanDigits.length >= 8 && pCleanDigits === wmsCleanDigits);
       });
 
       const opUpper = String(wmsOrder.operador || '').toUpperCase().trim();
@@ -587,6 +595,20 @@ async function run() {
           } else {
             pickerItemsForOrder.forEach(it => { it.tracking = cleanTracking; });
           }
+        }
+
+        // 2.1 Si el pedido en Picker está en 'Sucursal Virtual (Hub)', moverlo a 'Sucursal Ñuñoa'
+        const targetPickerSucursal = wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa';
+        if (firstAct.sucursal === 'Sucursal Virtual (Hub)' && targetPickerSucursal !== 'Sucursal Virtual (Hub)') {
+          console.log(`📍 [SYNC] Corrigiendo sucursal en Picker para ${orderNo}: "Sucursal Virtual (Hub)" -> "${targetPickerSucursal}"`);
+          await pickerClient
+            .from('active_orders')
+            .update({ 
+              sucursal: targetPickerSucursal, 
+              sheet_status: 'EN PREPARACIÓN' 
+            })
+            .in('order_number', [orderNo, '#' + orderNo.replace(/^#/, ''), orderNo.replace(/^#/, '')]);
+          pickerItemsForOrder.forEach(it => { it.sucursal = targetPickerSucursal; it.sheet_status = 'EN PREPARACIÓN'; });
         }
 
         // Actualizar el estado y operario en WMS si las columnas existen
@@ -693,7 +715,7 @@ async function run() {
             const locData = resolvePickerItemLocation(prod?.sku || targetSku, wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)');
 
             payloads.push({
-              sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+              sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa',
               order_number: orderNo,
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
@@ -856,7 +878,7 @@ async function run() {
           const physicalItems = (wmsOrder.order_items || []).filter(oi => !oi.products?.is_virtual);
           const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
           const commerceStrict = strictComerciosSet.has(String(wmsOrder.comercio || '').trim().toUpperCase());
-          const defaultSucursal = isRetiro ? 'Sucursal Ñuñoa' : 'Sucursal Virtual (Hub)';
+          const defaultSucursal = wmsOrder.sucursal_pickeo || 'Sucursal Ñuñoa';
 
           const payloads = [];
           physicalItems.forEach(oi => {

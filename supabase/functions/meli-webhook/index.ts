@@ -117,27 +117,55 @@ async function handleOrderNotification(orderId: string, integration: any, access
   const groupId = orderData.pack_id ? String(orderData.pack_id) : String(orderData.id);
 
   let ordersList = [orderData];
+  let packShipment = null;
+  let packDateCreated = null;
+  let packBuyer = null;
+
   if (orderData.pack_id) {
-    const searchUrl = `https://api.mercadolibre.com/orders/search?seller=${userId}&pack_id=${orderData.pack_id}`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (searchRes.ok) {
-      const searchJson = await searchRes.json();
-      if (searchJson.results && searchJson.results.length > 0) {
-        ordersList = searchJson.results;
+    try {
+      const packUrl = `https://api.mercadolibre.com/packs/${orderData.pack_id}`;
+      const packRes = await fetch(packUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (packRes.ok) {
+        const packData = await packRes.json();
+        packShipment = packData.shipment;
+        packDateCreated = packData.date_created;
+        packBuyer = packData.buyer;
+
+        // Fetch other orders in the pack if multiple orders are grouped
+        if (Array.isArray(packData.orders) && packData.orders.length > 0) {
+          const fetchedOrders = [orderData];
+          for (const ordRef of packData.orders) {
+            if (String(ordRef.id) !== String(orderData.id)) {
+              try {
+                const ordRes = await fetch(`https://api.mercadolibre.com/orders/${ordRef.id}`, {
+                  headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (ordRes.ok) {
+                  fetchedOrders.push(await ordRes.json());
+                }
+              } catch (oErr: any) {
+                console.warn(`Error fetching pack order ${ordRef.id}:`, oErr.message);
+              }
+            }
+          }
+          ordersList = fetchedOrders;
+        }
       }
+    } catch (pErr: any) {
+      console.warn(`Error fetching pack ${orderData.pack_id}:`, pErr.message);
     }
   }
 
   const group = {
     groupId: groupId,
     orders: ordersList,
-    buyer: ordersList[0].buyer,
-    shipping: ordersList[0].shipping,
-    date_created: ordersList[0].date_created,
-    status: ordersList[0].status,
-    total_value: ordersList.reduce((sum, o) => sum + Number(o.total_amount || 0), 0)
+    buyer: orderData.buyer || packBuyer || ordersList[0]?.buyer,
+    shipping: packShipment || orderData.shipping || ordersList[0]?.shipping,
+    date_created: packDateCreated || orderData.date_created || ordersList[0]?.date_created,
+    status: orderData.status,
+    total_value: ordersList.reduce((sum: number, o: any) => sum + Number(o.total_amount || 0), 0)
   };
 
   let shippingStatus = 'pending';
@@ -177,8 +205,27 @@ async function handleOrderNotification(orderId: string, integration: any, access
     }
   }
 
-  if (logisticsType === 'fulfillment') {
-    console.log(`Pedido ${groupId} omitido por ser Full.`);
+  const isFulfillment = logisticsType === 'fulfillment' || 
+    packShipment?.logistic_type === 'fulfillment' ||
+    group.orders.some((o: any) => o.shipping?.logistic_type === 'fulfillment' || o.order_items?.some((it: any) => it.stock?.node_id === 'CLRM03'));
+
+  if (isFulfillment) {
+    console.log(`ℹ️ Pedido ${groupId} omitido por ser logística Full (Fulfillment de MercadoLibre).`);
+    try {
+      const cleanNum = groupId.replace(/\D/g, "");
+      const { data: ex } = await supabase
+        .from('orders')
+        .select('id')
+        .ilike('external_order_number', `%${cleanNum}`);
+      if (ex && ex.length > 0) {
+        const exIds = ex.map((e: any) => e.id);
+        await supabase.from('order_items').delete().in('order_id', exIds);
+        await supabase.from('orders').delete().in('id', exIds);
+        console.log(`🗑️ Eliminada orden Full existente ${groupId} del WMS.`);
+      }
+    } catch (e: any) {
+      console.warn(`Error limpiando orden Full ${groupId}:`, e.message);
+    }
     return;
   }
 
@@ -195,10 +242,22 @@ async function handleOrderNotification(orderId: string, integration: any, access
     'not_specified': 'Acordar / Retiro'
   };
   const baseMethod = mapLog[logisticsType] || logisticsType || 'Acordar / Retiro';
+  
+  let slaDateToFormat = expectedDate;
+  let fallbackTime = null;
+
+  if (!slaDateToFormat && shippingData?.shipping_option) {
+    const opt = shippingData.shipping_option;
+    slaDateToFormat = opt.estimated_delivery_limit?.date || opt.estimated_delivery_time?.date;
+    if (opt.estimated_delivery_time?.pay_before) {
+      fallbackTime = opt.estimated_delivery_time.pay_before;
+    }
+  }
+
   let formattedSla = 'N/A';
-  if (expectedDate) {
-    const slaDate = new Date(expectedDate);
+  if (slaDateToFormat) {
     try {
+      const slaDate = new Date(slaDateToFormat);
       const formatter = new Intl.DateTimeFormat('es-CL', {
         timeZone: 'America/Santiago',
         day: '2-digit',
@@ -209,17 +268,34 @@ async function handleOrderNotification(orderId: string, integration: any, access
         hour12: false
       });
       const parts = formatter.formatToParts(slaDate);
-      const day = parts.find(p => p.type === 'day').value;
-      const month = parts.find(p => p.type === 'month').value;
-      const year = parts.find(p => p.type === 'year').value;
-      const hour = parts.find(p => p.type === 'hour').value;
-      const minute = parts.find(p => p.type === 'minute').value;
-      formattedSla = `${day}/${month}/${year} ${hour}:${minute}`;
-    } catch (e) {
-      formattedSla = `${slaDate.getDate().toString().padStart(2, '0')}/${(slaDate.getMonth() + 1).toString().padStart(2, '0')}/${slaDate.getFullYear().toString().slice(-2)} ${slaDate.getHours().toString().padStart(2, '0')}:${slaDate.getMinutes().toString().padStart(2, '0')}`;
+      const day = parts.find(p => p.type === 'day')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const year = parts.find(p => p.type === 'year')?.value;
+      let hour = parts.find(p => p.type === 'hour')?.value;
+      let minute = parts.find(p => p.type === 'minute')?.value;
+
+      if (fallbackTime && (hour === '00' || !hour)) {
+        try {
+          const fbDate = new Date(fallbackTime);
+          const fbParts = formatter.formatToParts(fbDate);
+          const fbH = fbParts.find(p => p.type === 'hour')?.value;
+          const fbM = fbParts.find(p => p.type === 'minute')?.value;
+          if (fbH && fbM && (fbH !== '00' || fbM !== '00')) {
+            hour = fbH;
+            minute = fbM;
+          }
+        } catch (e: any) {}
+      }
+
+      if (day && month && year) {
+        formattedSla = `${day}/${month}/${year} ${hour || '23'}:${minute || '59'}`;
+      }
+    } catch (e: any) {
+      console.warn(`Error formateando SLA para ${groupId}:`, e.message);
     }
   }
-  const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
+
+  const shippingMethod = formattedSla !== 'N/A' ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
   const targetStatus = mapMeliStatus(shippingStatus);
 
   const finalGroupId = await resolveMeliOrderNumber(integration.comercio, groupId);
@@ -440,6 +516,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
       cantidad: flatQuantity,
       sku: flatSku,
       shipping_method: shippingMethod,
+      sucursal_pickeo: 'Sucursal Ñuñoa',
       status: 'para procesar',
       created_at: group.date_created
     };
@@ -557,9 +634,13 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
     const targetStatus = mapMeliStatus(shippingStatus);
     if (targetStatus !== 'para procesar') {
+      const upData: any = { status: targetStatus };
+      if (targetStatus === 'en preparación') {
+        upData.estado_wms = 'En preparación';
+      }
       await supabase
         .from('orders')
-        .update({ status: targetStatus })
+        .update(upData)
         .eq('id', localOrderId);
     }
   }

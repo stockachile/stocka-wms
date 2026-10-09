@@ -191,6 +191,10 @@ window.isAlphaComunaExact = function(comunaName) {
   return window.ALPHA_COBERTURA_36.includes(resolved);
 };
 
+window.CHILE_ALL_COMUNAS_SET = new Set([
+  "algarrobo","alhue","alto biobio","alto del carmen","alto hospicio","ancud","andacollo","angol","antartica","antofagasta","antuco","arauco","arica","aysen","buin","bulnes","cabildo","cabo de hornos","cabrero","calama","calbuco","caldera","calera","calera de tango","calle larga","camarones","camina","canela","canete","carahue","cartagena","casablanca","castro","catemu","cauquenes","cerrillos","cerro navia","chaiten","chanaral","chanco","chepica","chiguayante","chile chico","chillan","chillan viejo","chimbarongo","cholchol","chonchi","cisnes","cobquecura","cochamo","cochrane","codegua","coelemu","coihueco","coinco","colbun","colchane","colina","collipulli","coltauco","combarbala","concepcion","conchali","concon","constitucion","contulmo","copiapo","coquimbo","coronel","corral","coyhaique","cunco","curacautin","curacavi","curaco de velez","curanilahue","curarrehue","curepto","curico","dalcahue","diego de almagro","donihue","el bosque","el carmen","el monte","el quisco","el tabo","empedrado","ercilla","estacion central","florida","freire","freirina","fresia","frutillar","futaleufu","futrono","galvarino","general lagos","gorbea","graneros","guaitecas","hijuelas","hualaihue","hualane","hualpen","hualqui","huara","huasco","huechuraba","illapel","independencia","iquique","isla de maipo","isla de pascua","juan fernandez","la cisterna","la cruz","la estrella","la florida","la granja","la higuera","la ligua","la pintana","la reina","la serena","la union","lago ranco","lago verde","laguna blanca","laja","lampa","lanco","las cabras","las condes","lautaro","lebu","licanten","limache","linares","litueche","llaillay","llanquihue","lo barnechea","lo espejo","lo prado","lolol","loncoche","longavi","lonquimay","los alamos","los andes","los angeles","los lagos","los muermos","los sauces","los vilos","lota","lumaco","machali","macul","mafil","maipu","malloa","marchihue","maria elena","maria pinto","mariquina","maule","maullin","mejillones","melipeuco","melipilla","molina","monte patria","mostazal","mulchen","nacimiento","nancagua","natales","navidad","negrete","ninhue","niquen","nogales","nueva imperial","nunoa","ohiggins","olivar","ollague","olmue","osorno","ovalle","padre hurtado","padre las casas","paiguano","paillaco","paine","palena","palmilla","panguipulli","panquehue","papudo","paredones","parral","pedro aguirre cerda","pelarco","pelluhue","pemuco","penaflor","penalolen","pencahue","penco","peralillo","perquenco","petorca","peumo","pica","pichidegua","pichilemu","pinto","pirque","pitrufquen","placilla","portezuelo","porvenir","pozo almonte","primavera","providencia","puchuncavi","pucon","pudahuel","puente alto","puerto montt","puerto octay","puerto varas","pumanque","punitaqui","punta arenas","puqueldon","puren","purranque","putaendo","putre","puyehue","queilen","quellon","quemchi","quilaco","quilicura","quilleco","quillon","quillota","quilpue","quinchao","quinta de tilcoco","quinta normal","quintero","quirihue","rancagua","ranquil","rauco","recoleta","renaico","renca","rengo","requinoa","retiro","rinconada","rio bueno","rio claro","rio hurtado","rio ibanez","rio negro","rio verde","romeral","saavedra","sagrada familia","salamanca","san antonio","san bernardo","san carlos","san clemente","san esteban","san fabian","san felipe","san fernando","san gregorio","san ignacio","san javier","san joaquin","san jose de maipo","san juan de la costa","san miguel","san nicolas","san pablo","san pedro","san pedro de atacama","san pedro de la paz","san rafael","san ramon","san rosendo","san vicente","santa barbara","santa cruz","santa juana","santa maria","santiago","santo domingo","sierra gorda","talagante","talca","talcahuano","taltal","temuco","teno","teodoro schmidt","tierra amarilla","tiltil","timaukel","tirua","tocopilla","tolten","tome","torres del paine","tortel","traiguen","treguaco","tucapel","valdivia","vallenar","valparaiso","vichuquen","victoria","vicuna","vilcun","villa alegre","villa alemana","villarrica","vina del mar","vitacura","yerbas buenas","yumbel","yungay","zapallar"
+]);
+
 window.isChileComuna = function(comunaName) {
   if (!comunaName) return false;
   const norm = window.normalizeComunaKey(comunaName);
@@ -199,6 +203,7 @@ window.isChileComuna = function(comunaName) {
   const resolved = window.resolveComunaAlias(norm);
 
   if (window.shippingRates && (window.shippingRates[norm] || window.shippingRates[resolved])) return true;
+  if (window.CHILE_ALL_COMUNAS_SET && (window.CHILE_ALL_COMUNAS_SET.has(norm) || window.CHILE_ALL_COMUNAS_SET.has(resolved))) return true;
   if (window.ALPHA_COBERTURA_36.includes(resolved)) return true;
 
   return false;
@@ -4622,6 +4627,8 @@ async function updateOrderStatus(orderId, newStatus) {
       const checkPrior = await window.checkOrderExistingStockMovement(order);
       if (checkPrior && checkPrior.hasMovement) {
         order.stock_descontado = true;
+      } else {
+        order.stock_descontado = false;
       }
     }
     const itemsToCheck = (!order.stock_descontado) 
@@ -5325,6 +5332,9 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
         if (window.fetchPickerOperators) {
           await window.fetchPickerOperators(orders);
+        }
+        if (window.syncPickerStatusToWms) {
+          await window.syncPickerStatusToWms(orders);
         }
 
         if (window.fetchInventoryForOrders) {
@@ -6616,7 +6626,13 @@ async function renderAdminOrders() {
 
       // Fallback a raw_meli_data si aplica
       if (!slaDateStr && order.raw_meli_data) {
-        const expDate = order.raw_meli_data.expected_date || order.raw_meli_data.orders?.[0]?.shipping?.shipping_option?.estimated_delivery_limit?.date;
+        const rawMeli = order.raw_meli_data;
+        const sh = rawMeli.shipping || (Array.isArray(rawMeli.orders) ? rawMeli.orders[0]?.shipping : null);
+        const expDate = rawMeli.expected_date 
+          || sh?.expected_date
+          || sh?.shipping_option?.estimated_delivery_limit?.date 
+          || sh?.shipping_option?.estimated_delivery_time?.date;
+
         if (expDate) {
           try {
             const d = new Date(expDate);
@@ -6630,8 +6646,25 @@ async function renderAdminOrders() {
               const day = parts.find(p => p.type === 'day')?.value;
               const month = parts.find(p => p.type === 'month')?.value;
               const year = parts.find(p => p.type === 'year')?.value;
-              const hour = parts.find(p => p.type === 'hour')?.value;
-              const minute = parts.find(p => p.type === 'minute')?.value;
+              let hour = parts.find(p => p.type === 'hour')?.value;
+              let minute = parts.find(p => p.type === 'minute')?.value;
+
+              const payBefore = sh?.shipping_option?.estimated_delivery_time?.pay_before;
+              if (payBefore && (hour === '00' || !hour)) {
+                try {
+                  const pbDate = new Date(payBefore);
+                  if (!isNaN(pbDate.getTime())) {
+                    const pbParts = formatter.formatToParts(pbDate);
+                    const pbHour = pbParts.find(p => p.type === 'hour')?.value;
+                    const pbMin = pbParts.find(p => p.type === 'minute')?.value;
+                    if (pbHour && pbMin && (pbHour !== '00' || pbMin !== '00')) {
+                      hour = pbHour;
+                      minute = pbMin;
+                    }
+                  }
+                } catch (e) {}
+              }
+
               if (day && month && year) {
                 slaDateStr = `${day}-${month}-${year}`;
                 if (hour && minute) slaTimeStr = `${hour}:${minute}`;
@@ -6643,12 +6676,17 @@ async function renderAdminOrders() {
 
       if (slaDateStr) {
         const fullSlaKey = slaTimeStr ? `${slaDateStr} ${slaTimeStr}` : slaDateStr;
+        const sh = order.raw_meli_data?.shipping;
+        let effectiveBaseMethod = baseMethod || order.shipping_method || 'Envío';
+        if (sh?.logistic_type === 'self_service' && !effectiveBaseMethod.includes('FLEX')) {
+          effectiveBaseMethod = 'FLEX ⚡';
+        }
         order._wmsSlaInfo = {
           hasSla: true,
           date: slaDateStr,
           time: slaTimeStr || '',
           slaKey: fullSlaKey,
-          baseMethod: baseMethod || order.shipping_method || 'Envío'
+          baseMethod: effectiveBaseMethod
         };
       } else {
         order._wmsSlaInfo = {
@@ -10789,6 +10827,13 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
         console.warn('[Sync Subset] Error actualizando picker:', pickerErr);
       }
     }
+    if (typeof window.syncPickerStatusToWms === 'function') {
+      try {
+        await window.syncPickerStatusToWms(refreshedOrders);
+      } catch (syncErr) {
+        console.warn('[Sync Subset] Error sincronizando estado WMS desde picker:', syncErr);
+      }
+    }
 
     // 5. Sincronizar inventario solo para los productos de estos pedidos
     if (typeof window.fetchInventoryForOrders === 'function') {
@@ -13553,42 +13598,35 @@ window.showStockShortageSlidesModal = async function({
 
 window.checkOrderExistingStockMovement = async function(order) {
   if (!order) return { hasMovement: false, movement: null };
-  if (order.stock_descontado) {
-    return { hasMovement: true, movement: null, isFlagged: true };
-  }
 
   const orderId = order.id;
   const ext = String(order.external_order_number || '').trim();
-  const cleanNum = ext.replace(/[^0-9]/g, '');
 
   try {
-    let query = supabase
+    // 1. Buscar en movements por order_id directo
+    const { data: byOrderId, error: errOrder } = await supabase
       .from('movements')
       .select('id, reference_doc, order_id, product_id, quantity, date, type')
-      .eq('type', 'out');
+      .eq('type', 'out')
+      .eq('order_id', orderId)
+      .limit(5);
 
-    if (cleanNum && cleanNum.length >= 3) {
-      query = query.or(`order_id.eq.${orderId},reference_doc.ilike.%${ext}%,reference_doc.ilike.%${cleanNum}%`);
-    } else {
-      query = query.or(`order_id.eq.${orderId},reference_doc.ilike.%${ext}%`);
+    if (!errOrder && byOrderId && byOrderId.length > 0) {
+      return { hasMovement: true, movement: byOrderId[0] };
     }
 
-    const { data: movs, error } = await query.limit(15);
-    if (error) throw error;
+    // 2. Si no tiene order_id, buscar por coincidencia EXACTA del número de orden con prefijo de documento
+    // ej: 'Pedido SIM3605' o 'Pedido #SIM3605' o 'Pedido dacab4a3-...' (NUNCA por subcadenas numéricas sin prefijo)
+    if (ext) {
+      const { data: byRef, error: errRef } = await supabase
+        .from('movements')
+        .select('id, reference_doc, order_id, product_id, quantity, date, type')
+        .eq('type', 'out')
+        .or(`reference_doc.eq.Pedido ${ext},reference_doc.eq.Pedido #${ext},reference_doc.eq.Pedido ${orderId}`)
+        .limit(5);
 
-    if (movs && movs.length > 0) {
-      const matched = movs.find(m => {
-        if (m.order_id === orderId) return true;
-        const ref = (m.reference_doc || '').toLowerCase();
-        if (ext && ref.includes(ext.toLowerCase())) return true;
-        if (cleanNum && cleanNum.length >= 3) {
-          const re = new RegExp(`(^|[^0-9])${cleanNum}([^0-9]|$)`);
-          if (re.test(ref)) return true;
-        }
-        return false;
-      });
-
-      if (matched) {
+      if (!errRef && byRef && byRef.length > 0) {
+        const matched = byRef[0];
         if (!matched.order_id) {
           await supabase.from('movements').update({ order_id: orderId }).eq('id', matched.id);
           matched.order_id = orderId;
@@ -14746,7 +14784,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         }
 
         const checkPrior = await window.checkOrderExistingStockMovement(order);
-        const hadPriorMovement = (checkPrior && checkPrior.hasMovement) || !!order.stock_descontado;
+        const hadPriorMovement = !!(checkPrior && checkPrior.hasMovement);
 
         const valRes = await validateOrderStockForDispatch([order]);
         if (!valRes || !valRes.isValid) {
@@ -68199,10 +68237,12 @@ window.bulkSetWmsOrderBillingPeriod = async function() {
   }
 };
 
-window.syncPickerStatusToWms = async function() {
-  if (!pickerSupabase || !window.loadedOrders) return;
+window.syncPickerStatusToWms = async function(targetOrders = null) {
+  if (!pickerSupabase) return;
+  const sourceOrders = Array.isArray(targetOrders) ? targetOrders : (window.loadedOrders || []);
+  if (!sourceOrders || sourceOrders.length === 0) return;
 
-  const prepOrders = window.loadedOrders.filter(o => o.estado_wms === 'En preparación');
+  const prepOrders = sourceOrders.filter(o => o && o.estado_wms === 'En preparación');
   if (prepOrders.length === 0) return;
 
   const searchKeysSet = new Set();
@@ -68211,29 +68251,45 @@ window.syncPickerStatusToWms = async function() {
     if (o.id) window.normalizeOrderKeys(o.id).forEach(k => searchKeysSet.add(k));
   });
   const orderNumbers = Array.from(searchKeysSet);
+  if (orderNumbers.length === 0) return;
 
   try {
     const completedStatuses = ['Completado', 'COMPLETADO', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO', 'Retirado'];
 
-    const { data: logs, error } = await pickerSupabase
-      .from('history_logs')
-      .select('pedido, estado, picker')
-      .in('pedido', orderNumbers)
-      .in('estado', completedStatuses);
+    const chunkSize = 120;
+    const logs = [];
+    const activeCompleted = [];
 
-    const { data: activeCompleted } = await pickerSupabase
-      .from('active_orders')
-      .select('order_number, sheet_status, operator')
-      .in('order_number', orderNumbers)
-      .in('sheet_status', completedStatuses);
+    for (let i = 0; i < orderNumbers.length; i += chunkSize) {
+      const chunk = orderNumbers.slice(i, i + chunkSize);
+      const [logRes, actRes] = await Promise.all([
+        pickerSupabase
+          .from('history_logs')
+          .select('pedido, estado, picker')
+          .in('pedido', chunk)
+          .in('estado', completedStatuses),
+        pickerSupabase
+          .from('active_orders')
+          .select('order_number, sheet_status, operator')
+          .in('order_number', chunk)
+          .in('sheet_status', completedStatuses)
+      ]);
 
-    if (error) {
-      console.warn("[Picker Status Sync] Error querying history_logs:", error.message);
-      return;
+      if (logRes?.error) {
+        console.warn("[Picker Status Sync] Warning querying history_logs chunk:", logRes.error.message);
+      } else if (logRes?.data && logRes.data.length > 0) {
+        logs.push(...logRes.data);
+      }
+
+      if (actRes?.error) {
+        console.warn("[Picker Status Sync] Warning querying active_orders chunk:", actRes.error.message);
+      } else if (actRes?.data && actRes.data.length > 0) {
+        activeCompleted.push(...actRes.data);
+      }
     }
 
-    const hasLogs = logs && logs.length > 0;
-    const hasActive = activeCompleted && activeCompleted.length > 0;
+    const hasLogs = logs.length > 0;
+    const hasActive = activeCompleted.length > 0;
 
     if (hasLogs || hasActive) {
       const completedKeysSet = new Set();
@@ -68272,13 +68328,17 @@ window.syncPickerStatusToWms = async function() {
 
       if (ordersToUpdate.length > 0) {
         const ids = ordersToUpdate.map(o => o.id);
+        const updateChunkSize = 60;
         
-        const { error: wmsErr } = await supabase
-          .from('orders')
-          .update({ estado_wms: 'Pickeado', status: 'preparado' })
-          .in('id', ids);
+        for (let i = 0; i < ids.length; i += updateChunkSize) {
+          const chunkIds = ids.slice(i, i + updateChunkSize);
+          const { error: wmsErr } = await supabase
+            .from('orders')
+            .update({ estado_wms: 'Pickeado', status: 'preparado' })
+            .in('id', chunkIds);
 
-        if (wmsErr) throw wmsErr;
+          if (wmsErr) throw wmsErr;
+        }
 
         ordersToUpdate.forEach(o => {
           o.estado_wms = 'Pickeado';
@@ -68313,7 +68373,7 @@ window.syncPickerStatusToWms = async function() {
         toast.fire({
           icon: 'success',
           title: `¡${ordersToUpdate.length} pedido(s) finalizados desde el Picker!`,
-          html: `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong></div>`
+          html: `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong> cambiados a 'Pickeado'.</div>`
         });
 
         applyWmsFiltersAndRender();
@@ -68328,7 +68388,7 @@ window.syncPickerStatusToWms = async function() {
 };
 
 if (!window.pickerStatusSyncInterval) {
-  window.pickerStatusSyncInterval = setInterval(window.syncPickerStatusToWms, 60000);
+  window.pickerStatusSyncInterval = setInterval(() => window.syncPickerStatusToWms(), 30000);
 }
 
 // === MÓDULO DE CONTACTOS DE FACTURACIÓN Y ENVÍO POR BREVO ===
