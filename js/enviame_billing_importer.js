@@ -284,14 +284,17 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
 
         <!-- Resumen Global de Facturación Envíame -->
         <div id="importer-global-summary-card" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1.1rem; box-shadow: var(--shadow-sm);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
             <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
               <i class="ri-calculator-line" style="color: #9c27b0; font-size: 1.15rem;"></i>
               Resumen Global a Facturar (Planilla Envíame)
             </span>
-            <span id="importer-global-commerces-count" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">
-              0 comercios seleccionados
-            </span>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span id="importer-loaded-sheet-info" style="display: none; font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border);"></span>
+              <span id="importer-global-commerces-count" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">
+                0 comercios seleccionados
+              </span>
+            </div>
           </div>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.65rem;">
@@ -470,7 +473,8 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
             <input type="checkbox" id="importer-send-notification" style="width: 16px; height: 16px; accent-color: #9c27b0;">
             ¿Enviar notificaciones por correo automáticamente al registrar?
           </label>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" onclick="window.resetImporterFileUpload()" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.8rem;"><i class="ri-upload-2-line"></i> Cambiar Planilla</button>
             <button onclick="document.getElementById('modal-enviame-importer').remove()" class="btn btn-outline">Cancelar</button>
             <button id="btn-importer-process" onclick="window.openEnviameProcessPreviewModal('${periodId}')" class="btn btn-primary" style="background: #9c27b0; border-color: #9c27b0;"><i class="ri-checkbox-circle-line"></i> Procesar y Registrar Seleccionados</button>
           </div>
@@ -512,6 +516,19 @@ window.openEnviameImporterModal = async function(periodId, periodName) {
   };
 };
 
+window.resetImporterFileUpload = function() {
+  const formSection = document.getElementById('importer-form-section');
+  const uploadSection = document.getElementById('importer-upload-section');
+  const loadingSection = document.getElementById('importer-loading-section');
+  const resultsSection = document.getElementById('importer-results-section');
+  const fileInput = document.getElementById('importer-file-input');
+  if (fileInput) fileInput.value = '';
+  if (loadingSection) loadingSection.style.display = 'none';
+  if (resultsSection) resultsSection.style.display = 'none';
+  if (formSection) formSection.style.display = 'grid';
+  if (uploadSection) uploadSection.style.display = 'block';
+};
+
 // --- ANÁLISIS DE PLANILLA ---
 async function handleSelectedFile(file, periodId) {
   const formSection = document.getElementById('importer-form-section');
@@ -535,12 +552,62 @@ async function handleSelectedFile(file, periodId) {
           throw new Error("El archivo no tiene hojas de cálculo legibles.");
         }
         
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
+        // Seleccionar inteligentemente la hoja adecuada:
+        // Las planillas de Envíame típicamente contienen dos hojas:
+        // - "Resumen": resumen ejecutivo sin los despachos individuales.
+        // - "Detalle": contiene todos los envíos con sus costos, tracking, carrier y company_id.
+        let targetSheetName = null;
+        if (workbook.SheetNames.length === 1) {
+          targetSheetName = workbook.SheetNames[0];
+        } else {
+          // 1. Coincidencia por nombre típico de hoja de envíos
+          targetSheetName = workbook.SheetNames.find(n => /detall|envio|shipment|despacho/i.test(n));
+          
+          // 2. Si no coincide por nombre, inspeccionar encabezados de cada hoja para buscar columnas clave
+          if (!targetSheetName) {
+            for (const name of workbook.SheetNames) {
+              const s = workbook.Sheets[name];
+              const sampleRows = XLSX.utils.sheet_to_json(s, { header: 1 });
+              if (sampleRows && sampleRows.length > 0) {
+                for (let r = 0; r < Math.min(5, sampleRows.length); r++) {
+                  const row = sampleRows[r];
+                  if (Array.isArray(row)) {
+                    const headerStr = row.map(h => String(h).toLowerCase().replace(/[^a-z0-9]/g, '')).join(' ');
+                    if (headerStr.includes('companyid') || headerStr.includes('tracking') || headerStr.includes('shipmentid') || headerStr.includes('idenvio')) {
+                      targetSheetName = name;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (targetSheetName) break;
+            }
+          }
+          
+          // 3. Fallback: Hoja con mayor cantidad de filas
+          if (!targetSheetName) {
+            let maxRows = -1;
+            workbook.SheetNames.forEach(n => {
+              const s = workbook.Sheets[n];
+              const rowCount = XLSX.utils.sheet_to_json(s).length;
+              if (rowCount > maxRows) {
+                maxRows = rowCount;
+                targetSheetName = n;
+              }
+            });
+          }
+        }
+        
+        if (!targetSheetName) {
+          targetSheetName = workbook.SheetNames[0];
+        }
+        
+        console.log(`[Enviame Importer] Hoja seleccionada: "${targetSheetName}" (Hojas disponibles: ${workbook.SheetNames.join(', ')})`);
+        const sheet = workbook.Sheets[targetSheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
         
         if (rows.length === 0) {
-          throw new Error("La planilla cargada está vacía.");
+          throw new Error(`La hoja "${targetSheetName}" de la planilla seleccionada está vacía.`);
         }
         
         document.getElementById('importer-loading-text').textContent = "Consultando comercios y mapeos en base de datos...";
@@ -608,15 +675,16 @@ async function handleSelectedFile(file, periodId) {
         
         // Mapeo de columnas posibles
         const cols = {
-          company_id: ['company_id', 'companyid', 'id_compania', 'company_identifier'],
-          id: ['id', 'enviame_id', 'shipment_id', 'id_envio'],
-          imported_id: ['imported_id', 'importedid', 'id_pedido', 'order_id', 'referencia'],
-          tracking: ['tracking_number', 'tracking', 'numero_tracking', 'carrier_tracking_number'],
-          carrier: ['carrier', 'courier', 'transportista'],
-          status: ['status', 'estado', 'status_name'],
-          comune: ['com_destino', 'comuna_destino', 'comuna', 'county', 'commune'],
-          peso: ['peso informado por carrier', 'peso_informado_por_carrier', 'peso', 'weight', 'peso_carrier'],
-          neto: ['total', 'precio', 'valor_neto', 'neto', 'price', 'net_price']
+          company_id: ['company_id', 'companyid', 'id_compania', 'idcompania', 'company_identifier', 'id_company', 'idcompany', 'empresa_id', 'id_empresa', 'idempresa', 'id_cliente', 'client_id', 'id_comercio'],
+          company_name: ['company', 'empresa', 'comercio', 'cliente', 'tienda', 'nombre_empresa', 'razon_social'],
+          id: ['id', 'enviame_id', 'shipment_id', 'id_envio', 'idenvio'],
+          imported_id: ['imported_id', 'importedid', 'id_pedido', 'order_id', 'referencia', 'n_pedido', 'numero_pedido'],
+          tracking: ['tracking_number', 'tracking', 'numero_tracking', 'carrier_tracking_number', 'guia', 'n_guia', 'numero_guia'],
+          carrier: ['carrier', 'courier', 'transportista', 'operador'],
+          status: ['status', 'estado', 'status_name', 'estado_envio'],
+          comune: ['com_destino', 'comuna_destino', 'comuna', 'county', 'commune', 'ciudad_destino'],
+          peso: ['peso informado por carrier', 'peso_informado_por_carrier', 'peso', 'weight', 'peso_carrier', 'peso_kg'],
+          neto: ['total', 'precio', 'valor_neto', 'neto', 'price', 'net_price', 'valor']
         };
 
         // Helper para deducir el comercio por el prefijo del pedido (sigla o nombre)
@@ -658,11 +726,27 @@ async function handleSelectedFile(file, periodId) {
         
         rows.forEach(row => {
           const rawCompId = getRowValue(row, cols.company_id);
-          const compId = rawCompId ? rawCompId.toString().trim() : null;
+          const compId = rawCompId !== undefined && rawCompId !== null && String(rawCompId).trim() !== ''
+            ? String(rawCompId).trim().replace(/^ID\s*:?\s*/i, '')
+            : null;
           
-          if (!compId) return; // Si no tiene company_id, ignorar
+          let resolvedCommerce = compId ? enviameIdToCommerceMap[compId] : null;
           
-          const resolvedCommerce = enviameIdToCommerceMap[compId];
+          // Fallback por nombre de compañía si compId no resolvió ningún comercio
+          if (!resolvedCommerce) {
+            const rawCompName = getRowValue(row, cols.company_name);
+            if (rawCompName) {
+              const cleanName = String(rawCompName).trim().toUpperCase();
+              for (const comm of window.allComerciosList) {
+                if (comm.toUpperCase() === cleanName) {
+                  resolvedCommerce = comm;
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (!compId && !resolvedCommerce) return; // Si no tiene company_id ni comercio identificado, ignorar
           
           const shipmentId = getRowValue(row, cols.id) || '';
           const orderId = getRowValue(row, cols.imported_id) || '';
@@ -683,7 +767,7 @@ async function handleSelectedFile(file, periodId) {
           }
           
           const shipmentData = {
-            company_id: compId,
+            company_id: compId || 'N/A',
             shipmentId,
             orderId,
             tracking,
@@ -691,6 +775,7 @@ async function handleSelectedFile(file, periodId) {
             status,
             commune,
             peso,
+            weight: peso,
             neto,
             isManualDerivation,
             assignedCommerce
@@ -699,15 +784,23 @@ async function handleSelectedFile(file, periodId) {
           if (resolvedCommerce || isManualDerivation) {
             window.rawParsedShipments.push(shipmentData);
           } else {
-            if (!window.unrecognizedIds[compId]) {
-              window.unrecognizedIds[compId] = 0;
+            const unrecKey = compId || (getRowValue(row, cols.company_name) || 'Desconocido');
+            if (!window.unrecognizedIds[unrecKey]) {
+              window.unrecognizedIds[unrecKey] = 0;
             }
-            window.unrecognizedIds[compId]++;
+            window.unrecognizedIds[unrecKey]++;
           }
         });
         
         // 4. Agregar y renderizar los datos
         window.aggregateAndRender(periodId);
+
+        // Mostrar información de archivo y hoja leída
+        const sheetInfoEl = document.getElementById('importer-loaded-sheet-info');
+        if (sheetInfoEl) {
+          sheetInfoEl.innerHTML = `<i class="ri-file-excel-line" style="color: #16a34a;"></i> <strong>${file.name}</strong> [Hoja: <em>${targetSheetName}</em> - ${rows.length.toLocaleString('es-CL')} filas]`;
+          sheetInfoEl.style.display = 'inline-block';
+        }
         
         loadingSection.style.display = 'none';
         resultsSection.style.display = 'flex';
@@ -1826,7 +1919,7 @@ function generateExcelBlobForBreakdown(commData, periodName) {
     s.tracking || "N/A",
     s.commune || "N/A",
     s.carrier || "N/A",
-    s.weight || 0,
+    s.peso || s.weight || 0,
     s.neto || 0
   ]);
   const wsDespachos = XLSX.utils.aoa_to_sheet(despachosHeaders.concat(despachosRows));

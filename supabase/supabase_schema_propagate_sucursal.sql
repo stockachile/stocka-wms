@@ -22,9 +22,11 @@ BEGIN
       v_warehouse_id := 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; -- Bodega Central
     END IF;
 
+    -- Solo actualizar items que no tengan una bodega física explícita asignada o que tengan la bodega virtual
     UPDATE public.order_items
     SET warehouse_id = v_warehouse_id
-    WHERE order_id = NEW.id AND (warehouse_id IS DISTINCT FROM v_warehouse_id OR warehouse_id IS NULL);
+    WHERE order_id = NEW.id 
+      AND (warehouse_id IS NULL OR warehouse_id = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
   END IF;
   RETURN NEW;
 END;

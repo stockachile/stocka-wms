@@ -21,6 +21,10 @@ Thumbs.db
 
 # Scratch temporary debug scripts
 scratch/
+scratch_*.js
+
+# Private contract documents
+CONTRATO*
 
 # Credentials, tokens and integration scripts
 *.txt

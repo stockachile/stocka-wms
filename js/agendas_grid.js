@@ -326,47 +326,55 @@
   // Solo se consideran planes con status !== 2 (status 0: en planificación, 1: en ruta)
   // Las rutas terminadas (status 2) son históricas y se ignoran.
   // ==========================================================================
+  let _currentLoadOptiroutePromise = null;
   window.loadOptirouteActiveAssignedRefs = async function(options = {}) {
-    const silent = options.silent !== false;
-    try {
-      const token = await getOptirouteToken();
-      if (!token) {
-        if (!silent) console.warn('[Optiroute] No se encontró token activo de Optiroute.');
-        return window.optirouteActiveAssignedRefs;
-      }
+    if (_currentLoadOptiroutePromise && options.force !== true) {
+      return _currentLoadOptiroutePromise;
+    }
 
-      // 1. Obtener planes de ruta recientes (últimos 25 planes)
-      const rpRes = await fetch('https://app.optiroute.cl/api/v1/route-plans/?per_page=25', {
-        headers: { 'Authorization': `Token ${token}` }
-      });
-      if (!rpRes.ok) {
-        if (!silent) console.warn('[Optiroute] Error al consultar route-plans:', rpRes.status);
-        return window.optirouteActiveAssignedRefs;
-      }
-
-      const rpData = await rpRes.json();
-      const allPlans = rpData.results || rpData || [];
-
-      // Filtrar solo planes ACTIVOS (status !== 2)
-      // status 0 = Planificación / Creado / Revisión
-      // status 1 = En Ruta / En ejecución
-      // status 2 = Finalizado / Terminado (histórico)
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-
-      const activePlans = allPlans.filter(p => {
-        const st = Number(p.status);
-        if (st === 2 || p.status === '2' || st === -1 || p.status === '-1') return false;
-        if (p.departure_datetime) {
-          const dep = new Date(p.departure_datetime);
-          if (!isNaN(dep.getTime()) && dep < twoDaysAgo) return false;
+    _currentLoadOptiroutePromise = (async () => {
+      const silent = options.silent !== false;
+      try {
+        const token = await getOptirouteToken();
+        if (!token) {
+          if (!silent) console.warn('[Optiroute] No se encontró token activo de Optiroute.');
+          return window.optirouteActiveAssignedRefs;
         }
-        return true;
-      });
 
-      if (!silent) {
-        console.log(`[Optiroute] Rutas activas encontradas (${activePlans.length}):`, activePlans.map(p => `${p.name} [ID:${p.id}, Estado:${p.status}]`));
-      }
+        // 1. Obtener planes de ruta recientes (últimos 50 planes)
+        const rpRes = await fetch('https://app.optiroute.cl/api/v1/route-plans/?per_page=50', {
+          headers: { 'Authorization': `Token ${token}` }
+        });
+        if (!rpRes.ok) {
+          if (!silent) console.warn('[Optiroute] Error al consultar route-plans:', rpRes.status);
+          return window.optirouteActiveAssignedRefs;
+        }
+
+        const rpData = await rpRes.json();
+        const allPlans = rpData.results || rpData || [];
+
+        // Filtrar solo planes ACTIVOS (status !== 2)
+        // status 0 = Planificación / Creado / Revisión
+        // status 1 = En Ruta / En ejecución
+        // status 2 = Finalizado / Terminado (histórico)
+        const now = new Date();
+        const activePlans = allPlans.filter(p => {
+          const st = Number(p.status);
+          if (st === 2 || p.status === '2' || st === -1 || p.status === '-1') return false;
+          if (p.departure_datetime) {
+            const dep = new Date(p.departure_datetime);
+            // Para planes en estado 0 (Planificación / En creación), permitir hasta 7 días hacia atrás o adelante
+            const daysLimit = (st === 0) ? 7 : 3;
+            const limitDate = new Date();
+            limitDate.setDate(limitDate.getDate() - daysLimit);
+            if (!isNaN(dep.getTime()) && dep < limitDate) return false;
+          }
+          return true;
+        });
+
+        if (!silent) {
+          console.log(`[Optiroute] Rutas activas encontradas (${activePlans.length}):`, activePlans.map(p => `${p.name} [ID:${p.id}, Estado:${p.status}]`));
+        }
 
       const newActiveRefs = new Set();
       const newActiveMap = new Map();
@@ -486,6 +494,50 @@
       console.warn('[Optiroute] Error sincronizando referencias activas:', e);
       return window.optirouteActiveAssignedRefs;
     }
+    })().finally(() => {
+      _currentLoadOptiroutePromise = null;
+    });
+
+    return _currentLoadOptiroutePromise;
+  };
+
+  // Función global para sincronización manual o programada de rutas activas de Optiroute
+  window.syncOptirouteRoutesNow = async function(showToast = true) {
+    if (typeof window.loadOptirouteActiveAssignedRefs !== 'function') return;
+    try {
+      const refs = await window.loadOptirouteActiveAssignedRefs({ silent: false, force: true });
+      if (typeof window.clearWmsTagsCache === 'function') {
+        window.clearWmsTagsCache();
+      }
+      if (typeof window.updateOrderTagFilterOptions === 'function') {
+        window.updateOrderTagFilterOptions();
+      }
+      if (typeof window.applyWmsFiltersAndRender === 'function') {
+        window.applyWmsFiltersAndRender();
+      }
+      if (showToast && typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `Rutas Optiroute sincronizadas (${refs?.size || 0} pedidos confirmados)`,
+          showConfirmButton: false,
+          timer: 3000
+        });
+      }
+    } catch (err) {
+      console.error('[Optiroute] Error en sync manual de rutas:', err);
+      if (showToast && typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'error',
+          title: 'Error sincronizando rutas de Optiroute',
+          showConfirmButton: false,
+          timer: 3000
+        });
+      }
+    }
   };
 
   initCoberturaStkComunas();
@@ -493,12 +545,27 @@
     loadOptirouteMerchantsConfig();
   }
   loadOptirouteOrdersStatusCache();
+
   // Cargar referencias de rutas activas silenciosamente en segundo plano
   setTimeout(() => {
     if (typeof window.loadOptirouteActiveAssignedRefs === 'function') {
       window.loadOptirouteActiveAssignedRefs({ silent: true });
     }
   }, 1000);
+
+  // Reintento seguro a los 4s para sincronizar cuando Torre de Control ya esté renderizada
+  setTimeout(() => {
+    if (typeof window.loadOptirouteActiveAssignedRefs === 'function') {
+      window.loadOptirouteActiveAssignedRefs({ silent: true });
+    }
+  }, 4000);
+
+  // Intervalo periódico de sincronización automática en segundo plano (cada 3 minutos)
+  setInterval(() => {
+    if (typeof window.loadOptirouteActiveAssignedRefs === 'function') {
+      window.loadOptirouteActiveAssignedRefs({ silent: true });
+    }
+  }, 180000);
 
   // Definición de las 18 Columnas (con anchos compactos por defecto que caben en 100% de pantalla)
   const COLUMN_DEFS = [

@@ -17,15 +17,18 @@ export async function renderOptirouteSupport() {
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem; margin: 0;">
-              <i class="ri-customer-service-2-line" style="color: var(--color-primary);"></i> Soporte y Control de Despachos
+              <i class="ri-route-line" style="color: var(--color-primary);"></i> Optiroute
             </h2>
             <p style="color: var(--color-text-muted); font-size: 0.75rem; margin: 0.1rem 0 0 0;">
-              Verifica direcciones, contacta clientes vía WhatsApp y supervisa estados de entrega de Optiroute en tiempo real.
+              Supervisión mensual de rutas, métricas de entrega de flota, asignación de conductores y gestión de despachos en tiempo real.
             </p>
           </div>
           <div style="display: flex; background: var(--color-bg); padding: 0.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); gap: 0.15rem;">
-            <button id="tab-api" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm); border: none; cursor: pointer;">
-              <i class="ri-key-line"></i> Conexión API
+            <button id="tab-monthly" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm); border: none; cursor: pointer;">
+              <i class="ri-calendar-check-line"></i> Rutas del Mes
+            </button>
+            <button id="tab-api" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--color-text-muted); border: none; cursor: pointer;">
+              <i class="ri-box-3-line"></i> Detalle de Envíos
             </button>
             <button id="tab-metrics" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--color-text-muted); border: none; cursor: pointer;">
               <i class="ri-bar-chart-box-line"></i> Métricas API
@@ -38,8 +41,151 @@ export async function renderOptirouteSupport() {
 
         <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.15rem 0;">
 
+        <!-- NUEVA SECCIÓN: RUTAS Y MÉTRICAS DEL MES (POR DEFECTO) -->
+        <div id="section-monthly" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <!-- Barra de Controles y Filtros Mensuales -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1;">
+              <!-- Selector de Mes / Período -->
+              <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); white-space: nowrap;">
+                  <i class="ri-calendar-line"></i> Mes:
+                </label>
+                <select id="select-monthly-period" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); font-weight: 600; color: var(--color-text-main); cursor: pointer;">
+                  <option value="">Cargando meses...</option>
+                </select>
+              </div>
+
+              <!-- Filtro de Conductor -->
+              <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <select id="filter-monthly-driver" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+                  <option value="">🚚 Todos los Conductores</option>
+                </select>
+              </div>
+
+              <!-- Filtro de Vehículo -->
+              <div style="display: flex; align-items: center; gap: 0.3rem;">
+                <select id="filter-monthly-vehicle" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer;">
+                  <option value="">🚙 Todos los Vehículos</option>
+                </select>
+              </div>
+
+              <!-- Buscador -->
+              <div style="position: relative; min-width: 170px; flex: 1; max-width: 280px;">
+                <i class="ri-search-line" style="position: absolute; left: 0.55rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
+                <input type="text" id="search-monthly-routes" class="form-input" placeholder="Buscar ruta, vehículo, chofer..." style="padding-left: 1.7rem; font-size: 0.78rem; height: 32px; width: 100%; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <button id="btn-refresh-monthly" class="btn btn-outline btn-sm" style="height: 32px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer;" title="Actualizar datos desde la API de Optiroute">
+                <i class="ri-refresh-line"></i> Actualizar
+              </button>
+              <button id="btn-export-monthly-excel" class="btn btn-outline btn-sm" style="height: 32px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; border: 1px solid #10b981; color: #10b981; background: transparent; border-radius: var(--radius-md); cursor: pointer;" title="Exportar reporte de rutas del mes a Excel / CSV">
+                <i class="ri-file-excel-2-line"></i> Exportar CSV
+              </button>
+            </div>
+          </div>
+
+          <!-- Tarjetas KPI del Mes -->
+          <div id="monthly-kpis-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.5rem;">
+            <!-- Renderizado dinámicamente -->
+          </div>
+
+          <!-- Contenedor del Registro de Rutas y Vehículos -->
+          <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface);">
+            <div style="padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg); flex-wrap: wrap; gap: 0.4rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h4 style="margin: 0; font-size: 0.88rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-route-line" style="color: var(--color-primary);"></i> Registro de Rutas y Vehículos
+                </h4>
+                <span id="monthly-routes-count-badge" class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 10px; font-weight: 700;">
+                  0 rutas
+                </span>
+              </div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+                💡 Haz clic en el nombre del conductor para establecer o modificar el chofer de cada vehículo.
+              </div>
+            </div>
+
+            <!-- Tabla de Rutas -->
+            <div style="overflow-x: auto; width: 100%;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                <thead>
+                  <tr style="text-align: left; background: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+                    <th style="padding: 0.6rem 0.5rem; width: 35px; text-align: center;">#</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 85px;">Fecha</th>
+                    <th style="padding: 0.6rem 0.5rem; min-width: 140px;">Ruta / Plan</th>
+                    <th style="padding: 0.6rem 0.5rem; min-width: 120px;">Vehículo</th>
+                    <th style="padding: 0.6rem 0.5rem; min-width: 160px;">Conductor</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 130px;">Horario</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 110px; text-align: center;">Puntos</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 85px; text-align: right;">Km</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 80px; text-align: center;">Tasa</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 115px; text-align: right;">Velocidad</th>
+                    <th style="padding: 0.6rem 0.5rem; width: 110px; text-align: center;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="monthly-routes-table-body">
+                  <!-- Renderizado dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal para Asignar Conductor -->
+        <div id="modal-assign-driver" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 99999; align-items: center; justify-content: center; padding: 1rem; animation: fadeIn 0.2s ease;">
+          <div class="card" style="width: 100%; max-width: 480px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.9rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); background: var(--color-surface); border: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
+              <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-steering-2-line" style="color: var(--color-primary);"></i> Asignar Conductor de Vehículo
+              </h3>
+              <button id="btn-close-driver-modal" style="background: transparent; border: none; font-size: 1.3rem; cursor: pointer; color: var(--color-text-muted); line-height: 1;">&times;</button>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.82rem;">
+              <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.25rem;">
+                <div><strong style="color: var(--color-text-main);">Ruta:</strong> <span id="modal-drv-route-name">-</span> (<span id="modal-drv-date">-</span>)</div>
+                <div><strong style="color: var(--color-text-main);">Vehículo:</strong> <span id="modal-drv-vehicle" style="font-weight: 600;">-</span> <span id="modal-drv-plate" class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); font-size: 0.68rem;">-</span></div>
+                <div><strong style="color: var(--color-text-main);">Conductor Registrado Optiroute:</strong> <span id="modal-drv-opti">-</span></div>
+              </div>
+
+              <div>
+                <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem; display: block; font-size: 0.78rem;">
+                  Seleccionar Conductor Asignado
+                </label>
+                <select id="modal-select-driver" class="form-input" style="width: 100%; height: 36px; padding: 0 0.5rem; font-size: 0.82rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);">
+                  <!-- Opciones de conductores -->
+                </select>
+              </div>
+
+              <div id="modal-custom-driver-container" style="display: none;">
+                <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem; display: block; font-size: 0.78rem;">
+                  Nombre del Conductor Personalizado
+                </label>
+                <input type="text" id="modal-input-custom-driver" class="form-input" placeholder="Ej: Rodrigo Morales / Stocka X" style="width: 100%; height: 36px; padding: 0 0.6rem; font-size: 0.82rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main);">
+              </div>
+
+              <div>
+                <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem; display: block; font-size: 0.78rem;">
+                  Observaciones / Notas (Opcional)
+                </label>
+                <textarea id="modal-input-driver-notes" class="form-input" rows="2" placeholder="Ej: Reemplazo de turno, chofer auxiliar, etc." style="width: 100%; padding: 0.4rem 0.6rem; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); resize: none;"></textarea>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+              <button id="btn-cancel-driver-modal" class="btn btn-outline btn-sm" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: var(--radius-md); cursor: pointer;">Cancelar</button>
+              <button id="btn-save-driver-modal" class="btn btn-primary btn-sm" style="padding: 0.4rem 1rem; font-size: 0.8rem; font-weight: 700; border-radius: var(--radius-md); background: var(--color-primary); color: white; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-save-line"></i> Guardar Conductor
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Sección de Entrada API (Unificada) -->
-        <div id="section-api" style="display: flex; flex-direction: column; gap: 0.4rem;">
+        <div id="section-api" style="display: none; flex-direction: column; gap: 0.4rem;">
           <div id="api-integration-status">
             <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: 0;">Verificando credenciales de Optiroute...</p>
           </div>
@@ -205,45 +351,1042 @@ export async function renderOptirouteSupport() {
   let optirouteAutoPollInterval = null;
 
   // Manejo de tabs
+  const tabMonthly = document.getElementById('tab-monthly');
   const tabApi = document.getElementById('tab-api');
   const tabMetrics = document.getElementById('tab-metrics');
   const tabExcel = document.getElementById('tab-excel');
+  const sectionMonthly = document.getElementById('section-monthly');
   const sectionApi = document.getElementById('section-api');
   const sectionMetrics = document.getElementById('section-metrics');
   const sectionExcel = document.getElementById('section-excel');
+  const routeSummary = document.getElementById('route-summary');
+  const routeDataCard = document.getElementById('route-data-card');
+
+  // Estado local para Rutas y Métricas del Mes
+  let currentActiveTab = 'monthly';
+  let monthlyRoutesData = []; // Todas las rutas del mes seleccionado
+  let allOptirouteDrivers = []; // Catálogo de conductores de Optiroute
+  let allOptirouteVehicles = []; // Catálogo de vehículos de Optiroute
+  let cachedRoutePlans = []; // Caché de planes de Optiroute
+  let selectedMonthPeriod = ''; // Formato YYYY-MM
+  let currentEditingRouteForDriver = null; // Para el modal de asignar conductor
+
+  function switchTab(target) {
+    currentActiveTab = (target === tabMonthly) ? 'monthly' :
+                       (target === tabApi) ? 'api' :
+                       (target === tabMetrics) ? 'metrics' : 'excel';
+
+    [tabMonthly, tabApi, tabMetrics, tabExcel].forEach(btn => {
+      if (!btn) return;
+      if (btn === target) {
+        btn.style.background = 'var(--color-surface)';
+        btn.style.color = 'var(--color-primary)';
+        btn.style.boxShadow = 'var(--shadow-sm)';
+      } else {
+        btn.style.background = 'transparent';
+        btn.style.color = 'var(--color-text-muted)';
+        btn.style.boxShadow = 'none';
+      }
+    });
+
+    if (sectionMonthly) sectionMonthly.style.display = (target === tabMonthly) ? 'flex' : 'none';
+    if (sectionApi) sectionApi.style.display = (target === tabApi) ? 'flex' : 'none';
+    if (sectionMetrics) sectionMetrics.style.display = (target === tabMetrics) ? 'flex' : 'none';
+    if (sectionExcel) sectionExcel.style.display = (target === tabExcel) ? 'flex' : 'none';
+
+    if (target === tabApi || target === tabExcel) {
+      if (allWaypoints && allWaypoints.length > 0) {
+        if (routeSummary) routeSummary.style.display = 'grid';
+        if (routeDataCard) routeDataCard.style.display = 'flex';
+      }
+    } else {
+      if (routeSummary) routeSummary.style.display = 'none';
+      if (routeDataCard) routeDataCard.style.display = 'none';
+    }
+  }
+
+  tabMonthly?.addEventListener('click', () => {
+    switchTab(tabMonthly);
+  });
 
   tabApi?.addEventListener('click', () => {
-    tabApi.style.background = 'var(--color-surface)';
-    tabApi.style.color = 'var(--color-primary)';
-    tabApi.style.boxShadow = 'var(--shadow-sm)';
-    if (tabMetrics) { tabMetrics.style.background = 'transparent'; tabMetrics.style.color = 'var(--color-text-muted)'; tabMetrics.style.boxShadow = 'none'; }
-    if (tabExcel) { tabExcel.style.background = 'transparent'; tabExcel.style.color = 'var(--color-text-muted)'; tabExcel.style.boxShadow = 'none'; }
-    if (sectionApi) sectionApi.style.display = 'block';
-    if (sectionMetrics) sectionMetrics.style.display = 'none';
-    if (sectionExcel) sectionExcel.style.display = 'none';
+    switchTab(tabApi);
+    if (selectRoutePlans && selectRoutePlans.options.length <= 1) {
+      loadRoutePlansList();
+    }
   });
 
   tabMetrics?.addEventListener('click', () => {
-    tabMetrics.style.background = 'var(--color-surface)';
-    tabMetrics.style.color = 'var(--color-primary)';
-    tabMetrics.style.boxShadow = 'var(--shadow-sm)';
-    if (tabApi) { tabApi.style.background = 'transparent'; tabApi.style.color = 'var(--color-text-muted)'; tabApi.style.boxShadow = 'none'; }
-    if (tabExcel) { tabExcel.style.background = 'transparent'; tabExcel.style.color = 'var(--color-text-muted)'; tabExcel.style.boxShadow = 'none'; }
-    if (sectionMetrics) sectionMetrics.style.display = 'flex';
-    if (sectionApi) sectionApi.style.display = 'none';
-    if (sectionExcel) sectionExcel.style.display = 'none';
+    switchTab(tabMetrics);
     renderOptirouteMetrics();
   });
 
   tabExcel?.addEventListener('click', () => {
-    tabExcel.style.background = 'var(--color-surface)';
-    tabExcel.style.color = 'var(--color-primary)';
-    tabExcel.style.boxShadow = 'var(--shadow-sm)';
-    if (tabApi) { tabApi.style.background = 'transparent'; tabApi.style.color = 'var(--color-text-muted)'; tabApi.style.boxShadow = 'none'; }
-    if (tabMetrics) { tabMetrics.style.background = 'transparent'; tabMetrics.style.color = 'var(--color-text-muted)'; tabMetrics.style.boxShadow = 'none'; }
-    if (sectionExcel) sectionExcel.style.display = 'flex';
-    if (sectionApi) sectionApi.style.display = 'none';
-    if (sectionMetrics) sectionMetrics.style.display = 'none';
+    switchTab(tabExcel);
+  });
+
+  // Mapeo amigable de conductores de Optiroute
+  function getFriendlyDriverName(rawNameOrObj) {
+    if (!rawNameOrObj) return 'Sin Asignar';
+    const str = typeof rawNameOrObj === 'object' ? (rawNameOrObj.name || rawNameOrObj.first_name || '') : String(rawNameOrObj);
+    const clean = str.trim();
+    const upper = clean.toUpperCase();
+    if (upper === 'N1') return 'Nicolás S. (N1)';
+    if (upper === 'N2') return 'Sebastián H. (N2)';
+    if (upper === 'N3') return 'Ariel P. (N3)';
+    if (upper === 'DESS') return 'Denisse (DESS)';
+    if (upper === 'FRAN') return 'Francisco T. (Fran)';
+    if (upper === 'LAZARO') return 'Lázaro';
+    if (upper === 'CHRISTIAN PUGA') return 'Christian Puga';
+    if (upper === 'FELIPE TRUJILLO') return 'Felipe Trujillo';
+    return clean || 'Sin Asignar';
+  }
+
+  // Persistencia de asignación de choferes (LocalStorage + Supabase)
+  function getDriverAssignments() {
+    try {
+      return JSON.parse(localStorage.getItem('stk_optiroute_driver_assignments') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function setDriverAssignmentLocally(routeId, assignment) {
+    try {
+      const all = getDriverAssignments();
+      all[String(routeId)] = assignment;
+      localStorage.setItem('stk_optiroute_driver_assignments', JSON.stringify(all));
+    } catch (e) {
+      console.warn('Error saving driver assignment to localStorage:', e);
+    }
+  }
+
+  async function syncDriverAssignmentsFromSupabase() {
+    try {
+      const { data, error } = await supabase
+        .from('optiroute_route_records')
+        .select('route_id, driver_id, driver_name, notes');
+      if (!error && data && data.length > 0) {
+        const local = getDriverAssignments();
+        data.forEach(row => {
+          if (row.route_id && row.driver_name) {
+            local[String(row.route_id)] = {
+              driverId: row.driver_id,
+              driverName: row.driver_name,
+              assignedBy: 'Admin',
+              notes: row.notes
+            };
+          }
+        });
+        localStorage.setItem('stk_optiroute_driver_assignments', JSON.stringify(local));
+      }
+    } catch (e) {
+      // Continuar con localStorage
+    }
+  }
+
+  // Guardar asignación de conductor
+  async function saveDriverAssignment(routeId, driverId, driverName, notes) {
+    const route = monthlyRoutesData.find(r => String(r.routeId) === String(routeId));
+    if (!route) return;
+
+    // 1. Guardar en LocalStorage
+    setDriverAssignmentLocally(routeId, {
+      driverId,
+      driverName,
+      assignedBy: 'Admin',
+      assignedAt: new Date().toISOString(),
+      notes: notes || ''
+    });
+
+    // 2. Actualizar objeto en memoria
+    route.driverId = driverId;
+    route.assignedDriver = driverName;
+    route.notes = notes || '';
+
+    // 3. Guardar en Supabase (tabla optiroute_route_records)
+    try {
+      const payload = {
+        route_id: Number(route.routeId),
+        plan_id: route.routePlanId ? Number(route.routePlanId) : null,
+        route_date: route.routeDate,
+        route_name: route.routePlanName,
+        vehicle_name: route.vehicleName,
+        driver_id: driverId && !isNaN(Number(driverId)) ? Number(driverId) : null,
+        driver_name: driverName,
+        status_id: route.status !== undefined ? Number(route.status) : null,
+        status_label: route.statusName || null,
+        started_at: route.startedAt || null,
+        finished_at: route.completedAt || null,
+        duration_minutes: route.durationSeconds ? Math.round(route.durationSeconds / 60) : 0,
+        total_points: route.totalPoints || 0,
+        delivered_points: route.deliveredPoints || 0,
+        skipped_points: route.skippedPoints || 0,
+        pending_points: route.pendingPoints || 0,
+        total_distance_km: route.distanceKm || 0,
+        success_rate: parseFloat(route.deliveryRate) || 0,
+        speed_min_per_pkg: parseFloat(route.speedMinutesPerPackage) || 0,
+        speed_pkgs_per_hour: parseFloat(route.packagesPerHour) || 0,
+        notes: notes || '',
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: sbErr } = await supabase
+        .from('optiroute_route_records')
+        .upsert(payload, { onConflict: 'route_id' });
+
+      if (sbErr) {
+        console.warn('ℹ️ Persistencia en nube (optiroute_route_records):', sbErr.message);
+      }
+    } catch (e) {
+      console.warn('Persistencia en Supabase no disponible:', e.message);
+    }
+
+    // 4. Si la ruta en Optiroute aún no está completada (status !== 2) y driverId es numérico, actualizar en Optiroute API
+    if (route.status !== 2 && driverId && !isNaN(Number(driverId))) {
+      try {
+        await fetch(`https://app.optiroute.cl/api/v1/web-routes/${route.routeId}/`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Token ${activeToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            driver: { id: Number(driverId) }
+          })
+        });
+      } catch (optiErr) {
+        console.log('Optiroute API PATCH driver omitido o completado:', optiErr.message);
+      }
+    }
+
+    // 5. Re-renderizar vista mensual
+    applyMonthlyFilters();
+
+    // 6. Notificación visual
+    if (window.Swal) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Conductor Asignado',
+        text: `Se ha establecido a "${driverName}" como conductor del vehículo "${route.vehicleName}" (${route.routePlanName}).`,
+        timer: 2500,
+        showConfirmButton: false
+      });
+    }
+  }
+
+  // Abrir Modal de Asignación de Conductor
+  function openDriverAssignmentModal(routeId) {
+    const route = monthlyRoutesData.find(r => String(r.routeId) === String(routeId));
+    if (!route) return;
+
+    currentEditingRouteForDriver = route;
+    const modal = document.getElementById('modal-assign-driver');
+    if (!modal) return;
+
+    document.getElementById('modal-drv-route-name').textContent = route.routePlanName;
+    document.getElementById('modal-drv-date').textContent = route.dateFormatted;
+    document.getElementById('modal-drv-vehicle').textContent = route.vehicleName;
+    document.getElementById('modal-drv-plate').textContent = route.vehiclePlate || 'Sin Patente';
+    document.getElementById('modal-drv-opti').textContent = route.driverOptirouteName || 'Sin Chofer Optiroute';
+
+    const driverSelect = document.getElementById('modal-select-driver');
+    const customContainer = document.getElementById('modal-custom-driver-container');
+    const customInput = document.getElementById('modal-input-custom-driver');
+    const notesInput = document.getElementById('modal-input-driver-notes');
+
+    if (notesInput) notesInput.value = route.notes || '';
+
+    // Lista de choferes base de Stocka / Optiroute
+    const defaultDriversList = [
+      { id: '2147', name: 'Nicolás S. (N1)', email: 'nicolas.sc@stocka.cl' },
+      { id: '3015', name: 'Sebastián H. (N2)', email: 'sebastian.hp@stocka.cl' },
+      { id: '3151', name: 'Ariel P. (N3)', email: 'arielp07@gmail.com' },
+      { id: '2603', name: 'Christian Puga', email: 'christian.p@stocka.cl' },
+      { id: '2165', name: 'Denisse (DESS)', email: 'denisse.arling@gmail.com' },
+      { id: '2135', name: 'Felipe Trujillo', email: 'felipe.tp@stocka.cl' },
+      { id: '3436', name: 'Francisco T. (Fran)', email: 'francisco.tp@stocka.cl' },
+      { id: '2420', name: 'Lázaro', email: 'lazaro@stocka.cl' }
+    ];
+
+    const seenNames = new Set(defaultDriversList.map(d => d.name));
+    allOptirouteDrivers.forEach(d => {
+      const friendly = getFriendlyDriverName(d.name || d.user?.first_name || d.email);
+      if (!seenNames.has(friendly)) {
+        defaultDriversList.push({ id: String(d.id), name: friendly, email: d.email || '' });
+        seenNames.add(friendly);
+      }
+    });
+
+    let driverOptions = '<option value="">-- Seleccionar Conductor --</option>';
+    let isCustomSelected = true;
+
+    defaultDriversList.forEach(d => {
+      const selected = (String(route.driverId) === String(d.id) || route.assignedDriver === d.name);
+      if (selected) isCustomSelected = false;
+      driverOptions += `<option value="${d.id}" data-name="${d.name}" ${selected ? 'selected' : ''}>👤 ${d.name} ${d.email ? `(${d.email})` : ''}</option>`;
+    });
+
+    driverOptions += `<option value="CUSTOM" ${isCustomSelected && route.assignedDriver && route.assignedDriver !== 'Sin Asignar' ? 'selected' : ''}>➕ Otro Conductor (personalizado)...</option>`;
+    driverSelect.innerHTML = driverOptions;
+
+    if (isCustomSelected && route.assignedDriver && route.assignedDriver !== 'Sin Asignar') {
+      customContainer.style.display = 'block';
+      customInput.value = route.assignedDriver;
+    } else {
+      customContainer.style.display = 'none';
+      customInput.value = '';
+    }
+
+    modal.style.display = 'flex';
+  }
+
+  // Cargar datos de rutas y métricas del mes
+  async function loadMonthlyRoutesData(targetMonth, forceRefresh = false) {
+    const kpisContainer = document.getElementById('monthly-kpis-container');
+    const tableBody = document.getElementById('monthly-routes-table-body');
+    const countBadge = document.getElementById('monthly-routes-count-badge');
+    const monthSelect = document.getElementById('select-monthly-period');
+
+    if (!kpisContainer || !tableBody) return;
+
+    kpisContainer.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--color-text-muted); background: var(--color-bg); border-radius: var(--radius-md); border: 1px dashed var(--color-border);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.8rem; color: var(--color-primary); display: block; margin-bottom: 0.4rem;"></i>
+        <strong style="font-size: 0.9rem; color: var(--color-text-main);">Cargando rutas y métricas del mes desde Optiroute...</strong>
+        <p style="font-size: 0.75rem; margin: 0.2rem 0 0 0;">Consultando planes de ruta, vehículos, distancias y entregas.</p>
+      </div>
+    `;
+
+    tableBody.innerHTML = `
+      <tr>
+        <td colspan="11" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: var(--color-primary);"></i>
+          <p style="margin-top: 0.4rem; font-size: 0.8rem;">Obteniendo registros operativos del mes...</p>
+        </td>
+      </tr>
+    `;
+
+    try {
+      // 1. Asegurar integración y token activo
+      if (!activeToken) {
+        let integ = window.__OPTIRUTE_INTEGRATION__ || window.__TEST_OPTIRUTE_INTEGRATION__ || null;
+        if (!integ) {
+          const { data } = await supabase
+            .from('merchant_integrations')
+            .select('*')
+            .eq('platform', 'Optiroute')
+            .eq('is_active', true)
+            .limit(1)
+            .maybeSingle();
+          integ = data;
+        }
+        if (integ) {
+          currentIntegration = integ;
+          activeToken = integ.access_token;
+        }
+      }
+
+      if (!activeToken) {
+        throw new Error('No se encontraron credenciales activas de Optiroute.');
+      }
+
+      // 2. Cargar conductores y vehículos de Optiroute en paralelo
+      if (allOptirouteDrivers.length === 0 || allOptirouteVehicles.length === 0 || forceRefresh) {
+        const [driversRes, vehiclesRes] = await Promise.all([
+          fetch('https://app.optiroute.cl/api/v1/drivers/?per_page=100', {
+            headers: { 'Authorization': `Token ${activeToken}` }
+          }).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('https://app.optiroute.cl/api/v1/vehicles/?per_page=100', {
+            headers: { 'Authorization': `Token ${activeToken}` }
+          }).then(r => r.ok ? r.json() : null).catch(() => null)
+        ]);
+
+        if (driversRes) {
+          allOptirouteDrivers = driversRes.results || (Array.isArray(driversRes) ? driversRes : []);
+        }
+        if (vehiclesRes) {
+          allOptirouteVehicles = vehiclesRes.results || (Array.isArray(vehiclesRes) ? vehiclesRes : []);
+        }
+      }
+
+      // 3. Sincronizar asignaciones previas desde Supabase / LocalStorage
+      await syncDriverAssignmentsFromSupabase();
+      const localDriverAssignments = getDriverAssignments();
+
+      // 4. Cargar lista de Route Plans de Optiroute
+      if (cachedRoutePlans.length === 0 || forceRefresh) {
+        const plansRes = await fetch('https://app.optiroute.cl/api/v1/route-plans/?per_page=100', {
+          headers: { 'Authorization': `Token ${activeToken}` }
+        });
+        if (plansRes.ok) {
+          const plansData = await plansRes.json();
+          cachedRoutePlans = plansData.results || (Array.isArray(plansData) ? plansData : []);
+        }
+      }
+
+      if (!cachedRoutePlans || cachedRoutePlans.length === 0) {
+        throw new Error('No se encontraron planes de rutas en Optiroute.');
+      }
+
+      // 5. Extraer todos los meses disponibles para el selector
+      const availableMonthsMap = new Map();
+      cachedRoutePlans.forEach(p => {
+        if (p.departure_datetime) {
+          const ym = p.departure_datetime.substring(0, 7);
+          availableMonthsMap.set(ym, (availableMonthsMap.get(ym) || 0) + 1);
+        }
+      });
+
+      const monthNamesSpanish = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+
+      function formatYearMonth(ym) {
+        const [year, month] = ym.split('-');
+        const idx = parseInt(month, 10) - 1;
+        return `${monthNamesSpanish[idx] || month} ${year}`;
+      }
+
+      const sortedMonths = Array.from(availableMonthsMap.keys()).sort().reverse();
+      const currentYearMonth = new Date().toLocaleDateString('en-CA').substring(0, 7);
+
+      const activeYm = targetMonth || (sortedMonths.includes(currentYearMonth) ? currentYearMonth : sortedMonths[0]);
+      selectedMonthPeriod = activeYm;
+
+      if (monthSelect) {
+        monthSelect.innerHTML = sortedMonths.map(ym => `
+          <option value="${ym}" ${ym === activeYm ? 'selected' : ''}>
+            📅 ${formatYearMonth(ym)} (${availableMonthsMap.get(ym)} planes)
+          </option>
+        `).join('');
+      }
+
+      // 6. Filtrar planes del mes activo
+      const monthPlans = cachedRoutePlans.filter(p => p.departure_datetime && p.departure_datetime.startsWith(activeYm));
+
+      // 7. Descargar detalle de cada plan y sus rutas (con caché para rutas completadas)
+      const storageCacheKey = `stk_optiroute_monthly_cache_${activeYm}`;
+      let cachedRoutesMap = {};
+      try {
+        if (!forceRefresh) {
+          cachedRoutesMap = JSON.parse(sessionStorage.getItem(storageCacheKey) || '{}');
+        }
+      } catch (e) {}
+
+      // Procesar planes y rutas en paralelo
+      const routePromises = monthPlans.map(async (plan) => {
+        if (plan.routes_count === 0) return [];
+
+        try {
+          const pRes = await fetch(`https://app.optiroute.cl/api/v1/route-plans/${plan.id}/`, {
+            headers: { 'Authorization': `Token ${activeToken}` }
+          });
+          if (!pRes.ok) return [];
+          const pDetail = await pRes.json();
+          const routes = pDetail.routes || [];
+
+          const subPromises = routes.map(async (routeObj) => {
+            const routeIdStr = String(routeObj.id);
+
+            // Si está en caché de sesión y la ruta estaba completada, reusar
+            if (cachedRoutesMap[routeIdStr] && cachedRoutesMap[routeIdStr].status === 2 && !forceRefresh) {
+              const cached = cachedRoutesMap[routeIdStr];
+              const assigned = localDriverAssignments[routeIdStr];
+              if (assigned) {
+                cached.assignedDriver = assigned.driverName;
+                cached.driverId = assigned.driverId;
+                cached.notes = assigned.notes;
+              }
+              return cached;
+            }
+
+            try {
+              const rRes = await fetch(`https://app.optiroute.cl/api/v1/web-routes/${routeObj.id}/`, {
+                headers: { 'Authorization': `Token ${activeToken}` }
+              });
+              if (!rRes.ok) return null;
+              const rDetail = await rRes.json();
+
+              const customerWps = (rDetail.waypoints || []).filter(w => w.is_customer);
+              const delivered = customerWps.filter(w => w.status === 2).length;
+              const skipped = customerWps.filter(w => w.status === 3).length;
+              const pending = customerWps.filter(w => w.status !== 2 && w.status !== 3).length;
+              const total = customerWps.length;
+
+              const distanceMeters = rDetail.distance || (plan.distance || 0);
+              const distanceKm = distanceMeters / 1000;
+              const durationSec = rDetail.duration || 0;
+
+              const rateNum = total > 0 ? (delivered / total) * 100 : 0;
+              const minPerPkg = delivered > 0 ? (durationSec / 60) / delivered : 0;
+              const pkgsPerHour = durationSec > 0 ? (delivered / (durationSec / 3600)) : 0;
+
+              // Vehículo y patente
+              const vName = rDetail.vehicle?.name || routeObj.vehicle?.name || 'Vehículo';
+              const vPlate = rDetail.vehicle?.license_plate || routeObj.vehicle?.license_plate || '';
+
+              // Conductor
+              const rawDriverName = rDetail.driver?.name || routeObj.driver?.name || '';
+              const rawDriverId = rDetail.driver?.id || routeObj.driver?.id || null;
+              const assigned = localDriverAssignments[routeIdStr];
+              const displayDriver = assigned?.driverName || getFriendlyDriverName(rawDriverName);
+
+              // Formato fechas y horas
+              const departureDate = plan.departure_datetime ? plan.departure_datetime.substring(0, 10) : '';
+              let dateFormatted = departureDate;
+              if (departureDate) {
+                const [y, m, d] = departureDate.split('-');
+                dateFormatted = `${d}/${m}/${y}`;
+              }
+
+              function formatTime(isoStr) {
+                if (!isoStr) return '-';
+                try {
+                  const d = new Date(isoStr);
+                  return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' hrs';
+                } catch (e) {
+                  return isoStr.substring(11, 16) || '-';
+                }
+              }
+
+              function formatDuration(sec) {
+                if (!sec || sec <= 0) return '-';
+                const h = Math.floor(sec / 3600);
+                const m = Math.floor((sec % 3600) / 60);
+                return `${h}h ${m}m`;
+              }
+
+              let statusText = 'Completada';
+              if (rDetail.status === 1) statusText = 'En curso';
+              else if (rDetail.status === 0) statusText = 'Programada';
+              else if (rDetail.status === -1) statusText = 'Cancelada';
+
+              const routeRecord = {
+                routeId: rDetail.id,
+                routePlanId: plan.id,
+                routePlanName: plan.name || `Plan #${plan.id}`,
+                routeDate: departureDate,
+                dateFormatted,
+                vehicleId: rDetail.vehicle?.id || routeObj.vehicle?.id || null,
+                vehicleName: vName,
+                vehiclePlate: vPlate,
+                driverId: assigned?.driverId || rawDriverId,
+                driverOptirouteName: rawDriverName,
+                assignedDriver: displayDriver,
+                notes: assigned?.notes || '',
+                startedAt: rDetail.started_at,
+                startedAtFormatted: formatTime(rDetail.started_at),
+                completedAt: rDetail.completed_at,
+                completedAtFormatted: rDetail.status === 2 ? formatTime(rDetail.completed_at) : (rDetail.status === 1 ? 'En ruta 🚚' : '-'),
+                durationSeconds: durationSec,
+                durationFormatted: formatDuration(durationSec),
+                distanceKm,
+                totalPoints: total,
+                deliveredPoints: delivered,
+                skippedPoints: skipped,
+                pendingPoints: pending,
+                deliveryRate: rateNum.toFixed(1),
+                speedMinutesPerPackage: minPerPkg.toFixed(1),
+                packagesPerHour: pkgsPerHour.toFixed(1),
+                status: rDetail.status,
+                statusName: statusText,
+                waypoints: customerWps
+              };
+
+              cachedRoutesMap[routeIdStr] = routeRecord;
+              return routeRecord;
+            } catch (errRoute) {
+              return null;
+            }
+          });
+
+          const subResults = await Promise.all(subPromises);
+          return subResults.filter(Boolean);
+        } catch (errPlan) {
+          return [];
+        }
+      });
+
+      const allRoutesNested = await Promise.all(routePromises);
+      monthlyRoutesData = allRoutesNested.flat();
+
+      // Guardar en sessionStorage para velocidad instantánea
+      try {
+        sessionStorage.setItem(storageCacheKey, JSON.stringify(cachedRoutesMap));
+      } catch (e) {}
+
+      // Ordenar rutas por fecha descendente
+      monthlyRoutesData.sort((a, b) => new Date(b.routeDate) - new Date(a.routeDate));
+
+      // Poblar filtros de conductor y vehículo del mes
+      populateMonthlyFilters();
+
+      // Aplicar filtros y renderizar
+      applyMonthlyFilters();
+
+    } catch (err) {
+      console.error('Error al cargar datos mensuales de Optiroute:', err);
+      kpisContainer.innerHTML = `
+        <div class="alert alert-danger" style="grid-column: 1 / -1; margin: 0; padding: 1rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.5rem; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: var(--color-danger);">
+          <i class="ri-error-warning-line" style="font-size: 1.25rem;"></i>
+          <div>
+            <strong>Error al cargar métricas mensuales:</strong> ${err.message}
+            <div style="margin-top: 0.35rem;">
+              <button id="btn-retry-monthly" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 0.2rem 0.6rem; cursor: pointer;">
+                <i class="ri-refresh-line"></i> Reintentar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('btn-retry-monthly')?.addEventListener('click', () => loadMonthlyRoutesData(targetMonth, true));
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="11" style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">
+            No se pudieron obtener las rutas. Verifica la conexión con la API de Optiroute.
+          </td>
+        </tr>
+      `;
+    }
+  }
+
+  // Poblar filtros desplegables de conductor y vehículo
+  function populateMonthlyFilters() {
+    const driverSelect = document.getElementById('filter-monthly-driver');
+    const vehicleSelect = document.getElementById('filter-monthly-vehicle');
+
+    if (driverSelect) {
+      const drivers = Array.from(new Set(monthlyRoutesData.map(r => r.assignedDriver).filter(Boolean))).sort();
+      driverSelect.innerHTML = `<option value="">🚚 Todos los Conductores (${drivers.length})</option>` +
+        drivers.map(d => `<option value="${d}">${d}</option>`).join('');
+    }
+
+    if (vehicleSelect) {
+      const vehicles = Array.from(new Set(monthlyRoutesData.map(r => r.vehicleName).filter(Boolean))).sort();
+      vehicleSelect.innerHTML = `<option value="">🚙 Todos los Vehículos (${vehicles.length})</option>` +
+        vehicles.map(v => `<option value="${v}">${v}</option>`).join('');
+    }
+  }
+
+  // Aplicar filtros de búsqueda, conductor y vehículo a la vista mensual
+  function applyMonthlyFilters() {
+    const driverFilter = document.getElementById('filter-monthly-driver')?.value || '';
+    const vehicleFilter = document.getElementById('filter-monthly-vehicle')?.value || '';
+    const searchTerm = (document.getElementById('search-monthly-routes')?.value || '').toLowerCase().trim();
+
+    let filtered = monthlyRoutesData;
+
+    if (driverFilter) {
+      filtered = filtered.filter(r => r.assignedDriver === driverFilter);
+    }
+    if (vehicleFilter) {
+      filtered = filtered.filter(r => r.vehicleName === vehicleFilter);
+    }
+    if (searchTerm) {
+      filtered = filtered.filter(r => 
+        (r.routePlanName && r.routePlanName.toLowerCase().includes(searchTerm)) ||
+        (r.vehicleName && r.vehicleName.toLowerCase().includes(searchTerm)) ||
+        (r.vehiclePlate && r.vehiclePlate.toLowerCase().includes(searchTerm)) ||
+        (r.assignedDriver && r.assignedDriver.toLowerCase().includes(searchTerm)) ||
+        (r.dateFormatted && r.dateFormatted.includes(searchTerm))
+      );
+    }
+
+    renderMonthlyView(filtered);
+  }
+
+  // Renderizar tarjetas KPI y tabla del Registro de Rutas
+  function renderMonthlyView(routes) {
+    const kpisContainer = document.getElementById('monthly-kpis-container');
+    const tableBody = document.getElementById('monthly-routes-table-body');
+    const countBadge = document.getElementById('monthly-routes-count-badge');
+
+    if (!kpisContainer || !tableBody) return;
+
+    if (countBadge) {
+      countBadge.textContent = `${routes.length} ruta${routes.length === 1 ? '' : 's'}`;
+    }
+
+    // Calcular KPIs consolidados
+    let totalDelivered = 0;
+    let totalSkipped = 0;
+    let totalPending = 0;
+    let totalPoints = 0;
+    let totalKm = 0;
+    let totalDurationSec = 0;
+    let completedRoutesCount = 0;
+    const distinctVehicles = new Set();
+    const distinctDrivers = new Set();
+
+    routes.forEach(r => {
+      totalDelivered += r.deliveredPoints || 0;
+      totalSkipped += r.skippedPoints || 0;
+      totalPending += r.pendingPoints || 0;
+      totalPoints += r.totalPoints || 0;
+      totalKm += r.distanceKm || 0;
+      totalDurationSec += r.durationSeconds || 0;
+      if (r.status === 2) completedRoutesCount++;
+      if (r.vehicleName && r.vehicleName !== 'Vehículo') distinctVehicles.add(r.vehicleName);
+      if (r.assignedDriver && r.assignedDriver !== 'Sin Asignar') distinctDrivers.add(r.assignedDriver);
+    });
+
+    const deliveryRate = totalPoints > 0 ? ((totalDelivered / totalPoints) * 100).toFixed(1) : '0';
+    const avgKmPerRoute = routes.length > 0 ? (totalKm / routes.length).toFixed(1) : '0';
+    const avgMinutesPerPackage = totalDelivered > 0 ? ((totalDurationSec / 60) / totalDelivered).toFixed(1) : '0';
+    const packagesPerHour = totalDurationSec > 0 ? (totalDelivered / (totalDurationSec / 3600)).toFixed(1) : '0';
+
+    // Renderizar tarjetas de métricas
+    kpisContainer.innerHTML = `
+      <!-- Card 1: Paquetes Entregados -->
+      <div class="card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+          <span style="font-weight: 600;"><i class="ri-checkbox-circle-line" style="color: #10b981;"></i> Paquetes Entregados</span>
+          <span style="font-size: 0.7rem; font-weight: 700; color: #10b981;">${deliveryRate}%</span>
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">
+          ${totalDelivered.toLocaleString()} <span style="font-size: 0.85rem; font-weight: 500; color: var(--color-text-muted);">/ ${totalPoints.toLocaleString()}</span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); display: flex; justify-content: space-between; margin-top: 0.15rem;">
+          <span>Saltados: <strong style="color: #ef4444;">${totalSkipped}</strong></span>
+          <span>Pendientes: <strong>${totalPending}</strong></span>
+        </div>
+        <div style="width: 100%; height: 4px; background: rgba(16, 185, 129, 0.15); border-radius: 2px; overflow: hidden; margin-top: 0.2rem;">
+          <div style="width: ${deliveryRate}%; height: 100%; background: #10b981; border-radius: 2px;"></div>
+        </div>
+      </div>
+
+      <!-- Card 2: Kilómetros Recorridos -->
+      <div class="card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+          <span style="font-weight: 600;"><i class="ri-roadster-line" style="color: #3b82f6;"></i> Kilómetros Recorridos</span>
+          <i class="ri-map-pin-distance-line" style="color: #3b82f6;"></i>
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">
+          ${totalKm.toFixed(1)} <span style="font-size: 0.85rem; font-weight: 500; color: var(--color-text-muted);">km</span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+          Promedio: <strong>${avgKmPerRoute} km</strong> por ruta
+        </div>
+      </div>
+
+      <!-- Card 3: Tasa de Entrega -->
+      <div class="card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+          <span style="font-weight: 600;"><i class="ri-percent-line" style="color: #8b5cf6;"></i> Tasa de Entrega</span>
+          <span class="badge" style="background: ${deliveryRate >= 90 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)'}; color: ${deliveryRate >= 90 ? '#10b981' : '#f59e0b'}; font-size: 0.65rem; padding: 0.1rem 0.35rem; font-weight: 700;">
+            ${deliveryRate >= 90 ? 'Excelente' : (deliveryRate >= 80 ? 'Normal' : 'Bajo')}
+          </span>
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: ${deliveryRate >= 90 ? '#10b981' : (deliveryRate >= 80 ? '#f59e0b' : '#ef4444')}; line-height: 1.2;">
+          ${deliveryRate}%
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+          Efectividad de entregas sobre el total
+        </div>
+      </div>
+
+      <!-- Card 4: Velocidad por Paquete -->
+      <div class="card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+          <span style="font-weight: 600;"><i class="ri-speed-up-line" style="color: #f59e0b;"></i> Velocidad x Paquete</span>
+          <i class="ri-timer-flash-line" style="color: #f59e0b;"></i>
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">
+          ${avgMinutesPerPackage} <span style="font-size: 0.85rem; font-weight: 500; color: var(--color-text-muted);">min/paq</span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+          Rendimiento: <strong>${packagesPerHour} paq/hora</strong> en ruta
+        </div>
+      </div>
+
+      <!-- Card 5: Rutas y Flota -->
+      <div class="card" style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <div style="display: flex; justify-content: space-between; align-items: center; color: var(--color-text-muted); font-size: 0.75rem;">
+          <span style="font-weight: 600;"><i class="ri-truck-line" style="color: #06b6d4;"></i> Rutas y Flota</span>
+          <i class="ri-steering-2-line" style="color: #06b6d4;"></i>
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">
+          ${routes.length} <span style="font-size: 0.85rem; font-weight: 500; color: var(--color-text-muted);">rutas</span>
+        </div>
+        <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+          ${distinctVehicles.size} vehículos · ${distinctDrivers.size} conductores
+        </div>
+      </div>
+    `;
+
+    // Renderizar filas de la tabla
+    if (routes.length === 0) {
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="11" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+            No se encontraron rutas con los filtros seleccionados.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tableBody.innerHTML = routes.map((r, idx) => {
+      const isCompleted = r.status === 2;
+      const rateNum = parseFloat(r.deliveryRate) || 0;
+      const rateColor = rateNum >= 90 ? '#10b981' : (rateNum >= 80 ? '#f59e0b' : '#ef4444');
+      const rateBg = rateNum >= 90 ? 'rgba(16,185,129,0.1)' : (rateNum >= 80 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)');
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.15s ease;">
+          <td style="padding: 0.6rem 0.5rem; text-align: center; color: var(--color-text-muted); font-weight: 600;">
+            ${idx + 1}
+          </td>
+          <td style="padding: 0.6rem 0.5rem; font-weight: 600; color: var(--color-text-main); white-space: nowrap;">
+            ${r.dateFormatted}
+          </td>
+          <td style="padding: 0.6rem 0.5rem;">
+            <div>
+              <strong class="btn-open-route-plan" data-plan-id="${r.routePlanId}" style="color: var(--color-primary); cursor: pointer;" title="Haz clic para ver los envíos de esta ruta">
+                ${r.routePlanName}
+              </strong>
+            </div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.3rem;">
+              <span>#${r.routeId}</span>
+              <span class="badge" style="font-size: 0.65rem; background: ${isCompleted ? 'rgba(16,185,129,0.1)' : 'rgba(59,130,246,0.1)'}; color: ${isCompleted ? '#10b981' : '#3b82f6'}; padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 600;">
+                ${r.statusName}
+              </span>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="font-weight: 600; color: var(--color-text-main);">${r.vehicleName}</div>
+            ${r.vehiclePlate ? `<div style="font-size: 0.7rem; margin-top: 0.1rem;"><span class="badge" style="background: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.65rem; padding: 0.05rem 0.3rem; border-radius: 3px; font-weight: 600;">${r.vehiclePlate}</span></div>` : ''}
+          </td>
+          <td style="padding: 0.6rem 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+              <span class="badge btn-open-driver-modal" data-route-id="${r.routeId}" style="cursor: pointer; background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.25); color: #2563eb; padding: 0.2rem 0.45rem; border-radius: 4px; font-weight: 600; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;" title="Haz clic para cambiar el conductor de este vehículo">
+                <i class="ri-user-line"></i> ${r.assignedDriver}
+                <i class="ri-edit-line" style="font-size: 0.7rem; opacity: 0.7;"></i>
+              </span>
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; font-size: 0.75rem; white-space: nowrap;">
+            <div><span style="color: var(--color-text-muted);">Inicio:</span> <strong>${r.startedAtFormatted}</strong></div>
+            <div><span style="color: var(--color-text-muted);">Fin:</span> <strong>${r.completedAtFormatted}</strong></div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.05rem;">⏱️ ${r.durationFormatted}</div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center;">
+            <div style="font-weight: 700; font-size: 0.85rem;">${r.totalPoints}</div>
+            <div style="font-size: 0.7rem; display: flex; justify-content: center; gap: 0.35rem; margin-top: 0.1rem;">
+              <span style="color: #10b981; font-weight: 600;" title="Entregados">✅ ${r.deliveredPoints}</span>
+              ${r.skippedPoints > 0 ? `<span style="color: #ef4444; font-weight: 600;" title="Saltados">⚠️ ${r.skippedPoints}</span>` : ''}
+            </div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; font-weight: 700; color: var(--color-text-main); white-space: nowrap;">
+            ${r.distanceKm.toFixed(1)} km
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center;">
+            <span class="badge" style="background: ${rateBg}; color: ${rateColor}; font-weight: 700; font-size: 0.75rem; padding: 0.15rem 0.4rem; border-radius: 4px;">
+              ${r.deliveryRate}%
+            </span>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: right; white-space: nowrap;">
+            <div style="font-weight: 700; color: var(--color-text-main);">${r.speedMinutesPerPackage} min/p</div>
+            <div style="font-size: 0.68rem; color: var(--color-text-muted);">${r.packagesPerHour} paq/h</div>
+          </td>
+          <td style="padding: 0.6rem 0.5rem; text-align: center;">
+            <div style="display: flex; justify-content: center; gap: 0.25rem;">
+              <button class="btn btn-sm btn-open-route-shipments" data-plan-id="${r.routePlanId}" style="height: 26px; padding: 0 0.5rem; font-size: 0.72rem; font-weight: 600; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; display: flex; align-items: center; gap: 0.2rem;" title="Ver envíos y direcciones en Detalle de Envíos">
+                <i class="ri-eye-line"></i> Envíos
+              </button>
+              <button class="btn btn-sm btn-open-driver-modal" data-route-id="${r.routeId}" style="height: 26px; padding: 0 0.45rem; font-size: 0.72rem; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); border-radius: var(--radius-sm); cursor: pointer; display: flex; align-items: center;" title="Establecer conductor">
+                <i class="ri-steering-2-line"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Exportar el Registro de Rutas a CSV compatible con Excel
+  function exportMonthlyRoutesToExcel() {
+    if (!monthlyRoutesData || monthlyRoutesData.length === 0) {
+      if (window.Swal) Swal.fire('Sin Datos', 'No hay rutas para exportar en este período.', 'info');
+      else alert('No hay rutas para exportar.');
+      return;
+    }
+
+    const headers = [
+      'Fecha',
+      'Plan de Ruta',
+      'ID Ruta',
+      'Vehículo',
+      'Patente',
+      'Conductor Asignado',
+      'Conductor Optiroute',
+      'Hora Inicio',
+      'Hora Término',
+      'Duración',
+      'Km Recorridos',
+      'Puntos Totales',
+      'Puntos Entregados',
+      'Puntos Saltados',
+      'Puntos Pendientes',
+      'Tasa de Entrega (%)',
+      'Minutos por Paquete',
+      'Paquetes por Hora',
+      'Estado',
+      'Notas'
+    ];
+
+    const rows = monthlyRoutesData.map(r => [
+      `"${r.dateFormatted}"`,
+      `"${(r.routePlanName || '').replace(/"/g, '""')}"`,
+      `"${r.routeId}"`,
+      `"${(r.vehicleName || '').replace(/"/g, '""')}"`,
+      `"${r.vehiclePlate || ''}"`,
+      `"${(r.assignedDriver || '').replace(/"/g, '""')}"`,
+      `"${(r.driverOptirouteName || '').replace(/"/g, '""')}"`,
+      `"${r.startedAtFormatted}"`,
+      `"${r.completedAtFormatted}"`,
+      `"${r.durationFormatted}"`,
+      r.distanceKm.toFixed(1),
+      r.totalPoints,
+      r.deliveredPoints,
+      r.skippedPoints,
+      r.pendingPoints,
+      r.deliveryRate,
+      r.speedMinutesPerPackage,
+      r.packagesPerHour,
+      `"${r.statusName}"`,
+      `"${(r.notes || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(row => row.join(';'))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Optiroute_Registro_Rutas_${selectedMonthPeriod || 'Mes'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  // Event Listeners para la Sección Mensual
+  document.getElementById('select-monthly-period')?.addEventListener('change', (e) => {
+    const newMonth = e.target.value;
+    if (newMonth) loadMonthlyRoutesData(newMonth, false);
+  });
+
+  document.getElementById('filter-monthly-driver')?.addEventListener('change', () => {
+    applyMonthlyFilters();
+  });
+
+  document.getElementById('filter-monthly-vehicle')?.addEventListener('change', () => {
+    applyMonthlyFilters();
+  });
+
+  document.getElementById('search-monthly-routes')?.addEventListener('input', () => {
+    applyMonthlyFilters();
+  });
+
+  document.getElementById('btn-refresh-monthly')?.addEventListener('click', () => {
+    const currentMonth = document.getElementById('select-monthly-period')?.value || selectedMonthPeriod;
+    loadMonthlyRoutesData(currentMonth, true);
+  });
+
+  document.getElementById('btn-export-monthly-excel')?.addEventListener('click', () => {
+    exportMonthlyRoutesToExcel();
+  });
+
+  // Event Listeners del Modal de Asignación de Conductor
+  document.getElementById('modal-select-driver')?.addEventListener('change', (e) => {
+    const customContainer = document.getElementById('modal-custom-driver-container');
+    if (e.target.value === 'CUSTOM') {
+      customContainer.style.display = 'block';
+      document.getElementById('modal-input-custom-driver')?.focus();
+    } else {
+      customContainer.style.display = 'none';
+    }
+  });
+
+  document.getElementById('btn-close-driver-modal')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-assign-driver');
+    if (modal) modal.style.display = 'none';
+  });
+
+  document.getElementById('btn-cancel-driver-modal')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-assign-driver');
+    if (modal) modal.style.display = 'none';
+  });
+
+  document.getElementById('btn-save-driver-modal')?.addEventListener('click', async () => {
+    if (!currentEditingRouteForDriver) return;
+    const selectElem = document.getElementById('modal-select-driver');
+    const selectedVal = selectElem.value;
+    const notes = document.getElementById('modal-input-driver-notes')?.value || '';
+
+    let finalDriverId = null;
+    let finalDriverName = '';
+
+    if (selectedVal === 'CUSTOM') {
+      finalDriverName = (document.getElementById('modal-input-custom-driver')?.value || '').trim();
+      if (!finalDriverName) {
+        alert('Por favor ingresa el nombre del conductor.');
+        return;
+      }
+    } else if (selectedVal) {
+      finalDriverId = selectedVal;
+      const opt = selectElem.options[selectElem.selectedIndex];
+      finalDriverName = opt.getAttribute('data-name') || opt.textContent.replace('👤 ', '').split(' (')[0].trim();
+    } else {
+      alert('Por favor selecciona un conductor.');
+      return;
+    }
+
+    const saveBtn = document.getElementById('btn-save-driver-modal');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+    }
+
+    try {
+      await saveDriverAssignment(currentEditingRouteForDriver.routeId, finalDriverId, finalDriverName, notes);
+      const modal = document.getElementById('modal-assign-driver');
+      if (modal) modal.style.display = 'none';
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Conductor';
+      }
+    }
+  });
+
+  // Clic delegado para acciones en filas del Registro de Rutas
+  document.addEventListener('click', async (e) => {
+    const btnShipments = e.target.closest('.btn-open-route-shipments, .btn-open-route-plan');
+    if (btnShipments) {
+      e.preventDefault();
+      const planId = btnShipments.getAttribute('data-plan-id');
+      if (planId) {
+        switchTab(tabApi);
+        if (!selectRoutePlans || selectRoutePlans.options.length <= 1) {
+          await loadRoutePlansList();
+        }
+        if (selectRoutePlans) {
+          selectRoutePlans.value = planId;
+        }
+        await loadRouteData(planId, false);
+      }
+      return;
+    }
+
+    const btnDriverModal = e.target.closest('.btn-open-driver-modal');
+    if (btnDriverModal) {
+      e.preventDefault();
+      const rId = btnDriverModal.getAttribute('data-route-id');
+      if (rId) openDriverAssignmentModal(rId);
+    }
   });
 
   // 1. Obtener integración única de Optiroute
@@ -252,15 +1395,19 @@ export async function renderOptirouteSupport() {
   const apiControls = document.getElementById('api-controls');
 
   try {
-    const { data: integration, error } = await supabase
-      .from('merchant_integrations')
-      .select('*')
-      .eq('platform', 'Optiroute')
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle();
+    let integration = window.__OPTIRUTE_INTEGRATION__ || window.__TEST_OPTIRUTE_INTEGRATION__ || null;
+    if (!integration) {
+      const { data, error } = await supabase
+        .from('merchant_integrations')
+        .select('*')
+        .eq('platform', 'Optiroute')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle();
 
-    if (error) throw error;
+      if (error) throw error;
+      integration = data;
+    }
 
     if (!integration) {
       statusContainer.innerHTML = `
@@ -295,8 +1442,8 @@ export async function renderOptirouteSupport() {
           else console.log('Caché antigua (>30 días) limpia.');
         });
 
-      // Cargar lista de planes de rutas
-      await loadRoutePlansList();
+      // Cargar rutas y métricas del mes en la nueva pestaña por defecto
+      await loadMonthlyRoutesData();
     }
   } catch (err) {
     console.error('Error cargando integración de Optiroute:', err);
@@ -845,7 +1992,14 @@ export async function renderOptirouteSupport() {
           const detail = await routeRes.json();
           const wps = detail.waypoints || [];
           const vehicleName = detail.vehicle?.license_plate || detail.vehicle?.name || detail.vehicle || routeObj.vehicle?.license_plate || routeObj.vehicle?.name || routeObj.vehicle || 'Sin Asignación';
-          const driverName = detail.driver?.first_name ? `${detail.driver.first_name} ${detail.driver.last_name || ''}`.trim() : (detail.driver?.name || routeObj.driver?.name || '');
+          let driverName = detail.driver?.first_name ? `${detail.driver.first_name} ${detail.driver.last_name || ''}`.trim() : (detail.driver?.name || routeObj.driver?.name || '');
+          
+          const allAssigned = getDriverAssignments();
+          const localAssigned = allAssigned[String(routeObj.id)] || allAssigned[String(detail.id)];
+          if (localAssigned && localAssigned.driverName) {
+            driverName = localAssigned.driverName;
+          }
+
           wps.forEach(wp => {
             wp.route_vehicle = vehicleName;
             wp.route_driver = driverName;
@@ -1340,7 +2494,9 @@ export async function renderOptirouteSupport() {
   // Renderizar KPI Dashboard
   function renderSummaryDashboard(routeName) {
     const summaryContainer = document.getElementById('route-summary');
-    summaryContainer.style.display = 'grid';
+    if (summaryContainer) {
+      summaryContainer.style.display = (currentActiveTab === 'api' || currentActiveTab === 'excel') ? 'grid' : 'none';
+    }
 
     const totalStops = allWaypoints.length;
     const completed = allWaypoints.filter(w => {
@@ -1587,7 +2743,9 @@ export async function renderOptirouteSupport() {
   function renderShipmentsTable(data) {
     const tableCard = document.getElementById('route-data-card');
     const tableBody = document.getElementById('table-shipments-body');
-    tableCard.style.display = 'flex';
+    if (tableCard) {
+      tableCard.style.display = (currentActiveTab === 'api' || currentActiveTab === 'excel') ? 'flex' : 'none';
+    }
 
     if (data.length === 0) {
       tableBody.innerHTML = `

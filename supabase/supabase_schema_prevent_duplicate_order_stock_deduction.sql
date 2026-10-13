@@ -82,17 +82,36 @@ BEGIN
   -- =========================================================================
   IF v_new_wms = 'Despachado' AND v_old_wms != 'Despachado' THEN
     
-    -- REGLA MÁXIMA DE IDEMPOTENCIA: Si ya descontó stock en su ciclo de vida o existe movimiento previo
+    -- REGLA DE IDEMPOTENCIA BLINDADA (SIN COLISIÓN NUMÉRICA POR SUBCADENA):
+    -- Solo se considera duplicado si:
+    -- 1. La orden ya tenía stock_descontado = true en su registro previo (OLD)
+    -- 2. Ya existen movimientos 'out' asignados a este order_id exacto
+    -- 3. Existen movimientos 'out' desvinculados (order_id IS NULL) pero con coincidencia
+    --    EXACTA del documento ('Pedido ' || v_order_num o 'Pedido #' || v_order_num)
+    --    Y cuyos productos pertenezcan a esta orden.
     IF COALESCE(OLD.stock_descontado, false) = true 
        OR EXISTS (SELECT 1 FROM public.movements WHERE order_id = NEW.id AND type = 'out')
-       OR (length(v_clean_num) >= 3 AND EXISTS (SELECT 1 FROM public.movements WHERE reference_doc ILIKE '%' || v_clean_num || '%' AND type = 'out'))
+       OR EXISTS (
+            SELECT 1 FROM public.movements m
+            JOIN public.order_items oi ON oi.order_id = NEW.id AND oi.product_id = m.product_id
+            WHERE m.order_id IS NULL 
+              AND m.type = 'out' 
+              AND (m.reference_doc = 'Pedido ' || v_order_num 
+                   OR m.reference_doc = 'Pedido #' || v_order_num 
+                   OR m.reference_doc = 'Pedido ' || NEW.id::text)
+       )
     THEN
-      -- Auto-enlazar movimiento si estaba desvinculado
-      IF length(v_clean_num) >= 3 THEN
-        UPDATE public.movements 
-        SET order_id = NEW.id 
-        WHERE order_id IS NULL AND type = 'out' AND reference_doc ILIKE '%' || v_clean_num || '%';
-      END IF;
+      -- Auto-enlazar movimientos desvinculados ÚNICAMENTE con coincidencia exacta y del mismo producto
+      UPDATE public.movements m
+      SET order_id = NEW.id 
+      FROM public.order_items oi
+      WHERE m.order_id IS NULL 
+        AND m.type = 'out'
+        AND oi.order_id = NEW.id 
+        AND oi.product_id = m.product_id
+        AND (m.reference_doc = 'Pedido ' || v_order_num 
+             OR m.reference_doc = 'Pedido #' || v_order_num 
+             OR m.reference_doc = 'Pedido ' || NEW.id::text);
 
       -- Liberar compromisos o reservas en estante/mesa sin afectar stock físico
       FOR item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP

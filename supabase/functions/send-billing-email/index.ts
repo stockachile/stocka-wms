@@ -1299,17 +1299,25 @@ serve(async (req) => {
     }
     else if (emailType === 'onboarding_enviame_instructions') {
       const envIdVal = payload.enviameId || payload.enviame_id || 'ID_NO_CONFIGURADO';
+      const rawPlatform = String(payload.platform || payload.plataforma || '').toLowerCase().trim();
+      const isWooCommerce = rawPlatform.includes('woo');
+      const targetPlatformName = isWooCommerce ? 'WooCommerce' : 'Shopify';
+
       emailSubject = `Instrucciones de Integración y Configuración de Envíos - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
-      emailTitle = 'Integración de Envíos';
+      emailTitle = `Integración de Envíos (${targetPlatformName})`;
 
       // Consultar adjuntos para agregar enlaces directos en el cuerpo del correo
       let resourcesHtml = '';
       try {
+        const targetFolders = isWooCommerce 
+          ? ['E3', 'E3_General', 'E3_WooCommerce']
+          : ['E3', 'E3_General', 'E3_Shopify'];
+
         const { data: e3Docs } = await supabaseClient
           .from('service_docs')
           .select('name, file_url')
-          .in('folder', ['E3', 'E3_General', 'E3_Shopify']);
+          .in('folder', targetFolders);
         
         if (e3Docs && e3Docs.length > 0) {
           resourcesHtml = `
@@ -1338,73 +1346,158 @@ serve(async (req) => {
         console.error('[send-billing-email] Error cargando enlaces E3 para cuerpo de correo:', err);
       }
 
-      emailBodyHtml = `
-        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
-          Hola equipo de <strong>${commerceName}</strong>,<br><br>
-          Junto con saludarte, te comentamos que ya contamos con el acceso al canal de Shopify. En esta etapa revisaremos la integración para los sistemas de envío de última milla. A continuación, te detallamos las opciones disponibles y los pasos obligatorios para su conexión:
-        </div>
+      if (isWooCommerce) {
+        const contactEmailDisplay = payload.userEmail || payload.email || (recipientEmails && recipientEmails.length > 0 ? recipientEmails[0] : '[correo de contacto]');
+        const wooWebhookUrl = `https://api.enviame.io/companies/${envIdVal}/woocommercewebhook`;
 
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
-            A.- DESPACHOS EN SANTIAGO (RM) - SAME DAY / 24 HRS
-          </strong>
-          En la Región Metropolitana ofrecemos entregas <strong>Same Day</strong> para ventas generadas hasta las <strong>12:00 hrs</strong>. 
-          Te adjuntamos en este correo la presentación de este servicio con el detalle de costos, coberturas y operaciones.
-        </div>
+        emailBodyHtml = `
+          <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+            Hola equipo de <strong>${commerceName}</strong>,<br><br>
+            Junto con saludarte, te comentamos que la conexión entre el <strong>WMS Stocka</strong> y tu tienda en <strong>WooCommerce</strong> ya se encuentra configurada. En esta etapa revisaremos la integración a los sistemas de envío de última milla. A continuación, te compartimos los mecanismos disponibles, los pasos obligatorios de conexión y las opciones de tarificación:
+          </div>
 
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
-            B.- DESPACHOS A REGIONES - INTEGRACIÓN ENVIAME
-          </strong>
-          Para regiones integramos tu tienda dentro de nuestra cuenta corporativa de <a href="https://enviame.io/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Enviame</a> de manera personalizada.
-          <br><br>
-          <strong>Pasos para la conexión vía Webhook (REQUERIDO):</strong>
-          <ol style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
-            <li>Abre el <strong>manual de integración adjunto</strong> en este correo y dirígete a la <strong>página 3</strong>.</li>
-            <li>Sigue las indicaciones de las <strong>páginas 3, 4 y 5</strong>. En el campo <em>Evento</em> selecciona <strong>"Pedido preparado"</strong>.</li>
-            <li>En la página 4, reemplaza el valor de ejemplo '1111' por tu ID de Enviame definitivo: <strong style="background-color: #ffe4e6; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 14px;">${envIdVal}</strong></li>
-            <li>Una vez creados, copia los códigos generados y compártelos con nosotros <strong>como texto</strong> (no captura de pantalla) respondiendo a este correo para finalizar la activación.</li>
-          </ol>
-          <span style="color: #b91c1c; font-weight: 600; display: block; margin-top: 8px; font-size: 12.5px;">
-            ⚠️ IMPORTANTE: No modifiques o elimines este webhook una vez creado; de lo contrario, la emisión de etiquetas fallará.
-          </span>
-        </div>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              A.- DESPACHOS EN SANTIAGO (RM) - SAME DAY / 24 HRS
+            </strong>
+            En la Región Metropolitana ofrecemos entregas <strong>Same Day</strong> para ventas generadas hasta las <strong>12:00 hrs</strong> (aplican condiciones). 
+            Te adjuntamos en este correo la presentación de este servicio con el detalle de costos, coberturas y tiempos de entrega.
+          </div>
 
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
-            C.- INTEGRACIÓN DE TARIFAS EN TIEMPO REAL EN EL CHECKOUT (OPCIONAL)
-          </strong>
-          Dado que las tarifas logísticas dependen de la comuna y peso del paquete, es vital asegurar que las comunas estén bien estandarizadas en Shopify. Te recomendamos estas opciones:
-          <br><br>
-          <ul style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
-            <li style="margin-bottom: 8px;">
-              <strong>1. Aplicación Selecty (Opción Recomendada):</strong>
-              Permite mostrar tarifas optimizadas en el checkout en 1 día de implementación. Costo aprox. 12 USD/mes. Requiere cargar una planilla de tarifas que te compartiremos. 
-              Puedes instalarla desde: <a href="https://apps.shopify.com/sector-de-comuna-cl-gratis?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">App Selecty</a>.
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>2. Aplicaciones CCS de Terceros:</strong>
-              Como el <a href="https://haciendola.com/pages/tarificador" target="_blank" style="color: #2563eb; text-decoration: underline;">Tarificador de Haciendola</a> o la app de <a href="https://apps.shopify.com/tarificador-chile?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">Lobo Creaciones</a>. Requieren tener activa la función Carrier-Calculated Shipping (CCS) en Shopify. Costo aprox. 40 USD/mes.
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>3. Checkout Gratis de Enviame:</strong>
-              Se solicita al equipo de soporte de Enviame (plazo de implementación 4-7 días). Requiere que nos otorgues permisos de "aplicaciones" en tu tienda Shopify.
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>4. Configuración Nativa Simplificada:</strong>
-              Usar las zonas y tarifas de envío manuales/nativas de Shopify a tu criterio.
-            </li>
-          </ul>
-        </div>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              B.- DESPACHOS A REGIONES - INTEGRACIÓN ENVIAME
+            </strong>
+            Para envíos a regiones integramos tu tienda WooCommerce dentro de nuestra cuenta corporativa de <a href="https://enviame.io/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Enviame</a> con configuración personalizada e independiente.
+            <br><br>
+            <strong>Pasos para la conexión vía Webhook (REQUERIDO para emisión de etiquetas):</strong>
+            <ol style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+              <li>Abre el <strong>manual de integración adjunto</strong> y dirígete desde la <strong>página 3 hasta la 7</strong>.</li>
+              <li>En el paso <em>URL de Entrega</em> (página 5), ingresa la siguiente URL de notificación:
+                <br>
+                <div style="margin: 6px 0;">
+                  <code style="background-color: #ede9fe; color: #5b21b6; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12.5px; word-break: break-all; border: 1px solid #ddd6fe; display: inline-block;">${wooWebhookUrl}</code>
+                </div>
+                <span style="font-size: 12px; color: #64748b;">(Tu Company ID configurado en WMS es: <strong style="background-color: #ffe4e6; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px;">${envIdVal}</strong>)</span>
+              </li>
+              <li style="margin-top: 6px;">Al crear la clave secreta, ingresa exactamente: <strong style="background-color: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-family: monospace;">stocka2026</strong></li>
+              <li style="margin-top: 6px;">Al llegar a la página 7, guarda y envíanos <strong>como texto</strong> (no captura de pantalla) respondiendo a este correo:
+                <ul style="margin: 4px 0; padding-left: 18px;">
+                  <li><strong>Clave del cliente (Consumer Key)</strong></li>
+                  <li><strong>Clave secreta de cliente (Consumer Secret)</strong></li>
+                </ul>
+              </li>
+            </ol>
+            <span style="color: #b91c1c; font-weight: 600; display: block; margin-top: 8px; font-size: 12.5px;">
+              ⚠️ IMPORTANTE: Asegúrate de realizar únicamente lo instruido en este paso a paso. Una vez recibidas las claves, coordinaremos pedidos de prueba para validar el comportamiento y emisión de etiquetas.
+            </span>
+          </div>
 
-        ${resourcesHtml}
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              C.- INTEGRACIÓN CON TARIFICADOR EN TIEMPO REAL EN CHECKOUT (OPCIONAL)
+            </strong>
+            Dado que las tarifas logísticas se calculan según comuna de destino y peso (mayor entre peso físico y volumétrico medido en kg), dispones de dos alternativas para mostrar las tarifas en tu carrito de compras:
+            <br><br>
+            <ul style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+              <li style="margin-bottom: 8px;">
+                <strong>1. Opción Plugin (Recomendada / Automática):</strong>
+                Puedes instalar un plugin de terceros como <a href="https://wordpress.org/plugins/voya-chile-lugares-y-cotizador-de-despachos/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Voya Chile - Lugares y Cotizador de Despachos</a> (dispone de plan gratuito y de pago), el cual ajusta y muestra las tarifas automáticamente en tiempo real al ingresar la comuna y peso del paquete.
+              </li>
+              <li style="margin-bottom: 8px;">
+                <strong>2. Opción Nativa (Gratuita / Manual):</strong>
+                Si prefieres no incurrir en costos de plugins externos, puedes configurar manualmente tarifas fijas o por tramos directamente desde las opciones de envío nativas de WooCommerce (<em>WooCommerce &gt; Ajustes &gt; Envío</em>).
+              </li>
+            </ul>
+          </div>
 
-        <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
-          📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
-          Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
-          <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
-        </div>
-      `;
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              D.- ACCESO A TU PLATAFORMA ENVIAME
+            </strong>
+            Se ha generado un usuario para acceder a la plataforma Enviame asociado a tu correo: <strong>${contactEmailDisplay}</strong>.
+            <br><br>
+            Debes haber recibido un correo de Enviame para restablecer o crear tu contraseña de acceso. Desde la plataforma podrás visualizar el estado de tus despachos en tiempo real y gestionar incidencias una vez que la integración quede 100% operativa.
+          </div>
+
+          ${resourcesHtml}
+
+          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
+            📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
+            Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
+            <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
+          </div>
+        `;
+      } else {
+        // Platform Shopify (comportamiento estándar)
+        emailBodyHtml = `
+          <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+            Hola equipo de <strong>${commerceName}</strong>,<br><br>
+            Junto con saludarte, te comentamos que ya contamos con el acceso al canal de Shopify. En esta etapa revisaremos la integración para los sistemas de envío de última milla. A continuación, te detallamos las opciones disponibles y los pasos obligatorios para su conexión:
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              A.- DESPACHOS EN SANTIAGO (RM) - SAME DAY / 24 HRS
+            </strong>
+            En la Región Metropolitana ofrecemos entregas <strong>Same Day</strong> para ventas generadas hasta las <strong>12:00 hrs</strong>. 
+            Te adjuntamos en este correo la presentación de este servicio con el detalle de costos, coberturas y operaciones.
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              B.- DESPACHOS A REGIONES - INTEGRACIÓN ENVIAME
+            </strong>
+            Para regiones integramos tu tienda dentro de nuestra cuenta corporativa de <a href="https://enviame.io/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Enviame</a> de manera personalizada.
+            <br><br>
+            <strong>Pasos para la conexión vía Webhook (REQUERIDO):</strong>
+            <ol style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+              <li>Abre el <strong>manual de integración adjunto</strong> en este correo y dirígete a la <strong>página 3</strong>.</li>
+              <li>Sigue las indicaciones de las <strong>páginas 3, 4 y 5</strong>. En el campo <em>Evento</em> selecciona <strong>"Pedido preparado"</strong>.</li>
+              <li>En la página 4, reemplaza el valor de ejemplo '1111' por tu ID de Enviame definitivo: <strong style="background-color: #ffe4e6; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 14px;">${envIdVal}</strong></li>
+              <li>Una vez creados, copia los códigos generados y compártelos con nosotros <strong>como texto</strong> (no captura de pantalla) respondiendo a este correo para finalizar la activación.</li>
+            </ol>
+            <span style="color: #b91c1c; font-weight: 600; display: block; margin-top: 8px; font-size: 12.5px;">
+              ⚠️ IMPORTANTE: No modifiques o elimines este webhook una vez creado; de lo contrario, la emisión de etiquetas fallará.
+            </span>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              C.- INTEGRACIÓN DE TARIFAS EN TIEMPO REAL EN EL CHECKOUT (OPCIONAL)
+            </strong>
+            Dado que las tarifas logísticas dependen de la comuna y peso del paquete, es vital asegurar que las comunas estén bien estandarizadas en Shopify. Te recomendamos estas opciones:
+            <br><br>
+            <ul style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+              <li style="margin-bottom: 8px;">
+                <strong>1. Aplicación Selecty (Opción Recomendada):</strong>
+                Permite mostrar tarifas optimizadas en el checkout en 1 día de implementación. Costo aprox. 12 USD/mes. Requiere cargar una planilla de tarifas que te compartiremos. 
+                Puedes instalarla desde: <a href="https://apps.shopify.com/sector-de-comuna-cl-gratis?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">App Selecty</a>.
+              </li>
+              <li style="margin-bottom: 8px;">
+                <strong>2. Aplicaciones CCS de Terceros:</strong>
+                Como el <a href="https://haciendola.com/pages/tarificador" target="_blank" style="color: #2563eb; text-decoration: underline;">Tarificador de Haciendola</a> o la app de <a href="https://apps.shopify.com/tarificador-chile?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">Lobo Creaciones</a>. Requieren tener activa la función Carrier-Calculated Shipping (CCS) en Shopify. Costo aprox. 40 USD/mes.
+              </li>
+              <li style="margin-bottom: 8px;">
+                <strong>3. Checkout Gratis de Enviame:</strong>
+                Se solicita al equipo de soporte de Enviame (plazo de implementación 4-7 días). Requiere que nos otorgues permisos de "aplicaciones" en tu tienda Shopify.
+              </li>
+              <li style="margin-bottom: 8px;">
+                <strong>4. Configuración Nativa Simplificada:</strong>
+                Usar las zonas y tarifas de envío manuales/nativas de Shopify a tu criterio.
+              </li>
+            </ul>
+          </div>
+
+          ${resourcesHtml}
+
+          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
+            📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
+            Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
+            <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
+          </div>
+        `;
+      }
     }
     else if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
       const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
@@ -2510,11 +2603,16 @@ serve(async (req) => {
     // Si es onboarding_enviame_instructions (correo E3), consultar y adjuntar dinámicamente los archivos de la carpeta E3
     if (emailType === 'onboarding_enviame_instructions') {
       try {
-        // Por ahora, como el correo E3 es de Shopify, adjuntamos los archivos de 'E3' / 'E3_General' y 'E3_Shopify'
+        const rawPlatform = String(payload.platform || payload.plataforma || '').toLowerCase().trim();
+        const isWoo = rawPlatform.includes('woo');
+        const targetFolders = isWoo 
+          ? ['E3', 'E3_General', 'E3_WooCommerce']
+          : ['E3', 'E3_General', 'E3_Shopify'];
+
         const { data: e3Docs, error: e3Err } = await supabaseClient
           .from('service_docs')
           .select('name, file_url')
-          .in('folder', ['E3', 'E3_General', 'E3_Shopify']);
+          .in('folder', targetFolders);
 
         if (!e3Err && e3Docs && e3Docs.length > 0) {
           console.log(`[send-billing-email] Encontrados ${e3Docs.length} documentos en la carpeta E3.`);
