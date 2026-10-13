@@ -132,7 +132,7 @@ window.copyFieldFromData = function(btn, fieldName) {
   }
 };
 
-window.renderCopyFieldBtn = function(value, label, tooltip) {
+window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   if (!value) return '';
   const trimmed = String(value).trim();
   if (!trimmed || trimmed === 'No registrado' || trimmed === 'No registrada' || trimmed === 'Sin notas' || trimmed === '-') {
@@ -140,7 +140,8 @@ window.renderCopyFieldBtn = function(value, label, tooltip) {
   }
   const cleanVal = window.escapeHtmlAttr(trimmed);
   const tip = tooltip || `Copiar ${label ? label.toLowerCase() : 'texto'}`;
-  return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s;" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
+  const baseStyle = `background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s; flex-shrink: 0; ${customStyle || ''}`;
+  return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
 window.normalizeComunaKey = function(str) {
@@ -1203,7 +1204,17 @@ window.refreshSingleOrderPickerStatus = async function(orderId) {
   }
 };
 
-window.fetchInventoryForOrders = async function(orders) {
+window.resetWmsInventoryMap = function() {
+  window.loadedOrdersInventoryMap = {};
+  window.loadedProductTotalInventoryMap = {};
+  if (window.loadedQueriedProductIds) {
+    window.loadedQueriedProductIds.clear();
+  } else {
+    window.loadedQueriedProductIds = new Set();
+  }
+};
+
+window.fetchInventoryForOrders = async function(orders, force = false) {
   window.loadedOrdersInventoryMap = window.loadedOrdersInventoryMap || {};
   window.loadedProductTotalInventoryMap = window.loadedProductTotalInventoryMap || {};
   window.loadedQueriedProductIds = window.loadedQueriedProductIds || new Set();
@@ -1230,6 +1241,7 @@ window.fetchInventoryForOrders = async function(orders) {
   });
 
   const uniqueProductIds = [...new Set(allProductIds)].filter(id => {
+    if (force) return true;
     return !window.loadedQueriedProductIds.has(id);
   });
 
@@ -1243,7 +1255,12 @@ window.fetchInventoryForOrders = async function(orders) {
     }
 
     await Promise.all(chunks.map(async (chunk) => {
-      chunk.forEach(id => window.loadedQueriedProductIds.add(id));
+      chunk.forEach(id => {
+        window.loadedQueriedProductIds.add(id);
+        if (window.loadedProductTotalInventoryMap[id] === undefined) {
+          window.loadedProductTotalInventoryMap[id] = 0;
+        }
+      });
       const { data: invData, error: invErr } = await supabase
         .from('inventory')
         .select('product_id, warehouse_id, quantity')
@@ -2336,7 +2353,7 @@ window.resyncShopifyOrder = async function(orderId) {
         window.loadedOrders[idx] = { ...window.loadedOrders[idx], ...refreshedOrder };
       }
       if (window.fetchInventoryForOrders) {
-        await window.fetchInventoryForOrders([refreshedOrder]);
+        await window.fetchInventoryForOrders([refreshedOrder], true);
       }
       if (refreshedOrder.estado_wms === 'En preparación' && typeof window.propagateOrderUpdateToPicker === 'function') {
         window.propagateOrderUpdateToPicker(refreshedOrder);
@@ -4870,6 +4887,21 @@ window.toggleOrderRow = function(orderId) {
     if (window.loadOrderAuditLogs) {
       window.loadOrderAuditLogs(orderId);
     }
+
+    // Salvaguarda: Verificar si los productos de este pedido tienen su stock cargado en memoria.
+    // Si no estaban cargados (por ej. carga diferida o búsqueda puntual), consultar de inmediato.
+    const currentOrder = (window.loadedOrders || []).find(o => o.id === orderId);
+    if (currentOrder && Array.isArray(currentOrder.order_items) && currentOrder.order_items.length > 0 && typeof window.fetchInventoryForOrders === 'function') {
+      const invMap = window.loadedOrdersInventoryMap || {};
+      const needsInventory = currentOrder.order_items.some(oi => oi.product_id && !oi.products?.is_virtual && !Object.keys(invMap).some(k => k.startsWith(oi.product_id + '_')));
+      if (needsInventory) {
+        window.fetchInventoryForOrders([currentOrder], true).then(() => {
+          if (window.wmsExpandedOrderIds.has(orderId) && typeof window.applyWmsFiltersAndRender === 'function') {
+            window.applyWmsFiltersAndRender();
+          }
+        }).catch(err => console.warn('[WMS] Error cargando stock bajo demanda al expandir pedido:', err));
+      }
+    }
   }
 };
 
@@ -5111,9 +5143,13 @@ window.reassignOrderCommerce = async function(orderId, newCommerce, selectEl) {
     if (window.clearWmsTagsCache) {
       window.clearWmsTagsCache();
     }
-    window.loadedOrdersInventoryMap = {};
+    if (typeof window.resetWmsInventoryMap === 'function') {
+      window.resetWmsInventoryMap();
+    } else {
+      window.loadedOrdersInventoryMap = {};
+    }
     if (window.fetchInventoryForOrders && window.loadedOrders) {
-      await window.fetchInventoryForOrders(window.loadedOrders);
+      await window.fetchInventoryForOrders(window.loadedOrders, true);
     }
 
     // Actualizar opciones de filtros de comercio y etiquetas
@@ -5290,6 +5326,141 @@ window.extractOrderReferencesForShipments = function(ordersList) {
   return [...new Set(refs.filter(Boolean))];
 };
 
+// ==========================================================
+// CACHÉ LOCAL INDEXEDDB PARA TORRE DE CONTROL (SWR ACCELERATION)
+// ==========================================================
+window.wmsDbCache = {
+  dbName: 'StockaWmsCache_v1',
+  storeName: 'orders_window',
+  _db: null,
+
+  async openDb() {
+    if (this._db) return this._db;
+    if (typeof indexedDB === 'undefined') return null;
+
+    return new Promise((resolve) => {
+      try {
+        const request = indexedDB.open(this.dbName, 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(this.storeName)) {
+            db.createObjectStore(this.storeName, { keyPath: 'cacheKey' });
+          }
+        };
+        request.onsuccess = (e) => {
+          this._db = e.target.result;
+          resolve(this._db);
+        };
+        request.onerror = (e) => {
+          console.warn('[WMS Cache] Could not open IndexedDB:', e);
+          resolve(null);
+        };
+      } catch (err) {
+        console.warn('[WMS Cache] IndexedDB init error:', err);
+        resolve(null);
+      }
+    });
+  },
+
+  async getWindowCache(dateFrom, dateTo) {
+    try {
+      const db = await this.openDb();
+      if (!db) return null;
+      return new Promise((resolve) => {
+        const tx = db.transaction(this.storeName, 'readonly');
+        const store = tx.objectStore(this.storeName);
+        const req = store.get(`${dateFrom || ''}_${dateTo || ''}`);
+        req.onsuccess = () => {
+          const res = req.result;
+          if (res && Array.isArray(res.orders) && res.orders.length > 0) {
+            // Permitir hasta 24 horas de antigüedad para hidratación instantánea Stale-While-Revalidate
+            const ageMs = Date.now() - new Date(res.cachedAt).getTime();
+            if (isNaN(ageMs) || ageMs < 24 * 60 * 60 * 1000) {
+              resolve(res);
+            } else {
+              resolve(null);
+            }
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      });
+    } catch (err) {
+      console.warn('[WMS Cache] Read error:', err);
+      return null;
+    }
+  },
+
+  async setWindowCache(dateFrom, dateTo, orders, shipments = [], inventoryMap = {}) {
+    try {
+      const db = await this.openDb();
+      if (!db || !Array.isArray(orders) || orders.length === 0) return false;
+      return new Promise((resolve) => {
+        const tx = db.transaction(this.storeName, 'readwrite');
+        const store = tx.objectStore(this.storeName);
+        store.put({
+          cacheKey: `${dateFrom || ''}_${dateTo || ''}`,
+          dateFrom,
+          dateTo,
+          orders,
+          shipments: Array.isArray(shipments) ? shipments : [],
+          inventoryMap: (inventoryMap && typeof inventoryMap === 'object') ? inventoryMap : {},
+          cachedAt: new Date().toISOString()
+        });
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+    } catch (err) {
+      console.warn('[WMS Cache] Write error:', err);
+      return false;
+    }
+  },
+
+  async clearCache() {
+    try {
+      const db = await this.openDb();
+      if (!db) return;
+      const tx = db.transaction(this.storeName, 'readwrite');
+      tx.objectStore(this.storeName).clear();
+    } catch (e) {
+      console.warn('[WMS Cache] Clear error:', e);
+    }
+  }
+};
+
+window.setWmsCacheSyncStatus = function(status, message) {
+  const el = document.getElementById('wms-cache-sync-indicator');
+  if (!el) return;
+  if (status === 'syncing') {
+    el.style.display = 'inline-flex';
+    el.style.background = 'rgba(79, 70, 229, 0.08)';
+    el.style.borderColor = 'rgba(79, 70, 229, 0.25)';
+    el.style.color = '#4338ca';
+    el.innerHTML = `<i class="ri-refresh-line spin" style="font-size: 0.8rem;"></i><span>${message || 'Sincronizando en segundo plano...'}</span>`;
+  } else if (status === 'synced') {
+    el.style.display = 'inline-flex';
+    el.style.background = 'rgba(16, 185, 129, 0.1)';
+    el.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+    el.style.color = '#065f46';
+    el.innerHTML = `<i class="ri-check-line" style="font-size: 0.8rem; color: #10b981;"></i><span>${message || 'Actualizado'}</span>`;
+    setTimeout(() => {
+      const currentEl = document.getElementById('wms-cache-sync-indicator');
+      if (currentEl && currentEl.innerHTML.includes('Actualizado')) {
+        currentEl.style.display = 'none';
+      }
+    }, 3500);
+  } else if (status === 'cached') {
+    el.style.display = 'inline-flex';
+    el.style.background = 'rgba(245, 158, 11, 0.08)';
+    el.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+    el.style.color = '#92400e';
+    el.innerHTML = `<i class="ri-flashlight-line" style="font-size: 0.8rem; color: #f59e0b;"></i><span>${message || 'Cargado desde caché'}</span>`;
+  } else {
+    el.style.display = 'none';
+  }
+};
+
 let _currentFetchWmsOrdersPromise = null;
 let _currentFetchWmsOrdersKey = '';
 
@@ -5427,7 +5598,11 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
       const orders = allOrders;
       window.loadedOrders = orders || [];
-      window.loadedOrdersInventoryMap = {};
+      if (typeof window.resetWmsInventoryMap === 'function') {
+        window.resetWmsInventoryMap();
+      } else {
+        window.loadedOrdersInventoryMap = {};
+      }
       if (window.clearWmsTagsCache) {
         window.clearWmsTagsCache();
       }
@@ -5451,7 +5626,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
           })(),
           (async () => {
             if (window.fetchInventoryForOrders) {
-              await window.fetchInventoryForOrders(orders);
+              await window.fetchInventoryForOrders(orders, true);
             }
           })(),
           (async () => {
@@ -5472,6 +5647,13 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         }
       } else {
         window.loadedShipments = [];
+      }
+
+      // Persistir automáticamente en caché de IndexedDB para hidratación instantánea futura
+      if (window.wmsDbCache && Array.isArray(window.loadedOrders)) {
+        window.wmsDbCache.setWindowCache(dateFrom, dateTo, window.loadedOrders, window.loadedShipments || [], window.loadedOrdersInventoryMap || {}).catch(e => {
+          console.warn('[WMS Cache] Error saving window to IndexedDB:', e);
+        });
       }
     } finally {
       _currentFetchWmsOrdersPromise = null;
@@ -5586,6 +5768,16 @@ window.initWmsOrdersRealtimeSync = function() {
               if (typeof window.clearWmsTagsCache === 'function') {
                 window.clearWmsTagsCache();
               }
+
+              // Sincronizar en caché local IndexedDB con debounce de 2 segundos
+              if (window._wmsSaveCacheDebounceTimer) {
+                clearTimeout(window._wmsSaveCacheDebounceTimer);
+              }
+              window._wmsSaveCacheDebounceTimer = setTimeout(() => {
+                if (window.wmsDbCache && window.lastFetchedDateFrom && window.lastFetchedDateTo && Array.isArray(window.loadedOrders)) {
+                  window.wmsDbCache.setWindowCache(window.lastFetchedDateFrom, window.lastFetchedDateTo, window.loadedOrders, window.loadedShipments || [], window.loadedOrdersInventoryMap || {}).catch(() => {});
+                }
+              }, 2000);
             }
           }
 
@@ -6515,36 +6707,18 @@ window.updateWmsStickyHeaderPositions = function() {
 };
 
 async function renderAdminOrders() {
-  window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
+  if (typeof window.resetWmsInventoryMap === 'function') {
+    window.resetWmsInventoryMap();
+  } else {
+    window.loadedOrdersInventoryMap = {};
+  }
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-      <style>
-        @keyframes wms-spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes wms-pulse {
-          0%, 100% { opacity: 0.5; transform: scale(0.9); }
-          50% { opacity: 1; transform: scale(1.1); }
-        }
-      </style>
-      <div style="position: relative; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; width: 80px; height: 80px;">
-        <div style="position: absolute; width: 64px; height: 64px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
-        <i class="ri-box-3-line" style="position: absolute; font-size: 1.8rem; color: var(--color-primary); display: inline-block; animation: wms-pulse 1.5s ease-in-out infinite;"></i>
-      </div>
-      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.1rem;">Cargando Gestor de Pedidos</h4>
-      <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem; text-align: center;">Por favor espera unos segundos mientras sincronizamos la información...</p>
-    </div>
-  `;
 
   // Reset/Init WMS state
   window.wmsActiveTab = window.wmsActiveTab || 'Todos';
   window.wmsPageSize = window.wmsPageSize !== undefined ? window.wmsPageSize : 25;
   window.wmsCurrentPage = window.wmsCurrentPage || 1;
   window.wmsSelectedOrderIds = window.wmsSelectedOrderIds || new Set();
-
-  await window.loadConfigOptions();
 
   const now = new Date();
   const d7 = new Date();
@@ -6557,6 +6731,57 @@ async function renderAdminOrders() {
   const initialDateTo = todayStr;
   window.wmsActiveDatePreset = window.wmsActiveDatePreset || '7days';
   const isFiltersCollapsed = localStorage.getItem('wms_filters_collapsed') === 'true';
+
+  // Verificar si tenemos caché local inmediata en IndexedDB (Stale-While-Revalidate)
+  let hasCachedOrders = false;
+  let cachedWindow = null;
+  if (window.wmsDbCache) {
+    try {
+      cachedWindow = await window.wmsDbCache.getWindowCache(initialDateFrom, initialDateTo);
+      if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
+        hasCachedOrders = true;
+        window.loadedOrders = cachedWindow.orders;
+        window.loadedShipments = cachedWindow.shipments || [];
+        if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
+          window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+        }
+        if (typeof window.buildWmsShipmentsByRefMap === 'function') {
+          window.buildWmsShipmentsByRefMap(window.loadedShipments);
+        }
+        if (typeof window.clearWmsTagsCache === 'function') {
+          window.clearWmsTagsCache();
+        }
+      }
+    } catch (cacheErr) {
+      console.warn('[WMS Cache] Pre-load cache read error:', cacheErr);
+    }
+  }
+
+  // Solo si NO hay datos en caché mostramos el loader inicial de pantalla completa
+  if (!hasCachedOrders) {
+    appContent.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+        <style>
+          @keyframes wms-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          @keyframes wms-pulse {
+            0%, 100% { opacity: 0.5; transform: scale(0.9); }
+            50% { opacity: 1; transform: scale(1.1); }
+          }
+        </style>
+        <div style="position: relative; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; width: 80px; height: 80px;">
+          <div style="position: absolute; width: 64px; height: 64px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+          <i class="ri-box-3-line" style="position: absolute; font-size: 1.8rem; color: var(--color-primary); display: inline-block; animation: wms-pulse 1.5s ease-in-out infinite;"></i>
+        </div>
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.1rem;">Cargando Gestor de Pedidos</h4>
+        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem; text-align: center;">Por favor espera unos segundos mientras sincronizamos la información...</p>
+      </div>
+    `;
+  }
+
+  await window.loadConfigOptions();
 
   try {
     // Cargar todos los packs de todos los comercios para trazabilidad en Admin
@@ -6577,9 +6802,11 @@ async function renderAdminOrders() {
     window.lastFetchedDateFrom = initialDateFrom;
     window.lastFetchedDateTo = initialDateTo;
 
-    await window.fetchWmsOrdersData(initialDateFrom, initialDateTo);
-    if (window.updateWmsLastGlobalRefreshTag) {
-      window.updateWmsLastGlobalRefreshTag(new Date());
+    if (!hasCachedOrders) {
+      await window.fetchWmsOrdersData(initialDateFrom, initialDateTo);
+      if (window.updateWmsLastGlobalRefreshTag) {
+        window.updateWmsLastGlobalRefreshTag(new Date());
+      }
     }
 
     // Cargar configuraciones adicionales de los comercios
@@ -8701,6 +8928,7 @@ async function renderAdminOrders() {
               <button type="button" class="btn btn-sm wms-date-preset-btn ${window.wmsActiveDatePreset === 'month' ? 'active' : ''}" data-preset="month" onclick="window.setWmsDatePreset('month')">Este mes</button>
             </div>
             <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+              <span id="wms-cache-sync-indicator" style="display: none; align-items: center; gap: 0.35rem; font-size: 0.73rem; padding: 0.2rem 0.55rem; border-radius: 6px; font-weight: 600; border: 1px solid transparent; transition: all 0.2s;"></span>
               <div id="wms-date-preset-indicator" style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">
                 <i class="ri-information-line"></i> Carga inicial: últimos 7 días (${initialDateFrom} al ${initialDateTo})
               </div>
@@ -9046,6 +9274,58 @@ async function renderAdminOrders() {
         return;
       }
 
+      // Si no está en memoria pero existe en la caché local IndexedDB (Stale-While-Revalidate)
+      if (!forceRefresh && window.wmsDbCache) {
+        try {
+          const cachedWindow = await window.wmsDbCache.getWindowCache(fromStr, toStr);
+          if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
+            window.loadedOrders = cachedWindow.orders;
+            window.loadedShipments = cachedWindow.shipments || [];
+            if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
+              window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+            }
+            if (typeof window.buildWmsShipmentsByRefMap === 'function') {
+              window.buildWmsShipmentsByRefMap(window.loadedShipments);
+            }
+            if (typeof window.clearWmsTagsCache === 'function') {
+              window.clearWmsTagsCache();
+            }
+            if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+            if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+            window.lastFetchedDateFrom = fromStr;
+            window.lastFetchedDateTo = toStr;
+            window.wmsCurrentPage = 1;
+            applyWmsFiltersAndRender();
+
+            // Revalidar en segundo plano silenciosamente
+            if (typeof window.setWmsCacheSyncStatus === 'function') {
+              window.setWmsCacheSyncStatus('syncing', 'Actualizando pedidos en segundo plano...');
+            }
+            window.fetchWmsOrdersData(fromStr, toStr).then(() => {
+              if (window.lastFetchedDateFrom === fromStr && window.lastFetchedDateTo === toStr) {
+                if (presetKey === '7days' && window.updateWmsLastGlobalRefreshTag) {
+                  window.updateWmsLastGlobalRefreshTag(new Date());
+                }
+                if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+                if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+                applyWmsFiltersAndRender();
+                if (typeof window.setWmsCacheSyncStatus === 'function') {
+                  window.setWmsCacheSyncStatus('synced', 'Pedidos sincronizados');
+                }
+              }
+            }).catch(syncErr => {
+              console.warn('[WMS Cache] Background refresh preset warning:', syncErr);
+              if (typeof window.setWmsCacheSyncStatus === 'function') {
+                window.setWmsCacheSyncStatus(null);
+              }
+            });
+            return;
+          }
+        } catch (cacheErr) {
+          console.warn('[WMS Cache] Read cache preset error:', cacheErr);
+        }
+      }
+
       // De lo contrario, descargar la data correspondiente
       const tbody = document.getElementById('orders-tbody');
       if (tbody) {
@@ -9165,6 +9445,55 @@ async function renderAdminOrders() {
           isFetchingDates = false;
           applyWmsFiltersAndRender();
           return;
+        }
+
+        // Si existe en caché local IndexedDB (Stale-While-Revalidate)
+        if (window.wmsDbCache && dateFrom && dateTo) {
+          try {
+            const cachedWindow = await window.wmsDbCache.getWindowCache(dateFrom, dateTo);
+            if (cachedWindow && Array.isArray(cachedWindow.orders) && cachedWindow.orders.length > 0) {
+              window.loadedOrders = cachedWindow.orders;
+              window.loadedShipments = cachedWindow.shipments || [];
+              if (cachedWindow.inventoryMap && typeof cachedWindow.inventoryMap === 'object') {
+                window.loadedOrdersInventoryMap = Object.assign({}, cachedWindow.inventoryMap);
+              }
+              if (typeof window.buildWmsShipmentsByRefMap === 'function') {
+                window.buildWmsShipmentsByRefMap(window.loadedShipments);
+              }
+              if (typeof window.clearWmsTagsCache === 'function') {
+                window.clearWmsTagsCache();
+              }
+              if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+              if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+              window.lastFetchedDateFrom = dateFrom;
+              window.lastFetchedDateTo = dateTo;
+              isFetchingDates = false;
+              applyWmsFiltersAndRender();
+
+              // Revalidar en segundo plano silenciosamente
+              if (typeof window.setWmsCacheSyncStatus === 'function') {
+                window.setWmsCacheSyncStatus('syncing', 'Actualizando pedidos en segundo plano...');
+              }
+              window.fetchWmsOrdersData(dateFrom, dateTo).then(() => {
+                if (window.lastFetchedDateFrom === dateFrom && window.lastFetchedDateTo === dateTo) {
+                  if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+                  if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+                  applyWmsFiltersAndRender();
+                  if (typeof window.setWmsCacheSyncStatus === 'function') {
+                    window.setWmsCacheSyncStatus('synced', 'Pedidos sincronizados');
+                  }
+                }
+              }).catch(syncErr => {
+                console.warn('[WMS Cache] Background refresh date change warning:', syncErr);
+                if (typeof window.setWmsCacheSyncStatus === 'function') {
+                  window.setWmsCacheSyncStatus(null);
+                }
+              });
+              return;
+            }
+          } catch (cacheErr) {
+            console.warn('[WMS Cache] Read cache on date change error:', cacheErr);
+          }
         }
         
         const tbody = document.getElementById('orders-tbody');
@@ -9290,6 +9619,37 @@ async function renderAdminOrders() {
 
     // Primera renderización de datos
     applyWmsFiltersAndRender();
+
+    // Si los datos vinieron desde caché local (IndexedDB), iniciar sincronización en segundo plano (Stale-While-Revalidate)
+    if (hasCachedOrders) {
+      if (typeof window.setWmsCacheSyncStatus === 'function') {
+        window.setWmsCacheSyncStatus('syncing', 'Sincronizando pedidos en segundo plano...');
+      }
+      setTimeout(() => {
+        // Asegurar que el usuario no haya cambiado de rango durante el retardo
+        if (window.lastFetchedDateFrom !== initialDateFrom || window.lastFetchedDateTo !== initialDateTo) {
+          return;
+        }
+        window.fetchWmsOrdersData(initialDateFrom, initialDateTo).then(() => {
+          if (window.lastFetchedDateFrom === initialDateFrom && window.lastFetchedDateTo === initialDateTo) {
+            if (typeof window.setWmsCacheSyncStatus === 'function') {
+              window.setWmsCacheSyncStatus('synced', 'Pedidos sincronizados');
+            }
+            if (window.updateWmsLastGlobalRefreshTag) {
+              window.updateWmsLastGlobalRefreshTag(new Date());
+            }
+            if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
+            if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
+            applyWmsFiltersAndRender();
+          }
+        }).catch(syncErr => {
+          console.warn('[WMS Cache] Background refresh warning:', syncErr);
+          if (typeof window.setWmsCacheSyncStatus === 'function') {
+            window.setWmsCacheSyncStatus(null);
+          }
+        });
+      }, 120);
+    }
 
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -10254,6 +10614,9 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     if (trackingNum) {
+      const copyTrackingBtn = window.renderCopyFieldBtn 
+        ? window.renderCopyFieldBtn(trackingNum, 'Tracking', 'Copiar código de tracking') 
+        : '';
       const trackingLink = trackingUrl && trackingUrl !== 'N/A'
         ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</a>`
         : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</span>`;
@@ -10371,7 +10734,7 @@ window.applyWmsFiltersAndRender = function() {
         shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
       }
       
-      trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${trackingLink}${shipStatusBadge ? `<div>${shipStatusBadge}</div>` : ''}</div>`;
+      trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;"><div style="display: inline-flex; align-items: center; flex-wrap: wrap;">${trackingLink}${copyTrackingBtn}</div>${shipStatusBadge ? `<div>${shipStatusBadge}</div>` : ''}</div>`;
     }
 
     // Fila compacta de Courier y Tracking para la celda de Estado WMS/Origen
@@ -10393,11 +10756,16 @@ window.applyWmsFiltersAndRender = function() {
         ? `<a href="${trackingUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #2563eb; font-family: monospace; font-size: 0.68rem; font-weight: 600; text-decoration: underline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle;" title="Seguimiento: ${trackingNum} (Clic para abrir rastreo)">${trackingNum}</a>`
         : `<span onclick="event.stopPropagation(); if(navigator.clipboard){navigator.clipboard.writeText('${trackingNum}'); if(window.Swal) window.Swal.fire({toast:true,position:'top-end',icon:'success',title:'Tracking copiado',showConfirmButton:false,timer:1200}); else if(window.showToast) window.showToast('Tracking copiado: ${trackingNum}', 'success');}" style="font-family: monospace; font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle; cursor: copy;" title="Tracking: ${trackingNum} (Clic para copiar)">${trackingNum}</span>`;
 
+      const copyBtn = window.renderCopyFieldBtn 
+        ? window.renderCopyFieldBtn(trackingNum, 'Tracking', 'Copiar código de tracking', 'font-size: 0.72rem; padding: 0.05rem 0.2rem; margin-left: 0.2rem;') 
+        : '';
+
       courierTrackingRowHtml = `
         <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.68rem; margin-top: 0.05rem; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.2;" title="${displayCourier}: ${trackingNum}">
           <i class="ri-truck-line" style="color: var(--color-primary); font-size: 0.72rem; flex-shrink: 0;"></i>
           <span style="font-weight: 700; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; max-width: 80px;">${displayCourier}:</span>
           ${trackElem}
+          ${copyBtn}
         </div>
       `;
     } else if (displayCourier) {
@@ -10413,11 +10781,16 @@ window.applyWmsFiltersAndRender = function() {
         ? `<a href="${trackingUrl}" target="_blank" onclick="event.stopPropagation();" style="color: #2563eb; font-family: monospace; font-size: 0.68rem; font-weight: 600; text-decoration: underline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle;" title="Seguimiento: ${trackingNum} (Clic para abrir rastreo)">${trackingNum}</a>`
         : `<span onclick="event.stopPropagation(); if(navigator.clipboard){navigator.clipboard.writeText('${trackingNum}'); if(window.Swal) window.Swal.fire({toast:true,position:'top-end',icon:'success',title:'Tracking copiado',showConfirmButton:false,timer:1200}); else if(window.showToast) window.showToast('Tracking copiado: ${trackingNum}', 'success');}" style="font-family: monospace; font-size: 0.68rem; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; display: inline-block; vertical-align: middle; cursor: copy;" title="Tracking: ${trackingNum} (Clic para copiar)">${trackingNum}</span>`;
 
+      const copyBtn = window.renderCopyFieldBtn 
+        ? window.renderCopyFieldBtn(trackingNum, 'Tracking', 'Copiar código de tracking', 'font-size: 0.72rem; padding: 0.05rem 0.2rem; margin-left: 0.2rem;') 
+        : '';
+
       courierTrackingRowHtml = `
         <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.68rem; margin-top: 0.05rem; min-width: 0; overflow: hidden; white-space: nowrap; line-height: 1.2;" title="Tracking: ${trackingNum}">
           <i class="ri-truck-line" style="color: var(--color-primary); font-size: 0.72rem; flex-shrink: 0;"></i>
           <span style="font-weight: 700; color: var(--color-text-main); flex-shrink: 0;">Track:</span>
           ${trackElem}
+          ${copyBtn}
         </div>
       `;
     } else {
@@ -11805,6 +12178,12 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
           refreshedOrders.forEach(o => {
             (o.order_items || []).forEach(oi => {
               if (oi.product_id) {
+                if (window.loadedQueriedProductIds) {
+                  window.loadedQueriedProductIds.delete(oi.product_id);
+                }
+                if (window.loadedProductTotalInventoryMap) {
+                  delete window.loadedProductTotalInventoryMap[oi.product_id];
+                }
                 Object.keys(window.loadedOrdersInventoryMap).forEach(key => {
                   if (key.startsWith(oi.product_id + '_')) {
                     delete window.loadedOrdersInventoryMap[key];
@@ -11814,7 +12193,7 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
             });
           });
         }
-        await window.fetchInventoryForOrders(refreshedOrders);
+        await window.fetchInventoryForOrders(refreshedOrders, true);
       } catch (invErr) {
         console.warn('[Sync Subset] Error actualizando inventario:', invErr);
       }
@@ -11857,7 +12236,11 @@ window.refreshWmsOrders = async function(btn, mode = 'filtered') {
     // MODO FULL: Descarga exhaustiva tradicional del período
     // ----------------------------------------------------
     if (mode === 'full') {
-      window.loadedOrdersInventoryMap = {};
+      if (typeof window.resetWmsInventoryMap === 'function') {
+        window.resetWmsInventoryMap();
+      } else {
+        window.loadedOrdersInventoryMap = {};
+      }
       const tbody = document.getElementById('orders-tbody');
       if (tbody) {
         tbody.innerHTML = `
@@ -30784,11 +31167,12 @@ function showShipmentDetailsModal(shipment) {
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Código de Tracking:</span>
-                <span class="detail-info-value">
+                <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.25rem;">
                   ${shipment.tracking 
-                    ? (shipment.tracking_url && shipment.tracking_url !== 'N/A'
+                    ? ((shipment.tracking_url && shipment.tracking_url !== 'N/A'
                         ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
-                        : `<span style="font-weight:700;">${shipment.tracking}</span>`)
+                        : `<span style="font-weight:700;">${shipment.tracking}</span>`) +
+                      (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
                     : '-'}
                 </span>
               </div>
@@ -66607,16 +66991,24 @@ window.propagateOrderUpdateToPicker = async function(order, options = {}) {
   let commerceStrict = false;
   let commerceVariantConfig = null;
   if (order.comercio) {
-    const { data: commConfig } = await supabase
-      .from('comercios_adicional_config')
-      .select('picking_match_strict, plat_siglas_config')
-      .eq('comercio', order.comercio)
-      .maybeSingle();
-    if (commConfig && commConfig.picking_match_strict) {
-      commerceStrict = true;
-    }
-    if (commConfig && commConfig.plat_siglas_config && commConfig.plat_siglas_config.variant_config) {
-      commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
+    const cachedCfg = window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[order.comercio];
+    if (cachedCfg) {
+      commerceStrict = !!cachedCfg.picking_match_strict;
+      if (cachedCfg.plat_siglas_config && cachedCfg.plat_siglas_config.variant_config) {
+        commerceVariantConfig = cachedCfg.plat_siglas_config.variant_config;
+      }
+    } else {
+      const { data: commConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('picking_match_strict, plat_siglas_config')
+        .eq('comercio', order.comercio)
+        .maybeSingle();
+      if (commConfig && commConfig.picking_match_strict) {
+        commerceStrict = true;
+      }
+      if (commConfig && commConfig.plat_siglas_config && commConfig.plat_siglas_config.variant_config) {
+        commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
+      }
     }
   }
 
@@ -66923,14 +67315,34 @@ window.sendSingleOrderToPicker = async function(order, options = {}) {
   }
 
   let commerceStrict = false;
+  let commerceVariantConfig = null;
   if (order.comercio) {
-    const { data: commConfig } = await supabase
-      .from('comercios_adicional_config')
-      .select('picking_match_strict')
-      .eq('comercio', order.comercio)
-      .maybeSingle();
-    if (commConfig && commConfig.picking_match_strict) {
-      commerceStrict = true;
+    const cachedCfg = window.loadedCommerceConfigsMap && window.loadedCommerceConfigsMap[order.comercio];
+    if (cachedCfg) {
+      commerceStrict = !!cachedCfg.picking_match_strict;
+      if (cachedCfg.plat_siglas_config && cachedCfg.plat_siglas_config.variant_config) {
+        commerceVariantConfig = cachedCfg.plat_siglas_config.variant_config;
+      }
+    } else {
+      const { data: commConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('picking_match_strict, plat_siglas_config')
+        .eq('comercio', order.comercio)
+        .maybeSingle();
+      if (commConfig) {
+        if (commConfig.picking_match_strict) commerceStrict = true;
+        if (commConfig.plat_siglas_config && commConfig.plat_siglas_config.variant_config) {
+          commerceVariantConfig = commConfig.plat_siglas_config.variant_config;
+        }
+      }
+    }
+
+    if (!commerceVariantConfig && typeof window.getCommerceVariantConfig === 'function') {
+      try {
+        commerceVariantConfig = await window.getCommerceVariantConfig(order.comercio);
+      } catch (e) {
+        console.warn('Error recuperando config variantes para picker:', e);
+      }
     }
   }
 

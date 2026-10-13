@@ -348,7 +348,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
     if (isCancelled && existingOrder.status !== 'cancelado') {
       await supabase
         .from('orders')
-        .update({ payment_status: group.status, status: 'cancelado' })
+        .update({ payment_status: group.status, status: 'cancelado', estado_wms: 'Cancelado' })
         .eq('id', existingOrder.id);
     } else {
       const updatePayload: any = {
@@ -370,7 +370,12 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
       const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
       if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
-        updatePayload.status = targetStatus;
+        // SÓLO actualizar estado si MercadoLibre indica despacho/entrega
+        // No sobreescribir el avance operacional del WMS (En procesamiento, En preparación, Pickeado)
+        if (targetStatus === 'despachado') {
+          updatePayload.status = 'despachado';
+          updatePayload.estado_wms = 'Despachado';
+        }
       }
 
       await supabase
@@ -518,6 +523,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
       shipping_method: shippingMethod,
       sucursal_pickeo: 'Sucursal Ñuñoa',
       status: 'para procesar',
+      estado_wms: 'En procesamiento',
       created_at: group.date_created
     };
 
@@ -633,11 +639,11 @@ async function handleOrderNotification(orderId: string, integration: any, access
     }
 
     const targetStatus = mapMeliStatus(shippingStatus);
-    if (targetStatus !== 'para procesar') {
-      const upData: any = { status: targetStatus };
-      if (targetStatus === 'en preparación') {
-        upData.estado_wms = 'En preparación';
-      }
+    if (targetStatus === 'despachado' || targetStatus === 'cancelado') {
+      const upData: any = { 
+        status: targetStatus,
+        estado_wms: targetStatus === 'despachado' ? 'Despachado' : 'Cancelado'
+      };
       await supabase
         .from('orders')
         .update(upData)
@@ -838,7 +844,8 @@ function mapMeliStatus(meliShippingStatus: string) {
   const s = (meliShippingStatus || '').toLowerCase().trim();
   if (s === 'cancelled') return 'cancelado';
   if (s === 'shipped' || s === 'delivered' || s === 'returned') return 'despachado';
-  if (s === 'ready_to_ship' || s === 'handling') return 'en preparación';
+  // En MercadoLibre, ready_to_ship o handling significa que el pedido fue pagado y su etiqueta está lista,
+  // pero en el flujo operativo del WMS Stocka debe ingresar a "para procesar" (En procesamiento)
   return 'para procesar';
 }
 

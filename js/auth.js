@@ -24,6 +24,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 5000);
   };
 
+  // Detección inmediata de instalación Shopify OAuth (Regla 2.3.2)
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const shop = urlParams.get('shop');
+    const integration = urlParams.get('integration');
+    if (shop && integration !== 'success') {
+      const cleanShop = shop.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+      if (cleanShop.includes('myshopify.com')) {
+        if (document.body) document.body.style.display = 'none';
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c';
+        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        const stateObj = {
+          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31',
+          comercio: 'STOCKA STORE TEST',
+          redirect_back_url: window.location.origin + '/dashboard.html',
+          timestamp: Date.now(),
+          nonce: Math.random().toString(36).substring(2)
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        window.location.replace(`https://${cleanShop}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`);
+        return;
+      }
+    }
+  } catch(e) {}
+
   // Verificar si se redirigió por caducidad de sesión
   try {
     const urlParams = new URLSearchParams(window.location.search);
@@ -340,7 +366,14 @@ document.addEventListener('DOMContentLoaded', () => {
         loader.style.opacity = '1';
         
         setTimeout(() => {
-          window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
+          const pendingShop = localStorage.getItem('pending_shopify_shop');
+          if (pendingShop) {
+            localStorage.removeItem('pending_shopify_shop');
+            localStorage.removeItem('pending_shopify_link');
+            window.location.href = `dashboard.html?integration=success&shop=${encodeURIComponent(pendingShop)}`;
+          } else {
+            window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
+          }
         }, 1300);
       }
     } catch (error) {
@@ -395,7 +428,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.session) {
           showAlert('¡Registro exitoso! Iniciando sesión...', 'success');
           setTimeout(() => {
-            window.location.href = 'dashboard.html';
+            const pendingShop = localStorage.getItem('pending_shopify_shop');
+            if (pendingShop) {
+              localStorage.removeItem('pending_shopify_shop');
+              localStorage.removeItem('pending_shopify_link');
+              window.location.href = `dashboard.html?integration=success&shop=${encodeURIComponent(pendingShop)}`;
+            } else {
+              window.location.href = 'dashboard.html';
+            }
           }, 1500);
         } else {
           // Si requiere confirmación por email

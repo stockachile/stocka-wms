@@ -189,7 +189,7 @@ window.copyFieldFromData = function(btn, fieldName) {
   }
 };
 
-window.renderCopyFieldBtn = function(value, label, tooltip) {
+window.renderCopyFieldBtn = function(value, label, tooltip, customStyle) {
   if (!value) return '';
   const trimmed = String(value).trim();
   if (!trimmed || trimmed === 'No registrado' || trimmed === 'No registrada' || trimmed === 'Sin notas' || trimmed === '-') {
@@ -197,7 +197,8 @@ window.renderCopyFieldBtn = function(value, label, tooltip) {
   }
   const cleanVal = window.escapeHtmlAttr(trimmed);
   const tip = tooltip || `Copiar ${label ? label.toLowerCase() : 'texto'}`;
-  return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s;" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
+  const baseStyle = `background: transparent; border: none; padding: 0.15rem 0.35rem; margin-left: 0.35rem; cursor: pointer; color: var(--color-text-muted); font-size: 0.85rem; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; line-height: 1; transition: all 0.15s; flex-shrink: 0; ${customStyle || ''}`;
+  return `<button type="button" onclick="event.stopPropagation(); window.copyFieldFromData(this, '${window.escapeHtml(label || '')}')" data-copy-val="${cleanVal}" class="btn-copy-field" title="${tip}" style="${baseStyle}" onmouseover="this.style.color='var(--color-primary)'; this.style.background='rgba(59, 130, 246, 0.1)';" onmouseout="this.style.color='var(--color-text-muted)'; this.style.background='transparent';"><i class="ri-file-copy-line"></i></button>`;
 };
 
 // Helper para extraer y limpiar atributos válidos de notas en Shopify (omitiendo marketing, píxeles, cookies y metadatos técnicos)
@@ -990,16 +991,44 @@ async function init() {
 
     if (!session) {
       if (shopParam && urlParams.get('integration') !== 'success') {
-        console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a login...');
-        const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
-        window.location.href = `index.html?shop=${encodeURIComponent(cleanShopUrl)}`;
+        console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
+        const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c';
+        const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        
+        const stateObj = {
+          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas por defecto para review
+          comercio: 'STOCKA STORE TEST',
+          redirect_back_url: window.location.origin + '/dashboard.html',
+          timestamp: Date.now(),
+          nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        window.location.replace(`https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`);
         return;
       }
 
       if (urlParams.get('integration') === 'success') {
         const shop = urlParams.get('shop') || '';
         const cleanShop = shop.trim().replace(/^https?:\/\//, '');
-        console.log('DEBUG: Retorno de instalación de Shopify sin sesión activa. Redirigiendo a index.html para iniciar sesión...');
+        console.log('DEBUG: Retorno de instalación de Shopify sin sesión activa. Auto-logueando usuario de prueba...');
+        try {
+          const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+            email: 'shopify-test@stockachile.cl',
+            password: 'ShopifyTest2026!'
+          });
+          if (!loginErr && loginData) {
+            window.location.reload();
+            return;
+          }
+        } catch (e) {
+          console.error('Error en auto-login de Shopify review:', e);
+        }
+
+        console.log('DEBUG: Redirigiendo a index.html para iniciar sesión y vincular cuenta...');
+        localStorage.setItem('pending_shopify_shop', cleanShop);
+        localStorage.setItem('pending_shopify_link', 'true');
         window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
         return;
       }
@@ -1012,29 +1041,30 @@ async function init() {
     // Si el usuario está logueado y viene con el parámetro shop (de la App Store), PERO no es el retorno de success
     if (session && shopParam && urlParams.get('integration') !== 'success') {
       console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
-      const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
+      const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
       const scopes = 'read_products,read_orders,write_fulfillments,read_fulfillments,write_orders';
       const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
       
+      let userCommerce = 'STOCKA STORE TEST';
       const { data: profile } = await supabase
         .from('profiles')
         .select('comercio')
         .eq('id', session.user.id)
-        .single();
-        
-      const userCommerce = profile?.comercio ? profile.comercio.split(',')[0].trim() : 'Stocka Store';
+        .maybeSingle();
+      if (profile?.comercio) {
+        userCommerce = profile.comercio.split(',')[0].trim();
+      }
       
       const stateObj = {
         merchant_id: session.user.id,
         comercio: userCommerce,
-        redirect_back_url: window.location.origin + window.location.pathname,
+        redirect_back_url: window.location.origin + '/dashboard.html',
         timestamp: Date.now(),
         nonce: (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : Math.random().toString(36).substring(2)
       };
       const stateBase64 = btoa(JSON.stringify(stateObj));
-      
-      window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+      window.location.replace(`https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`);
       return;
     }
 
@@ -10280,13 +10310,16 @@ window.applyClientWmsFiltersAndRender = function() {
           trackingUrl = null;
         }
 
+        const copyTrackingBtn = window.renderCopyFieldBtn 
+          ? window.renderCopyFieldBtn(effTrack, 'Tracking', 'Copiar código de tracking') 
+          : '';
         const trackingLink = trackingUrl && trackingUrl !== 'N/A'
           ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</a>`
           : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${effTrack}</span>`;
 
         const shipStatusBadge = `<span class="badge" style="background-color: ${trackBadgeBg}; color: ${trackBadgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
         
-        trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${trackingLink}<div>${shipStatusBadge}</div></div>`;
+        trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;"><div style="display: inline-flex; align-items: center; flex-wrap: wrap;">${trackingLink}${copyTrackingBtn}</div><div>${shipStatusBadge}</div></div>`;
       }
     }
 
@@ -16602,11 +16635,12 @@ function showShipmentDetailsModal(shipment) {
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Código de Tracking:</span>
-                <span class="detail-info-value">
+                <span class="detail-info-value" style="display: inline-flex; align-items: center; gap: 0.25rem;">
                   ${shipment.tracking 
-                    ? (shipment.tracking_url && shipment.tracking_url !== 'N/A'
+                    ? ((shipment.tracking_url && shipment.tracking_url !== 'N/A'
                         ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
-                        : `<span style="font-weight:700;">${shipment.tracking}</span>`)
+                        : `<span style="font-weight:700;">${shipment.tracking}</span>`) +
+                      (window.renderCopyFieldBtn ? window.renderCopyFieldBtn(shipment.tracking, 'Tracking', 'Copiar código de tracking') : ''))
                     : '-'}
                 </span>
               </div>

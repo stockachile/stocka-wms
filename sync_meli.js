@@ -80,9 +80,8 @@ function mapMeliStatus(meliShippingStatus) {
   if (s === 'shipped' || s === 'delivered' || s === 'returned') {
     return 'despachado';
   }
-  if (s === 'ready_to_ship' || s === 'handling') {
-    return 'en preparación';
-  }
+  // En MercadoLibre, ready_to_ship o handling significa que el pedido fue pagado y su etiqueta está lista,
+  // pero operativamente en el WMS Stocka debe ingresar a "para procesar" (En procesamiento) para su revisión y flujo normal.
   return 'para procesar';
 }
 
@@ -840,7 +839,7 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado' })
+            .update({ payment_status: group.status, status: 'cancelado', estado_wms: 'Cancelado' })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else if (isStaleCollision) {
@@ -865,7 +864,7 @@ async function syncMerchantOrders(integration) {
             cantidad: flatQuantity,
             sku: flatSku,
             status: targetStatus,
-            estado_wms: targetStatus === 'en preparación' ? 'En preparación' : (existingOrder.estado_wms || 'En preparación'),
+            estado_wms: targetStatus === 'despachado' ? 'Despachado' : (targetStatus === 'cancelado' ? 'Cancelado' : (existingOrder.estado_wms || 'En procesamiento')),
             sucursal_pickeo: existingOrder.sucursal_pickeo || sucursalPickeo,
             created_at: group.date_created
           };
@@ -901,9 +900,11 @@ async function syncMerchantOrders(integration) {
 
           const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
           if (!terminalStatuses.includes(existingOrder.status) || (existingOrder.status === 'despachado' && targetStatus === 'entregado')) {
-            updatePayload.status = targetStatus;
-            if (targetStatus === 'en preparación' && (!existingOrder.estado_wms || existingOrder.estado_wms === 'En procesamiento')) {
-              updatePayload.estado_wms = 'En preparación';
+            // SÓLO actualizar estado WMS si en MercadoLibre figura como despachado o entregado
+            // NO sobreescribir el avance operacional del WMS (En procesamiento, En preparación, Pickeado)
+            if (targetStatus === 'despachado') {
+              updatePayload.status = 'despachado';
+              updatePayload.estado_wms = 'Despachado';
             }
           }
 
@@ -957,7 +958,8 @@ async function syncMerchantOrders(integration) {
           sku: flatSku,
           shipping_method: shippingMethod,
           sucursal_pickeo: sucursalPickeo,
-          status: 'para procesar', // Insertar en para procesar temporalmente
+          status: 'para procesar',
+          estado_wms: 'En procesamiento',
           created_at: group.date_created
         };
 
@@ -972,7 +974,7 @@ async function syncMerchantOrders(integration) {
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${finalGroupId} con estado temporal 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalGroupId} con estado 'para procesar' y estado_wms 'En procesamiento'`);
         localOrderId = newOrder.id;
 
         // Registrar items en order_items
@@ -980,12 +982,15 @@ async function syncMerchantOrders(integration) {
           await insertOrderItems(localOrderId, itemQuantities, itemsList, resolvedCommerce, integration, warehouseId, accessToken);
         }
 
-        // Transicionar al estado real final mapeado
-        if (targetStatus !== 'para procesar') {
+        // Transicionar al estado real final mapeado sólo si el pedido ya venía despachado o cancelado desde MercadoLibre
+        if (targetStatus === 'despachado' || targetStatus === 'cancelado') {
           console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
           const { error: statusUpdateErr } = await supabase
             .from('orders')
-            .update({ status: targetStatus, estado_wms: targetStatus === 'en preparación' ? 'En preparación' : undefined })
+            .update({ 
+              status: targetStatus, 
+              estado_wms: targetStatus === 'despachado' ? 'Despachado' : 'Cancelado' 
+            })
             .eq('id', localOrderId);
 
           if (statusUpdateErr) {
