@@ -13927,10 +13927,13 @@ window.applyBulkWmsStatus = async function() {
       });
 
       const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
-      const distinctSucursales = new Set(successOrders.map(o => (formValues.keepPicking && o.sucursal_pickeo) ? o.sucursal_pickeo : (o.sucursal_pickeo || formValues.sucursal)));
-      const hasMixedSucursales = distinctSucursales.size > 1;
-      if (distinctSucursales.size === 1) {
-        formValues.sucursal = Array.from(distinctSucursales)[0];
+      let hasMixedSucursales = false;
+      if (formValues.keepPicking) {
+        const distinctSucursales = new Set(successOrders.map(o => o.sucursal_pickeo || formValues.sucursal));
+        hasMixedSucursales = distinctSucursales.size > 1;
+        if (distinctSucursales.size === 1) {
+          formValues.sucursal = Array.from(distinctSucursales)[0];
+        }
       }
 
       window.lastBulkWmsSentPickerCount = 0;
@@ -13944,14 +13947,15 @@ window.applyBulkWmsStatus = async function() {
           order.estado_wms = 'En preparación';
           order.status = 'en preparación';
           delete order._wmsTags;
-          if (!order.sucursal_pickeo) {
-            order.sucursal_pickeo = formValues.sucursal;
-          }
           if (!formValues.keepPicking) {
+            order.sucursal_pickeo = formValues.sucursal;
             if (formValues.agenda) order.agenda = formValues.agenda;
             if (formValues.operador) order.operador = formValues.operador;
             if (formValues.fechaProc) order.fecha_procesamiento = formValues.fechaProc;
           } else {
+            if (!order.sucursal_pickeo) {
+              order.sucursal_pickeo = formValues.sucursal;
+            }
             if (!order.agenda) order.agenda = 'STK';
             if (!order.fecha_procesamiento) order.fecha_procesamiento = todayDDMM;
           }
