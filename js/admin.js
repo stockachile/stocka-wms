@@ -947,6 +947,49 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       `;
     };
 
+    // Consultar o recuperar solicitud especial de picking
+    let pickingReq = null;
+    if (window.fetchOrderPickingRequest) {
+      pickingReq = await window.fetchOrderPickingRequest(orderId);
+    } else if (window.pickingRequestsCache && window.pickingRequestsCache.has(orderId)) {
+      pickingReq = window.pickingRequestsCache.get(orderId);
+    }
+
+    let pickingReqBannerHtml = '';
+    if (pickingReq && Array.isArray(pickingReq.items) && pickingReq.items.length > 0) {
+      const isComp = pickingReq.status === 'completada';
+      const checkedCount = pickingReq.items.filter(i => i.checked).length;
+      const totalCount = pickingReq.items.length;
+      const borderColor = isComp ? '#10b981' : '#f59e0b';
+      const bgColor = isComp ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)';
+
+      pickingReqBannerHtml = `
+        <div style="background: ${bgColor}; border: 1.5px solid ${borderColor}; border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.825rem; font-weight: 700; color: ${isComp ? '#059669' : '#d97706'}; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="${isComp ? 'ri-checkbox-circle-fill' : 'ri-alarm-warning-fill'}" style="font-size: 1.05rem;"></i>
+              SOLICITUD ESPECIAL DE PICKING
+            </span>
+            <span class="badge" style="background: ${isComp ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)'}; color: ${isComp ? '#065f46' : '#b45309'}; font-weight: 700; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+              ${isComp ? 'COMPLETADA' : `${checkedCount} DE ${totalCount} VERIFICADOS`}
+            </span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            ${pickingReq.items.map(it => `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; background: var(--color-surface); padding: 0.3rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                <span style="display: flex; align-items: center; gap: 0.35rem; ${it.checked ? 'text-decoration: line-through; opacity: 0.8;' : 'font-weight: 600;'}">
+                  <i class="${it.checked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${it.checked ? '#10b981' : '#f59e0b'};"></i>
+                  ${window.escapeHtml ? window.escapeHtml(it.text) : it.text}
+                </span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted);">${it.checked ? `✓ ${it.checked_by || 'Picker'}` : 'Pendiente'}</span>
+              </div>
+            `).join('')}
+          </div>
+          ${pickingReq.general_notes ? `<div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem;"><strong>Notas:</strong> ${window.escapeHtml ? window.escapeHtml(pickingReq.general_notes) : pickingReq.general_notes}</div>` : ''}
+        </div>
+      `;
+    }
+
     // Construir bloque de estado activo actual si existe
     let activeBannerHtml = '';
     if (hasActive) {
@@ -1029,6 +1072,7 @@ window.openPickerOrderHistoryModal = async function(orderId) {
           <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Total Registros:</span><strong>${(historyLogs || []).length} escaneos/logs</strong></div>
         </div>
 
+        ${pickingReqBannerHtml}
         ${activeBannerHtml}
 
         <div style="text-align: left; margin-bottom: 0.75rem;">
@@ -2065,16 +2109,36 @@ window.buildPickerObservation = function(order, prodDescription) {
   const note = window.getOrderNoteText ? window.getOrderNoteText(order) : '';
   const existingObs = (order?.observation || prodDescription || '').trim();
 
-  if (note && existingObs) {
-    if (existingObs.toLowerCase().includes(note.toLowerCase())) {
-      return existingObs;
+  // Integración con Solicitudes Especiales de Picking (Picking Requests)
+  let pickingReqText = '';
+  if (order && order.id && window.pickingRequestsCache && window.pickingRequestsCache.has(order.id)) {
+    const pr = window.pickingRequestsCache.get(order.id);
+    if (pr && Array.isArray(pr.items) && pr.items.length > 0 && pr.status !== 'completada') {
+      const pendingItems = pr.items.filter(i => !i.checked).map(i => i.text);
+      if (pendingItems.length > 0) {
+        pickingReqText = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
+      }
     }
-    return `${note} | ${existingObs}`;
-  } else if (note) {
-    return note;
-  } else {
-    return existingObs;
   }
+
+  let result = existingObs;
+  if (note && result) {
+    if (!result.toLowerCase().includes(note.toLowerCase())) {
+      result = `${note} | ${result}`;
+    }
+  } else if (note) {
+    result = note;
+  }
+
+  if (pickingReqText && result) {
+    if (!result.includes('[SOLICITUD PICKING')) {
+      result = `${pickingReqText} | ${result}`;
+    }
+  } else if (pickingReqText) {
+    result = pickingReqText;
+  }
+
+  return result;
 };
 
 // Helper para resolver el código de seguimiento/etiqueta que se envía al Picker en active_orders
@@ -5464,8 +5528,9 @@ window.setWmsCacheSyncStatus = function(status, message) {
 let _currentFetchWmsOrdersPromise = null;
 let _currentFetchWmsOrdersKey = '';
 
-window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
-  const fetchKey = `${dateFrom || ''}_${dateTo || ''}`;
+window.fetchWmsOrdersData = async function(dateFrom, dateTo, options = {}) {
+  const merchantFilter = (options && options.merchant) ? String(options.merchant).trim() : null;
+  const fetchKey = `${dateFrom || ''}_${dateTo || ''}_${merchantFilter || ''}`;
   if (_currentFetchWmsOrdersPromise) {
     if (_currentFetchWmsOrdersKey === fetchKey) {
       return _currentFetchWmsOrdersPromise;
@@ -5491,12 +5556,16 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
       // Cargar mapeos de Envíame ID a comercio para resolver colisiones de referencias comunes (#1006, #1007, etc.)
       window.enviameIdToCommerceMap = {};
+      if (!window.allKnownComerciosSet) window.allKnownComerciosSet = new Set();
       try {
         const { data: configs } = await supabase
           .from('comercios_adicional_config')
           .select('comercio, enviame_id');
         if (configs) {
           configs.forEach(c => {
+            if (c.comercio) {
+              window.allKnownComerciosSet.add(c.comercio.trim());
+            }
             if (c.enviame_id) {
               const ids = c.enviame_id.split(',').map(id => id.trim().replace(/^ID\s*:?\s*/i, ''));
               ids.forEach(id => {
@@ -5554,7 +5623,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
       let allOrders = [];
       let lastCreatedAt = null;
-      const step = 1000;
+      let currentStep = merchantFilter ? 500 : 350;
 
       while (true) {
         let q = supabase
@@ -5563,9 +5632,10 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
         if (fromISO) q = q.gte('created_at', fromISO);
         if (toISO) q = q.lte('created_at', toISO);
+        if (merchantFilter) q = q.eq('comercio', merchantFilter);
         if (lastCreatedAt) q = q.lt('created_at', lastCreatedAt);
 
-        q = q.order('created_at', { ascending: false }).limit(step);
+        q = q.order('created_at', { ascending: false }).limit(currentStep);
 
         let res = null;
         let attempts = 0;
@@ -5575,6 +5645,19 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
           if (!res.error) break;
           if (res.error.code === '42703' || String(res.error.message || '').includes('estado_ruta_optiroute')) {
             break;
+          }
+          const isTimeout = res.error.code === '57014' || String(res.error.message || '').toLowerCase().includes('timeout');
+          if (isTimeout && currentStep > 120) {
+            currentStep = Math.max(120, Math.floor(currentStep / 2));
+            console.warn(`[WMS] Timeout detectado en consulta de pedidos, reduciendo bloque a ${currentStep} y reintentando...`);
+            q = supabase
+              .from('orders')
+              .select(selectStr);
+            if (fromISO) q = q.gte('created_at', fromISO);
+            if (toISO) q = q.lte('created_at', toISO);
+            if (merchantFilter) q = q.eq('comercio', merchantFilter);
+            if (lastCreatedAt) q = q.lt('created_at', lastCreatedAt);
+            q = q.order('created_at', { ascending: false }).limit(currentStep);
           }
           if (attempts < 3) {
             await new Promise(r => setTimeout(r, 600 * attempts));
@@ -5592,12 +5675,16 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         const data = res.data || [];
         if (data.length === 0) break;
         allOrders = allOrders.concat(data);
-        if (data.length < step) break;
+        if (data.length < currentStep) break;
         lastCreatedAt = data[data.length - 1].created_at;
       }
 
       const orders = allOrders;
       window.loadedOrders = orders || [];
+      if (!window.allKnownComerciosSet) window.allKnownComerciosSet = new Set();
+      (orders || []).forEach(o => {
+        if (o.comercio) window.allKnownComerciosSet.add(o.comercio.trim());
+      });
       if (typeof window.resetWmsInventoryMap === 'function') {
         window.resetWmsInventoryMap();
       } else {
@@ -5649,8 +5736,8 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         window.loadedShipments = [];
       }
 
-      // Persistir automáticamente en caché de IndexedDB para hidratación instantánea futura
-      if (window.wmsDbCache && Array.isArray(window.loadedOrders)) {
+      // Persistir automáticamente en caché de IndexedDB para hidratación instantánea futura (solo si se descargaron todos los comercios)
+      if (!merchantFilter && window.wmsDbCache && Array.isArray(window.loadedOrders)) {
         window.wmsDbCache.setWindowCache(dateFrom, dateTo, window.loadedOrders, window.loadedShipments || [], window.loadedOrdersInventoryMap || {}).catch(e => {
           console.warn('[WMS Cache] Error saving window to IndexedDB:', e);
         });
@@ -5774,7 +5861,7 @@ window.initWmsOrdersRealtimeSync = function() {
                 clearTimeout(window._wmsSaveCacheDebounceTimer);
               }
               window._wmsSaveCacheDebounceTimer = setTimeout(() => {
-                if (window.wmsDbCache && window.lastFetchedDateFrom && window.lastFetchedDateTo && Array.isArray(window.loadedOrders)) {
+                if (!window.lastFetchedMerchant && window.wmsDbCache && window.lastFetchedDateFrom && window.lastFetchedDateTo && Array.isArray(window.loadedOrders)) {
                   window.wmsDbCache.setWindowCache(window.lastFetchedDateFrom, window.lastFetchedDateTo, window.loadedOrders, window.loadedShipments || [], window.loadedOrdersInventoryMap || {}).catch(() => {});
                 }
               }, 2000);
@@ -5980,6 +6067,8 @@ window.resetWmsAllFilters = async function() {
   window.wmsActiveSlaFilter = null;
   window.wmsActiveDeliveryTypeFilter = null;
   window.wmsActiveCoverageFilter = null;
+
+  window.lastFetchedMerchant = null;
 
   // Resetear fecha a últimos 7 días
   if (window.setWmsDatePreset) {
@@ -6295,7 +6384,9 @@ window.openWmsDrawerFilters = function() {
   const merchantSelect = document.getElementById('wms-df-merchant');
   if (merchantSelect) {
     const currentMerchant = merchantSelect.value;
-    const uniqueMerchants = [...new Set((window.loadedOrders || []).map(o => o.comercio).filter(Boolean))].sort();
+    const loadedMerchants = (window.loadedOrders || []).map(o => o.comercio).filter(Boolean);
+    const knownList = Array.from(window.allKnownComerciosSet || []);
+    const uniqueMerchants = [...new Set([...loadedMerchants, ...knownList])].sort();
     let mHtml = '<option value="">Todos los comercios</option>';
     uniqueMerchants.forEach(m => {
       mHtml += `<option value="${m}">${m}</option>`;
@@ -6540,11 +6631,17 @@ window.applyWmsDrawerFilters = async function() {
       window.wmsActiveTab = estadoWms;
     }
 
-    // 2. Comprobar si requiere descarga por cambio de fecha
-    const needsFetch = (dateFrom && dateFrom !== window.lastFetchedDateFrom) || (dateTo && dateTo !== window.lastFetchedDateTo);
+    // 2. Comprobar si requiere descarga por cambio de fecha o si se requiere recargar porque la memoria actual es de un solo comercio
+    const hadPartialMerchant = !!window.lastFetchedMerchant;
+    const merchantChangedFromPartial = hadPartialMerchant && (merchant !== window.lastFetchedMerchant);
+    const needsFetch = (dateFrom && dateFrom !== window.lastFetchedDateFrom) || 
+                       (dateTo && dateTo !== window.lastFetchedDateTo) ||
+                       merchantChangedFromPartial;
+
     if (needsFetch) {
       window.lastFetchedDateFrom = dateFrom || null;
       window.lastFetchedDateTo = dateTo || null;
+      window.lastFetchedMerchant = merchant || null;
 
       const topDateFrom = document.getElementById('filter-date-from');
       const topDateTo = document.getElementById('filter-date-to');
@@ -6570,7 +6667,7 @@ window.applyWmsDrawerFilters = async function() {
         `;
       }
 
-      await window.fetchWmsOrdersData(dateFrom, dateTo);
+      await window.fetchWmsOrdersData(dateFrom, dateTo, { merchant });
       if (window.updateMerchantFilterOptions) window.updateMerchantFilterOptions();
       if (window.updateOrderTagFilterOptions) window.updateOrderTagFilterOptions();
     }
@@ -8163,6 +8260,17 @@ async function renderAdminOrders() {
         }
       }
 
+      // 17. Solicitud Especial de Picking
+      if (order.has_picking_request || (window.pickingRequestsCache && window.pickingRequestsCache.has(order.id))) {
+        const req = window.pickingRequestsCache ? window.pickingRequestsCache.get(order.id) : null;
+        const reqSt = (req ? req.status : (order.picking_request_status || 'pendiente')).toLowerCase();
+        if (reqSt === 'completada') {
+          tags.add('Solicitud Picking: Lista');
+        } else {
+          tags.add('Solicitud Picking: Pendiente');
+        }
+      }
+
       order._wmsTags = Array.from(tags);
       return order._wmsTags;
     };
@@ -8228,6 +8336,11 @@ async function renderAdminOrders() {
         { key: 'REEMBOLSADO', label: 'REEMBOLSADO', icon: '💸' }
       ];
 
+      const pickingRequestTags = [
+        { key: 'Solicitud Picking: Pendiente', label: 'Solicitud Picking: Pendiente', icon: '📋' },
+        { key: 'Solicitud Picking: Lista', label: 'Solicitud Picking: Lista', icon: '✅' }
+      ];
+
       const otherKnownTags = [
         { key: 'FULFILLED', label: 'FULFILLED (Shopify)', icon: '📦' },
         { key: 'FULFILL. PARCIAL', label: 'FULFILL. PARCIAL (Shopify)', icon: '📦' },
@@ -8237,6 +8350,7 @@ async function renderAdminOrders() {
 
       const knownKeys = new Set([
         ...orderPillTags.map(t => t.key),
+        ...pickingRequestTags.map(t => t.key),
         ...coverageTags.map(t => t.key),
         ...deliveryTags.map(t => t.key),
         ...courierTags.map(t => t.key),
@@ -8286,6 +8400,7 @@ async function renderAdminOrders() {
         html += buildOptgroup('Compromiso SLA (Marketplaces)', slaTags);
       }
       html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
+      html += buildOptgroup('Solicitudes de Picking', pickingRequestTags);
       html += buildOptgroup('Categoría de Entrega', deliveryTags);
       html += buildOptgroup('Despacho Courier', courierTags);
       html += buildOptgroup('Estado Picker', pickerTags);
@@ -10153,6 +10268,10 @@ window.applyWmsFiltersAndRender = function() {
     return;
   }
 
+  if (window.loadBatchPickingRequests && paginatedOrders.length > 0) {
+    window.loadBatchPickingRequests(paginatedOrders.map(o => o.id));
+  }
+
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
     const isInitiallyExpanded = !!(window.wmsExpandedOrderIds && window.wmsExpandedOrderIds.has(order.id));
@@ -11643,7 +11762,7 @@ window.applyWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
         <td colspan="13" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${optirouteBadgesHtml}${exportBadgeHtml}${deliveryTypeBadgeHtml}${slaBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockWarehouseBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -11936,6 +12055,9 @@ window.applyWmsFiltersAndRender = function() {
                 <!-- Botón de datos crudos -->
                 ${rawJsonBtnHtml}
               </div>
+
+              <!-- Col 4 / Card: Solicitud Especial de Picking -->
+              ${(window.renderOrderPickingRequestCard ? window.renderOrderPickingRequestCard(order) : '')}
 
             </div>
 

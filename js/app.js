@@ -1,4 +1,5 @@
 import supabase from './supabase.js';
+window.supabaseClient = supabase;
 import { renderTicketsClient } from './tickets.js';
 import { renderSurveysClient, checkAndShowSurveyLoginPopup } from './surveys.js?v=1.0.2';
 window.renderSurveysClient = renderSurveysClient;
@@ -8095,6 +8096,49 @@ window.openPickerOrderHistoryModal = async function(orderId) {
       `;
     };
 
+    // Consultar o recuperar solicitud especial de picking
+    let pickingReq = null;
+    if (window.fetchOrderPickingRequest) {
+      pickingReq = await window.fetchOrderPickingRequest(orderId);
+    } else if (window.pickingRequestsCache && window.pickingRequestsCache.has(orderId)) {
+      pickingReq = window.pickingRequestsCache.get(orderId);
+    }
+
+    let pickingReqBannerHtml = '';
+    if (pickingReq && Array.isArray(pickingReq.items) && pickingReq.items.length > 0) {
+      const isComp = pickingReq.status === 'completada';
+      const checkedCount = pickingReq.items.filter(i => i.checked).length;
+      const totalCount = pickingReq.items.length;
+      const borderColor = isComp ? '#10b981' : '#f59e0b';
+      const bgColor = isComp ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)';
+
+      pickingReqBannerHtml = `
+        <div style="background: ${bgColor}; border: 1.5px solid ${borderColor}; border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; text-align: left;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 0.825rem; font-weight: 700; color: ${isComp ? '#059669' : '#d97706'}; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="${isComp ? 'ri-checkbox-circle-fill' : 'ri-alarm-warning-fill'}" style="font-size: 1.05rem;"></i>
+              SOLICITUD ESPECIAL DE PICKING
+            </span>
+            <span class="badge" style="background: ${isComp ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)'}; color: ${isComp ? '#065f46' : '#b45309'}; font-weight: 700; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+              ${isComp ? 'COMPLETADA' : `${checkedCount} DE ${totalCount} VERIFICADOS`}
+            </span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            ${pickingReq.items.map(it => `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; background: var(--color-surface); padding: 0.3rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border);">
+                <span style="display: flex; align-items: center; gap: 0.35rem; ${it.checked ? 'text-decoration: line-through; opacity: 0.8;' : 'font-weight: 600;'}">
+                  <i class="${it.checked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${it.checked ? '#10b981' : '#f59e0b'};"></i>
+                  ${window.escapeHtml ? window.escapeHtml(it.text) : it.text}
+                </span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted);">${it.checked ? `✓ ${it.checked_by || 'Picker'}` : 'Pendiente'}</span>
+              </div>
+            `).join('')}
+          </div>
+          ${pickingReq.general_notes ? `<div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.15rem;"><strong>Notas:</strong> ${window.escapeHtml ? window.escapeHtml(pickingReq.general_notes) : pickingReq.general_notes}</div>` : ''}
+        </div>
+      `;
+    }
+
     let activeBannerHtml = '';
     if (hasActive) {
       const act = activeItems[0];
@@ -8174,6 +8218,7 @@ window.openPickerOrderHistoryModal = async function(orderId) {
           <div><span style="color: var(--color-text-muted); font-size: 0.75rem; display: block;">Total Registros:</span><strong>${(historyLogs || []).length} escaneos/logs</strong></div>
         </div>
 
+        ${pickingReqBannerHtml}
         ${activeBannerHtml}
 
         <div style="text-align: left; margin-bottom: 0.75rem;">
@@ -9084,6 +9129,17 @@ window.getClientOrderTags = function(order) {
     (Array.isArray(order.tags) ? order.tags : String(order.tags).split(',')).map(t => String(t).trim()).filter(Boolean).forEach(t => tags.add(t));
   }
 
+  // 13. Solicitud Especial de Picking
+  if (order.has_picking_request || (window.pickingRequestsCache && window.pickingRequestsCache.has(order.id))) {
+    const req = window.pickingRequestsCache ? window.pickingRequestsCache.get(order.id) : null;
+    const reqSt = (req ? req.status : (order.picking_request_status || 'pendiente')).toLowerCase();
+    if (reqSt === 'completada') {
+      tags.add('Solicitud Picking: Lista');
+    } else {
+      tags.add('Solicitud Picking: Pendiente');
+    }
+  }
+
   const result = Array.from(tags);
   order._clientTags = result;
   order._clientTagsVersion = window._clientTagsVersion;
@@ -9121,6 +9177,12 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
     { key: 'Exportado', label: 'Exportado' },
     { key: 'CON NOTA', label: 'Con Nota' },
     { key: 'SIN STOCK', label: 'Sin Stock' }
+  ];
+
+  // 1.5 Solicitudes Especiales de Picking
+  const pickingRequestTags = [
+    { key: 'Solicitud Picking: Pendiente', label: 'Solicitud Picking: Pendiente' },
+    { key: 'Solicitud Picking: Lista', label: 'Solicitud Picking: Lista' }
   ];
 
   // 2. Categoría de Entrega
@@ -9171,6 +9233,7 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
 
   const knownKeys = new Set([
     ...orderPillTags.map(t => t.key),
+    ...pickingRequestTags.map(t => t.key),
     ...deliveryTags.map(t => t.key),
     ...courierTags.map(t => t.key),
     ...pickerTags.map(t => t.key),
@@ -9197,6 +9260,7 @@ window.updateClientOrderTagFilterOptions = function(arg1, arg2, arg3) {
 
   let html = `<option value="">Todas las etiquetas (${totalCount})</option>`;
   html += buildOptgroup('Etiquetas del Pedido', orderPillTags);
+  html += buildOptgroup('Solicitudes de Picking', pickingRequestTags);
   html += buildOptgroup('Categoría de Entrega', deliveryTags);
   html += buildOptgroup('Despacho Courier', courierTags);
   html += buildOptgroup('Estado Picker', pickerTags);
@@ -10094,6 +10158,9 @@ window.applyClientWmsFiltersAndRender = function() {
   const paginatedOrders = pageSize === totalResults ? filtered : filtered.slice(startIndex, endIndex);
 
   // 4. Renderizar filas
+  if (window.loadBatchPickingRequests && paginatedOrders.length > 0) {
+    window.loadBatchPickingRequests(paginatedOrders.map(o => o.id));
+  }
   const tbody = document.getElementById('client-orders-tbody');
   if (!tbody) return;
 
@@ -10108,6 +10175,10 @@ window.applyClientWmsFiltersAndRender = function() {
     const pagContainer = document.getElementById('client-wms-pagination-container');
     if (pagContainer) pagContainer.innerHTML = '';
     return;
+  }
+
+  if (window.loadBatchPickingRequests && paginatedOrders.length > 0) {
+    window.loadBatchPickingRequests(paginatedOrders.map(o => o.id));
   }
 
   let rowsHtml = '';
@@ -11049,7 +11120,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
         <td colspan="11" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
-            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}
+            ${categoryBadgeHtml}${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${pickerBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}${noteBadgeHtml}${customPlatformTagsHtml}${(window.getSplitBadgeHtml ? window.getSplitBadgeHtml(order) : '')}${(window.getOrderPickingRequestBadgeHtml ? window.getOrderPickingRequestBadgeHtml(order) : '')}
           </div>
         </td>
       </tr>
@@ -11225,6 +11296,9 @@ window.applyClientWmsFiltersAndRender = function() {
               <!-- Botón de datos crudos -->
               ${rawJsonBtnHtml}
             </div>
+
+            <!-- Col 4 / Card: Solicitud Especial de Picking -->
+            ${(window.renderOrderPickingRequestCard ? window.renderOrderPickingRequestCard(order) : '')}
 
           </div>
         </td>
