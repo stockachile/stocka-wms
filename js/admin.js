@@ -63520,6 +63520,7 @@ window.showMerchantEditModal = async function(comercioName) {
                         </div>
                       </div>
                       <p class="merchant-form-hint" style="margin-top: 0.25rem;">Envía el manual de webhook (Shopify o WooCommerce) y tarifarios al correo del comercio al guardar los cambios.</p>
+                      <div id="merchant-edit-e3-badge-container"></div>
                     </div>
                   </div>
                 `;
@@ -64045,6 +64046,102 @@ window.showMerchantEditModal = async function(comercioName) {
     }
   });
 
+  // Manejo de confirmación y selección de correo para Correo E3
+  const sendE3Input = document.getElementById('merchant-edit-send-e3');
+  const e3PlatformSelect = document.getElementById('merchant-edit-e3-platform');
+  const e3BadgeContainer = document.getElementById('merchant-edit-e3-badge-container');
+
+  const openE3ConfirmModal = async () => {
+    const platform = e3PlatformSelect?.value || 'WooCommerce';
+    const repEmailInput = document.getElementById('merchant-edit-rep-legal-email')?.value.trim();
+    const candidateEmail = sendE3Input?.dataset?.userEmail || repEmailInput || commerce.rep_legal_email || (commerce.billingContacts && commerce.billingContacts[0]?.email) || '';
+
+    const { value: confirmedEmail, isConfirmed } = await Swal.fire({
+      title: `Confirmar Envío de Correo E3 (${platform})`,
+      html: `
+        <div style="text-align: left; font-size: 0.88rem; color: var(--color-text-main, #334155); line-height: 1.5;">
+          <p style="margin: 0 0 0.85rem 0;">
+            Al guardar los cambios del comercio, se enviará el correo con las <strong>Instrucciones de Integración de Envíos (E3)</strong> para la plataforma <strong>${platform}</strong>.
+          </p>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem; margin-bottom: 0.85rem;">
+            <label for="swal-e3-user-email" style="display: block; font-weight: 700; font-size: 0.82rem; color: #0f172a; margin-bottom: 0.35rem;">
+              Correo de Usuario Envíame <span style="color: #6366f1;">[CORREO_USUARIO]</span> *:
+            </label>
+            <input type="email" id="swal-e3-user-email" class="swal2-input" value="${candidateEmail}" placeholder="usuario@comercio.com" style="width: 100%; margin: 0; box-sizing: border-box; height: 38px; font-size: 0.88rem; padding: 0.4rem 0.65rem;">
+            <p style="font-size: 0.72rem; color: #64748b; margin: 0.4rem 0 0 0; line-height: 1.35;">
+              Este correo se colocará en la sección <em>"D.- Acceso a tu plataforma Envíame"</em> informando al cliente la cuenta asignada para el seguimiento de sus envíos.
+            </p>
+          </div>
+          <p style="font-size: 0.8rem; color: #64748b; margin: 0;">
+            ¿Deseas activar el envío de este correo al guardar?
+          </p>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-check-line"></i> Confirmar y Activar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#5e17eb',
+      cancelButtonColor: '#64748b',
+      focusConfirm: false,
+      didOpen: () => {
+        const input = document.getElementById('swal-e3-user-email');
+        if (input) {
+          input.focus();
+          if (input.value) input.select();
+        }
+      },
+      preConfirm: () => {
+        const emailVal = document.getElementById('swal-e3-user-email')?.value.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailVal || !emailRegex.test(emailVal)) {
+          Swal.showValidationMessage('Por favor ingresa un correo electrónico válido para [CORREO_USUARIO]');
+          return false;
+        }
+        return emailVal;
+      }
+    });
+
+    if (isConfirmed && confirmedEmail) {
+      sendE3Input.checked = true;
+      sendE3Input.dataset.userEmail = confirmedEmail;
+      renderE3Badge(confirmedEmail);
+    } else {
+      sendE3Input.checked = false;
+      delete sendE3Input.dataset.userEmail;
+      if (e3BadgeContainer) e3BadgeContainer.innerHTML = '';
+    }
+  };
+
+  const renderE3Badge = (email) => {
+    if (!e3BadgeContainer) return;
+    e3BadgeContainer.innerHTML = `
+      <div style="margin-top: 0.45rem; display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.75rem; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid rgba(94, 23, 235, 0.2);">
+        <i class="ri-mail-check-line" style="font-size: 0.85rem;"></i>
+        <span>Usuario Envíame <strong>[CORREO_USUARIO]</strong>: <strong style="color: #1e1b4b;">${email}</strong></span>
+        <button type="button" id="btn-edit-e3-user-email" style="background: none; border: none; color: #5e17eb; text-decoration: underline; cursor: pointer; padding: 0; font-size: 0.72rem; margin-left: 0.35rem; font-weight: 600;">(Cambiar)</button>
+      </div>
+    `;
+    const btnChange = document.getElementById('btn-edit-e3-user-email');
+    if (btnChange) {
+      btnChange.addEventListener('click', (e) => {
+        e.preventDefault();
+        openE3ConfirmModal();
+      });
+    }
+  };
+
+  if (sendE3Input) {
+    sendE3Input.addEventListener('change', async () => {
+      if (sendE3Input.checked) {
+        await openE3ConfirmModal();
+      } else {
+        delete sendE3Input.dataset.userEmail;
+        if (e3BadgeContainer) e3BadgeContainer.innerHTML = '';
+      }
+    });
+  }
+
   const form = document.getElementById('form-edit-merchant');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -64306,6 +64403,12 @@ window.showMerchantEditModal = async function(comercioName) {
               const { data: { session } } = await supabase.auth.getSession();
               if (session) {
                 const e3Platform = document.getElementById('merchant-edit-e3-platform')?.value || 'Shopify';
+                const confirmedUserEmail = sendE3Input?.dataset?.userEmail || newRepEmail || recipientEmails[0];
+
+                if (confirmedUserEmail && !recipientEmails.includes(confirmedUserEmail)) {
+                  recipientEmails.unshift(confirmedUserEmail);
+                }
+
                 const res = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
                   method: 'POST',
                   headers: {
@@ -64316,6 +64419,7 @@ window.showMerchantEditModal = async function(comercioName) {
                     commerceName: commerce.nombre,
                     emailType: 'onboarding_enviame_instructions',
                     platform: e3Platform,
+                    userEmail: confirmedUserEmail,
                     emails: recipientEmails,
                     enviameId: newEnviameId
                   })
@@ -64323,7 +64427,7 @@ window.showMerchantEditModal = async function(comercioName) {
                 if (res.ok) {
                   Swal.fire({
                     title: 'Instrucciones Enviadas',
-                    text: `El correo E3 (${e3Platform}) se envió correctamente a: ${recipientEmails.join(', ')}`,
+                    html: `El correo E3 (${e3Platform}) se envió correctamente a:<br><strong>${recipientEmails.join(', ')}</strong><br><br><span style="font-size: 0.85rem; color: #5e17eb;">Usuario Envíame [CORREO_USUARIO]: <strong>${confirmedUserEmail}</strong></span>`,
                     icon: 'success'
                   });
                 } else {

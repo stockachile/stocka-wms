@@ -1439,6 +1439,8 @@ serve(async (req) => {
         `;
       } else {
         // Platform Shopify (comportamiento estándar)
+        const contactEmailDisplay = payload.userEmail || payload.email || (recipientEmails && recipientEmails.length > 0 ? recipientEmails[0] : '[correo de contacto]');
+
         emailBodyHtml = `
           <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
             Hola equipo de <strong>${commerceName}</strong>,<br><br>
@@ -1471,7 +1473,7 @@ serve(async (req) => {
             </span>
           </div>
 
-          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
             <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
               C.- INTEGRACIÓN DE TARIFAS EN TIEMPO REAL EN EL CHECKOUT (OPCIONAL)
             </strong>
@@ -1496,6 +1498,15 @@ serve(async (req) => {
                 Usar las zonas y tarifas de envío manuales/nativas de Shopify a tu criterio.
               </li>
             </ul>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+              D.- ACCESO A TU PLATAFORMA ENVIAME
+            </strong>
+            Se ha generado un usuario para acceder a la plataforma Enviame asociado a tu correo: <strong>${contactEmailDisplay}</strong>.
+            <br><br>
+            Debes haber recibido un correo de Enviame para restablecer o crear tu contraseña de acceso. Desde la plataforma podrás visualizar el estado de tus despachos en tiempo real y gestionar incidencias una vez que la integración quede 100% operativa.
           </div>
 
           ${resourcesHtml}
