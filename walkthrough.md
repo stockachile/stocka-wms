@@ -3086,3 +3086,23 @@ El sincronizador anterior en [`sync_tiendanube.js`](file:///c:/Users/felip/Deskt
 3. **Sanitización Defensiva en Frontend ([`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) y [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js))**:
    - Tanto en el pre-cargador de catálogo de cliente (`loadCatalogProductsForDeclaration`) como en el de administrador (`adminCatalogProductsCache`), se aplica una limpieza preventiva automática `.replace(/\s*-\s*\[object\s+Object\]/gi, '').trim()` para asegurar que ninguna variante pueda volver a mostrarse con `[object Object]` en pantalla.
 
+---
+
+## 121. Corrección de Estado Inicial en MercadoLibre (Prevención de Salto Automático a 'En preparación')
+
+### Causa Raíz
+En la función `mapMeliStatus` tanto del script programado ([`sync_meli.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_meli.js)) como de la Edge Function en tiempo real de MercadoLibre ([`supabase/functions/meli-webhook/index.ts`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/meli-webhook/index.ts)), los estados logísticos de MercadoLibre `ready_to_ship` y `handling` estaban mapeados directamente a `'en preparación'`.
+Al registrarse un nuevo pedido o recibirse notificaciones de envío, el sincronizador y el webhook forzaban automáticamente `status: 'en preparación'` y `estado_wms: 'En preparación'`, saltándose la etapa inicial de control (**"En procesamiento"**) y disparando prematuramente la reserva de inventario e inclusión en la cola del Picker.
+
+### Solución Implementada
+1. **Mapeo a Estado Inicial**:
+   - En [`sync_meli.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_meli.js) y [`supabase/functions/meli-webhook/index.ts`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/meli-webhook/index.ts), `mapMeliStatus` mapea `ready_to_ship` y `handling` a `'para procesar'`.
+2. **Creación e Inserción**:
+   - Los nuevos pedidos se insertan explícitamente con `status: 'para procesar'` y `estado_wms: 'En procesamiento'`.
+3. **Transición Defensiva**:
+   - Solo se transiciona el estado de la orden si el pedido ya figura como `despachado` o `cancelado` en MercadoLibre antes de ingresar a Stocka.
+4. **Protección de Pedidos Existentes**:
+   - Las actualizaciones periódicas o notificaciones posteriores no modifican el avance operativo del WMS (`En procesamiento`, `En preparación`, `Pickeado`) salvo cancelaciones o despachos efectivos informados por MercadoLibre.
+5. **Despliegue a Producción**:
+   - Se compiló el proyecto (`npm run build`) y se desplegó la Edge Function `meli-webhook` en Supabase de forma exitosa.
+
