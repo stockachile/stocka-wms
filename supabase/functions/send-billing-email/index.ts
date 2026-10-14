@@ -1422,10 +1422,19 @@ serve(async (req) => {
 
           ${resourcesHtml}
 
-          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
-            📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
-            Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
-            <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
+          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 18px; margin-bottom: 25px; font-size: 13.5px; color: #3b0764; line-height: 1.6;">
+            <strong style="color: #581c87; font-size: 14.5px; display: block; margin-bottom: 6px;">
+              📚 Tarifarios Oficiales y Módulo de Documentación:
+            </strong>
+            Todos los tarifarios vigentes, manuales de operación, instructivos de SKU y condiciones de courier se encuentran siempre disponibles y actualizados en tu portal WMS:
+            <ol style="margin: 8px 0 10px 0; padding-left: 20px; color: #4c1d95; line-height: 1.6;">
+              <li>Ingresa con tus credenciales a <a href="https://wms.stocka.cl" target="_blank" style="color: #6d28d9; font-weight: 700; text-decoration: underline;">wms.stocka.cl</a>.</li>
+              <li>En el menú lateral izquierdo, haz clic en la sección <strong>"Documentación"</strong>.</li>
+              <li>Allí podrás consultar y descargar en cualquier momento los tarifarios vigentes, guías de courier y presentaciones de servicio.</li>
+            </ol>
+            <span style="font-size: 12px; color: #6b21a8;">
+              💡 <em>El módulo cuenta con buscador y filtro por carpetas para que encuentres fácilmente cualquier documento operativo.</em>
+            </span>
           </div>
         `;
       } else {
@@ -1491,10 +1500,19 @@ serve(async (req) => {
 
           ${resourcesHtml}
 
-          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
-            📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
-            Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
-            <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
+          <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 18px; margin-bottom: 25px; font-size: 13.5px; color: #3b0764; line-height: 1.6;">
+            <strong style="color: #581c87; font-size: 14.5px; display: block; margin-bottom: 6px;">
+              📚 Tarifarios Oficiales y Módulo de Documentación:
+            </strong>
+            Todos los tarifarios vigentes, manuales de operación, instructivos de SKU y condiciones de courier se encuentran siempre disponibles y actualizados en tu portal WMS:
+            <ol style="margin: 8px 0 10px 0; padding-left: 20px; color: #4c1d95; line-height: 1.6;">
+              <li>Ingresa con tus credenciales a <a href="https://wms.stocka.cl" target="_blank" style="color: #6d28d9; font-weight: 700; text-decoration: underline;">wms.stocka.cl</a>.</li>
+              <li>En el menú lateral izquierdo, haz clic en la sección <strong>"Documentación"</strong>.</li>
+              <li>Allí podrás consultar y descargar en cualquier momento los tarifarios vigentes, guías de courier y presentaciones de servicio.</li>
+            </ol>
+            <span style="font-size: 12px; color: #6b21a8;">
+              💡 <em>El módulo cuenta con buscador y filtro por carpetas para que encuentres fácilmente cualquier documento operativo.</em>
+            </span>
           </div>
         `;
       }
