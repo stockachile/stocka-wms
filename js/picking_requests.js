@@ -391,11 +391,18 @@ window.renderPickingRequestModalBody = function() {
       <div style="display: flex; flex-direction: column; gap: 0.5rem;">
         ${state.items.map((it, idx) => {
           const isChecked = Boolean(it.checked);
+          const isDiscarded = Boolean(it.discarded);
           let checkStatusHtml = '';
           if (isChecked) {
             checkStatusHtml = `
               <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;">
-                <i class="ri-checkbox-circle-fill"></i> Verificado por ${it.checked_by || 'Picker'} ${it.checked_at ? 'el ' + new Date(it.checked_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : ''}
+                <i class="ri-checkbox-circle-fill"></i> Listo por ${it.checked_by || 'Picker'} ${it.checked_at ? 'el ' + new Date(it.checked_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : ''}
+              </span>
+            `;
+          } else if (isDiscarded) {
+            checkStatusHtml = `
+              <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;" title="${it.discard_reason ? 'Motivo: ' + it.discard_reason : 'Descartado'}">
+                <i class="ri-close-circle-fill"></i> Descartado por ${it.discarded_by || 'Picker'}
               </span>
             `;
           } else {
@@ -406,26 +413,38 @@ window.renderPickingRequestModalBody = function() {
             `;
           }
 
+          const badgeBg = isChecked ? '#10b981' : (isDiscarded ? '#ef4444' : 'rgba(99, 102, 241, 0.2)');
+          const badgeColor = (isChecked || isDiscarded) ? '#fff' : '#818cf8';
+          const badgeSymbol = isChecked ? '✓' : (isDiscarded ? '✕' : (idx + 1));
+          const borderStyle = isChecked ? 'rgba(16, 185, 129, 0.3)' : (isDiscarded ? 'rgba(239, 68, 68, 0.35)' : 'var(--color-border, #334155)');
+
           return `
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: var(--color-bg, #0f172a); border: 1px solid ${isChecked ? 'rgba(16, 185, 129, 0.3)' : 'var(--color-border, #334155)'}; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm, 6px);">
-              <div onclick="window.toggleModalItemCheck(${idx})" style="display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: 1; cursor: pointer;" title="Clic para alternar estado de verificación">
-                <span style="width: 22px; height: 22px; border-radius: 50%; background: ${isChecked ? '#10b981' : 'rgba(99, 102, 241, 0.2)'}; color: ${isChecked ? '#fff' : '#818cf8'}; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                  ${isChecked ? '✓' : (idx + 1)}
-                </span>
-                <span style="font-size: 0.875rem; font-weight: 500; color: var(--color-text-main, #f8fafc); word-break: break-word; text-decoration: ${isChecked ? 'line-through' : 'none'}; opacity: ${isChecked ? '0.85' : '1'};">
-                  ${window.escapeHtml ? window.escapeHtml(it.text) : it.text}
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
-                <div onclick="window.toggleModalItemCheck(${idx})" style="cursor: pointer;">
-                  ${checkStatusHtml}
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; background: var(--color-bg, #0f172a); border: 1px solid ${borderStyle}; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm, 6px);">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                <div onclick="window.toggleModalItemCheck(${idx})" style="display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: 1; cursor: pointer;" title="Clic para alternar estado">
+                  <span style="width: 22px; height: 22px; border-radius: 50%; background: ${badgeBg}; color: ${badgeColor}; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    ${badgeSymbol}
+                  </span>
+                  <span style="font-size: 0.875rem; font-weight: 500; color: ${isDiscarded ? '#ef4444' : 'var(--color-text-main, #f8fafc)'}; word-break: break-word; text-decoration: ${(isChecked || isDiscarded) ? 'line-through' : 'none'}; opacity: ${(isChecked || isDiscarded) ? '0.85' : '1'};">
+                    ${window.escapeHtml ? window.escapeHtml(it.text) : it.text}
+                  </span>
                 </div>
-                ${!isChecked ? `
-                  <button type="button" onclick="event.stopPropagation(); window.removePickingRequestItem(${idx})" title="Eliminar ítem" style="background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px; font-size: 1rem; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
-                    <i class="ri-delete-bin-line"></i>
-                  </button>
-                ` : ''}
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                  <div onclick="window.toggleModalItemCheck(${idx})" style="cursor: pointer;">
+                    ${checkStatusHtml}
+                  </div>
+                  ${(!isChecked && !isDiscarded) ? `
+                    <button type="button" onclick="event.stopPropagation(); window.removePickingRequestItem(${idx})" title="Eliminar ítem" style="background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px; font-size: 1rem; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                      <i class="ri-delete-bin-line"></i>
+                    </button>
+                  ` : ''}
+                </div>
               </div>
+              ${isDiscarded && it.discard_reason ? `
+                <div style="font-size: 0.78rem; color: #fca5a5; font-style: italic; padding-left: 2rem; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-error-warning-line" style="color: #ef4444;"></i> <strong>Motivo descarte:</strong> "${window.escapeHtml ? window.escapeHtml(it.discard_reason) : it.discard_reason}"
+                </div>
+              ` : ''}
             </div>
           `;
         }).join('')}
@@ -779,33 +798,64 @@ window.renderOrderPickingRequestCard = function(order) {
   if (hasRequest) {
     const isCompleted = req.status === 'completada';
     const checkedCount = req.items.filter(i => i.checked).length;
+    const discardedCount = req.items.filter(i => i.discarded).length;
     const totalCount = req.items.length;
 
     if (isCompleted) {
-      statusBadgeHtml = `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-checkbox-circle-fill"></i> Todos los requerimientos verificados</span>`;
+      if (discardedCount > 0) {
+        statusBadgeHtml = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-checkbox-circle-fill"></i> ${checkedCount} listas, ${discardedCount} descartadas</span>`;
+      } else {
+        statusBadgeHtml = `<span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-checkbox-circle-fill"></i> Todos los requerimientos verificados</span>`;
+      }
     } else {
-      statusBadgeHtml = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-time-line"></i> ${checkedCount} de ${totalCount} verificados</span>`;
+      statusBadgeHtml = `<span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px;"><i class="ri-time-line"></i> ${checkedCount} de ${totalCount} verificados${discardedCount > 0 ? ` (${discardedCount} descartados)` : ''}</span>`;
     }
 
     itemsContentHtml = `
       <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem;">
-        ${req.items.map((it, idx) => `
-          <div onclick="event.stopPropagation(); window.togglePickingRequestItemCheck('${order.id}', ${idx})" title="Clic para marcar o desmarcar requerimiento" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: var(--color-bg, #0f172a); padding: 0.45rem 0.7rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid ${it.checked ? 'rgba(16, 185, 129, 0.35)' : 'var(--color-border, #334155)'}; cursor: pointer; transition: all 0.15s ease;">
-            <span style="display: inline-flex; align-items: center; gap: 0.45rem; text-decoration: ${it.checked ? 'line-through' : 'none'}; opacity: ${it.checked ? '0.85' : '1'};">
-              <i class="${it.checked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${it.checked ? '#10b981' : 'var(--color-text-muted, #94a3b8)'}; font-size: 1.05rem;"></i>
-              <span style="color: ${it.checked ? 'var(--color-text-muted, #94a3b8)' : 'var(--color-text-main, #f8fafc)'}; font-weight: 500;">${window.escapeHtml ? window.escapeHtml(it.text) : it.text}</span>
-            </span>
-            ${it.checked ? `
-              <span style="font-size: 0.7rem; color: #10b981; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-check-double-line"></i> ${it.checked_by || 'Verificado'}
+        ${req.items.map((it, idx) => {
+          const isChecked = Boolean(it.checked);
+          const isDiscarded = Boolean(it.discarded);
+
+          if (isDiscarded) {
+            return `
+              <div style="display: flex; flex-direction: column; gap: 0.25rem; background: var(--color-bg, #0f172a); padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid rgba(239, 68, 68, 0.35);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                  <span style="display: inline-flex; align-items: center; gap: 0.45rem; text-decoration: line-through; opacity: 0.85;">
+                    <i class="ri-close-circle-fill" style="color: #ef4444; font-size: 1.05rem;"></i>
+                    <span style="color: #ef4444; font-weight: 500;">${window.escapeHtml ? window.escapeHtml(it.text) : it.text}</span>
+                  </span>
+                  <span style="font-size: 0.7rem; color: #ef4444; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-close-line"></i> Descartado (${it.discarded_by || 'Picker'})
+                  </span>
+                </div>
+                ${it.discard_reason ? `
+                  <div style="font-size: 0.75rem; color: #fca5a5; font-style: italic; padding-left: 1.5rem; display: flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-error-warning-line" style="color: #ef4444;"></i> <strong>Motivo:</strong> "${window.escapeHtml ? window.escapeHtml(it.discard_reason) : it.discard_reason}"
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }
+
+          return `
+            <div onclick="event.stopPropagation(); window.togglePickingRequestItemCheck('${order.id}', ${idx})" title="Clic para marcar o desmarcar requerimiento" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; background: var(--color-bg, #0f172a); padding: 0.45rem 0.7rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid ${isChecked ? 'rgba(16, 185, 129, 0.35)' : 'var(--color-border, #334155)'}; cursor: pointer; transition: all 0.15s ease;">
+              <span style="display: inline-flex; align-items: center; gap: 0.45rem; text-decoration: ${isChecked ? 'line-through' : 'none'}; opacity: ${isChecked ? '0.85' : '1'};">
+                <i class="${isChecked ? 'ri-checkbox-circle-fill' : 'ri-checkbox-blank-circle-line'}" style="color: ${isChecked ? '#10b981' : 'var(--color-text-muted, #94a3b8)'}; font-size: 1.05rem;"></i>
+                <span style="color: ${isChecked ? 'var(--color-text-muted, #94a3b8)' : 'var(--color-text-main, #f8fafc)'}; font-weight: 500;">${window.escapeHtml ? window.escapeHtml(it.text) : it.text}</span>
               </span>
-            ` : `
-              <span style="font-size: 0.7rem; color: #f59e0b; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-time-line"></i> Marcar listo
-              </span>
-            `}
-          </div>
-        `).join('')}
+              ${isChecked ? `
+                <span style="font-size: 0.7rem; color: #10b981; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-check-double-line"></i> ${it.checked_by || 'Listo'}
+                </span>
+              ` : `
+                <span style="font-size: 0.7rem; color: #f59e0b; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-time-line"></i> Marcar listo
+                </span>
+              `}
+            </div>
+          `;
+        }).join('')}
         ${req.general_notes ? `
           <div style="margin-top: 0.35rem; padding: 0.45rem 0.7rem; font-size: 0.8rem; background: rgba(99, 102, 241, 0.08); border-left: 3px solid #6366f1; border-radius: 2px; color: var(--color-text-main, #f8fafc);">
             <strong style="color: #818cf8;">Nota:</strong> ${window.escapeHtml ? window.escapeHtml(req.general_notes) : req.general_notes}
@@ -1080,11 +1130,18 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
 
     // Construir nuevo tag de picking
     let tag = '';
-    if (request && Array.isArray(request.items) && request.items.length > 0) {
-      if (request.status === 'completada' || request.items.every(i => i.checked)) {
+    const hasReq = Boolean(request && Array.isArray(request.items) && request.items.length > 0);
+    const allChecked = hasReq && request.items.every(i => i.checked);
+    const allResolved = hasReq && request.items.every(i => i.checked || i.discarded);
+    const discardedCount = hasReq ? request.items.filter(i => i.discarded).length : 0;
+
+    if (hasReq) {
+      if (allChecked) {
         tag = '✅ [SOLICITUD PICKING: COMPLETADA]';
+      } else if (allResolved) {
+        tag = `⚠️ [SOLICITUD PICKING: REVISADA (${discardedCount} descartadas)]`;
       } else {
-        const pendingItems = request.items.filter(i => !i.checked).map(i => i.text);
+        const pendingItems = request.items.filter(i => !i.checked && !i.discarded).map(i => i.text);
         if (pendingItems.length > 0) {
           tag = `🚨 [SOLICITUD PICKING: ${pendingItems.join('; ')}]`;
         }
@@ -1094,20 +1151,25 @@ window.syncPickingRequestToPicker = async function(orderId, request) {
     for (const row of activeRows) {
       let currentObs = row.observation || '';
       // Limpiar tags previos
-      currentObs = currentObs.replace(/(🚨|✅)?\s*\[SOLICITUD PICKING:[^\]]*\]\s*(\|)?\s*/gi, '').trim();
+      currentObs = currentObs.replace(/(🚨|✅|⚠️)?\s*\[SOLICITUD PICKING:[^\]]*\]\s*(\|)?\s*/gi, '').trim();
 
       let newObs = currentObs;
       if (tag) {
         newObs = currentObs ? `${tag} | ${currentObs}` : tag;
       }
 
-      if (newObs !== row.observation) {
-        await pClient
-          .from('active_orders')
-          .update({ observation: newObs })
-          .eq('id', row.id);
-        console.log(`📡 [PICKER SYNC] Observación actualizada en active_orders para orden #${row.order_number}`);
-      }
+      const updatePayload = {
+        observation: newObs,
+        has_picking_requests: hasReq,
+        picking_requests_json: hasReq ? request.items : null,
+        picking_requests_confirmed: allResolved
+      };
+
+      await pClient
+        .from('active_orders')
+        .update(updatePayload)
+        .eq('id', row.id);
+      console.log(`📡 [PICKER SYNC] active_orders actualizado con éxito para orden #${row.order_number}`);
     }
   } catch (err) {
     console.warn("⚠️ [PICKER SYNC] Error al sincronizar con active_orders:", err);

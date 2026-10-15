@@ -5957,46 +5957,56 @@ import supabase from './supabase.js';
       </div>
     `;
 
+    const getSingleModalValues = () => {
+      return {
+        size: document.getElementById('swal-label-size').value,
+        courier: document.getElementById('swal-label-courier').value.trim(),
+        headComment: document.getElementById('swal-label-head-comment').value.trim(),
+        footComment: document.getElementById('swal-label-foot-comment').value.trim()
+      };
+    };
+
     Swal.fire({
       title: '<i class="ri-printer-line" style="color:var(--color-primary); margin-right: 0.5rem;"></i>Etiqueta de Despacho Stocka',
       html: modalHtml,
       showCancelButton: true,
+      showDenyButton: true,
       confirmButtonText: '<i class="ri-printer-line" style="margin-right:0.25rem;"></i> Imprimir',
+      denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar PDF',
       cancelButtonText: 'Cancelar',
+      denyButtonColor: '#059669',
       customClass: {
         confirmButton: 'btn btn-primary',
+        denyButton: 'btn btn-primary',
         cancelButton: 'btn btn-outline'
       },
-      preConfirm: () => {
-        return {
-          size: document.getElementById('swal-label-size').value,
-          courier: document.getElementById('swal-label-courier').value.trim(),
-          headComment: document.getElementById('swal-label-head-comment').value.trim(),
-          footComment: document.getElementById('swal-label-foot-comment').value.trim()
-        };
-      }
+      preConfirm: getSingleModalValues,
+      preDeny: getSingleModalValues
     }).then((result) => {
-      if (result.isConfirmed) {
+      if (result.isConfirmed && result.value) {
         const { size, courier, headComment, footComment } = result.value;
         window.printCustomShippingLabel(order, displayName, displayPhone, { size, courier, headComment, footComment });
+      } else if (result.isDenied && result.value) {
+        const { size, courier, headComment, footComment } = result.value;
+        window.downloadBulkCustomShippingLabelsPDF([order], { size, courier, headComment, footComment });
       }
     });
   };
 
-  window.showBulkShippingLabelModal = async function(customIds) {
+  async function fetchOrdersForBulkShippingLabels(customIds, loadingTitle = 'Cargando datos...') {
     if (typeof Swal === 'undefined') {
       alert("Error: SweetAlert2 no está cargado.");
-      return;
+      return null;
     }
 
     const orderIds = customIds || Array.from(window.wmsSelectedOrderIds || []);
     if (orderIds.length === 0) {
       Swal.fire('Atención', 'No hay pedidos seleccionados.', 'warning');
-      return;
+      return null;
     }
 
     Swal.fire({
-      title: 'Cargando datos...',
+      title: loadingTitle,
       text: `Por favor, espere mientras obtenemos los detalles de los ${orderIds.length} pedidos.`,
       allowOutsideClick: false,
       showConfirmButton: false,
@@ -6005,7 +6015,6 @@ import supabase from './supabase.js';
       }
     });
 
-    let orders = [];
     try {
       const { data, error } = await supabase
         .from('orders')
@@ -6022,19 +6031,47 @@ import supabase from './supabase.js';
           )
         `)
         .in('id', orderIds);
-       
+
       if (error) throw error;
-      orders = data || [];
+      const orders = data || [];
+      if (orders.length === 0) {
+        Swal.fire('Error', 'No se encontraron los pedidos.', 'error');
+        return null;
+      }
+      return orders;
     } catch (err) {
       console.error("Error fetching orders:", err);
       Swal.fire('Error', 'No se pudieron cargar los pedidos: ' + err.message, 'error');
-      return;
+      return null;
     }
+  }
 
-    if (orders.length === 0) {
-      Swal.fire('Error', 'No se encontraron los pedidos.', 'error');
-      return;
-    }
+  window.quickPrintBulkShippingLabels = async function(customIds, options = {}) {
+    const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Preparando impresión rápida...');
+    if (!orders) return;
+    if (typeof Swal !== 'undefined') Swal.close();
+    window.printBulkCustomShippingLabels(orders, {
+      size: options.size || '10x15',
+      courier: options.courier || '',
+      headComment: options.headComment || '',
+      footComment: options.footComment || ''
+    });
+  };
+
+  window.quickDownloadBulkShippingLabels = async function(customIds, options = {}) {
+    const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Preparando descarga de etiquetas...');
+    if (!orders) return;
+    await window.downloadBulkCustomShippingLabelsPDF(orders, {
+      size: options.size || '10x15',
+      courier: options.courier || '',
+      headComment: options.headComment || '',
+      footComment: options.footComment || ''
+    });
+  };
+
+  window.showBulkShippingLabelModal = async function(customIds) {
+    const orders = await fetchOrdersForBulkShippingLabels(customIds, 'Cargando datos...');
+    if (!orders) return;
 
     const modalHtml = `
       <div style="text-align: left; font-family: 'Inter', sans-serif;">
@@ -6068,28 +6105,38 @@ import supabase from './supabase.js';
       </div>
     `;
 
+    const getBulkModalValues = () => {
+      return {
+        size: document.getElementById('swal-bulk-label-size').value,
+        courier: document.getElementById('swal-bulk-label-courier').value.trim(),
+        headComment: document.getElementById('swal-bulk-label-head-comment').value.trim(),
+        footComment: document.getElementById('swal-bulk-label-foot-comment').value.trim()
+      };
+    };
+
     Swal.fire({
       title: '<i class="ri-printer-line" style="color:var(--color-primary); margin-right: 0.5rem;"></i>Etiquetas Masivas Stocka',
       html: modalHtml,
       showCancelButton: true,
+      showDenyButton: true,
       confirmButtonText: '<i class="ri-printer-line" style="margin-right:0.25rem;"></i> Imprimir',
+      denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar PDF',
       cancelButtonText: 'Cancelar',
+      denyButtonColor: '#059669',
       customClass: {
         confirmButton: 'btn btn-primary',
+        denyButton: 'btn btn-primary',
         cancelButton: 'btn btn-outline'
       },
-      preConfirm: () => {
-        return {
-          size: document.getElementById('swal-bulk-label-size').value,
-          courier: document.getElementById('swal-bulk-label-courier').value.trim(),
-          headComment: document.getElementById('swal-bulk-label-head-comment').value.trim(),
-          footComment: document.getElementById('swal-bulk-label-foot-comment').value.trim()
-        };
-      }
+      preConfirm: getBulkModalValues,
+      preDeny: getBulkModalValues
     }).then((result) => {
-      if (result.isConfirmed) {
+      if (result.isConfirmed && result.value) {
         const { size, courier, headComment, footComment } = result.value;
         window.printBulkCustomShippingLabels(orders, { size, courier, headComment, footComment });
+      } else if (result.isDenied && result.value) {
+        const { size, courier, headComment, footComment } = result.value;
+        window.downloadBulkCustomShippingLabelsPDF(orders, { size, courier, headComment, footComment });
       }
     });
   };
@@ -7134,6 +7181,521 @@ import supabase from './supabase.js';
           };
         }
       });
+    }
+  };
+
+  window.downloadBulkCustomShippingLabelsPDF = async function (orders, options = {}) {
+    if (!orders || orders.length === 0) {
+      if (typeof Swal !== 'undefined') Swal.fire('Atención', 'No hay pedidos para descargar.', 'warning');
+      return;
+    }
+
+    if (typeof html2pdf === 'undefined') {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Aviso', 'El generador de PDF directo no está disponible. Se abrirá la ventana de impresión.', 'info');
+      }
+      window.printBulkCustomShippingLabels(orders, options);
+      return;
+    }
+
+    const selectedSize = options.size || '10x15';
+    const widthMm = selectedSize === '5x5' ? 50 : 100;
+    const heightMm = selectedSize === '5x5' ? 50 : 150;
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: 'Generando PDF de Etiquetas...',
+        html: `Renderizando <strong id="wms-label-pdf-progress">1 de ${orders.length}</strong> etiqueta(s) Stocka...`,
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+    }
+
+    let labelPagesHTML = '';
+
+    orders.forEach(order => {
+      let displayName = order.customer_name;
+      if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+        if (order.raw_shopify_data) {
+          const raw = order.raw_shopify_data;
+          const billing = raw.billing_address;
+          const cust = raw.customer;
+          if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+          else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+        }
+        if (!displayName || displayName.trim() === '') displayName = 'No registrado';
+      }
+
+      let displayPhone = order.customer_phone;
+      if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
+        if (order.raw_shopify_data) {
+          const raw = order.raw_shopify_data;
+          displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+        }
+        if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
+      }
+
+      const rawCode = String(order.external_order_number || order.id);
+      const codeVal = rawCode.replace(/[^a-zA-Z0-9]/g, '') || rawCode;
+      const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
+      const courierVal = options.courier || order.courier || 'POR DEFINIR';
+
+      if (selectedSize === '10x15') {
+        labelPagesHTML += `
+          <div class="label-page wms-pdf-label-page size-10x15">
+            <div class="header-section">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" crossorigin="anonymous" class="logo-img" alt="STOCKA">
+              <div class="title-container">
+                <div class="main-title">ETIQUETA DE DESPACHO</div>
+                <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
+              </div>
+            </div>
+
+            ${options.headComment ? `<div class="head-comment-box">${escapeHtml(options.headComment)}</div>` : ''}
+
+            <div class="shipping-info-grid">
+              <div class="info-block">
+                <span class="block-title">COURIER / OPERADOR</span>
+                <span class="block-value highlighted-courier">${escapeHtml(courierVal)}</span>
+              </div>
+              <div class="info-block">
+                <span class="block-title">MÉTODO DE ENVÍO</span>
+                <span class="block-value">${escapeHtml(order.shipping_method || 'ESTÁNDAR')}</span>
+              </div>
+            </div>
+
+            <div class="destinatario-section">
+              <div class="section-title">DESTINATARIO</div>
+              <div class="dest-name">${escapeHtml(displayName)}</div>
+              <div class="dest-address">${escapeHtml(order.shipping_address || 'Sin dirección')} ${order.shipping_complement ? `, ${escapeHtml(order.shipping_complement)}` : ''}</div>
+              <div class="dest-city-commune">${escapeHtml(order.shipping_city || 'Sin comuna')}</div>
+              <div class="dest-contact">Teléfono: ${escapeHtml(displayPhone)}</div>
+            </div>
+
+            <div class="origin-grid">
+              <div class="info-block">
+                <span class="block-title">REMITENTE (TIENDA)</span>
+                <span class="block-value">${escapeHtml(order.comercio || 'STOCKA CLIENTE')}</span>
+              </div>
+              <div class="info-block">
+                <span class="block-title">REFERENCIA PEDIDO</span>
+                <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+              </div>
+            </div>
+
+            <div class="barcode-wrapper">
+              ${barcodeSVG}
+            </div>
+
+            <div class="items-section">
+              <div class="section-title">DETALLE DE PRODUCTOS (PICKING & PACKING)</div>
+              <table class="items-table">
+                <thead>
+                  <tr>
+                    <th style="width: 25%; text-align: left;">SKU</th>
+                    <th style="width: 60%; text-align: left;">Producto</th>
+                    <th style="width: 15%; text-align: center;">Cant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${order.order_items && order.order_items.length > 0 ? order.order_items.map(oi => `
+                    <tr>
+                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(oi.products?.sku || 'Sin SKU')}</td>
+                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(oi.products?.name || 'Sin nombre')}</td>
+                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${oi.quantity || 1}</td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(order.sku || 'Sin SKU')}</td>
+                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(order.item || 'Sin nombre')}</td>
+                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${order.cantidad || 1}</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            ${options.footComment ? `<div class="foot-comment-box">${escapeHtml(options.footComment)}</div>` : ''}
+
+            <div class="footer-section">
+              <span>Preparado y despachado desde Centro de Distribución STOCKA</span>
+            </div>
+          </div>
+        `;
+      } else {
+        labelPagesHTML += `
+          <div class="label-page wms-pdf-label-page size-5x5">
+            <div class="compact-header">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" crossorigin="anonymous" style="height: 14px; object-fit: contain;">
+              <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
+            </div>
+
+            ${options.headComment ? `<div class="compact-comment">${escapeHtml(options.headComment)}</div>` : ''}
+
+            <div class="compact-destinatario">
+              <div style="font-size: 9px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</div>
+              <div style="font-size: 7px; line-height: 1.1; max-height: 22px; overflow: hidden;">
+                ${escapeHtml(order.shipping_address || 'Sin dir.')}
+              </div>
+              <div style="font-size: 8px; font-weight: bold; margin-top: 1px;">
+                ${escapeHtml(order.shipping_city || 'Sin comuna')}
+              </div>
+              <div style="font-size: 7px;">Tel: ${escapeHtml(displayPhone)}</div>
+            </div>
+
+            <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
+              <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+              <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
+            </div>
+
+            <div class="compact-barcode-wrapper" style="margin: 2px 0;">
+              ${barcodeSVG}
+            </div>
+
+            ${options.footComment ? `<div class="compact-comment foot">${escapeHtml(options.footComment)}</div>` : ''}
+
+            <div class="compact-footer" style="font-size: 6px; text-align: center; color: #555; margin-top: auto;">
+              STOCKA LOGÍSTICA WMS
+            </div>
+          </div>
+        `;
+      }
+    });
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'wms-pdf-labels-temp-style';
+    styleEl.textContent = `
+      .wms-pdf-label-page {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+        background: #ffffff !important;
+        color: #000000 !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+      }
+      .wms-pdf-label-page.size-10x15 {
+        width: 10cm;
+        height: 15cm;
+        padding: 0.6cm 0.6cm;
+        border: 1px solid #000;
+      }
+      .wms-pdf-label-page.size-10x15 .header-section {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 2px solid #000;
+        padding-bottom: 6px;
+        margin-bottom: 8px;
+      }
+      .wms-pdf-label-page.size-10x15 .logo-img {
+        height: 24px;
+        max-width: 100px;
+        object-fit: contain;
+      }
+      .wms-pdf-label-page.size-10x15 .title-container {
+        text-align: right;
+      }
+      .wms-pdf-label-page.size-10x15 .main-title {
+        font-size: 14px;
+        font-weight: 900;
+        letter-spacing: 0.5px;
+        color: #000;
+      }
+      .wms-pdf-label-page.size-10x15 .sub-title {
+        font-size: 9px;
+        color: #444;
+        font-weight: 600;
+      }
+      .wms-pdf-label-page .head-comment-box {
+        background: #000;
+        color: #fff;
+        text-align: center;
+        font-weight: 800;
+        font-size: 11px;
+        padding: 4px;
+        border-radius: 2px;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+      .wms-pdf-label-page .foot-comment-box {
+        border: 2px dashed #000;
+        text-align: center;
+        font-weight: 700;
+        font-size: 10px;
+        padding: 4px;
+        margin-top: 6px;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        color: #000;
+      }
+      .wms-pdf-label-page .shipping-info-grid,
+      .wms-pdf-label-page .origin-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        border: 1px solid #000;
+        margin-bottom: 8px;
+      }
+      .wms-pdf-label-page .info-block {
+        padding: 4px 6px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .wms-pdf-label-page .info-block:first-child {
+        border-right: 1px solid #000;
+      }
+      .wms-pdf-label-page .block-title {
+        font-size: 7px;
+        font-weight: bold;
+        color: #555;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+      }
+      .wms-pdf-label-page .block-value {
+        font-size: 10px;
+        font-weight: bold;
+        color: #000;
+      }
+      .wms-pdf-label-page .highlighted-courier {
+        font-size: 13px !important;
+        font-weight: 900 !important;
+      }
+      .wms-pdf-label-page .destinatario-section {
+        border: 2px solid #000;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+        background: #fdfdfd;
+        color: #000;
+      }
+      .wms-pdf-label-page .section-title {
+        font-size: 8px;
+        font-weight: bold;
+        color: #000;
+        border-bottom: 1px solid #000;
+        padding-bottom: 2px;
+        margin-bottom: 4px;
+        letter-spacing: 0.3px;
+      }
+      .wms-pdf-label-page .dest-name {
+        font-size: 14px;
+        font-weight: 800;
+        margin-bottom: 2px;
+        color: #000;
+      }
+      .wms-pdf-label-page .dest-address {
+        font-size: 11px;
+        line-height: 1.2;
+        margin-bottom: 2px;
+        color: #000;
+      }
+      .wms-pdf-label-page .dest-city-commune {
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+        margin-bottom: 2px;
+        color: #000;
+      }
+      .wms-pdf-label-page .dest-contact {
+        font-size: 10px;
+        font-weight: 600;
+        color: #000;
+      }
+      .wms-pdf-label-page .barcode-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 8px 0;
+        border: 1px solid #000;
+        margin-bottom: 8px;
+        background: #fff;
+      }
+      .wms-pdf-label-page .barcode-wrapper svg {
+        max-width: 100%;
+        height: auto;
+      }
+      .wms-pdf-label-page .items-section {
+        border: 1px solid #000;
+        padding: 6px;
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        color: #000;
+      }
+      .wms-pdf-label-page .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        color: #000;
+      }
+      .wms-pdf-label-page .items-table th {
+        font-size: 8px;
+        color: #333;
+        border-bottom: 1px solid #000;
+        padding: 2px 4px;
+      }
+      .wms-pdf-label-page .items-table td {
+        border-bottom: 1px dashed #ccc;
+        padding: 3px 4px;
+        vertical-align: middle;
+        color: #000;
+      }
+      .wms-pdf-label-page .items-table tr:last-child td {
+        border-bottom: none;
+      }
+      .wms-pdf-label-page .footer-section {
+        border-top: 1px solid #000;
+        padding-top: 4px;
+        margin-top: 8px;
+        font-size: 8px;
+        text-align: center;
+        font-weight: 600;
+        color: #444;
+      }
+      .wms-pdf-label-page.size-5x5 {
+        width: 5cm;
+        height: 5cm;
+        padding: 0.35cm 0.35cm;
+        border: 1px dashed #000;
+        display: flex;
+        flex-direction: column;
+      }
+      .wms-pdf-label-page .compact-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid #000;
+        padding-bottom: 2px;
+        margin-bottom: 2px;
+      }
+      .wms-pdf-label-page .compact-comment {
+        background: #000;
+        color: #fff;
+        text-align: center;
+        font-weight: bold;
+        font-size: 7px;
+        padding: 2px;
+        border-radius: 1px;
+        text-transform: uppercase;
+        margin: 1px 0;
+      }
+      .wms-pdf-label-page .compact-comment.foot {
+        background: transparent;
+        color: #000;
+        border: 1px dashed #000;
+      }
+      .wms-pdf-label-page .compact-destinatario {
+        text-align: left;
+        margin-bottom: 2px;
+        color: #000;
+      }
+      .wms-pdf-label-page .compact-barcode-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #fff;
+      }
+      .wms-pdf-label-page .compact-barcode-wrapper svg {
+        max-width: 100%;
+        height: auto;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
+    const renderRoot = document.createElement('div');
+    renderRoot.id = 'wms-pdf-labels-render-root';
+    renderRoot.style.cssText = 'position: fixed; top: -99999px; left: -99999px; background: #ffffff; color: #000000; z-index: -9999;';
+    renderRoot.innerHTML = labelPagesHTML;
+    document.body.appendChild(renderRoot);
+
+    try {
+      // Wait for logo images to load
+      const imgs = Array.from(renderRoot.querySelectorAll('img'));
+      if (imgs.length > 0) {
+        await new Promise(resolve => {
+          let loaded = 0;
+          let done = false;
+          const finish = () => {
+            if (!done) {
+              done = true;
+              resolve();
+            }
+          };
+          const timer = setTimeout(finish, 1500);
+          imgs.forEach(img => {
+            if (img.complete) {
+              loaded++;
+              if (loaded === imgs.length) {
+                clearTimeout(timer);
+                finish();
+              }
+            } else {
+              img.onload = img.onerror = () => {
+                loaded++;
+                if (loaded === imgs.length) {
+                  clearTimeout(timer);
+                  finish();
+                }
+              };
+            }
+          });
+        });
+      }
+
+      const pageEls = Array.from(renderRoot.querySelectorAll('.wms-pdf-label-page'));
+      const baseOpt = {
+        margin: 0,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, allowTaint: true, scrollY: 0, scrollX: 0, logging: false, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait' }
+      };
+
+      const dummy = document.createElement('div');
+      dummy.style.cssText = 'width: 10px; height: 10px; background: #ffffff;';
+      const pdf = await html2pdf().set(baseOpt).from(dummy).toPdf().get('pdf');
+
+      for (let i = 0; i < pageEls.length; i++) {
+        const progressEl = document.getElementById('wms-label-pdf-progress');
+        if (progressEl) progressEl.textContent = `${i + 1} de ${pageEls.length}`;
+        const canvas = await html2pdf().set(baseOpt).from(pageEls[i]).toCanvas().get('canvas');
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        if (i > 0) {
+          pdf.addPage([widthMm, heightMm], 'portrait');
+        }
+        pdf.addImage(imgData, 'JPEG', 0, 0, widthMm, heightMm);
+      }
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = orders.length === 1
+        ? `Etiqueta_Stocka_${String(orders[0].external_order_number || orders[0].id.split('-')[0]).replace(/[^a-zA-Z0-9_-]/g, '')}_${selectedSize}.pdf`
+        : `Etiquetas_Stocka_Masivas_${orders.length}_pedidos_${selectedSize}_${dateStr}.pdf`;
+
+      pdf.save(filename);
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: `¡PDF de ${orders.length} etiqueta(s) descargado!`,
+          showConfirmButton: false,
+          timer: 2500,
+          timerProgressBar: true
+        });
+      }
+    } catch (err) {
+      console.error('Error generating shipping labels PDF:', err);
+      if (typeof Swal !== 'undefined') {
+        Swal.fire('Error', 'No se pudo generar el PDF de etiquetas: ' + err.message, 'error');
+      }
+    } finally {
+      renderRoot.remove();
+      styleEl.remove();
     }
   };
 

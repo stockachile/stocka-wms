@@ -227,7 +227,8 @@ async function sendSingleOrderToPicker(order) {
       .from('active_orders')
       .update({
         tracking: cleanDid,
-        operator: 'ALPHA'
+        operator: 'ALPHA',
+        sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)'
       })
       .in('order_number', searchNumbers);
 

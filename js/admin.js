@@ -2999,9 +2999,13 @@ window.pollForLightDataTracking = function(orderIds, maxWaitSeconds = 90) {
                 const ordNo = String(localOrd.external_order_number || localOrd.id);
                 const effTrack = String(localOrd.raw_lightdata_data?.did || localOrd.raw_lightdata_data?.id || localOrd.tracking_number || '').trim();
                 if (effTrack) {
+                  const pickerUpd = { tracking: effTrack, operator: 'ALPHA' };
+                  if (localOrd.sucursal_pickeo) {
+                    pickerUpd.sucursal = localOrd.sucursal_pickeo;
+                  }
                   pickerSupabase
                     .from('active_orders')
-                    .update({ tracking: effTrack, operator: 'ALPHA' })
+                    .update(pickerUpd)
                     .in('order_number', [ordNo, '#' + ordNo.replace(/^#/, ''), ordNo.replace(/^#/, '')])
                     .then(() => {})
                     .catch(() => {});
@@ -3058,62 +3062,132 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
   if (!isValid) return;
 
   const order = (window.loadedOrders || []).find(o => o.id === orderId);
-  if (order && (!order.sucursal_pickeo || order.sucursal_pickeo.trim() === '')) {
-    const { value: sucursalSelection, isConfirmed } = await Swal.fire({
-      title: 'Pedido sin sucursal asignada',
-      html: `
-        <div style="text-align: left; font-size: 0.9rem;">
-          <p style="margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-main);">Este pedido no tiene una sucursal de destino asignada. Por defecto, llegará a la <strong>Sucursal Virtual (Hub)</strong>.</p>
-          <label style="font-weight: 700; display: block; margin-bottom: 0.35rem; color: var(--color-text-main);">Asignar sucursal para este despacho:</label>
-          <select id="swal-assign-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
-            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub) (Por Defecto)</option>
-            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
-            <option value="Sucursal La Reina">Sucursal La Reina</option>
-            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
-          </select>
+  const defaultSucursal = order?.sucursal_pickeo || 'Sucursal La Reina';
+
+  const { value: formValues, isConfirmed } = await Swal.fire({
+    title: '<i class="ri-barcode-box-line" style="color: #e91e63;"></i> Generar Etiqueta Alpha (LightData)',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.85rem; color: var(--color-text-main, #1f2937); line-height: 1.45;">
+          El pedido <strong>${order?.external_order_number || orderId}</strong> pasará a <strong>"En preparación"</strong> (Agenda RM, Operador ALPHA) y se generará su etiqueta en LightData.
+        </p>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-store-3-line" style="color: #e91e63;"></i> Sucursal de Preparación (Picker)
+        </label>
+        <select id="swal-alpha-sucursal-single" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+          <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+          <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+          <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+        </select>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+        </label>
+        <select id="swal-alpha-bodega-stock-single" class="swal2-select" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="same_as_prep" selected>⚡ Misma que sucursal de preparación (Automático)</option>
+          <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">CDD La Reina (Fernando Castillo Velasco 8146)</option>
+          <option value="973da888-8a63-4790-a08f-919e1af41a93">Matriz Ñuñoa (Campo de Deportes 405)</option>
+          <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">CDD Recoleta (Avenida Venezuela 0952)</option>
+          <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">Bodega Central (Hub Virtual)</option>
+        </select>
+        <div style="font-size: 0.74rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.65rem; line-height: 1.3;">
+          El pedido se armará en la <strong>sucursal de preparación</strong> seleccionada, rebajando el inventario de la <strong>bodega seleccionada</strong>.
         </div>
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Confirmar y Generar',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#7117eb',
-      preConfirm: () => {
-        return document.getElementById('swal-assign-sucursal').value;
-      }
-    });
-
-    if (!isConfirmed || !sucursalSelection) return;
-
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ sucursal_pickeo: sucursalSelection })
-        .eq('id', orderId);
-      
-      if (error) throw error;
-      order.sucursal_pickeo = sucursalSelection;
-      window.applyWmsFiltersAndRender();
-    } catch (err) {
-      console.error("Error al asignar sucursal:", err);
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-barcode-box-line"></i> Confirmar y Generar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#e91e63',
+    preConfirm: () => {
+      const sucursal = document.getElementById('swal-alpha-sucursal-single').value;
+      const bodegaStock = document.getElementById('swal-alpha-bodega-stock-single')?.value || 'same_as_prep';
+      return { sucursal, bodegaStock };
     }
-  } else {
-    if (!confirm('¿Estás seguro de generar la etiqueta de envío en LightData para este pedido?')) {
-      return;
+  });
+
+  if (!isConfirmed || !formValues) return;
+
+  const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+    ? formValues.bodegaStock
+    : getWarehouseIdFromSucursal(formValues.sucursal);
+
+  // Validar stock físico disponible para el pedido en la bodega seleccionada
+  if (order) {
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal 
+      ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) 
+      : !!(config && config.inventario_seguimiento);
+
+    if (isStockTrackingActive) {
+      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual && !window.isOrderItemEliminated(order, item));
+      if (itemsToCheck.length > 0) {
+        const productIds = itemsToCheck.map(item => item.product_id);
+        const { data: invData, error: invErr } = await supabase
+          .from('inventory')
+          .select('product_id, warehouse_id, quantity')
+          .in('product_id', productIds);
+
+        if (!invErr && invData) {
+          const invMap = {};
+          invData.forEach(inv => {
+            invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+          });
+
+          let insufficientItem = null;
+          for (const item of itemsToCheck) {
+            const key = `${item.product_id}_${effWarehouseId}`;
+            const availableQty = invMap[key] || 0;
+            if (availableQty < item.quantity) {
+              insufficientItem = {
+                sku: item.products?.sku || 'Sin SKU',
+                name: item.products?.name || 'Producto',
+                requested: item.quantity,
+                available: availableQty
+              };
+              break;
+            }
+          }
+
+          if (insufficientItem) {
+            const targetWarehouseName = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+              ? getWarehouseNameFromId(formValues.bodegaStock)
+              : formValues.sucursal;
+            await Swal.fire({
+              icon: 'error',
+              title: 'Stock Insuficiente en Bodega',
+              html: `
+                <div style="text-align: left; font-size: 0.9rem;">
+                  <p>No se puede generar la etiqueta en <strong>${targetWarehouseName}</strong> debido a falta de stock:</p>
+                  <ul style="margin: 0.5rem 0 0.75rem 1rem; color: #b91c1c;">
+                    <li><strong>${insufficientItem.sku}</strong>: Faltan ${insufficientItem.requested - insufficientItem.available} un. (Disponibles: ${insufficientItem.available}, Solicitadas: ${insufficientItem.requested})</li>
+                  </ul>
+                  <p style="color: var(--color-text-muted); font-size: 0.8rem;">Por favor selecciona otra bodega de preparación o ajusta el inventario.</p>
+                </div>
+              `,
+              confirmButtonColor: '#e91e63'
+            });
+            return;
+          }
+        }
+      }
     }
   }
-  
-  const originalHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.style.opacity = '0.7';
-  btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando...`;
-  
+
+  const originalHtml = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando...`;
+  }
+
   try {
     const now = new Date();
     const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const targetSucursal = order?.sucursal_pickeo || 'Sucursal Virtual (Hub)';
-    const effWarehouseId = getWarehouseIdFromSucursal(targetSucursal);
-    const hasPhysicalWarehouse = (order?.order_items || []).some(it => it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
 
+    // 1. Actualizar orden en WMS con la sucursal y datos de Alpha
     const { error: updError } = await supabase
       .from('orders')
       .update({
@@ -3122,34 +3196,37 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
         agenda: 'RM',
         operador: 'ALPHA',
         courier: 'CARRIER EXTERNO',
+        sucursal_pickeo: formValues.sucursal,
         fecha_procesamiento: todayDDMM
       })
       .eq('id', orderId);
 
     if (updError) throw updError;
 
-    // Solo asignar bodega por defecto si el pedido no tenía bodega física explícita asignada
-    if (!hasPhysicalWarehouse) {
-      await supabase
-        .from('order_items')
-        .update({ warehouse_id: effWarehouseId })
-        .eq('order_id', orderId);
-    }
+    // 2. Actualizar bodega de los items en base de datos
+    await supabase
+      .from('order_items')
+      .update({ warehouse_id: effWarehouseId })
+      .eq('order_id', orderId);
 
-    // 2. Reflejar en memoria local y actualizar vista del WMS
+    // 3. Reflejar en memoria local y actualizar vista del WMS
     if (order) {
       order.estado_wms = 'En preparación';
       order.status = 'en preparación';
       order.agenda = 'RM';
       order.operador = 'ALPHA';
       order.courier = 'CARRIER EXTERNO';
+      order.sucursal_pickeo = formValues.sucursal;
       order.fecha_procesamiento = todayDDMM;
       delete order._wmsTags;
+      (order.order_items || []).forEach(it => {
+        it.warehouse_id = effWarehouseId;
+      });
     }
     window.applyWmsFiltersAndRender();
 
-    // 3. Disparar Edge Function para generar etiqueta en LightData
-    const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
+    // 4. Disparar Edge Function para generar etiqueta en LightData
+    await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
       body: JSON.stringify({ mode: 'individual', orderId: orderId })
     });
@@ -3160,10 +3237,10 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
     Swal.fire({
       icon: 'success',
       title: 'Pedido en preparación',
-      text: 'El pedido fue asignado a Agenda RM, Operador ALPHA y pasado a "En preparación". La creación de su etiqueta en LightData se está procesando en segundo plano.',
+      text: `El pedido fue asignado a ${formValues.sucursal} (Agenda RM, Operador ALPHA). La creación de la etiqueta en LightData se está procesando en segundo plano.`,
       confirmButtonColor: '#7117eb'
     });
-    btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
+    if (btn) btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
   } catch (err) {
     console.error(err);
     Swal.fire({
@@ -3172,9 +3249,11 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
       text: err.message,
       confirmButtonColor: '#7117eb'
     });
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.innerHTML = originalHtml;
+    if (btn && originalHtml) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = originalHtml;
+    }
   }
 };
 
@@ -3191,124 +3270,273 @@ window.bulkCreateLightDataLabels = async function(btn) {
   if (!isValid) return;
 
   const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
-  const ordersWithoutSucursal = selectedOrders.filter(o => !o.sucursal_pickeo || o.sucursal_pickeo.trim() === '');
+  const distinctSucs = [...new Set(selectedOrders.map(o => o.sucursal_pickeo).filter(Boolean))];
+  const defaultSucursal = distinctSucs.length === 1 ? distinctSucs[0] : (distinctSucs[0] || 'Sucursal La Reina');
 
-  if (ordersWithoutSucursal.length > 0) {
-    const namesList = ordersWithoutSucursal.map(o => o.external_order_number || o.id.split('-')[0]).join(', ');
-    const { value: sucursalSelection, isConfirmed } = await Swal.fire({
-      title: 'Pedidos sin sucursal asignada',
-      html: `
-        <div style="text-align: left; font-size: 0.9rem;">
-          <p style="margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-main);">Hay <strong>${ordersWithoutSucursal.length}</strong> pedido(s) sin sucursal asignada (${namesList}). Por defecto, llegarán a la <strong>Sucursal Virtual (Hub)</strong>.</p>
-          <label style="font-weight: 700; display: block; margin-bottom: 0.35rem; color: var(--color-text-main);">Asignar sucursal para estos despachos:</label>
-          <select id="swal-assign-sucursal-bulk" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
-            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub) (Por Defecto)</option>
-            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
-            <option value="Sucursal La Reina">Sucursal La Reina</option>
-            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
-          </select>
+  const { value: formValues, isConfirmed } = await Swal.fire({
+    title: '<i class="ri-barcode-box-line" style="color: #e91e63;"></i> Generar Etiquetas Alpha (LightData)',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.85rem; color: var(--color-text-main, #1f2937); line-height: 1.45;">
+          Se enviarán <strong>${ids.length}</strong> pedido(s) a <strong>"En preparación"</strong> (Agenda RM, Operador ALPHA) y se generarán sus etiquetas de envío en LightData.
+        </p>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-store-3-line" style="color: #e91e63;"></i> Sucursal de Preparación (Picker)
+        </label>
+        <select id="swal-alpha-sucursal-bulk" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+          <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+          <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+          <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+          ${distinctSucs.length > 1 ? '<option value="keep_existing">Conservar sucursales asignadas previamente</option>' : ''}
+        </select>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+        </label>
+        <select id="swal-alpha-bodega-stock-bulk" class="swal2-select" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="same_as_prep" selected>⚡ Misma que sucursal de preparación (Automático)</option>
+          <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">CDD La Reina (Fernando Castillo Velasco 8146)</option>
+          <option value="973da888-8a63-4790-a08f-919e1af41a93">Matriz Ñuñoa (Campo de Deportes 405)</option>
+          <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">CDD Recoleta (Avenida Venezuela 0952)</option>
+          <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">Bodega Central (Hub Virtual)</option>
+        </select>
+        <div style="font-size: 0.74rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.65rem; line-height: 1.3;">
+          Los pedidos se enviarán al Picker para armarse en la <strong>sucursal de preparación</strong>, pero se rebajará el stock de la <strong>bodega seleccionada</strong>.
         </div>
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Confirmar y Generar',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#7117eb',
-      preConfirm: () => {
-        return document.getElementById('swal-assign-sucursal-bulk').value;
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-barcode-box-line"></i> Confirmar y Generar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#e91e63',
+    preConfirm: () => {
+      const sucursal = document.getElementById('swal-alpha-sucursal-bulk').value;
+      const bodegaStock = document.getElementById('swal-alpha-bodega-stock-bulk')?.value || 'same_as_prep';
+      return { sucursal, bodegaStock };
+    }
+  });
+
+  if (!isConfirmed || !formValues) return;
+
+  // Validar inventario y stock físico antes de enviar a preparación
+  Swal.fire({
+    title: 'Validando inventario y stock...',
+    html: `<div style="font-size:0.9rem; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:1.2rem; vertical-align:middle; margin-right:4px;"></i> Comprobando stock disponible para ${ids.length} pedido(s)...</div>`,
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: () => { Swal.showLoading(); }
+  });
+
+  let targetOrderIds = [...ids];
+  const allItemsToCheck = [];
+  const currentOrders = (window.loadedOrders || []).filter(o => targetOrderIds.includes(o.id));
+
+  currentOrders.forEach(order => {
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal 
+      ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) 
+      : !!(config && config.inventario_seguimiento);
+    if (!isStockTrackingActive) return;
+
+    const effSucursal = (formValues.sucursal === 'keep_existing') ? (order.sucursal_pickeo || 'Sucursal La Reina') : formValues.sucursal;
+    const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+      ? formValues.bodegaStock
+      : getWarehouseIdFromSucursal(effSucursal);
+
+    (order.order_items || []).forEach(item => {
+      if (!item.products?.is_virtual && !window.isOrderItemEliminated(order, item)) {
+        allItemsToCheck.push({
+          orderId: order.id,
+          orderNum: order.external_order_number || order.id,
+          comercio: order.comercio,
+          merchant_id: order.merchant_id,
+          product_id: item.product_id,
+          warehouse_id: effWarehouseId,
+          quantity: item.quantity,
+          sku: item.products?.sku || 'Sin SKU',
+          name: item.products?.name || 'Producto'
+        });
       }
     });
+  });
 
-    if (!isConfirmed || !sucursalSelection) return;
+  if (allItemsToCheck.length > 0) {
+    const productIds = Array.from(new Set(allItemsToCheck.map(item => item.product_id)));
+    const { data: invData, error: invErr } = await supabase
+      .from('inventory')
+      .select('product_id, warehouse_id, quantity')
+      .in('product_id', productIds);
 
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ sucursal_pickeo: sucursalSelection })
-        .in('id', ordersWithoutSucursal.map(o => o.id));
-      
-      if (error) throw error;
-      
-      ordersWithoutSucursal.forEach(o => {
-        o.sucursal_pickeo = sucursalSelection;
+    if (!invErr && invData) {
+      const invMap = {};
+      invData.forEach(inv => {
+        invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
       });
-      
-      window.applyWmsFiltersAndRender();
-    } catch (err) {
-      console.error("Error al asignar sucursal masivamente:", err);
-    }
-  } else {
-    if (!confirm(`¿Estás seguro de generar las etiquetas de LightData para los ${ids.length} pedidos seleccionados?`)) {
-      return;
+      const tempInv = { ...invMap };
+      const failedOrders = new Set();
+      const failedDetails = [];
+
+      for (const item of allItemsToCheck) {
+        const key = `${item.product_id}_${item.warehouse_id}`;
+        const available = tempInv[key] || 0;
+        if (available < item.quantity) {
+          failedOrders.add(item.orderId);
+          failedDetails.push({
+            orderNum: item.orderNum,
+            sku: item.sku,
+            requested: item.quantity,
+            available: available,
+            comercio: item.comercio,
+            merchant_id: item.merchant_id,
+            orderId: item.orderId
+          });
+        } else {
+          tempInv[key] -= item.quantity;
+        }
+      }
+
+      if (failedOrders.size > 0) {
+        const failuresByOrderMap = new Map();
+        for (const f of failedDetails) {
+          const o = currentOrders.find(order => order.id === f.orderId);
+          const matchingItem = allItemsToCheck.find(i => i.sku === f.sku && i.orderId === f.orderId) || allItemsToCheck.find(i => i.sku === f.sku);
+          if (!failuresByOrderMap.has(f.orderId)) {
+            failuresByOrderMap.set(f.orderId, {
+              order: o,
+              orderNum: f.orderNum,
+              comercio: f.comercio,
+              customer: o?.customer_name,
+              warehouseName: (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+                ? getWarehouseNameFromId(formValues.bodegaStock)
+                : ((formValues.sucursal === 'keep_existing') ? (o?.sucursal_pickeo || 'Sucursal Asignada') : formValues.sucursal),
+              items: []
+            });
+          }
+          failuresByOrderMap.get(f.orderId).items.push({
+            sku: f.sku,
+            name: matchingItem?.name || '',
+            productId: matchingItem?.product_id,
+            warehouseId: matchingItem?.warehouse_id,
+            requested: f.requested,
+            available: f.available
+          });
+        }
+
+        const failuresByOrder = Array.from(failuresByOrderMap.values());
+        const validOrderIds = targetOrderIds.filter(id => !failedOrders.has(id));
+
+        if (typeof window.showStockShortageSlidesModal === 'function') {
+          const shortageSwalRes = await window.showStockShortageSlidesModal({
+            title: 'Falta de Stock en Bodega',
+            subtitle: validOrderIds.length > 0
+              ? `Se detectaron <strong>${failuresByOrder.length} pedidos con stock insuficiente</strong> de ${targetOrderIds.length} seleccionados:`
+              : `Los pedidos seleccionados no tienen stock suficiente en la bodega elegida:`,
+            failuresByOrder,
+            validOrdersCount: validOrderIds.length,
+            actionButtonText: `<i class="ri-barcode-box-line"></i> Continuar con ${validOrderIds.length} pedidos con stock`,
+            totalSelectedCount: targetOrderIds.length,
+            allSelectedOrderIds: targetOrderIds,
+            allowReassignment: false
+          });
+
+          if (!shortageSwalRes || !shortageSwalRes.proceedWithValid) {
+            return;
+          }
+          targetOrderIds = validOrderIds;
+        } else {
+          await Swal.fire({
+            icon: 'error',
+            title: 'Stock Insuficiente',
+            text: `Hay ${failedOrders.size} pedido(s) con stock insuficiente en la bodega seleccionada.`,
+            confirmButtonColor: '#e91e63'
+          });
+          return;
+        }
+      }
     }
   }
+
+  if (targetOrderIds.length === 0) {
+    Swal.fire('Sin pedidos para procesar', 'No quedan pedidos con stock disponible para generar etiquetas.', 'info');
+    return;
+  }
   
-  const originalHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.style.opacity = '0.7';
-  btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando masivo...`;
+  const originalHtml = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando masivo...`;
+  }
   
   try {
     const now = new Date();
     const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const validOrders = (window.loadedOrders || []).filter(o => targetOrderIds.includes(o.id));
 
-    // 1. Actualizar orden en WMS primero
-    const { error: updError } = await supabase
-      .from('orders')
-      .update({
-        estado_wms: 'En preparación',
-        status: 'en preparación',
-        agenda: 'RM',
-        operador: 'ALPHA',
-        courier: 'CARRIER EXTERNO',
-        fecha_procesamiento: todayDDMM
-      })
-      .in('id', ids);
+    // 1. Actualizar órdenes en base de datos y memoria
+    for (const order of validOrders) {
+      const effSucursal = (formValues.sucursal === 'keep_existing') ? (order.sucursal_pickeo || 'Sucursal La Reina') : formValues.sucursal;
+      const effWarehouseId = (formValues.bodegaStock && formValues.bodegaStock !== 'same_as_prep')
+        ? formValues.bodegaStock
+        : getWarehouseIdFromSucursal(effSucursal);
 
-    if (updError) throw updError;
+      const { error: updError } = await supabase
+        .from('orders')
+        .update({
+          estado_wms: 'En preparación',
+          status: 'en preparación',
+          agenda: 'RM',
+          operador: 'ALPHA',
+          courier: 'CARRIER EXTERNO',
+          sucursal_pickeo: effSucursal,
+          fecha_procesamiento: todayDDMM
+        })
+        .eq('id', order.id);
 
-    // 2. Asignar bodega a items sólo si no contaban ya con una bodega física explícita
-    for (const ord of selectedOrders) {
-      const hasPhysicalWarehouse = (ord?.order_items || []).some(it => it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
-      if (!hasPhysicalWarehouse) {
-        const effWarehouseId = getWarehouseIdFromSucursal(ord.sucursal_pickeo || 'Sucursal Virtual (Hub)');
-        await supabase
-          .from('order_items')
-          .update({ warehouse_id: effWarehouseId })
-          .eq('order_id', ord.id);
-      }
+      if (updError) throw updError;
+
+      // Actualizar bodega de los ítems en base de datos
+      await supabase
+        .from('order_items')
+        .update({ warehouse_id: effWarehouseId })
+        .eq('order_id', order.id);
+
+      // Reflejar en memoria local
+      order.estado_wms = 'En preparación';
+      order.status = 'en preparación';
+      order.agenda = 'RM';
+      order.operador = 'ALPHA';
+      order.courier = 'CARRIER EXTERNO';
+      order.sucursal_pickeo = effSucursal;
+      order.fecha_procesamiento = todayDDMM;
+      delete order._wmsTags;
+      (order.order_items || []).forEach(it => {
+        it.warehouse_id = effWarehouseId;
+      });
     }
 
-    if (updError) throw updError;
-
-    // 2. Reflejar en memoria local y actualizar vista del WMS
-    selectedOrders.forEach(o => {
-      o.estado_wms = 'En preparación';
-      o.status = 'en preparación';
-      o.agenda = 'RM';
-      o.operador = 'ALPHA';
-      o.courier = 'CARRIER EXTERNO';
-      o.fecha_procesamiento = todayDDMM;
-      delete o._wmsTags;
-    });
     window.applyWmsFiltersAndRender();
 
-    // 3. Disparar Edge Function para generar etiquetas en segundo plano en GitHub Actions
-    const result = await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
+    // 2. Disparar Edge Function para generar etiquetas en segundo plano en GitHub Actions
+    await window.fetchWmsEdgeFunction('trigger-lightdata-label', {
       method: 'POST',
-      body: JSON.stringify({ mode: 'bulk', orderIds: ids.join(',') })
+      body: JSON.stringify({ mode: targetOrderIds.length === 1 ? 'individual' : 'bulk', orderId: targetOrderIds[0], orderIds: targetOrderIds.join(',') })
     });
     
     // Iniciar sondeo activo para auto-refrescar pedidos masivos conforme se asignen etiquetas
-    window.pollForLightDataTracking(ids);
+    window.pollForLightDataTracking(targetOrderIds);
 
     Swal.fire({
       icon: 'success',
       title: 'Pedidos en preparación',
-      text: `Se actualizaron ${ids.length} pedidos a "En preparación" (Agenda RM, Operador ALPHA) y se inició la creación de etiquetas en LightData en segundo plano.`,
+      text: `Se actualizaron ${targetOrderIds.length} pedidos a "En preparación" (Sucursal: ${formValues.sucursal}, Agenda RM, Operador ALPHA) y se inició la creación de etiquetas en LightData en segundo plano.`,
       confirmButtonColor: '#7117eb'
     });
     
-    btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
+    if (btn) btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
     window.clearWmsSelection();
   } catch (err) {
     console.error(err);
@@ -3318,9 +3546,11 @@ window.bulkCreateLightDataLabels = async function(btn) {
       text: err.message,
       confirmButtonColor: '#7117eb'
     });
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.innerHTML = originalHtml;
+    if (btn && originalHtml) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = originalHtml;
+    }
   }
 };
 
@@ -3360,24 +3590,8 @@ window.bulkExportAlphaExcel = async function(btn = null) {
     return;
   }
 
-  // Verificar si hay pedidos sin sucursal asignada
-  const ordersWithoutSucursal = selectedOrders.filter(o => !o.sucursal_pickeo || o.sucursal_pickeo.trim() === '');
-  let sucursalSectionHtml = '';
-  if (ordersWithoutSucursal.length > 0) {
-    sucursalSectionHtml = `
-      <div style="margin-top: 0.75rem; text-align: left; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.6rem 0.75rem;">
-        <label style="font-weight: 700; font-size: 0.8rem; color: #b45309; display: block; margin-bottom: 0.35rem;">
-          <i class="ri-store-2-line"></i> Asignar sucursal para ${ordersWithoutSucursal.length} pedido(s) sin bodega:
-        </label>
-        <select id="swal-alpha-sucursal-select" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.82rem; height: 32px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
-          <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub) (Por Defecto)</option>
-          <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
-          <option value="Sucursal La Reina">Sucursal La Reina</option>
-          <option value="Sucursal Recoleta">Sucursal Recoleta</option>
-        </select>
-      </div>
-    `;
-  }
+  const distinctSucs = [...new Set(selectedOrders.map(o => o.sucursal_pickeo).filter(Boolean))];
+  const defaultSucursal = distinctSucs.length === 1 ? distinctSucs[0] : (distinctSucs[0] || 'Sucursal La Reina');
 
   const { value: confirmResult, isConfirmed } = await Swal.fire({
     title: 'Crear Planilla Excel Alpha',
@@ -3386,7 +3600,7 @@ window.bulkExportAlphaExcel = async function(btn = null) {
         <p style="margin-bottom: 0.85rem; line-height: 1.45;">
           Se generará la planilla Excel oficial con <strong>${selectedOrders.length} pedido(s)</strong> en formato <code>FORMATO ALPHA</code> lista para importar manualmente en LightData en casos de emergencia o caída de la API.
         </p>
-        <div style="background: var(--color-surface-hover, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem;">
+        <div style="background: var(--color-surface-hover, #f1f5f9); border: 1px solid var(--color-border, #cbd5e1); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem;">
           <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.84rem; font-weight: 600;">
             <input type="checkbox" id="swal-alpha-update-wms" checked style="margin-top: 0.2rem; accent-color: #e91e63;">
             <span>Actualizar pedidos en WMS a "En preparación" (Operador ALPHA, Agenda RM)</span>
@@ -3395,7 +3609,31 @@ window.bulkExportAlphaExcel = async function(btn = null) {
             Guarda el número de tracking generado ({SIGLA}{NUMERO}) y courier 'CARRIER EXTERNO' para que queden listos para pickear.
           </span>
         </div>
-        ${sucursalSectionHtml}
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-store-3-line" style="color: #e91e63;"></i> Sucursal de Preparación (Picker)
+        </label>
+        <select id="swal-alpha-sucursal-excel" class="swal2-select" style="width: 100%; margin: 0 0 0.75rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+          <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+          <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+          <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+          ${distinctSucs.length > 1 ? '<option value="keep_existing">Conservar sucursales asignadas previamente</option>' : ''}
+        </select>
+
+        <label style="font-weight: 600; display: block; margin-bottom: 0.25rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <i class="ri-archive-line" style="color: #059669;"></i> Bodega para Descontar Stock
+        </label>
+        <select id="swal-alpha-bodega-stock-excel" class="swal2-select" style="width: 100%; margin: 0 0 0.35rem 0; box-sizing: border-box; font-size: 0.85rem; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+          <option value="same_as_prep" selected>⚡ Misma que sucursal de preparación (Automático)</option>
+          <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">CDD La Reina (Fernando Castillo Velasco 8146)</option>
+          <option value="973da888-8a63-4790-a08f-919e1af41a93">Matriz Ñuñoa (Campo de Deportes 405)</option>
+          <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">CDD Recoleta (Avenida Venezuela 0952)</option>
+          <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">Bodega Central (Hub Virtual)</option>
+        </select>
+        <div style="font-size: 0.74rem; color: var(--color-text-muted, #64748b); margin-bottom: 0.65rem; line-height: 1.3;">
+          Los pedidos se armarán en la <strong>sucursal de preparación</strong>, rebajando el stock de la <strong>bodega seleccionada</strong>.
+        </div>
       </div>
     `,
     icon: 'info',
@@ -3405,8 +3643,9 @@ window.bulkExportAlphaExcel = async function(btn = null) {
     confirmButtonColor: '#e91e63',
     preConfirm: () => {
       const updateWms = document.getElementById('swal-alpha-update-wms')?.checked || false;
-      const sucursalVal = document.getElementById('swal-alpha-sucursal-select')?.value || 'Sucursal Virtual (Hub)';
-      return { updateWms, sucursalVal };
+      const sucursal = document.getElementById('swal-alpha-sucursal-excel')?.value || 'Sucursal La Reina';
+      const bodegaStock = document.getElementById('swal-alpha-bodega-stock-excel')?.value || 'same_as_prep';
+      return { updateWms, sucursal, bodegaStock };
     }
   });
 
@@ -3461,8 +3700,14 @@ window.bulkExportAlphaExcel = async function(btn = null) {
     // 2. Si se solicitó actualizar en la base de datos de Supabase y WMS
     if (confirmResult.updateWms) {
       for (const ord of selectedOrders) {
-        const effSucursal = ord.sucursal_pickeo || confirmResult.sucursalVal;
+        const effSucursal = (confirmResult.sucursal === 'keep_existing')
+          ? (ord.sucursal_pickeo || 'Sucursal La Reina')
+          : confirmResult.sucursal;
         ord.sucursal_pickeo = effSucursal;
+
+        const effWarehouseId = (confirmResult.bodegaStock && confirmResult.bodegaStock !== 'same_as_prep')
+          ? confirmResult.bodegaStock
+          : getWarehouseIdFromSucursal(effSucursal);
 
         const sigla = resolveSigla(ord.comercio);
         const trk = generateAlphaTrackingCode(sigla, ord.external_order_number, ord.id);
@@ -3485,15 +3730,11 @@ window.bulkExportAlphaExcel = async function(btn = null) {
           })
           .eq('id', ord.id);
 
-        // 2. Asignar bodega a items sólo si no contaban ya con una bodega física explícita
-        const hasPhysicalWarehouse = (ord?.order_items || ord?.items || []).some(it => it.warehouse_id && it.warehouse_id !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
-        if (!hasPhysicalWarehouse) {
-          const effWarehouseId = getWarehouseIdFromSucursal(effSucursal);
-          await supabase
-            .from('order_items')
-            .update({ warehouse_id: effWarehouseId })
-            .eq('order_id', ord.id);
-        }
+        // 2. Asignar bodega a items
+        await supabase
+          .from('order_items')
+          .update({ warehouse_id: effWarehouseId })
+          .eq('order_id', ord.id);
 
         ord.estado_wms = 'En preparación';
         ord.status = 'en preparación';
@@ -3503,11 +3744,13 @@ window.bulkExportAlphaExcel = async function(btn = null) {
         ord.tracking_number = finalTrk;
         ord.fecha_procesamiento = todayDDMM;
         delete ord._wmsTags;
+        (ord.order_items || ord.items || []).forEach(it => {
+          it.warehouse_id = effWarehouseId;
+        });
       }
 
       window.applyWmsFiltersAndRender();
     }
-
     // 3. Estructurar columnas del Excel oficial (FORMATO ALPHA)
     const headers = [
       'Numero de tracking',
@@ -9080,9 +9323,45 @@ async function renderAdminOrders() {
             <button onclick="window.openCreateOrderModal()" class="btn btn-primary" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; background: var(--color-primary); color: white;" title="Crear un nuevo pedido manual en el sistema">
               <i class="ri-add-circle-line"></i> Crear Pedido
             </button>
-            <button id="wms-bulk-print-labels-btn" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
-              <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
-            </button>
+            <!-- Botón Dual / Split de Etiqueta Stocka Masiva con Opciones Rápidas -->
+            <div id="wms-bulk-print-labels-btn" class="wms-bulk-labels-split-btn" style="display: none; position: relative; vertical-align: middle; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25); border-radius: 6px;">
+              <button id="btn-wms-bulk-labels-main" type="button" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="padding: 0.25rem 0.55rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;" title="Abrir configurador de Etiqueta Stocka Masiva">
+                <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
+              </button>
+              <button id="btn-wms-bulk-labels-toggle" type="button" onclick="window.toggleWmsBulkLabelsMenu(event)" class="btn btn-primary" style="padding: 0.25rem 0.45rem; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255, 255, 255, 0.35); background: #1d4ed8;" onmouseover="this.style.background='#1e40af'" onmouseout="if(document.getElementById('wms-bulk-labels-dropdown-menu')?.style.display !== 'block'){ this.style.background='#1d4ed8'; }" title="Opciones rápidas: Imprimir directo o Descargar PDF">
+                <i class="ri-arrow-down-s-fill" id="wms-bulk-labels-arrow-icon" style="font-size: 0.9rem; transition: transform 0.2s;"></i>
+              </button>
+              <div id="wms-bulk-labels-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; background: var(--color-surface, #ffffff); border: 1.5px solid #2563eb; border-radius: 10px; box-shadow: 0 12px 30px -4px rgba(37, 99, 235, 0.28), 0 6px 12px -2px rgba(0, 0, 0, 0.12); z-index: 1050; min-width: 300px; padding: 0.45rem 0; text-align: left;">
+                <div style="padding: 0.4rem 0.85rem; font-size: 0.72rem; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between;">
+                  <span><i class="ri-printer-line"></i> Etiquetas Stocka Masivas</span>
+                  <span style="font-size: 0.65rem; background: rgba(37, 99, 235, 0.1); color: #2563eb; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: 700;">Acción Rápida</span>
+                </div>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsBulkLabelsMenu(); window.quickPrintBulkShippingLabels();" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s;" onmouseover="this.style.background='rgba(37, 99, 235, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #1d4ed8;">
+                    <i class="ri-flashlight-fill" style="color: #2563eb; font-size: 1rem;"></i>
+                    <span>Impresión Rápida (10x15 cm)</span>
+                    <span style="background: rgba(37, 99, 235, 0.12); color: #1d4ed8; font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">Directo</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Envía las etiquetas directo a la cola de impresión sin abrir el modal de configuración.</span>
+                </a>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsBulkLabelsMenu(); window.quickDownloadBulkShippingLabels();" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s; border-top: 1px solid var(--color-border);" onmouseover="this.style.background='rgba(16, 185, 129, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: #059669;">
+                    <i class="ri-file-download-line" style="color: #10b981; font-size: 1rem;"></i>
+                    <span>Descargar PDF Rápido (10x15 cm)</span>
+                    <span style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">PDF</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Genera y descarga automáticamente un archivo PDF único con todas las etiquetas seleccionadas.</span>
+                </a>
+                <a href="#" onclick="event.preventDefault(); window.closeWmsBulkLabelsMenu(); window.showBulkShippingLabelModal();" style="display: flex; flex-direction: column; padding: 0.6rem 0.85rem; text-decoration: none; color: var(--color-text-main); transition: background 0.15s; border-top: 1px solid var(--color-border);" onmouseover="this.style.background='rgba(99, 102, 241, 0.08)'" onmouseout="this.style.background='transparent'">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.84rem; color: var(--color-text-main);">
+                    <i class="ri-equalizer-line" style="color: #6366f1; font-size: 1rem;"></i>
+                    <span>Configurar e Imprimir / Descargar...</span>
+                    <span style="background: rgba(99, 102, 241, 0.12); color: #4f46e5; font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 99px; font-weight: 700; margin-left: auto;">10x15 / 5x5</span>
+                  </div>
+                  <span style="font-size: 0.73rem; color: var(--color-text-muted); margin-top: 0.2rem; line-height: 1.3;">Personaliza formato (10x15 o 5x5 cm), courier y comentarios antes de imprimir o descargar.</span>
+                </a>
+              </div>
+            </div>
             <button onclick="window.wmsOpenCreateManifestModal()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer; border-color: #2563eb; color: #2563eb; background: rgba(37, 99, 235, 0.05);" title="Generar o consultar manifiestos de retiro">
               <i class="ri-file-paper-2-line"></i> Manifiesto
             </button>
@@ -12971,6 +13250,44 @@ if (!window._wmsAlphaMenuListenerAttached) {
   });
 }
 
+window.toggleWmsBulkLabelsMenu = function(e) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  const menu = document.getElementById('wms-bulk-labels-dropdown-menu');
+  const arrowIcon = document.getElementById('wms-bulk-labels-arrow-icon');
+  const toggleBtn = document.getElementById('btn-wms-bulk-labels-toggle');
+  if (menu) {
+    const isClosed = menu.style.display === 'none' || !menu.style.display;
+    menu.style.display = isClosed ? 'block' : 'none';
+    if (arrowIcon) {
+      arrowIcon.style.transform = isClosed ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+    if (toggleBtn) {
+      toggleBtn.style.background = isClosed ? '#1e40af' : '#1d4ed8';
+    }
+  }
+};
+
+window.closeWmsBulkLabelsMenu = function() {
+  const menu = document.getElementById('wms-bulk-labels-dropdown-menu');
+  const arrowIcon = document.getElementById('wms-bulk-labels-arrow-icon');
+  const toggleBtn = document.getElementById('btn-wms-bulk-labels-toggle');
+  if (menu) menu.style.display = 'none';
+  if (arrowIcon) arrowIcon.style.transform = 'rotate(0deg)';
+  if (toggleBtn) toggleBtn.style.background = '#1d4ed8';
+};
+
+if (!window._wmsBulkLabelsMenuListenerAttached) {
+  window._wmsBulkLabelsMenuListenerAttached = true;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.wms-bulk-labels-split-btn')) {
+      window.closeWmsBulkLabelsMenu();
+    }
+  });
+}
+
 function renderWmsBulkActionsBar() {
   const selectedCount = window.wmsSelectedOrderIds.size;
   const bulkPrintBtn = document.getElementById('wms-bulk-print-labels-btn');
@@ -12981,6 +13298,7 @@ function renderWmsBulkActionsBar() {
       if (bulkPrintCount) bulkPrintCount.textContent = selectedCount;
     } else {
       bulkPrintBtn.style.display = 'none';
+      if (window.closeWmsBulkLabelsMenu) window.closeWmsBulkLabelsMenu();
     }
   }
 
