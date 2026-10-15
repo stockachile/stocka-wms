@@ -1164,6 +1164,7 @@ async function init() {
         userRole = profile.role || 'observer';
         currentCompany = profile.comercio || null;
         window.currentCompany = currentCompany;
+        window.currentUserAllowedModules = profile.allowed_modules || 'all';
         if (currentCompany) {
           checkBillingSuspension(currentCompany);
           const assignedList = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
@@ -17360,6 +17361,162 @@ function renderProfileContractTab(container, req, definitiveContractUrl) {
   `;
 }
 
+const CLIENT_REDZONE_JSON_START = '---REDZONE_DATA_JSON---';
+const CLIENT_REDZONE_JSON_END = '---END_REDZONE_DATA_JSON---';
+
+function calculateClientRedZoneTotals(items = [], pricingConfig = {}, extraCosts = []) {
+  const activeItems = (items || []).filter(it => !it.excluded && (Number(it.quantity) || 0) > 0);
+  const totalSKUs = activeItems.length;
+  const totalUnits = activeItems.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+
+  const baseFee = pricingConfig.baseFee !== undefined ? Number(pricingConfig.baseFee) : 1250;
+  const skuLimit = pricingConfig.skuLimit !== undefined ? Number(pricingConfig.skuLimit) : 3;
+  const skuRate = pricingConfig.skuRate !== undefined ? Number(pricingConfig.skuRate) : 100;
+  const unitsLimit = pricingConfig.unitsLimit !== undefined ? Number(pricingConfig.unitsLimit) : 10;
+  const unitsRate = pricingConfig.unitsRate !== undefined ? Number(pricingConfig.unitsRate) : 50;
+
+  const skuSurcharge = totalSKUs > skuLimit ? (totalSKUs - skuLimit) * skuRate : 0;
+  const unitsSurcharge = totalUnits > unitsLimit ? (totalUnits - unitsLimit) * unitsRate : 0;
+  const prepNetTotal = Math.max(0, baseFee + skuSurcharge + unitsSurcharge);
+
+  let extraNetCharges = 0;
+  let extraNetDiscounts = 0;
+  let extraExentoCharges = 0;
+  let extraExentoDiscounts = 0;
+
+  (extraCosts || []).forEach(c => {
+    const amt = Math.max(0, Number(c.amount) || 0);
+    if (!amt) return;
+    const isDiscount = c.type === 'discount';
+    const isExento = c.taxType === 'exento';
+    if (isExento) {
+      if (isDiscount) extraExentoDiscounts += amt;
+      else extraExentoCharges += amt;
+    } else {
+      if (isDiscount) extraNetDiscounts += amt;
+      else extraNetCharges += amt;
+    }
+  });
+
+  const netTotal = Math.max(0, prepNetTotal + extraNetCharges - extraNetDiscounts);
+  const iva = Math.round(netTotal * 0.19);
+  const brutoTotal = Math.max(0, netTotal + iva + extraExentoCharges - extraExentoDiscounts);
+
+  return {
+    totalSKUs,
+    totalUnits,
+    baseFee,
+    skuLimit,
+    skuRate,
+    unitsLimit,
+    unitsRate,
+    skuSurcharge,
+    unitsSurcharge,
+    prepNetTotal,
+    extraNetCharges,
+    extraNetDiscounts,
+    extraExentoCharges,
+    extraExentoDiscounts,
+    netTotal,
+    iva,
+    brutoTotal
+  };
+}
+
+function parseClientRedZoneDescription(desc) {
+  const data = {
+    version: 2,
+    commerce: '',
+    repName: '',
+    repRut: '',
+    companyName: '',
+    rutText: '',
+    email: '',
+    phone: '',
+    exitDate: '',
+    outboundPagado: false,
+    syncWithLiveInventory: true,
+    lastSyncedAt: null,
+    lastUpdatedByAdminAt: null,
+    adminNotes: '',
+    pricingConfig: {
+      baseFee: 1250,
+      skuLimit: 3,
+      skuRate: 100,
+      unitsLimit: 10,
+      unitsRate: 50
+    },
+    items: [],
+    itemOverrides: {},
+    customItems: [],
+    extraCosts: [],
+    totalUnits: 0,
+    totalSKUs: 0,
+    netTotal: 0,
+    iva: 0,
+    brutoTotal: 0,
+    hasStructuredJson: false
+  };
+
+  if (!desc) return data;
+
+  const getVal = (regex, defaultVal = '') => {
+    const match = desc.match(regex);
+    return match ? match[1].trim() : defaultVal;
+  };
+
+  data.commerce = getVal(/- Comercio:\s*(.*)/);
+  data.repName = getVal(/- Representante Legal:\s*(.*)/);
+  data.repRut = getVal(/- RUT Representante Legal:\s*(.*)/);
+  data.companyName = getVal(/- Empresa\/Razón Social:\s*(.*)/);
+  data.rutText = getVal(/- RUT Empresa:\s*(.*)/);
+  data.email = getVal(/- Correo Representante:\s*(.*)/);
+  data.phone = getVal(/- Teléfono Representante:\s*(.*)/);
+  data.exitDate = getVal(/- Fecha Estimada de Salida:\s*(.*)/);
+
+  const jsonStartIdx = desc.indexOf(CLIENT_REDZONE_JSON_START);
+  const jsonEndIdx = desc.indexOf(CLIENT_REDZONE_JSON_END);
+  if (jsonStartIdx !== -1 && jsonEndIdx !== -1 && jsonEndIdx > jsonStartIdx) {
+    const rawJson = desc.substring(jsonStartIdx + CLIENT_REDZONE_JSON_START.length, jsonEndIdx).trim();
+    try {
+      const parsedJson = JSON.parse(rawJson);
+      if (parsedJson && typeof parsedJson === 'object') {
+        data.hasStructuredJson = true;
+        if (parsedJson.commerce !== undefined) data.commerce = parsedJson.commerce || data.commerce;
+        if (parsedJson.repName !== undefined) data.repName = parsedJson.repName || data.repName;
+        if (parsedJson.repRut !== undefined) data.repRut = parsedJson.repRut || data.repRut;
+        if (parsedJson.companyName !== undefined) data.companyName = parsedJson.companyName || data.companyName;
+        if (parsedJson.rutText !== undefined) data.rutText = parsedJson.rutText || data.rutText;
+        if (parsedJson.email !== undefined) data.email = parsedJson.email || data.email;
+        if (parsedJson.phone !== undefined) data.phone = parsedJson.phone || data.phone;
+        if (parsedJson.exitDate !== undefined) data.exitDate = parsedJson.exitDate || data.exitDate;
+        if (parsedJson.outboundPagado !== undefined) data.outboundPagado = Boolean(parsedJson.outboundPagado);
+        if (parsedJson.syncWithLiveInventory !== undefined) data.syncWithLiveInventory = Boolean(parsedJson.syncWithLiveInventory);
+        if (parsedJson.lastSyncedAt !== undefined) data.lastSyncedAt = parsedJson.lastSyncedAt;
+        if (parsedJson.lastUpdatedByAdminAt !== undefined) data.lastUpdatedByAdminAt = parsedJson.lastUpdatedByAdminAt;
+        if (parsedJson.adminNotes !== undefined) data.adminNotes = parsedJson.adminNotes || '';
+        if (parsedJson.pricingConfig && typeof parsedJson.pricingConfig === 'object') {
+          data.pricingConfig = {
+            baseFee: parsedJson.pricingConfig.baseFee !== undefined ? Number(parsedJson.pricingConfig.baseFee) : 1250,
+            skuLimit: parsedJson.pricingConfig.skuLimit !== undefined ? Number(parsedJson.pricingConfig.skuLimit) : 3,
+            skuRate: parsedJson.pricingConfig.skuRate !== undefined ? Number(parsedJson.pricingConfig.skuRate) : 100,
+            unitsLimit: parsedJson.pricingConfig.unitsLimit !== undefined ? Number(parsedJson.pricingConfig.unitsLimit) : 10,
+            unitsRate: parsedJson.pricingConfig.unitsRate !== undefined ? Number(parsedJson.pricingConfig.unitsRate) : 50
+          };
+        }
+        if (Array.isArray(parsedJson.items)) data.items = parsedJson.items;
+        if (parsedJson.itemOverrides && typeof parsedJson.itemOverrides === 'object') data.itemOverrides = parsedJson.itemOverrides;
+        if (Array.isArray(parsedJson.customItems)) data.customItems = parsedJson.customItems;
+        if (Array.isArray(parsedJson.extraCosts)) data.extraCosts = parsedJson.extraCosts;
+      }
+    } catch (err) {
+      console.warn('Advertencia al parsear JSON de Zona Roja en cliente:', err);
+    }
+  }
+
+  return data;
+}
+
 async function renderRedZone(container, profile, commerceList) {
   if (!container) return;
 
@@ -17422,12 +17579,34 @@ async function renderRedZone(container, profile, commerceList) {
       console.warn('Advertencia al cargar datos de RUT y Razón Social en Zona Roja:', err);
     }
 
-    const finalRut = resolvedRut || profile?.rut || "[RUT de la Empresa]";
-    const finalCompany = resolvedCompany || profile?.company_name || "[Razón Social / Empresa]";
-    const finalRepNombre = resolvedRepNombre || profile?.full_name || user.user_metadata?.full_name || "";
-    const finalRepRut = resolvedRepRut || profile?.rut || "";
+    let finalRut = resolvedRut || profile?.rut || "[RUT de la Empresa]";
+    let finalCompany = resolvedCompany || profile?.company_name || "[Razón Social / Empresa]";
+    let finalRepNombre = resolvedRepNombre || profile?.full_name || user.user_metadata?.full_name || "";
+    let finalRepRut = resolvedRepRut || profile?.rut || "";
     const finalRepTelefono = resolvedRepTelefono || profile.phone || "[Teléfono del Representante]";
     const finalRepEmail = resolvedRepEmail || profile.contact_email || user.email;
+
+    // 1c. Buscar si ya existe una Solicitud de Baja ([SOLICITUD DE BAJA]) para este comercio
+    let activeExitTicket = null;
+    try {
+      const { data: exitTickets } = await supabase
+        .from('tickets')
+        .select('*')
+        .ilike('subject', '[SOLICITUD DE BAJA]%')
+        .order('created_at', { ascending: false });
+
+      if (exitTickets && exitTickets.length > 0) {
+        const lowerCommerces = commerceList.map(c => c.trim().toLowerCase());
+        const matchingTickets = exitTickets.filter(t => {
+          if (t.user_id === user.id) return true;
+          const tComms = String(t.comercio || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+          return tComms.some(tc => lowerCommerces.includes(tc));
+        });
+        activeExitTicket = matchingTickets.find(t => t.status !== 'cerrado') || matchingTickets[0] || null;
+      }
+    } catch (err) {
+      console.warn('Advertencia al consultar solicitud de baja existente:', err);
+    }
 
     // Obtener todos los períodos de facturación
     const { data: periods, error: pError } = await supabase
@@ -17443,7 +17622,7 @@ async function renderRedZone(container, profile, commerceList) {
       .in('comercio', resolvedCompanyList);
     if (rError) throw rError;
 
-    // Obtener inventario actual en tiempo real con paginación para superar el límite de 1000 de PostgREST
+    // Obtener inventario y catálogo actual en tiempo real con paginación para superar el límite de 1000 de PostgREST
     let products = [];
     let page = 0;
     const pageSize = 1000;
@@ -17482,10 +17661,10 @@ async function renderRedZone(container, profile, commerceList) {
       }
     }
 
-    // Calcular stock físico
-    let totalSKUsWithStock = 0;
-    let totalUnits = 0;
-    const stockItems = [];
+    // Calcular stock físico y mapa de catálogo en vivo
+    const liveStockItems = [];
+    const catalogBySku = {};
+    const catalogById = {};
 
     if (products) {
       products.forEach(p => {
@@ -17500,39 +17679,22 @@ async function renderRedZone(container, profile, commerceList) {
             }
           });
         }
+        const itemEntry = {
+          productId: p.id,
+          sku: p.sku || 'S/SKU',
+          name: p.name || 'Sin nombre',
+          quantity: qty,
+          warehouses: warehousesStr || 'Sin bodega asignada'
+        };
+        if (p.sku) catalogBySku[String(p.sku).trim().toLowerCase()] = itemEntry;
+        if (p.id) catalogById[p.id] = itemEntry;
         if (qty > 0) {
-          totalSKUsWithStock++;
-          totalUnits += qty;
-          stockItems.push({
-            sku: p.sku || 'S/SKU',
-            name: p.name || 'Sin nombre',
-            quantity: qty,
-            warehouses: warehousesStr || 'Sin bodega asignada'
-          });
+          liveStockItems.push(itemEntry);
         }
       });
     }
 
-    // Calcular costo estimado de retiro
-    const baseFee = 1250;
-    const skuLimit = 3;
-    const unitsLimit = 10;
-
-    let skuSurcharge = 0;
-    if (totalSKUsWithStock > skuLimit) {
-      skuSurcharge = (totalSKUsWithStock - skuLimit) * 100;
-    }
-
-    let unitsSurcharge = 0;
-    if (totalUnits > unitsLimit) {
-      unitsSurcharge = (totalUnits - unitsLimit) * 50;
-    }
-
-    const netTotal = baseFee + skuSurcharge + unitsSurcharge;
-    const iva = Math.round(netTotal * 0.19);
-    const brutoTotal = netTotal + iva;
-
-    // Determinar la fecha de retiro estimada
+    // Determinar la fecha de retiro estimada por defecto
     let exitDateStr = '';
     if (isYhanos) {
       exitDateStr = '28 de agosto de 2026';
@@ -17545,6 +17707,115 @@ async function renderRedZone(container, profile, commerceList) {
         year: 'numeric'
       });
     }
+
+    // Resolver listado de ítems, tarifas y costos adicionales según la solicitud activa (si existe) y el inventario/catálogo en vivo
+    let stockItems = [];
+    let pricingConfig = { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+    let extraCosts = [];
+    let outboundPagado = false;
+    let adminNotes = '';
+    let syncWithLiveInventory = true;
+    let lastUpdatedByAdminAt = null;
+
+    if (activeExitTicket) {
+      const parsedTicket = parseClientRedZoneDescription(activeExitTicket.description);
+      pricingConfig = parsedTicket.pricingConfig || pricingConfig;
+      extraCosts = parsedTicket.extraCosts || [];
+      outboundPagado = Boolean(parsedTicket.outboundPagado);
+      adminNotes = parsedTicket.adminNotes || '';
+      syncWithLiveInventory = parsedTicket.syncWithLiveInventory !== false;
+      lastUpdatedByAdminAt = parsedTicket.lastUpdatedByAdminAt;
+
+      if (parsedTicket.exitDate) exitDateStr = parsedTicket.exitDate;
+      if (parsedTicket.companyName) finalCompany = parsedTicket.companyName;
+      if (parsedTicket.rutText) finalRut = parsedTicket.rutText;
+      if (parsedTicket.repName) finalRepNombre = parsedTicket.repName;
+      if (parsedTicket.repRut) finalRepRut = parsedTicket.repRut;
+
+      const overrides = parsedTicket.itemOverrides || {};
+      if (syncWithLiveInventory) {
+        const seenSkus = new Set();
+        liveStockItems.forEach(liveIt => {
+          const skuKey = String(liveIt.sku || '').trim().toLowerCase();
+          seenSkus.add(skuKey);
+          const ov = overrides[skuKey];
+          if (ov && ov.excluded) return;
+          stockItems.push({
+            productId: liveIt.productId,
+            sku: ov?.sku || liveIt.sku,
+            name: ov?.name || liveIt.name,
+            quantity: ov && ov.quantity !== undefined ? Number(ov.quantity) : Number(liveIt.quantity),
+            warehouses: ov?.warehouses || liveIt.warehouses
+          });
+        });
+
+        Object.keys(overrides).forEach(skuKey => {
+          if (seenSkus.has(skuKey)) return;
+          const ov = overrides[skuKey];
+          if (!ov || ov.excluded || !(Number(ov.quantity) > 0)) return;
+          const catProd = catalogBySku[skuKey];
+          stockItems.push({
+            productId: catProd?.productId || null,
+            sku: ov.sku || catProd?.sku || skuKey.toUpperCase(),
+            name: ov.name || catProd?.name || 'Producto Catálogo',
+            quantity: Number(ov.quantity) || 0,
+            warehouses: ov.warehouses || catProd?.warehouses || 'Ajuste Administración'
+          });
+        });
+
+        (parsedTicket.customItems || []).forEach(ci => {
+          if ((Number(ci.quantity) || 0) > 0 && !ci.excluded) {
+            stockItems.push({
+              sku: ci.sku || 'MANUAL',
+              name: ci.name || 'Ítem Adicional',
+              quantity: Number(ci.quantity) || 0,
+              warehouses: ci.warehouses || 'Bodega Stocka'
+            });
+          }
+        });
+      } else {
+        stockItems = (parsedTicket.items || []).map(it => {
+          const catProd = (it.productId && catalogById[it.productId]) || catalogBySku[String(it.sku || '').trim().toLowerCase()];
+          return {
+            ...it,
+            name: it.name || catProd?.name || 'Sin nombre',
+            quantity: Number(it.quantity) || 0
+          };
+        }).filter(it => !it.excluded && it.quantity > 0);
+      }
+    } else {
+      stockItems = liveStockItems.map(x => ({ ...x }));
+    }
+
+    const totals = calculateClientRedZoneTotals(stockItems, pricingConfig, extraCosts);
+    const totalSKUsWithStock = totals.totalSKUs;
+    const totalUnits = totals.totalUnits;
+    const baseFee = totals.baseFee;
+    const skuLimit = totals.skuLimit;
+    const unitsLimit = totals.unitsLimit;
+    const skuSurcharge = totals.skuSurcharge;
+    const unitsSurcharge = totals.unitsSurcharge;
+    const netTotal = totals.netTotal;
+    const iva = totals.iva;
+    const brutoTotal = totals.brutoTotal;
+
+    const currentRedZoneState = {
+      commerce: commerceList.join(', '),
+      companyName: finalCompany,
+      rutText: finalRut,
+      repName: finalRepNombre,
+      repRut: finalRepRut,
+      email: finalRepEmail,
+      phone: finalRepTelefono,
+      exitDate: exitDateStr,
+      outboundPagado,
+      syncWithLiveInventory,
+      adminNotes,
+      pricingConfig,
+      items: stockItems,
+      extraCosts,
+      ...totals
+    };
 
     // Mapear los períodos con sus registros de facturación
     const periodStatusList = periods.map(p => {
@@ -17580,10 +17851,52 @@ async function renderRedZone(container, profile, commerceList) {
     });
 
     const hasPendingBilling = periodStatusList.some(p => !p.isPaid && p.total > 0);
+    const hasOpenExitTicket = activeExitTicket && activeExitTicket.status !== 'cerrado';
 
     // Renderizar panel de Zona Roja
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 1.5rem; font-family: system-ui, -apple-system, sans-serif;">
+        ${activeExitTicket ? `
+          <!-- Banner de Estado de Solicitud de Salida Existente -->
+          <div style="background: ${hasOpenExitTicket ? 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'}; border: 1px solid ${hasOpenExitTicket ? '#93c5fd' : '#86efac'}; border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; box-shadow: var(--shadow-sm);">
+            <div style="display: flex; gap: 0.9rem; align-items: flex-start; flex: 1; min-width: 260px;">
+              <div style="background-color: ${hasOpenExitTicket ? '#2563eb' : '#16a34a'}; color: white; width: 42px; height: 42px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.35rem;">
+                <i class="${hasOpenExitTicket ? 'ri-file-list-3-line' : 'ri-checkbox-circle-line'}"></i>
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                  <h4 style="margin: 0; color: ${hasOpenExitTicket ? '#1e3a8a' : '#14532d'}; font-size: 1rem; font-weight: 700;">
+                    Solicitud de Término de Servicio #${activeExitTicket.id.substring(0, 6).toUpperCase()}
+                  </h4>
+                  <span style="background: ${hasOpenExitTicket ? '#2563eb' : '#16a34a'}; color: white; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; text-transform: uppercase;">
+                    ${activeExitTicket.status}
+                  </span>
+                  <span style="background: ${outboundPagado ? '#d1fae5' : '#fef3c7'}; color: ${outboundPagado ? '#065f46' : '#92400e'}; border: 1px solid ${outboundPagado ? '#34d399' : '#f59e0b'}; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 99px;">
+                    Outbound: ${outboundPagado ? 'PAGADO ✓' : 'PENDIENTE DE PAGO'}
+                  </span>
+                </div>
+                <p style="margin: 0; font-size: 0.82rem; color: ${hasOpenExitTicket ? '#1e40af' : '#166534'}; line-height: 1.45;">
+                  Emitida el ${new Date(activeExitTicket.created_at).toLocaleDateString('es-CL')}. Los ítems, cantidades del catálogo/inventario y costos que se muestran a continuación están sincronizados y actualizados con el estado vigente de su cuenta.
+                  ${lastUpdatedByAdminAt ? `<br><strong>Última actualización operativa por Administración:</strong> ${new Date(lastUpdatedByAdminAt).toLocaleString('es-CL')}` : ''}
+                </p>
+              </div>
+            </div>
+            <button type="button" id="btn-refresh-client-redzone" class="btn btn-outline" style="background: white; border-color: #93c5fd; color: #1d4ed8; font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.9rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+              <i class="ri-refresh-line"></i> Actualizar Valores
+            </button>
+          </div>
+        ` : ''}
+
+        ${adminNotes ? `
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+            <i class="ri-information-fill" style="color: #d97706; font-size: 1.25rem; margin-top: 2px;"></i>
+            <div style="font-size: 0.85rem; color: #92400e; line-height: 1.5;">
+              <strong>Observaciones de Operaciones / Administración Stocka en su Solicitud de Salida:</strong>
+              <p style="margin: 0.25rem 0 0 0; white-space: pre-wrap;">${adminNotes}</p>
+            </div>
+          </div>
+        ` : ''}
+
         <!-- Banner de Advertencia -->
         <div style="background: linear-gradient(135deg, #fef2f2 0%, #ffe4e6 100%); border: 1px solid #fecdd3; border-radius: var(--radius-lg); padding: 1.5rem; display: flex; gap: 1rem; align-items: flex-start; box-shadow: var(--shadow-sm);">
           <div style="background-color: #ef4444; color: white; width: 44px; height: 44px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.4);">
@@ -17670,7 +17983,7 @@ async function renderRedZone(container, profile, commerceList) {
 
             <!-- Checkbox de Declaración Jurada Legal -->
             <div style="display: flex; gap: 0.75rem; align-items: flex-start; background-color: var(--color-bg); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
-              <input type="checkbox" id="chk-legal-billing-declaration" required style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
+              <input type="checkbox" id="chk-legal-billing-declaration" ${hasOpenExitTicket ? 'checked disabled' : 'required'} style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
               <label for="chk-legal-billing-declaration" style="font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5; cursor: pointer; font-weight: 500;">
                 <span style="color: #ef4444; font-weight: 700;">[DECLARACIÓN JURADA DE PAGO Y NO RECLAMO]</span> El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Asimismo, declara que no existen disputas de cobro ni reclamos pendientes y renuncia irrevocablemente a cualquier acción legal, civil, comercial o administrativa posterior tendiente a reclamar diferencias de cobros, tarifas o saldos de los períodos detallados en esta declaración, liberando de toda responsabilidad a Stocka SpA y a su representante legal.
               </label>
@@ -17679,11 +17992,17 @@ async function renderRedZone(container, profile, commerceList) {
 
           <!-- SECCIÓN 2: Control de Inventario y Cuadraje Físico -->
           <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
-            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-archive-line" style="color: var(--color-primary);"></i> 2. Inventario Registrado en Sistema
-            </h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-archive-line" style="color: var(--color-primary);"></i> 2. Inventario y Listado de Ítems de Salida
+              </h4>
+              <span style="font-size: 0.75rem; font-weight: 600; padding: 2px 10px; border-radius: 99px; background: ${syncWithLiveInventory ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.15)'}; color: ${syncWithLiveInventory ? '#059669' : '#d97706'};">
+                <i class="${syncWithLiveInventory ? 'ri-refresh-line' : 'ri-check-double-line'}"></i>
+                ${syncWithLiveInventory ? 'Sincronizado con Catálogo e Inventario Actual' : 'Listado Ajustado por Operaciones'}
+              </span>
+            </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              A continuación se detalla el volumen de stock disponible en la plataforma WMS a la fecha:
+              A continuación se detalla el volumen y listado actualizado de stock para retiro en la plataforma WMS:
             </p>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
@@ -17693,7 +18012,7 @@ async function renderRedZone(container, profile, commerceList) {
               </div>
               <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); padding: 1rem; border-radius: var(--radius-sm); text-align: center;">
                 <span style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 0.25rem;">Unidades Totales</span>
-                <strong style="font-size: 1.75rem; color: var(--color-text-main);">${totalUnits}</strong>
+                <strong style="font-size: 1.75rem; color: var(--color-text-main);">${totalUnits.toLocaleString('es-CL')}</strong>
               </div>
             </div>
 
@@ -17703,7 +18022,7 @@ async function renderRedZone(container, profile, commerceList) {
               <div style="font-size: 0.825rem; color: #14532d; line-height: 1.5;">
                 <strong>Certificación de Inventario para Retiro:</strong>
                 <p style="margin: 0.25rem 0 0 0;">
-                  Es condición indispensable para la entrega de la mercadería coordinar y certificar un <strong>conteo físico presencial en bodega</strong>. Las unidades finales se cuadrarán contra el reporte del sistema y se descontará cualquier merma autorizada contractualmente. Asegúrese de que no existan movimientos de inventario o despachos pendientes de registrar en la plataforma previo a esta fecha.
+                  Es condición indispensable para la entrega de la mercadería coordinar y certificar un <strong>conteo físico presencial en bodega</strong>. Cualquier cambio posterior en el catálogo o inventario, o ajuste realizado tras el cuadraje en bodega, se verá reflejado automáticamente en este listado y en el cálculo de costos de salida.
                 </p>
               </div>
             </div>
@@ -17711,17 +18030,18 @@ async function renderRedZone(container, profile, commerceList) {
             <!-- Colapsable para ver detalle de productos en stock -->
             ${totalUnits > 0 ? `
               <div style="margin-top: 1rem;">
-                <details style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg);">
+                <details ${activeExitTicket ? 'open' : ''} style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg);">
                   <summary style="padding: 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; user-select: none;">
-                    Ver Desglose de Stock por SKU (${totalSKUsWithStock} ítems)
+                    <span>Ver Desglose Actualizado de Stock por SKU (${totalSKUsWithStock} ítems • ${totalUnits.toLocaleString('es-CL')} unidades)</span>
                   </summary>
-                  <div style="padding: 0.75rem; border-top: 1px solid var(--color-border); max-height: 250px; overflow-y: auto;">
+                  <div style="padding: 0.75rem; border-top: 1px solid var(--color-border); max-height: 280px; overflow-y: auto;">
                     <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
                       <thead>
                         <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted);">
                           <th style="padding: 0.5rem; font-weight: 600;">SKU</th>
                           <th style="padding: 0.5rem; font-weight: 600;">Descripción</th>
-                          <th style="padding: 0.5rem; font-weight: 600;">Ubicación / Unidades</th>
+                          <th style="padding: 0.5rem; font-weight: 600;">Ubicación / Bodega</th>
+                          <th style="padding: 0.5rem; font-weight: 600; text-align: center;">Unidades</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -17730,6 +18050,7 @@ async function renderRedZone(container, profile, commerceList) {
                             <td style="padding: 0.5rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
                             <td style="padding: 0.5rem; color: var(--color-text-main);">${item.name}</td>
                             <td style="padding: 0.5rem; color: var(--color-text-main); font-size: 0.75rem;">${item.warehouses}</td>
+                            <td style="padding: 0.5rem; color: var(--color-text-main); font-weight: 700; text-align: center;">${Number(item.quantity || 0).toLocaleString('es-CL')}</td>
                           </tr>
                         `).join('')}
                       </tbody>
@@ -17742,26 +18063,44 @@ async function renderRedZone(container, profile, commerceList) {
 
           <!-- SECCIÓN 3: Costos de Preparación y Retiro -->
           <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
-            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> 3. Costo Estimado de Preparación de Retiro
-            </h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> 3. Costo Actualizado de Preparación y Retiro
+              </h4>
+              ${outboundPagado ? `
+                <span style="background: #d1fae5; color: #065f46; font-size: 0.75rem; font-weight: 700; padding: 3px 10px; border-radius: 99px;">
+                  ✔ OUTBOUND PAGADO
+                </span>
+              ` : ''}
+            </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              Cálculo tarifario de la preparación física del inventario completo (pick & packing) de acuerdo al Anexo de Tarifarios Stocka 2024-2025:
+              Cálculo tarifario actualizado de la preparación física del inventario y costos/ajustes asociados a la solicitud de salida:
             </p>
 
             <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
               <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
                 <span>Costo de Preparación Base (Pedido):</span>
-                <span style="font-weight: 600; color: var(--color-text-main);">$1.250</span>
+                <span style="font-weight: 600; color: var(--color-text-main);">$${baseFee.toLocaleString('es-CL')}</span>
               </div>
               <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
-                <span>Recargo por SKU Adicionales (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalSKUsWithStock > 3 ? totalSKUsWithStock - 3 : 0} SKUs excedentes)</span></span>
+                <span>Recargo por SKU Adicionales (+$${pricingConfig.skuRate.toLocaleString('es-CL')} por cada SKU > ${skuLimit}): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalSKUsWithStock > skuLimit ? totalSKUsWithStock - skuLimit : 0} SKUs excedentes)</span></span>
                 <span style="font-weight: 600; color: var(--color-text-main);">$${skuSurcharge.toLocaleString('es-CL')}</span>
               </div>
               <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
-                <span>Recargo por Unidades Adicionales (+$50 por cada Unidad > 10): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+                <span>Recargo por Unidades Adicionales (+$${pricingConfig.unitsRate.toLocaleString('es-CL')} por cada Unidad > ${unitsLimit}): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalUnits > unitsLimit ? totalUnits - unitsLimit : 0} unidades excedentes)</span></span>
                 <span style="font-weight: 600; color: var(--color-text-main);">$${unitsSurcharge.toLocaleString('es-CL')}</span>
               </div>
+              ${extraCosts.map(c => {
+                const isDisc = c.type === 'discount';
+                const sign = isDisc ? '-' : '+';
+                const taxLabel = c.taxType === 'exento' ? 'Exento / Bruto' : 'Neto + IVA';
+                return `
+                  <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border); color: ${isDisc ? '#059669' : 'var(--color-text-main)'};">
+                    <span>${c.concept} <span style="font-size: 0.72rem; color: var(--color-text-muted);">(${taxLabel})</span>:</span>
+                    <span style="font-weight: 700;">${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')}</span>
+                  </div>
+                `;
+              }).join('')}
               <div style="display: flex; justify-content: space-between; font-weight: 600; padding-top: 0.5rem; font-size: 0.9rem; color: var(--color-text-main);">
                 <span>Total Neto Estimado:</span>
                 <span>$${netTotal.toLocaleString('es-CL')}</span>
@@ -17770,13 +18109,13 @@ async function renderRedZone(container, profile, commerceList) {
                 <span>IVA (19%):</span>
                 <span>$${iva.toLocaleString('es-CL')}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.15rem; color: #ef4444; border-top: 1px solid var(--color-border); padding-top: 0.75rem; margin-top: 0.25rem;">
-                <span>Total Bruto Estimado:</span>
-                <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+              <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.15rem; color: ${outboundPagado ? '#059669' : '#ef4444'}; border-top: 1px solid var(--color-border); padding-top: 0.75rem; margin-top: 0.25rem;">
+                <span>Total Bruto de Salida:</span>
+                <span>$${brutoTotal.toLocaleString('es-CL')} CLP ${outboundPagado ? ' (PAGADO ✓)' : ''}</span>
               </div>
             </div>
             <p style="margin: 0.75rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.4;">
-              *Nota: Este valor estima únicamente el costo de pickeo, embalaje estándar y acondicionamiento del stock completo para entrega sobre camión del cliente en las dependencias de Stocka. No considera costos fijos del periodo de facturación actual, cobros por volumen de almacenamiento acumulados, ni despachos realizados en el mes.
+              *Nota: Los valores se actualizan automáticamente en función de las existencias vigentes del catálogo/inventario y de los conceptos de retiro registrados en la solicitud.
             </p>
           </div>
 
@@ -17797,7 +18136,7 @@ async function renderRedZone(container, profile, commerceList) {
               <div style="font-size: 0.8rem; text-align: right; color: var(--color-text-muted); max-width: 50%;">
                 ${isYhanos 
                   ? 'Salida acordada con fecha oficial del 28 de agosto según previa notificación por el cliente.' 
-                  : 'Fecha estimada calculada en base a los 30 días reglamentarios desde esta notificación.'
+                  : 'Fecha acordada/estimada de acuerdo con el aviso de salida registrado.'
                 }
               </div>
             </div>
@@ -17829,8 +18168,8 @@ async function renderRedZone(container, profile, commerceList) {
               <!-- Se inyecta dinámicamente el texto formal -->
             </div>
 
-            <div style="display: flex; gap: 1fr; justify-content: flex-end; gap: 0.75rem;">
-              <button type="button" id="btn-print-redzone-doc" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+              <button type="button" id="btn-print-redzone-doc" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                 <i class="ri-printer-line"></i> Descargar / Imprimir Minuta de Término
               </button>
             </div>
@@ -17841,13 +18180,24 @@ async function renderRedZone(container, profile, commerceList) {
             <button type="button" id="btn-print-exit-report" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; padding: 0.75rem 1.5rem; font-size: 0.9rem; border-radius: var(--radius-md); cursor: pointer;">
               <i class="ri-file-chart-line"></i> Descargar Informe de Salida (PDF)
             </button>
-            <button type="submit" id="btn-submit-exit-request" class="btn" style="background-color: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-close-circle-line"></i> Enviar Solicitud Oficial de Baja de Servicio
-            </button>
+            ${hasOpenExitTicket ? `
+              <button type="button" class="btn" disabled style="background-color: #10b981; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); opacity: 0.95; font-size: 0.92rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-checkbox-circle-line"></i> Solicitud de Salida Activa y Sincronizada
+              </button>
+            ` : `
+              <button type="submit" id="btn-submit-exit-request" class="btn" style="background-color: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-close-circle-line"></i> Enviar Solicitud Oficial de Baja de Servicio
+              </button>
+            `}
           </div>
         </form>
       </div>
     `;
+
+    const btnRefreshRz = document.getElementById('btn-refresh-client-redzone');
+    if (btnRefreshRz) {
+      btnRefreshRz.addEventListener('click', () => renderRedZone(container, profile, commerceList));
+    }
 
     // 9. Inyectar texto formal en el colapsable del documento
     const docPreviewContainer = document.getElementById('redzone-document-preview');
@@ -17855,7 +18205,7 @@ async function renderRedZone(container, profile, commerceList) {
     const updatePreviewText = () => {
       const repNombreVal = document.getElementById('txt-rep-legal-nombre').value.trim() || "[Nombre del Representante]";
       const repRutVal = document.getElementById('txt-rep-legal-rut').value.trim() || "[RUT del Representante]";
-      const legalDocText = generateLegalDocumentText(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, repNombreVal, repRutVal);
+      const legalDocText = generateLegalDocumentText(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, repNombreVal, repRutVal, currentRedZoneState);
       if (docPreviewContainer) {
         docPreviewContainer.textContent = legalDocText;
       }
@@ -17870,14 +18220,14 @@ async function renderRedZone(container, profile, commerceList) {
     document.getElementById('btn-print-redzone-doc').addEventListener('click', () => {
       const repNombreVal = document.getElementById('txt-rep-legal-nombre').value.trim() || "[Nombre del Representante]";
       const repRutVal = document.getElementById('txt-rep-legal-rut').value.trim() || "[RUT del Representante]";
-      printLegalDocument(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, repNombreVal, repRutVal);
+      printLegalDocument(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, repNombreVal, repRutVal, currentRedZoneState);
     });
 
     // 10b. Escuchar el botón de imprimir informe de salida
     document.getElementById('btn-print-exit-report').addEventListener('click', () => {
       const repNombreVal = document.getElementById('txt-rep-legal-nombre').value.trim() || "[Nombre del Representante]";
       const repRutVal = document.getElementById('txt-rep-legal-rut').value.trim() || "[RUT del Representante]";
-      printExitReport(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, periodStatusList, finalRut, finalCompany, repNombreVal, repRutVal);
+      printExitReport(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, periodStatusList, finalRut, finalCompany, repNombreVal, repRutVal, currentRedZoneState);
     });
 
     // 11. Escuchar el submit del formulario de salida
@@ -17887,6 +18237,7 @@ async function renderRedZone(container, profile, commerceList) {
       const chk = document.getElementById('chk-legal-billing-declaration');
       const alertContainer = document.getElementById('redzone-alert-container');
       const submitBtn = document.getElementById('btn-submit-exit-request');
+      if (!submitBtn) return;
 
       if (!chk.checked) {
         alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Debe aceptar la declaración jurada sobre el estado de facturación para proceder.</div>`;
@@ -17897,12 +18248,38 @@ async function renderRedZone(container, profile, commerceList) {
       submitBtn.innerHTML = `<i class="ri-loader-4-line spin"></i> Enviando Solicitud...`;
 
       try {
+        const repNombreVal = document.getElementById('txt-rep-legal-nombre').value.trim() || finalRepNombre;
+        const repRutVal = document.getElementById('txt-rep-legal-rut').value.trim() || finalRepRut;
+
+        const structuredPayload = {
+          version: 2,
+          commerce: commerceList.join(', '),
+          repName: repNombreVal,
+          repRut: repRutVal,
+          companyName: finalCompany,
+          rutText: finalRut,
+          email: finalRepEmail,
+          phone: finalRepTelefono,
+          exitDate: exitDateStr,
+          outboundPagado: false,
+          syncWithLiveInventory: true,
+          lastSyncedAt: new Date().toISOString(),
+          lastUpdatedByAdminAt: null,
+          adminNotes: '',
+          pricingConfig,
+          items: stockItems,
+          itemOverrides: {},
+          customItems: [],
+          extraCosts: [],
+          totals
+        };
+
         const ticketDesc = `SOLICITUD DE TÉRMINO DE SERVICIOS Y FINIQUITO DE CUENTA
 
 INFORMACIÓN DEL CLIENTE:
 - Comercio: ${commerceList.join(', ')}
-- Representante Legal: ${finalRepNombre}
-- RUT Representante Legal: ${finalRepRut}
+- Representante Legal: ${repNombreVal}
+- RUT Representante Legal: ${repRutVal}
 - Empresa/Razón Social: ${finalCompany}
 - RUT Empresa: ${finalRut}
 - Correo Representante: ${finalRepEmail}
@@ -17912,18 +18289,23 @@ DATOS DE SALIDA:
 - Fecha Estimada de Salida: ${exitDateStr}
 - Unidades Totales en Inventario: ${totalUnits}
 - SKUs con Stock Activo: ${totalSKUsWithStock}
+- Estado Pago Outbound: PENDIENTE
 
 DESGLOSE ECONÓMICO DE RETIRO:
-- Costo Base Preparación: $1.250 CLP
-- Recargo por SKU adicional (sobre 3): $${skuSurcharge.toLocaleString('es-CL')} CLP
-- Recargo por Unidades adicional (sobre 10): $${unitsSurcharge.toLocaleString('es-CL')} CLP
+- Costo Base Preparación: $${baseFee.toLocaleString('es-CL')} CLP
+- Recargo por SKU adicional (sobre ${skuLimit}): $${skuSurcharge.toLocaleString('es-CL')} CLP
+- Recargo por Unidades adicional (sobre ${unitsLimit}): $${unitsSurcharge.toLocaleString('es-CL')} CLP
 - Costo Neto: $${netTotal.toLocaleString('es-CL')} CLP
 - IVA (19%): $${iva.toLocaleString('es-CL')} CLP
 - Costo Bruto Total de Preparación: $${brutoTotal.toLocaleString('es-CL')} CLP
 
 DECLARACIÓN JURADA DE FACTURACIÓN:
 - Aceptada por el usuario: SÍ
-- Texto: El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Renuncia irrevocablemente a cualquier reclamo posterior y libera de responsabilidad a la empresa y a su representante legal.`;
+- Texto: El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Renuncia irrevocablemente a cualquier reclamo posterior y libera de responsabilidad a la empresa y a su representante legal.
+
+${CLIENT_REDZONE_JSON_START}
+${JSON.stringify(structuredPayload)}
+${CLIENT_REDZONE_JSON_END}`;
 
         const { data: ticket, error: ticketError } = await supabase
           .from('tickets')
@@ -17941,19 +18323,7 @@ DECLARACIÓN JURADA DE FACTURACIÓN:
 
         if (ticketError) throw ticketError;
 
-        alertContainer.innerHTML = `
-          <div class="alert alert-success" style="display: block; background-color: #d1fae5; border-color: #34d399; color: #065f46; padding: 1.25rem; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); margin-bottom: 1.5rem;">
-            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; font-weight: 700;">¡Solicitud Procesada Exitosamente!</h4>
-            <p style="margin: 0; font-size: 0.85rem; line-height: 1.5;">
-              La solicitud de término de servicio y el desglose de retiro han sido notificados formalmente al equipo de operaciones de Stocka. Se ha generado el Ticket de Soporte formal para el seguimiento del proceso. Procederemos a coordinar el cuadraje físico presencial de bodega.
-            </p>
-          </div>
-        `;
-
-        // Desactivar campos del formulario
-        document.getElementById('chk-legal-billing-declaration').disabled = true;
-        document.getElementById('btn-print-redzone-doc').disabled = true;
-        submitBtn.style.display = 'none';
+        await renderRedZone(container, profile, commerceList);
 
       } catch (err) {
         console.error("Error al enviar solicitud de salida:", err);
@@ -17974,7 +18344,7 @@ DECLARACIÓN JURADA DE FACTURACIÓN:
   }
 }
 
-function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut) {
+function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut, redzoneState = null) {
   const repName = repNombre || profile.full_name || "[Nombre del Representante]";
   const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
   const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
@@ -17984,6 +18354,15 @@ function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits,
     month: 'long',
     year: 'numeric'
   });
+
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraLines = (redzoneState?.extraCosts || []).map(c => {
+    const sign = c.type === 'discount' ? '-' : '+';
+    const taxNote = c.taxType === 'exento' ? 'exento/bruto' : 'neto';
+    return `- ${c.concept}: ${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')} CLP (${taxNote})`;
+  }).join('\n');
 
   return `CONVENIO DE TÉRMINO DE PRESTACIÓN DE SERVICIOS LOGÍSTICOS Y FINIQUITO DE CUENTA
 
@@ -18010,11 +18389,11 @@ Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se 
 Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
 
 CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
-De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
-- Tarifa Fija Base de Preparación: $1.250 CLP neto
-- Recargo por SKU adicional (sobre 3): $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto
-- Recargo por unidades adicionales (sobre 10): $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto
-- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
+- Tarifa Fija Base de Preparación: $${cfg.baseFee.toLocaleString('es-CL')} CLP neto
+- Recargo por SKU adicional (sobre ${cfg.skuLimit}): $${skuSurcharge.toLocaleString('es-CL')} CLP neto
+- Recargo por unidades adicionales (sobre ${cfg.unitsLimit}): $${unitsSurcharge.toLocaleString('es-CL')} CLP neto
+${extraLines ? extraLines + '\n' : ''}- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
 - IVA (19%): $${iva.toLocaleString('es-CL')} CLP
 - TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
 
@@ -18031,7 +18410,7 @@ __________________________________            __________________________________
          Representante Legal                        ${repName}`;
 }
 
-function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut) {
+function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut, redzoneState = null) {
   const repName = repNombre || profile.full_name || "[Nombre del Representante]";
   const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
   const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
@@ -18041,6 +18420,15 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
     month: 'long',
     year: 'numeric'
   });
+
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraCostsHtml = (redzoneState?.extraCosts || []).map(c => {
+    const sign = c.type === 'discount' ? '-' : '+';
+    const taxLabel = c.taxType === 'exento' ? 'exento/bruto' : 'neto';
+    return `<li><strong>${c.concept}:</strong> ${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')} CLP (${taxLabel})</li>`;
+  }).join('');
 
   const printWindow = window.open('', '_blank');
   
@@ -18127,12 +18515,13 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
 
         <p class="no-indent">
           <strong><u>CUARTA</u>: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)</strong><br>
-          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
+          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
-          <li><strong>Tarifa Fija Base de Preparación:</strong> $1.250 CLP neto</li>
-          <li><strong>Recargo por SKU adicional (sobre 3):</strong> $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto</li>
-          <li><strong>Recargo por unidades adicionales (sobre 10):</strong> $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Tarifa Fija Base de Preparación:</strong> $${cfg.baseFee.toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Recargo por SKU adicional (sobre ${cfg.skuLimit}):</strong> $${skuSurcharge.toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Recargo por unidades adicionales (sobre ${cfg.unitsLimit}):</strong> $${unitsSurcharge.toLocaleString('es-CL')} CLP neto</li>
+          ${extraCostsHtml}
           <li><strong>Subtotal Neto Estimado:</strong> $${netTotal.toLocaleString('es-CL')} CLP</li>
           <li><strong>IVA (19%):</strong> $${iva.toLocaleString('es-CL')} CLP</li>
           <li><strong>TOTAL BRUTO ESTIMADO A PAGAR:</strong> $${brutoTotal.toLocaleString('es-CL')} CLP</li>
@@ -18170,7 +18559,7 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
   printWindow.document.close();
 }
 
-function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRut) {
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRut, redzoneState = null) {
   const repName = repNombre || profile.full_name || "No especificado";
   const compName = resolvedCompany || profile.company_name || "No especificada";
   const rutText = resolvedRut || profile.rut || "No informado";
@@ -18180,12 +18569,17 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
     year: 'numeric'
   });
 
-  const baseFee = 1250;
-  const skuSurcharge = totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0;
-  const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const baseFee = cfg.baseFee;
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraCosts = redzoneState?.extraCosts || [];
+  const itemsList = (redzoneState?.items || []).filter(it => !it.excluded && (Number(it.quantity) || 0) > 0);
+  const outboundPagado = Boolean(redzoneState?.outboundPagado);
+  const adminNotes = redzoneState?.adminNotes || '';
 
   const totalPendingBilling = periodStatusList.reduce((sum, p) => sum + (p.pending || 0), 0);
-  const totalToPayConsolidated = totalPendingBilling + brutoTotal;
+  const totalToPayConsolidated = totalPendingBilling + (outboundPagado ? 0 : brutoTotal);
 
   const printWindow = window.open('', '_blank');
   
@@ -18400,7 +18794,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           <strong>Declaración de Conformidad:</strong> El Comercio acepta formalmente la liquidación de las tarifas del servicio correspondientes a los períodos señalados, reconociendo que se encuentran íntegramente saldadas y renuncia irrevocablemente a cualquier reclamo posterior por diferencias de cobro.
         </p>
 
-        <h2 class="section-title">2. Resumen de Inventario Registrado</h2>
+        <h2 class="section-title">2. Resumen y Listado de Inventario Registrado</h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
           Resumen total de existencias en el WMS a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
         </p>
@@ -18421,43 +18815,85 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <tr>
               <td><strong>Total de Unidades Físicas</strong></td>
               <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalUnits}</td>
-              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas almacenadas en bodegas Stocka.</td>
+              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas contempladas en la salida.</td>
             </tr>
           </tbody>
         </table>
 
-        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)</h2>
+        ${itemsList.length > 0 ? `
+          <table class="data-table" style="font-size: 0.78rem; margin-top: 0.5rem;">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Descripción / Producto</th>
+                <th>Ubicación / Bodega</th>
+                <th style="text-align: center;">Unidades</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsList.map(it => `
+                <tr>
+                  <td><strong>${it.sku}</strong></td>
+                  <td>${it.name}</td>
+                  <td>${it.warehouses || 'Bodega Stocka'}</td>
+                  <td style="text-align: center; font-weight: bold;">${it.quantity}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
+
+        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)
+          ${outboundPagado ? `<span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">✔ PAGADO</span>` : `<span style="background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">PENDIENTE DE PAGO</span>`}
+        </h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Costo estimado del retiro físico (preparación y entrega de stock) según Anexo de Tarifarios Stocka 2024-2025:
+          Costo del retiro físico (preparación, entrega de stock y cargos/ajustes asociados):
         </p>
-        <div class="cost-box">
+        <div class="cost-box" ${outboundPagado ? 'style="opacity:0.7;"' : ''}>
           <div class="cost-row">
             <span>Costo de Preparación Base:</span>
-            <span>$1.250</span>
+            <span>$${baseFee.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row">
-            <span>Recargo SKU Adicional (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > 3 ? totalSKUs - 3 : 0} SKUs excedentes)</span></span>
+            <span>Recargo SKU Adicional (+$${cfg.skuRate.toLocaleString('es-CL')} por cada SKU > ${cfg.skuLimit}): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > cfg.skuLimit ? totalSKUs - cfg.skuLimit : 0} SKUs excedentes)</span></span>
             <span>$${skuSurcharge.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row">
-            <span>Recargo Unidades Adicional (+$50 por cada unidad > 10): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+            <span>Recargo Unidades Adicional (+$${cfg.unitsRate.toLocaleString('es-CL')} por cada unidad > ${cfg.unitsLimit}): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > cfg.unitsLimit ? totalUnits - cfg.unitsLimit : 0} unidades excedentes)</span></span>
             <span>$${unitsSurcharge.toLocaleString('es-CL')}</span>
           </div>
+          ${extraCosts.map(c => {
+            const isDisc = c.type === 'discount';
+            const sign = isDisc ? '-' : '+';
+            const taxBadge = c.taxType === 'exento' ? '(Exento / Bruto)' : '(Neto)';
+            return `
+              <div class="cost-row" style="color: ${isDisc ? '#047857' : '#111827'};">
+                <span>${c.concept} <span style="font-size: 0.72rem; color: #6b7280;">${taxBadge}</span>:</span>
+                <span style="font-weight: 600;">${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')}</span>
+              </div>
+            `;
+          }).join('')}
           <div class="cost-row" style="font-weight: bold; border-top: 1px dashed #ccc; padding-top: 0.5rem; margin-top: 0.25rem;">
-            <span>Total Neto Preparación:</span>
+            <span>Total Neto Preparación y Cargos Afectos:</span>
             <span>$${netTotal.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row" style="color: #666;">
             <span>IVA (19%):</span>
             <span>$${iva.toLocaleString('es-CL')}</span>
           </div>
-          <div class="cost-row total">
-            <span>Total Bruto Estimado de Salida:</span>
-            <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+          <div class="cost-row total" ${outboundPagado ? 'style="color:#065f46;"' : ''}>
+            <span>Total Bruto de Salida:</span>
+            <span>$${brutoTotal.toLocaleString('es-CL')} CLP${outboundPagado ? ' &nbsp;✔ PAGADO' : ''}</span>
           </div>
         </div>
+        ${adminNotes ? `
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.8rem; color: #92400e; margin-bottom: 1.5rem;">
+            <strong>Observaciones de Operaciones / Administración:</strong><br>
+            ${adminNotes.replace(/\n/g, '<br>')}
+          </div>
+        ` : ''}
         <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
-          *Nota: Este presupuesto no contempla los costos proporcionales de almacenamiento y despachos que puedan devengarse durante el mes en curso antes del retiro físico definitivo.
+          *Nota: Este presupuesto contempla los ítems y conceptos detallados en la presente liquidación de salida.
         </p>
 
         <h2 class="section-title">4. Liquidación y Pago Total Consolidado</h2>
@@ -18469,8 +18905,8 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <span>Monto Total Desgloses Pendientes (Sección 1):</span>
             <span style="font-weight: bold;">$${totalPendingBilling.toLocaleString('es-CL')} CLP</span>
           </div>
-          <div class="cost-row">
-            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):</span>
+          <div class="cost-row" ${outboundPagado ? 'style="text-decoration:line-through;color:#6b7280;"' : ''}>
+            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):${outboundPagado ? ' <em style="font-style:normal;font-size:0.75rem;">[PAGADO]</em>' : ''}</span>
             <span style="font-weight: bold;">$${brutoTotal.toLocaleString('es-CL')} CLP</span>
           </div>
           <div class="cost-row total" style="font-size: 1.15rem; color: #991b1b; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 2px solid #ef4444;">
@@ -23118,6 +23554,11 @@ window.checkSystemCommunications = async function(userId) {
         }
       }
     }
+
+    // 4. Fetch Feature Announcements (Bottom-Right Dock Popup)
+    if (typeof window.checkFeaturePopups === 'function') {
+      await window.checkFeaturePopups(userId);
+    }
   } catch (err) {
     console.error('Error checking system communications:', err);
   }
@@ -23361,6 +23802,510 @@ window.showNewsLoginPopupModal = function(newsItem, userId) {
   document.getElementById('btn-news-read-later')?.addEventListener('click', closeReadLater);
   document.getElementById('btn-news-mark-read')?.addEventListener('click', markAsRead);
 };
+
+// =========================================================================
+// POPUP INFERIOR DERECHO DE NUEVAS FUNCIONALIDADES (WMS FEATURE DOCK)
+// =========================================================================
+
+window.WMS_CLIENT_MODULES_CATALOG = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'ri-dashboard-line', category: 'Operaciones' },
+  { key: 'inventory', label: 'Inventario', icon: 'ri-box-3-line', category: 'Operaciones' },
+  { key: 'catalog', label: 'Catálogo de Productos', icon: 'ri-list-check', category: 'Operaciones' },
+  { key: 'label_generator', label: 'Generador de Etiquetas', icon: 'ri-printer-line', category: 'Operaciones' },
+  { key: 'volumen_diario', label: 'Volumen Diario', icon: 'ri-line-chart-line', category: 'Operaciones' },
+  { key: 'declarations', label: 'Ingresos de Stock', icon: 'ri-inbox-archive-line', category: 'Operaciones' },
+  { key: 'orders', label: 'Pedidos', icon: 'ri-shopping-cart-2-line', category: 'Operaciones' },
+  { key: 'shipments', label: 'Despachos', icon: 'ri-truck-line', category: 'Operaciones' },
+  { key: 'manifests', label: 'Centro de Manifiestos', icon: 'ri-file-paper-2-line', category: 'Operaciones' },
+  { key: 'movements', label: 'Movimientos', icon: 'ri-loop-right-line', category: 'Operaciones' },
+  { key: 'warehouses', label: 'Bodegas', icon: 'ri-building-2-line', category: 'Operaciones' },
+  { key: 'pending', label: 'Por Asignar', icon: 'ri-error-warning-line', category: 'Servicios' },
+  { key: 'returns', label: 'Logística Inversa', icon: 'ri-arrow-go-back-line', category: 'Servicios' },
+  { key: 'pickups', label: 'Punto de Retiro', icon: 'ri-store-2-line', category: 'Servicios' },
+  { key: 'sales', label: 'Punto de Ventas', icon: 'ri-shopping-cart-2-line', category: 'Servicios' },
+  { key: 'cotizador', label: 'Cotizador de Envíos', icon: 'ri-calculator-line', category: 'Servicios' },
+  { key: 'tracking_widget', label: 'Portal de Tracking', icon: 'ri-radar-line', category: 'Servicios' },
+  { key: 'billing', label: 'Facturación', icon: 'ri-bill-line', category: 'Sistema' },
+  { key: 'integrations', label: 'Integraciones', icon: 'ri-plug-line', category: 'Sistema' },
+  { key: 'incidencias', label: 'Incidencias', icon: 'ri-alert-line', category: 'Sistema' },
+  { key: 'surveys', label: 'Encuestas & Feedback', icon: 'ri-survey-line', category: 'Sistema' },
+  { key: 'tickets', label: 'Soporte y Tickets', icon: 'ri-customer-service-2-line', category: 'Sistema' },
+  { key: 'documentation', label: 'Documentación', icon: 'ri-file-text-line', category: 'Sistema' },
+  { key: 'profile', label: 'Mi Perfil', icon: 'ri-user-settings-line', category: 'Sistema' },
+  { key: 'inbox', label: 'Mi Inbox', icon: 'ri-mail-unread-line', category: 'Sistema' }
+];
+
+window.WMS_FEATURE_CHANGE_TYPES = {
+  new_feature: { label: 'Nueva Funcionalidad', icon: 'ri-sparkling-2-fill', className: 'type-new_feature' },
+  improvement: { label: 'Mejora de Módulo', icon: 'ri-rocket-2-fill', className: 'type-improvement' },
+  fix: { label: 'Corrección & Ajuste', icon: 'ri-tools-fill', className: 'type-fix' },
+  integration: { label: 'Nueva Integración', icon: 'ri-plug-2-fill', className: 'type-integration' }
+};
+
+window.isClientModuleAllowed = function(moduleKey) {
+  if (!moduleKey || moduleKey === 'none' || moduleKey === 'general') return true;
+  const roleToUse = typeof userRole !== 'undefined' ? userRole : 'client';
+  if (roleToUse === 'admin') return true;
+  if (roleToUse === 'observer') {
+    return ['dashboard', 'profile', 'inbox'].includes(moduleKey);
+  }
+  const allowedStr = window.currentUserAllowedModules || 'all';
+  if (allowedStr === 'all' || !allowedStr) return true;
+  const list = String(allowedStr).split(',').map(m => m.trim()).filter(Boolean);
+  if (moduleKey === 'dashboard' && !list.includes('dashboard') && list.length > 5) return true;
+  return list.includes(moduleKey);
+};
+
+window.navigateToClientModule = function(moduleKey) {
+  if (!moduleKey || moduleKey === 'none') return false;
+  const navItem = document.querySelector(`.nav-item[data-view="${moduleKey}"]`);
+  if (navItem) {
+    navItem.click();
+    const contentArea = document.querySelector('.content-area');
+    if (contentArea) contentArea.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return true;
+  }
+  return false;
+};
+
+window.checkFeaturePopups = async function(userId) {
+  try {
+    const roleToUse = typeof userRole !== 'undefined' ? userRole : 'client';
+    let popups = [];
+
+    const { data, error } = await supabase
+      .from('wms_feature_popups')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      popups = data;
+    } else {
+      // Fallback cache si aún no se ha corrido el script SQL en Supabase
+      try {
+        const localCache = JSON.parse(localStorage.getItem('wms_feature_popups_local_cache') || '[]');
+        popups = localCache.filter(p => p.is_active !== false);
+      } catch (e) {}
+    }
+
+    if (!popups || popups.length === 0) return;
+
+    // Filtrar por rol y permisos de módulo del usuario (Mejora 1.3)
+    const eligiblePopups = popups.filter(p => {
+      const targetRole = p.target_role || 'client';
+      const roleMatch = targetRole === 'all' || targetRole === roleToUse;
+      if (!roleMatch) return false;
+
+      if (p.only_allowed_module_users !== false) {
+        const checkMod = (p.target_module && p.target_module !== 'none') ? p.target_module : p.module_key;
+        if (checkMod && !window.isClientModuleAllowed(checkMod)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (eligiblePopups.length === 0) return;
+
+    // Consultar lecturas permanentes en Supabase
+    let readIdsSet = new Set();
+    try {
+      const { data: readsData } = await supabase
+        .from('user_notification_reads')
+        .select('entity_id')
+        .eq('user_id', userId)
+        .eq('entity_type', 'feature_popup');
+
+      if (Array.isArray(readsData)) {
+        readsData.forEach(r => readIdsSet.add(String(r.entity_id)));
+      }
+    } catch (e) {}
+
+    const unreadPopups = eligiblePopups.filter(p => {
+      const localRead = localStorage.getItem(`wms_feature_read_${p.id}_${userId}`) === 'true';
+      if (localRead || readIdsSet.has(String(p.id))) {
+        localStorage.setItem(`wms_feature_read_${p.id}_${userId}`, 'true');
+        return false;
+      }
+      return true;
+    });
+
+    if (unreadPopups.length === 0) return;
+
+    // Verificar si el usuario eligió "Volver a mostrar" en esta sesión (Mejora 1.5)
+    const activeSessionList = unreadPopups.filter(
+      p => sessionStorage.getItem(`wms_feature_later_${p.id}_${userId}`) !== 'true'
+    );
+
+    if (activeSessionList.length > 0) {
+      window.showFeatureDockPopup(activeSessionList, userId, { startMinimized: false });
+    } else {
+      // Si todas fueron pospuestas en la sesión actual, dejar como pestaña minimizada en el borde inferior
+      // y en el próximo inicio de sesión volverá a emerger desplegada
+      window.showFeatureDockPopup(unreadPopups, userId, { startMinimized: true });
+    }
+  } catch (err) {
+    console.warn('Error checking feature popups:', err);
+  }
+};
+
+window.showFeatureDockPopup = function(featureList, userId, options = {}) {
+  const items = Array.isArray(featureList) ? [...featureList] : [featureList];
+  if (items.length === 0) return;
+
+  const existing = document.getElementById('wms-feature-dock');
+  if (existing) existing.remove();
+
+  let currentIndex = 0;
+  let isMinimized = !!options.startMinimized;
+  let isMediaCollapsed = false;
+  const isPreview = !!options.isPreview;
+
+  const dock = document.createElement('div');
+  dock.id = 'wms-feature-dock';
+  dock.className = `wms-feature-dock${isMinimized ? ' is-minimized' : ''}`;
+  document.body.appendChild(dock);
+
+  const syncBodyClasses = () => {
+    if (!document.body.contains(dock)) {
+      document.body.classList.remove('feature-dock-open', 'feature-dock-minimized');
+      return;
+    }
+    if (isMinimized) {
+      document.body.classList.remove('feature-dock-open');
+      document.body.classList.add('feature-dock-minimized');
+    } else {
+      document.body.classList.add('feature-dock-open');
+      document.body.classList.remove('feature-dock-minimized');
+    }
+  };
+
+  const closeDockCompletely = () => {
+    dock.classList.add('closing');
+    document.body.classList.remove('feature-dock-open', 'feature-dock-minimized');
+    setTimeout(() => {
+      if (dock.parentNode) dock.remove();
+    }, 260);
+  };
+
+  const renderCurrentFeature = () => {
+    if (items.length === 0) {
+      closeDockCompletely();
+      return;
+    }
+    if (currentIndex >= items.length) currentIndex = items.length - 1;
+    if (currentIndex < 0) currentIndex = 0;
+
+    const item = items[currentIndex];
+    const changeTypeKey = item.change_type || 'new_feature';
+    const changeMeta = window.WMS_FEATURE_CHANGE_TYPES[changeTypeKey] || window.WMS_FEATURE_CHANGE_TYPES.new_feature;
+
+    const moduleInfo = (window.WMS_CLIENT_MODULES_CATALOG || []).find(m => m.key === item.module_key) || {
+      key: item.module_key || 'general',
+      label: item.module_label || 'General WMS',
+      icon: 'ri-apps-2-line'
+    };
+    const moduleLabel = item.module_label || moduleInfo.label;
+
+    const targetModKey = item.target_module || 'none';
+    const targetModInfo = (window.WMS_CLIENT_MODULES_CATALOG || []).find(m => m.key === targetModKey);
+    const hasRedirect = targetModKey && targetModKey !== 'none';
+    const isTargetAllowed = hasRedirect ? window.isClientModuleAllowed(targetModKey) : true;
+    const isAlreadyInTargetModule = hasRedirect && window.currentActiveView === targetModKey;
+
+    const defaultCtaLabel = targetModInfo ? `Ir a ${targetModInfo.label}` : 'Ir al módulo';
+    const ctaLabel = (item.cta_text && item.cta_text.trim()) ? item.cta_text.trim() : defaultCtaLabel;
+
+    dock.setAttribute('data-change-type', changeTypeKey);
+    if (isMinimized) dock.classList.add('is-minimized');
+    else dock.classList.remove('is-minimized');
+    syncBodyClasses();
+
+    const pagerHtml = items.length > 1 ? `
+      <div class="wms-feature-pager" title="Navegar entre novedades pendientes">
+        <button type="button" class="wms-feature-pager-btn" id="wms-feat-prev" ${currentIndex === 0 ? 'disabled' : ''}>
+          <i class="ri-arrow-left-s-line"></i>
+        </button>
+        <span>${currentIndex + 1} / ${items.length}</span>
+        <button type="button" class="wms-feature-pager-btn" id="wms-feat-next" ${currentIndex === items.length - 1 ? 'disabled' : ''}>
+          <i class="ri-arrow-right-s-line"></i>
+        </button>
+      </div>
+    ` : '';
+
+    const mediaUrl = (item.media_url || '').trim();
+    const mediaSectionHtml = mediaUrl ? `
+      <div class="wms-feature-media-toggle-bar" id="wms-feat-media-toggle" style="display: ${isMediaCollapsed ? 'flex' : 'none'};">
+        <span><i class="ri-image-2-line" style="margin-right: 0.35rem;"></i> ${isMediaCollapsed ? 'Mostrar imagen / GIF demostrativo' : 'Ocultar imagen / GIF'}</span>
+        <i class="${isMediaCollapsed ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'}"></i>
+      </div>
+      <div class="wms-feature-dock-media-wrap ${isMediaCollapsed ? 'media-collapsed' : ''}" id="wms-feat-media-wrap">
+        <img src="${mediaUrl}" alt="${window.escapeHtml ? window.escapeHtml(item.title) : item.title}" id="wms-feat-media-img">
+        <button type="button" class="wms-feature-media-zoom-btn" id="wms-feat-media-zoom" title="Ver imagen o GIF en tamaño completo">
+          <i class="ri-zoom-in-line"></i> Ampliar
+        </button>
+      </div>
+    ` : '';
+
+    let ctaButtonHtml = '';
+    if (hasRedirect) {
+      if (isTargetAllowed || isPreview) {
+        ctaButtonHtml = `
+          <button type="button" class="wms-feature-cta-btn ${isAlreadyInTargetModule ? 'is-active-module' : ''}" id="wms-feat-cta-btn">
+            <i class="${isAlreadyInTargetModule ? 'ri-checkbox-circle-line' : (targetModInfo?.icon || 'ri-compass-3-line')}" style="font-size: 1.05rem;"></i>
+            <span>${isAlreadyInTargetModule ? `Viendo ${targetModInfo?.label || 'Módulo'} (Manteniendo guía abierta)` : ctaLabel}</span>
+            <i class="${isAlreadyInTargetModule ? 'ri-Book-open-line' : 'ri-arrow-right-up-line'}" style="margin-left: auto; font-size: 1.05rem;"></i>
+          </button>
+        `;
+      } else {
+        ctaButtonHtml = `
+          <button type="button" class="wms-feature-cta-btn" id="wms-feat-request-mod-btn" style="background: linear-gradient(135deg, #475569 0%, #334155 100%);">
+            <i class="ri-customer-service-2-line"></i>
+            <span>Consultar activación de ${targetModInfo?.label || 'este módulo'}</span>
+          </button>
+        `;
+      }
+    }
+
+    dock.innerHTML = `
+      <div class="wms-feature-dock-accent"></div>
+
+      <!-- Barra Minimizada (Pestaña pegada al borde inferior derecho) -->
+      <div class="wms-feature-dock-minimized-bar" id="wms-feat-expand-bar" title="Haz clic para desplegar la novedad">
+        <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+          <span class="feature-change-badge ${changeMeta.className}" style="padding: 0.15rem 0.45rem; font-size: 0.65rem;">
+            <i class="${changeMeta.icon}"></i> ${ items.length > 1 ? `${items.length} Novedades` : 'Novedad' }
+          </span>
+          <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 185px;">
+            ${item.title || 'Nueva funcionalidad WMS'}
+          </span>
+        </div>
+        <button type="button" class="wms-feature-ctrl-btn" title="Expandir popup" style="flex-shrink: 0;">
+          <i class="ri-arrow-up-s-line"></i>
+        </button>
+      </div>
+
+      <!-- Header Completo -->
+      <div class="wms-feature-dock-header">
+        <div class="wms-feature-dock-toprow">
+          <div class="wms-feature-dock-badges">
+            <span class="feature-change-badge ${changeMeta.className}">
+              <i class="${changeMeta.icon}"></i> ${changeMeta.label}
+            </span>
+            <span class="feature-module-badge" title="Módulo al que pertenece">
+              <i class="${moduleInfo.icon}" style="color: var(--color-primary);"></i> ${moduleLabel}
+            </span>
+          </div>
+          <div class="wms-feature-dock-controls">
+            ${pagerHtml}
+            ${mediaUrl ? `
+              <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-toggle-media-btn" title="${isMediaCollapsed ? 'Mostrar imagen/GIF' : 'Compactar imagen/GIF para leer mejor'}">
+                <i class="${isMediaCollapsed ? 'ri-image-add-line' : 'ri-Contract-up-down-line ri-subtract-line'}" style="display: none;"></i>
+                <i class="${isMediaCollapsed ? 'ri-image-line' : 'ri-picture-in-picture-exit-line'}"></i>
+              </button>
+            ` : ''}
+            <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-minimize-btn" title="Minimizar a la barra inferior">
+              <i class="ri-subtract-line"></i>
+            </button>
+            <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-close-x-btn" title="${isPreview ? 'Cerrar vista previa' : 'Volver a mostrar más tarde'}">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Imagen o GIF representativo -->
+      ${mediaSectionHtml}
+
+      <!-- Contenido detallado -->
+      <div class="wms-feature-dock-body">
+        <h3 class="wms-feature-dock-title">${item.title || 'Sin título'}</h3>
+        ${item.subtitle ? `<div class="wms-feature-dock-subtitle">${item.subtitle}</div>` : ''}
+        <div class="wms-feature-dock-desc" id="wms-feat-desc-content">
+          ${item.description || ''}
+        </div>
+      </div>
+
+      <!-- Acciones de redirección y estado de lectura -->
+      <div class="wms-feature-dock-footer">
+        ${ctaButtonHtml}
+        <div class="wms-feature-read-actions">
+          <button type="button" class="wms-feature-btn-later" id="wms-feat-btn-later" title="Minimizar ahora y volver a mostrar en el próximo inicio de sesión">
+            <i class="ri-history-line"></i> Volver a mostrar
+          </button>
+          <button type="button" class="wms-feature-btn-read" id="wms-feat-btn-read" title="Confirmar lectura para no volver a mostrar automáticamente">
+            <i class="ri-check-double-line"></i> Marcar como leído
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Listeners de carrusel
+    dock.querySelector('#wms-feat-prev')?.addEventListener('click', () => {
+      if (currentIndex > 0) {
+        currentIndex--;
+        isMediaCollapsed = false;
+        renderCurrentFeature();
+      }
+    });
+    dock.querySelector('#wms-feat-next')?.addEventListener('click', () => {
+      if (currentIndex < items.length - 1) {
+        currentIndex++;
+        isMediaCollapsed = false;
+        renderCurrentFeature();
+      }
+    });
+
+    // Minimizar / Expandir (Mejora 1.1)
+    dock.querySelector('#wms-feat-minimize-btn')?.addEventListener('click', () => {
+      isMinimized = true;
+      renderCurrentFeature();
+    });
+    dock.querySelector('#wms-feat-expand-bar')?.addEventListener('click', () => {
+      isMinimized = false;
+      renderCurrentFeature();
+    });
+
+    // Compactar / Mostrar GIF
+    const toggleMedia = () => {
+      isMediaCollapsed = !isMediaCollapsed;
+      renderCurrentFeature();
+    };
+    dock.querySelector('#wms-feat-toggle-media-btn')?.addEventListener('click', toggleMedia);
+    dock.querySelector('#wms-feat-media-toggle')?.addEventListener('click', toggleMedia);
+
+    // Lightbox Zoom para GIF / Imagen (Mejora 1.6)
+    const openZoom = () => {
+      if (mediaUrl && typeof window.openNewsImageLightbox === 'function') {
+        window.openNewsImageLightbox(mediaUrl);
+      }
+    };
+    dock.querySelector('#wms-feat-media-img')?.addEventListener('click', openZoom);
+    dock.querySelector('#wms-feat-media-zoom')?.addEventListener('click', openZoom);
+
+    // Imágenes dentro del texto enriquecido también abren en Lightbox
+    dock.querySelectorAll('#wms-feat-desc-content img').forEach(imgEl => {
+      imgEl.addEventListener('click', () => {
+        if (typeof window.openNewsImageLightbox === 'function') {
+          window.openNewsImageLightbox(imgEl.src);
+        }
+      });
+    });
+
+    // Acción de Redirección al Módulo con Persistencia del Popup (Requerimiento central + Mejora 1.1)
+    dock.querySelector('#wms-feat-cta-btn')?.addEventListener('click', async () => {
+      if (isPreview && typeof window.navigateToClientModule === 'function') {
+        const navigated = window.navigateToClientModule(targetModKey);
+        if (!navigated && typeof window.showStockaNotification === 'function') {
+          window.showStockaNotification({
+            type: 'info',
+            title: 'Modo Vista Previa (Admin)',
+            message: `En el portal del cliente, este botón redirige automáticamente al módulo "${targetModInfo?.label || targetModKey}" manteniendo este popup abierto.`
+          });
+        } else if (!navigated) {
+          alert(`Vista previa Admin: Este botón dirigirá al cliente al módulo "${targetModInfo?.label || targetModKey}" y mantendrá el popup abierto.`);
+        }
+        if (mediaUrl) {
+          isMediaCollapsed = true;
+          renderCurrentFeature();
+        }
+        return;
+      }
+
+      const navigated = window.navigateToClientModule(targetModKey);
+      // Pliega solo la imagen/GIF dejando la barra "Mostrar imagen / GIF" para que el usuario lea el detalle cómodamente sobre el módulo
+      if (mediaUrl) {
+        isMediaCollapsed = true;
+      }
+      renderCurrentFeature();
+
+      // Registrar métrica de clic en CTA (Mejora 1.7)
+      if (userId && item.id && !String(item.id).startsWith('preview-')) {
+        try {
+          await supabase.from('user_notification_reads').insert([
+            { user_id: userId, entity_type: 'feature_popup_click', entity_id: item.id }
+          ]);
+        } catch (e) {}
+      }
+
+      if (navigated && typeof window.showStockaNotification === 'function') {
+        window.showStockaNotification({
+          type: 'info',
+          title: `Módulo: ${targetModInfo?.label || moduleLabel}`,
+          message: 'El detalle de la novedad sigue abierto abajo a la derecha para que puedas guiarte paso a paso.',
+          duration: 4000
+        });
+      }
+    });
+
+    // Acción si el cliente no tiene el módulo habilitado (Upsell / Soporte)
+    dock.querySelector('#wms-feat-request-mod-btn')?.addEventListener('click', () => {
+      window.navigateToClientModule('tickets');
+      if (mediaUrl) isMediaCollapsed = true;
+      renderCurrentFeature();
+    });
+
+    // Acción: Volver a mostrar (Mejora 1.5)
+    const handleShowLater = () => {
+      if (isPreview) {
+        closeDockCompletely();
+        return;
+      }
+      if (userId && item.id) {
+        sessionStorage.setItem(`wms_feature_later_${item.id}_${userId}`, 'true');
+        localStorage.removeItem(`wms_feature_read_${item.id}_${userId}`);
+      }
+      // Si hay más novedades en la cola que aún no se han pospuesto, mostrar la siguiente; si no, minimizar a pestaña inferior
+      isMinimized = true;
+      renderCurrentFeature();
+      if (typeof window.showStockaNotification === 'function') {
+        window.showStockaNotification({
+          type: 'info',
+          title: 'Se volverá a mostrar',
+          message: 'Esta novedad quedó minimizada abajo a la derecha y volverá a aparecer en tu próximo ingreso.',
+          duration: 3500
+        });
+      }
+    };
+
+    dock.querySelector('#wms-feat-btn-later')?.addEventListener('click', handleShowLater);
+    dock.querySelector('#wms-feat-close-x-btn')?.addEventListener('click', handleShowLater);
+
+    // Acción: Marcar como leído
+    dock.querySelector('#wms-feat-btn-read')?.addEventListener('click', async () => {
+      if (isPreview) {
+        closeDockCompletely();
+        return;
+      }
+      if (userId && item.id) {
+        localStorage.setItem(`wms_feature_read_${item.id}_${userId}`, 'true');
+        sessionStorage.removeItem(`wms_feature_later_${item.id}_${userId}`);
+        try {
+          await supabase.from('user_notification_reads').insert([
+            { user_id: userId, entity_type: 'feature_popup', entity_id: item.id }
+          ]);
+        } catch (e) {
+          console.warn('No se pudo guardar lectura en BD, guardado en localStorage:', e);
+        }
+      }
+
+      // Quitar de la cola actual
+      items.splice(currentIndex, 1);
+      if (items.length > 0) {
+        if (currentIndex >= items.length) currentIndex = items.length - 1;
+        isMediaCollapsed = false;
+        renderCurrentFeature();
+      } else {
+        closeDockCompletely();
+      }
+    });
+  };
+
+  renderCurrentFeature();
+};
+
 
 // ==========================================
 // NUEVO MÓDULO: DECLARACIONES DE INGRESO DE STOCK (CLIENTE)

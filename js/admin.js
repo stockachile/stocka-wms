@@ -38421,6 +38421,201 @@ async function renderNotificationsAdmin() {
           <div id="admin-notif-list" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
         </div>
       </div>
+
+      <!-- Gestión de Popup de Nuevas Funcionalidades (Dock Inferior Derecho) -->
+      <div class="card" style="grid-column: 1 / -1; border: 1.5px solid rgba(92, 36, 255, 0.25);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(90deg, rgba(92, 36, 255, 0.08) 0%, rgba(37, 99, 235, 0.04) 100%);">
+          <div>
+            <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-sparkling-2-fill" style="color: #5c24ff; font-size: 1.3rem;"></i>
+              <span>Popup de Nuevas Funcionalidades (Dock Inferior Derecho)</span>
+            </h3>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
+              Emerge desde el lado inferior derecho pegado al borde inferior. Permite incluir GIF/imagen, formato de texto y redirigir al usuario a un módulo persistiendo en pantalla.
+            </p>
+          </div>
+          <span style="font-size: 0.75rem; background: rgba(92, 36, 255, 0.14); color: #5c24ff; padding: 0.3rem 0.75rem; border-radius: 9999px; font-weight: 700; white-space: nowrap;">
+            ✨ Novedades Interactivas
+          </span>
+        </div>
+
+        <div class="card-body" style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 2rem;">
+          <!-- Columna Izquierda: Formulario de Creación / Edición -->
+          <div>
+            <form id="form-create-feature-popup">
+              <input type="hidden" id="feat-popup-id">
+
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Título de la Novedad <span style="color: var(--color-danger);">*</span></label>
+                  <input type="text" id="feat-popup-title" class="form-input" placeholder="Ej: Nuevo Buscador de Variantes en Inventario" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Subtítulo (Opcional)</label>
+                  <input type="text" id="feat-popup-subtitle" class="form-input" placeholder="Ej: Filtra por talla, color y SKU al instante">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Tipo de Cambio <span style="color: var(--color-danger);">*</span></label>
+                  <select id="feat-popup-change-type" class="form-input" required>
+                    <option value="new_feature">✨ Nueva Funcionalidad</option>
+                    <option value="improvement">🚀 Mejora de Módulo</option>
+                    <option value="fix">🛠️ Corrección & Ajuste</option>
+                    <option value="integration">🔌 Nueva Integración</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Módulo al que pertenece <span style="color: var(--color-danger);">*</span></label>
+                  <select id="feat-popup-module" class="form-input" required>
+                    <!-- Se puebla dinámicamente desde WMS_CLIENT_MODULES_CATALOG -->
+                  </select>
+                </div>
+              </div>
+
+              <!-- Configuración del Botón de Redirección al Módulo -->
+              <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-compass-discover-line" style="color: var(--color-primary); font-size: 1rem;"></i>
+                  <span>Acción de Redirección Persistente</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Dirigir al usuario al módulo:</label>
+                    <select id="feat-popup-target-module" class="form-input">
+                      <!-- Se puebla dinámicamente con opción 'none' + módulos -->
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Texto del botón de acción:</label>
+                    <input type="text" id="feat-popup-cta-text" class="form-input" placeholder="Ej: Explorar en Inventario">
+                  </div>
+                </div>
+                <div style="font-size: 0.74rem; color: var(--color-text-muted); margin-top: 0.5rem;">
+                  <i class="ri-information-line"></i> Al hacer clic, el usuario será redirigido sin recargar la página y el popup persistirá abierto (compactando el GIF) para que pueda seguir leyendo el paso a paso.
+                </div>
+              </div>
+
+              <!-- Imagen o GIF Representativo -->
+              <div class="form-group">
+                <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                  <span><i class="ri-gif-line" style="margin-right: 0.3rem; color: #5c24ff; font-size: 1.05rem;"></i> Imagen o GIF Representativo del Cambio</span>
+                  <span id="feat-popup-media-status" style="font-size: 0.75rem; color: var(--color-text-muted);"></span>
+                </label>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <input type="url" id="feat-popup-media-url" class="form-input" placeholder="https://ejemplo.com/demo-funcionalidad.gif" style="flex: 1;">
+                  <label class="btn btn-outline" style="cursor: pointer; padding: 0.5rem 0.85rem; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; margin: 0;">
+                    <i class="ri-upload-cloud-2-line"></i> Subir GIF / Imagen
+                    <input type="file" id="feat-popup-media-file" accept="image/*,.gif,.webp" style="display: none;">
+                  </label>
+                </div>
+                <div id="feat-popup-media-preview-wrap" style="display: none; margin-top: 0.75rem; position: relative; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-border); max-height: 165px; background: #0f172a;">
+                  <img id="feat-popup-media-preview-img" src="" alt="Preview" style="width: 100%; height: 165px; object-fit: contain; display: block;">
+                  <button type="button" id="btn-remove-feat-media" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.72); color: #fff; border: none; border-radius: 6px; padding: 0.25rem 0.55rem; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-delete-bin-line"></i> Quitar
+                  </button>
+                </div>
+              </div>
+
+              <!-- Descripción con Formato (Quill Editor) -->
+              <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                  <label class="form-label" style="font-weight: 600; margin: 0;">Descripción Detallada (Soporta Formato de Texto) <span style="color: var(--color-danger);">*</span></label>
+                  <button type="button" id="btn-toggle-feat-html" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.18rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-code-s-slash-line"></i> <span id="feat-html-mode-label">Modo HTML</span>
+                  </button>
+                </div>
+                <div class="quill-editor-wrapper" id="quill-feat-popup-wrapper">
+                  <div id="feat-popup-quill-toolbar">
+                    <span class="ql-formats">
+                      <button class="ql-bold" title="Negrita"></button>
+                      <button class="ql-italic" title="Cursiva"></button>
+                      <button class="ql-underline" title="Subrayado"></button>
+                      <button class="ql-strike" title="Tachado"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <select class="ql-color" title="Color de texto"></select>
+                      <select class="ql-background" title="Resaltado"></select>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-list" value="ordered" title="Lista numerada"></button>
+                      <button class="ql-list" value="bullet" title="Viñetas"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-link" title="Insertar enlace"></button>
+                      <button class="ql-code-block" title="Bloque resaltado"></button>
+                      <button class="ql-clean" title="Limpiar formato"></button>
+                    </span>
+                  </div>
+                  <div id="feat-popup-quill-editor" style="min-height: 150px; max-height: 240px; overflow-y: auto;"></div>
+                </div>
+                <textarea id="feat-popup-raw-html" class="raw-html-editor" placeholder="Escribe o pega código HTML aquí..." style="display: none; min-height: 150px;"></textarea>
+              </div>
+
+              <!-- Segmentación y Estado -->
+              <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.82rem;">Audiencia</label>
+                  <select id="feat-popup-target-role" class="form-input">
+                    <option value="client">Solo Clientes (Recomendado)</option>
+                    <option value="all">Todos los usuarios (Clientes y Admins)</option>
+                    <option value="admin">Solo Administradores (Pruebas internas)</option>
+                  </select>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.45rem; padding-top: 1.1rem;">
+                  <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin: 0;">
+                    <input type="checkbox" id="feat-popup-only-allowed" checked style="width: 16px; height: 16px; cursor: pointer;">
+                    <span>Mostrar solo a clientes con permiso en el módulo</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 700; color: #059669; cursor: pointer; margin: 0;">
+                    <input type="checkbox" id="feat-popup-is-active" checked style="width: 16px; height: 16px; cursor: pointer;">
+                    <span>Popup Activo (Visible para los usuarios)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Botones de Acción -->
+              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="submit" id="btn-save-feat-popup" class="btn btn-primary" style="flex: 1.6; background: linear-gradient(135deg, #5c24ff 0%, #2563eb 100%); border: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; font-weight: 700;">
+                  <i class="ri-rocket-2-fill"></i> <span id="btn-save-feat-popup-text">Publicar Popup de Funcionalidad</span>
+                </button>
+                <button type="button" id="btn-preview-feat-popup" class="btn btn-outline" style="flex: 1; border-color: #5c24ff; color: #5c24ff; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; font-weight: 600;">
+                  <i class="ri-layout-bottom-2-line"></i> Probar Popup en Pantalla
+                </button>
+                <button type="button" id="btn-cancel-feat-popup" class="btn btn-outline" style="display: none;">
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Columna Derecha: Listado de Popups de Funcionalidades y Métricas -->
+          <div style="border-left: 1px solid var(--color-border); padding-left: 1.5rem; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 1.02rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-stack-line" style="color: #5c24ff;"></i> Funcionalidades Publicadas
+              </h4>
+              <button type="button" id="btn-new-feat-popup-quick" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.55rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-add-line"></i> Nueva
+              </button>
+            </div>
+
+            <div style="margin-bottom: 0.75rem;">
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+                <input type="text" id="admin-feat-popup-search" class="form-input" placeholder="Buscar por título o módulo..." style="padding-left: 2rem; font-size: 0.825rem; height: 36px;">
+              </div>
+            </div>
+
+            <div id="admin-feat-popup-list" style="max-height: 580px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.65rem; padding-right: 0.25rem;">
+              <div style="text-align: center; color: var(--color-text-muted); padding: 2rem 0; font-size: 0.85rem;">
+                <i class="ri-loader-4-line ri-spin" style="font-size: 1.4rem;"></i> Cargando funcionalidades...
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -39269,6 +39464,693 @@ async function renderNotificationsAdmin() {
       loadAdminData();
     } catch(err) { console.error(err); alert('Error al enviar notificación'); }
   });
+
+  // =========================================================================
+  // CONTROLADOR ADMIN: POPUP DE NUEVAS FUNCIONALIDADES (DOCK INFERIOR DERECHO)
+  // =========================================================================
+
+  window.WMS_CLIENT_MODULES_CATALOG = window.WMS_CLIENT_MODULES_CATALOG || [
+    { key: 'dashboard', label: 'Dashboard', icon: 'ri-dashboard-line', category: 'Operaciones' },
+    { key: 'inventory', label: 'Inventario', icon: 'ri-box-3-line', category: 'Operaciones' },
+    { key: 'catalog', label: 'Catálogo de Productos', icon: 'ri-list-check', category: 'Operaciones' },
+    { key: 'label_generator', label: 'Generador de Etiquetas', icon: 'ri-printer-line', category: 'Operaciones' },
+    { key: 'volumen_diario', label: 'Volumen Diario', icon: 'ri-line-chart-line', category: 'Operaciones' },
+    { key: 'declarations', label: 'Ingresos de Stock', icon: 'ri-inbox-archive-line', category: 'Operaciones' },
+    { key: 'orders', label: 'Pedidos', icon: 'ri-shopping-cart-2-line', category: 'Operaciones' },
+    { key: 'shipments', label: 'Despachos', icon: 'ri-truck-line', category: 'Operaciones' },
+    { key: 'manifests', label: 'Centro de Manifiestos', icon: 'ri-file-paper-2-line', category: 'Operaciones' },
+    { key: 'movements', label: 'Movimientos', icon: 'ri-loop-right-line', category: 'Operaciones' },
+    { key: 'warehouses', label: 'Bodegas', icon: 'ri-building-2-line', category: 'Operaciones' },
+    { key: 'pending', label: 'Por Asignar', icon: 'ri-error-warning-line', category: 'Servicios' },
+    { key: 'returns', label: 'Logística Inversa', icon: 'ri-arrow-go-back-line', category: 'Servicios' },
+    { key: 'pickups', label: 'Punto de Retiro', icon: 'ri-store-2-line', category: 'Servicios' },
+    { key: 'sales', label: 'Punto de Ventas', icon: 'ri-shopping-cart-2-line', category: 'Servicios' },
+    { key: 'cotizador', label: 'Cotizador de Envíos', icon: 'ri-calculator-line', category: 'Servicios' },
+    { key: 'tracking_widget', label: 'Portal de Tracking', icon: 'ri-radar-line', category: 'Servicios' },
+    { key: 'billing', label: 'Facturación', icon: 'ri-bill-line', category: 'Sistema' },
+    { key: 'integrations', label: 'Integraciones', icon: 'ri-plug-line', category: 'Sistema' },
+    { key: 'incidencias', label: 'Incidencias', icon: 'ri-alert-line', category: 'Sistema' },
+    { key: 'surveys', label: 'Encuestas & Feedback', icon: 'ri-survey-line', category: 'Sistema' },
+    { key: 'tickets', label: 'Soporte y Tickets', icon: 'ri-customer-service-2-line', category: 'Sistema' },
+    { key: 'documentation', label: 'Documentación', icon: 'ri-file-text-line', category: 'Sistema' },
+    { key: 'profile', label: 'Mi Perfil', icon: 'ri-user-settings-line', category: 'Sistema' },
+    { key: 'inbox', label: 'Mi Inbox', icon: 'ri-mail-unread-line', category: 'Sistema' }
+  ];
+
+  window.WMS_FEATURE_CHANGE_TYPES = window.WMS_FEATURE_CHANGE_TYPES || {
+    new_feature: { label: 'Nueva Funcionalidad', icon: 'ri-sparkling-2-fill', className: 'type-new_feature' },
+    improvement: { label: 'Mejora de Módulo', icon: 'ri-rocket-2-fill', className: 'type-improvement' },
+    fix: { label: 'Corrección & Ajuste', icon: 'ri-tools-fill', className: 'type-fix' },
+    integration: { label: 'Nueva Integración', icon: 'ri-plug-2-fill', className: 'type-integration' }
+  };
+
+  // Asegurar visor Lightbox y showFeatureDockPopup en Admin para Vista Previa idéntica al portal cliente
+  window.openNewsImageLightbox = window.openNewsImageLightbox || function(src) {
+    let lightbox = document.getElementById('news-image-lightbox-overlay');
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.id = 'news-image-lightbox-overlay';
+      lightbox.className = 'news-image-lightbox';
+      document.body.appendChild(lightbox);
+    }
+    lightbox.innerHTML = `
+      <button class="news-image-lightbox-close" title="Cerrar (Esc)"><i class="ri-close-line"></i></button>
+      <img src="${src}" alt="Zoom Imagen">
+    `;
+    lightbox.style.display = 'flex';
+    const close = () => { lightbox.style.display = 'none'; };
+    lightbox.onclick = (e) => { if (e.target !== lightbox.querySelector('img')) close(); };
+    lightbox.querySelector('.news-image-lightbox-close').onclick = close;
+  };
+
+  window.showFeatureDockPopup = window.showFeatureDockPopup || function(featureList, userId, options = {}) {
+    const items = Array.isArray(featureList) ? [...featureList] : [featureList];
+    if (items.length === 0) return;
+
+    const existing = document.getElementById('wms-feature-dock');
+    if (existing) existing.remove();
+
+    let currentIndex = 0;
+    let isMinimized = !!options.startMinimized;
+    let isMediaCollapsed = false;
+
+    const dock = document.createElement('div');
+    dock.id = 'wms-feature-dock';
+    dock.className = `wms-feature-dock${isMinimized ? ' is-minimized' : ''}`;
+    document.body.appendChild(dock);
+    document.body.classList.add('feature-dock-open');
+
+    const closeDock = () => {
+      dock.classList.add('closing');
+      document.body.classList.remove('feature-dock-open', 'feature-dock-minimized');
+      setTimeout(() => { if (dock.parentNode) dock.remove(); }, 260);
+    };
+
+    const renderPreviewDock = () => {
+      const item = items[currentIndex];
+      const changeTypeKey = item.change_type || 'new_feature';
+      const changeMeta = window.WMS_FEATURE_CHANGE_TYPES[changeTypeKey] || window.WMS_FEATURE_CHANGE_TYPES.new_feature;
+      const moduleInfo = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === item.module_key) || {
+        key: item.module_key || 'dashboard',
+        label: item.module_label || 'Dashboard',
+        icon: 'ri-apps-2-line'
+      };
+      const targetModInfo = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === item.target_module);
+      const hasRedirect = item.target_module && item.target_module !== 'none';
+      const ctaLabel = (item.cta_text && item.cta_text.trim()) ? item.cta_text.trim() : `Explorar en ${targetModInfo?.label || moduleInfo.label}`;
+      const mediaUrl = (item.media_url || '').trim();
+
+      dock.setAttribute('data-change-type', changeTypeKey);
+      if (isMinimized) dock.classList.add('is-minimized');
+      else dock.classList.remove('is-minimized');
+
+      dock.innerHTML = `
+        <div class="wms-feature-dock-accent"></div>
+        <div class="wms-feature-dock-minimized-bar" id="wms-feat-expand-bar">
+          <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0;">
+            <span class="feature-change-badge ${changeMeta.className}" style="padding: 0.15rem 0.45rem; font-size: 0.65rem;">
+              <i class="${changeMeta.icon}"></i> Novedad
+            </span>
+            <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px;">
+              ${item.title || 'Vista previa'}
+            </span>
+          </div>
+          <button type="button" class="wms-feature-ctrl-btn"><i class="ri-arrow-up-s-line"></i></button>
+        </div>
+
+        <div class="wms-feature-dock-header">
+          <div class="wms-feature-dock-toprow">
+            <div class="wms-feature-dock-badges">
+              <span class="feature-change-badge ${changeMeta.className}">
+                <i class="${changeMeta.icon}"></i> ${changeMeta.label}
+              </span>
+              <span class="feature-module-badge">
+                <i class="${moduleInfo.icon}" style="color: var(--color-primary);"></i> ${item.module_label || moduleInfo.label}
+              </span>
+            </div>
+            <div class="wms-feature-dock-controls">
+              ${mediaUrl ? `
+                <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-toggle-media-btn" title="${isMediaCollapsed ? 'Mostrar GIF/Imagen' : 'Compactar GIF/Imagen'}">
+                  <i class="${isMediaCollapsed ? 'ri-image-line' : 'ri-picture-in-picture-exit-line'}"></i>
+                </button>
+              ` : ''}
+              <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-minimize-btn" title="Minimizar">
+                <i class="ri-subtract-line"></i>
+              </button>
+              <button type="button" class="wms-feature-ctrl-btn" id="wms-feat-close-x-btn" title="Cerrar vista previa">
+                <i class="ri-close-line"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        ${mediaUrl ? `
+          <div class="wms-feature-media-toggle-bar" id="wms-feat-media-toggle" style="display: ${isMediaCollapsed ? 'flex' : 'none'};">
+            <span><i class="ri-image-2-line" style="margin-right: 0.35rem;"></i> Mostrar imagen / GIF demostrativo</span>
+            <i class="ri-arrow-down-s-line"></i>
+          </div>
+          <div class="wms-feature-dock-media-wrap ${isMediaCollapsed ? 'media-collapsed' : ''}">
+            <img src="${mediaUrl}" alt="${item.title}" id="wms-feat-media-img">
+            <button type="button" class="wms-feature-media-zoom-btn" id="wms-feat-media-zoom">
+              <i class="ri-zoom-in-line"></i> Ampliar
+            </button>
+          </div>
+        ` : ''}
+
+        <div class="wms-feature-dock-body">
+          <h3 class="wms-feature-dock-title">${item.title || 'Título de ejemplo'}</h3>
+          ${item.subtitle ? `<div class="wms-feature-dock-subtitle">${item.subtitle}</div>` : ''}
+          <div class="wms-feature-dock-desc">${item.description || ''}</div>
+        </div>
+
+        <div class="wms-feature-dock-footer">
+          ${hasRedirect ? `
+            <button type="button" class="wms-feature-cta-btn" id="wms-feat-cta-btn">
+              <i class="${targetModInfo?.icon || 'ri-compass-3-line'}"></i>
+              <span>${ctaLabel}</span>
+              <i class="ri-arrow-right-up-line" style="margin-left: auto;"></i>
+            </button>
+          ` : ''}
+          <div class="wms-feature-read-actions">
+            <button type="button" class="wms-feature-btn-later" id="wms-feat-btn-later">
+              <i class="ri-history-line"></i> Volver a mostrar
+            </button>
+            <button type="button" class="wms-feature-btn-read" id="wms-feat-btn-read">
+              <i class="ri-check-double-line"></i> Marcar como leído
+            </button>
+          </div>
+        </div>
+      `;
+
+      dock.querySelector('#wms-feat-minimize-btn')?.addEventListener('click', () => { isMinimized = true; renderPreviewDock(); });
+      dock.querySelector('#wms-feat-expand-bar')?.addEventListener('click', () => { isMinimized = false; renderPreviewDock(); });
+      dock.querySelector('#wms-feat-toggle-media-btn')?.addEventListener('click', () => { isMediaCollapsed = !isMediaCollapsed; renderPreviewDock(); });
+      dock.querySelector('#wms-feat-media-toggle')?.addEventListener('click', () => { isMediaCollapsed = false; renderPreviewDock(); });
+      dock.querySelector('#wms-feat-media-img')?.addEventListener('click', () => window.openNewsImageLightbox(mediaUrl));
+      dock.querySelector('#wms-feat-media-zoom')?.addEventListener('click', () => window.openNewsImageLightbox(mediaUrl));
+      dock.querySelector('#wms-feat-cta-btn')?.addEventListener('click', () => {
+        if (mediaUrl) isMediaCollapsed = true;
+        renderPreviewDock();
+        if (typeof window.showStockaNotification === 'function') {
+          window.showStockaNotification({
+            type: 'info',
+            title: `Simulación de Redirección: ${targetModInfo?.label || item.target_module}`,
+            message: 'En el portal de clientes, la vista cambia al módulo elegido y este popup persiste abierto en modo guía de lectura.',
+            duration: 4500
+          });
+        }
+      });
+      dock.querySelector('#wms-feat-btn-later')?.addEventListener('click', () => { isMinimized = true; renderPreviewDock(); });
+      dock.querySelector('#wms-feat-close-x-btn')?.addEventListener('click', closeDock);
+      dock.querySelector('#wms-feat-btn-read')?.addEventListener('click', closeDock);
+    };
+
+    renderPreviewDock();
+  };
+
+  // Poblar selectores de módulos agrupados por categoría
+  const featModuleSelect = document.getElementById('feat-popup-module');
+  const featTargetModuleSelect = document.getElementById('feat-popup-target-module');
+  const featCtaTextInput = document.getElementById('feat-popup-cta-text');
+
+  if (featModuleSelect && featTargetModuleSelect) {
+    const categories = ['Operaciones', 'Servicios', 'Sistema'];
+    const groupedOptionsHtml = categories.map(cat => {
+      const mods = window.WMS_CLIENT_MODULES_CATALOG.filter(m => m.category === cat);
+      return `<optgroup label="${cat}">` +
+        mods.map(m => `<option value="${m.key}">${m.label}</option>`).join('') +
+      `</optgroup>`;
+    }).join('');
+
+    featModuleSelect.innerHTML = groupedOptionsHtml;
+    featTargetModuleSelect.innerHTML = `<option value="none">-- Sin redirección (Solo informativo) --</option>` + groupedOptionsHtml;
+
+    // Seleccionar Inventario por defecto
+    featModuleSelect.value = 'inventory';
+    featTargetModuleSelect.value = 'inventory';
+    if (featCtaTextInput) featCtaTextInput.value = 'Explorar en Inventario';
+
+    featModuleSelect.addEventListener('change', () => {
+      const selectedKey = featModuleSelect.value;
+      const modObj = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === selectedKey);
+      featTargetModuleSelect.value = selectedKey;
+      if (featCtaTextInput && modObj) {
+        featCtaTextInput.value = `Explorar en ${modObj.label}`;
+      }
+    });
+
+    featTargetModuleSelect.addEventListener('change', () => {
+      const targetKey = featTargetModuleSelect.value;
+      if (targetKey === 'none') {
+        if (featCtaTextInput) {
+          featCtaTextInput.value = '';
+          featCtaTextInput.disabled = true;
+          featCtaTextInput.placeholder = 'Redirección desactivada';
+        }
+      } else {
+        if (featCtaTextInput) {
+          featCtaTextInput.disabled = false;
+          const modObj = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === targetKey);
+          if (modObj) featCtaTextInput.value = `Explorar en ${modObj.label}`;
+        }
+      }
+    });
+  }
+
+  // Inicializar Quill para la descripción de la funcionalidad
+  let featQuillInstance = null;
+  let isFeatHtmlMode = false;
+  const featQuillWrapper = document.getElementById('quill-feat-popup-wrapper');
+  const featRawHtmlTextarea = document.getElementById('feat-popup-raw-html');
+  const featHtmlToggleBtn = document.getElementById('btn-toggle-feat-html');
+  const featHtmlModeLabel = document.getElementById('feat-html-mode-label');
+
+  if (window.Quill && document.getElementById('feat-popup-quill-editor')) {
+    featQuillInstance = new Quill('#feat-popup-quill-editor', {
+      modules: {
+        toolbar: '#feat-popup-quill-toolbar'
+      },
+      placeholder: 'Explica qué incluye esta nueva funcionalidad, cómo usarla paso a paso y qué beneficios aporta al cliente...',
+      theme: 'snow'
+    });
+  }
+
+  if (featHtmlToggleBtn) {
+    featHtmlToggleBtn.addEventListener('click', () => {
+      isFeatHtmlMode = !isFeatHtmlMode;
+      if (isFeatHtmlMode) {
+        featRawHtmlTextarea.value = featQuillInstance ? featQuillInstance.root.innerHTML : '';
+        featQuillWrapper.style.display = 'none';
+        featRawHtmlTextarea.style.display = 'block';
+        featHtmlModeLabel.textContent = 'Modo Visual';
+        featHtmlToggleBtn.classList.add('btn-primary');
+        featHtmlToggleBtn.classList.remove('btn-outline');
+      } else {
+        if (featQuillInstance) featQuillInstance.root.innerHTML = featRawHtmlTextarea.value;
+        featRawHtmlTextarea.style.display = 'none';
+        featQuillWrapper.style.display = 'flex';
+        featHtmlModeLabel.textContent = 'Modo HTML';
+        featHtmlToggleBtn.classList.remove('btn-primary');
+        featHtmlToggleBtn.classList.add('btn-outline');
+      }
+    });
+  }
+
+  // Manejo de subida y previsualización de Imagen o GIF representativo
+  const featMediaUrlInput = document.getElementById('feat-popup-media-url');
+  const featMediaFileInput = document.getElementById('feat-popup-media-file');
+  const featMediaPreviewWrap = document.getElementById('feat-popup-media-preview-wrap');
+  const featMediaPreviewImg = document.getElementById('feat-popup-media-preview-img');
+  const featMediaRemoveBtn = document.getElementById('btn-remove-feat-media');
+  const featMediaStatus = document.getElementById('feat-popup-media-status');
+
+  function updateFeatMediaPreview(url) {
+    if (url && url.trim()) {
+      featMediaPreviewImg.src = url.trim();
+      featMediaPreviewWrap.style.display = 'block';
+      featMediaUrlInput.value = url.trim();
+    } else {
+      featMediaPreviewImg.src = '';
+      featMediaPreviewWrap.style.display = 'none';
+      featMediaUrlInput.value = '';
+    }
+  }
+
+  featMediaUrlInput?.addEventListener('input', (e) => updateFeatMediaPreview(e.target.value));
+
+  featMediaFileInput?.addEventListener('change', async () => {
+    const file = featMediaFileInput.files[0];
+    if (!file) return;
+    if (featMediaStatus) featMediaStatus.textContent = 'Subiendo GIF/Imagen...';
+    try {
+      const uploadedUrl = await uploadNewsImageFile(file);
+      updateFeatMediaPreview(uploadedUrl);
+      if (featMediaStatus) {
+        featMediaStatus.textContent = '¡Archivo cargado con éxito!';
+        setTimeout(() => { featMediaStatus.textContent = ''; }, 3000);
+      }
+    } catch (err) {
+      if (featMediaStatus) featMediaStatus.textContent = 'Error al subir';
+      alert('Error al subir archivo multimedia: ' + err.message);
+    }
+  });
+
+  featMediaRemoveBtn?.addEventListener('click', () => {
+    updateFeatMediaPreview('');
+    if (featMediaFileInput) featMediaFileInput.value = '';
+  });
+
+  function getCurrentFeatDescriptionHtml() {
+    if (isFeatHtmlMode) {
+      return (featRawHtmlTextarea?.value || '').trim();
+    }
+    return featQuillInstance ? featQuillInstance.root.innerHTML.trim() : '';
+  }
+
+  function buildFeatPopupFormObject() {
+    const modKey = featModuleSelect?.value || 'inventory';
+    const modObj = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === modKey);
+    const targetMod = featTargetModuleSelect?.value || 'none';
+    const descHtml = getCurrentFeatDescriptionHtml();
+
+    return {
+      id: document.getElementById('feat-popup-id')?.value || ('preview-' + Date.now()),
+      title: document.getElementById('feat-popup-title')?.value.trim() || 'Nueva Funcionalidad en el WMS',
+      subtitle: document.getElementById('feat-popup-subtitle')?.value.trim() || null,
+      change_type: document.getElementById('feat-popup-change-type')?.value || 'new_feature',
+      module_key: modKey,
+      module_label: modObj ? modObj.label : 'General',
+      target_module: targetMod,
+      cta_text: targetMod !== 'none' ? (featCtaTextInput?.value.trim() || `Explorar en ${modObj?.label || 'Módulo'}`) : null,
+      media_url: featMediaUrlInput?.value.trim() || null,
+      description: (descHtml && descHtml !== '<p><br></p>') ? descHtml : '<p>Aquí verás la descripción detallada con formato de texto e instrucciones paso a paso para tus usuarios.</p>',
+      target_role: document.getElementById('feat-popup-target-role')?.value || 'client',
+      only_allowed_module_users: document.getElementById('feat-popup-only-allowed')?.checked !== false,
+      is_active: document.getElementById('feat-popup-is-active')?.checked !== false,
+      created_at: new Date().toISOString()
+    };
+  }
+
+  // Botón de Vista Previa en Pantalla (Abre el dock real en la esquina inferior derecha)
+  document.getElementById('btn-preview-feat-popup')?.addEventListener('click', () => {
+    const previewObj = buildFeatPopupFormObject();
+    window.showFeatureDockPopup([previewObj], 'admin-preview', { isPreview: true, startMinimized: false });
+  });
+
+  // Reset / Cancelar formulario
+  const resetFeatPopupForm = () => {
+    document.getElementById('form-create-feature-popup')?.reset();
+    document.getElementById('feat-popup-id').value = '';
+    if (featModuleSelect) featModuleSelect.value = 'inventory';
+    if (featTargetModuleSelect) featTargetModuleSelect.value = 'inventory';
+    if (featCtaTextInput) {
+      featCtaTextInput.disabled = false;
+      featCtaTextInput.value = 'Explorar en Inventario';
+    }
+    updateFeatMediaPreview('');
+    if (featQuillInstance) featQuillInstance.root.innerHTML = '';
+    if (featRawHtmlTextarea) featRawHtmlTextarea.value = '';
+    const saveText = document.getElementById('btn-save-feat-popup-text');
+    if (saveText) saveText.textContent = 'Publicar Popup de Funcionalidad';
+    const cancelBtn = document.getElementById('btn-cancel-feat-popup');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+  };
+
+  document.getElementById('btn-cancel-feat-popup')?.addEventListener('click', resetFeatPopupForm);
+  document.getElementById('btn-new-feat-popup-quick')?.addEventListener('click', () => {
+    resetFeatPopupForm();
+    document.getElementById('feat-popup-title')?.focus();
+  });
+
+  // Cargar listado de Popups de Funcionalidades + Métricas de lectura/clics (Mejora 1.7)
+  async function loadFeaturePopupsAdmin() {
+    const listContainer = document.getElementById('admin-feat-popup-list');
+    if (!listContainer) return;
+
+    let items = [];
+    let usingLocalFallback = false;
+
+    const { data, error } = await supabase
+      .from('wms_feature_popups')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      items = data;
+      try {
+        localStorage.setItem('wms_feature_popups_local_cache', JSON.stringify(items));
+      } catch (e) {}
+    } else {
+      usingLocalFallback = true;
+      try {
+        items = JSON.parse(localStorage.getItem('wms_feature_popups_local_cache') || '[]');
+      } catch (e) {
+        items = [];
+      }
+    }
+
+    // Consultar métricas de lectura y clics en CTA desde user_notification_reads
+    const readsCountMap = {};
+    const clicksCountMap = {};
+    try {
+      const { data: readsData } = await supabase
+        .from('user_notification_reads')
+        .select('entity_id, entity_type')
+        .in('entity_type', ['feature_popup', 'feature_popup_click']);
+
+      if (Array.isArray(readsData)) {
+        readsData.forEach(r => {
+          const eid = String(r.entity_id);
+          if (r.entity_type === 'feature_popup') {
+            readsCountMap[eid] = (readsCountMap[eid] || 0) + 1;
+          } else if (r.entity_type === 'feature_popup_click') {
+            clicksCountMap[eid] = (clicksCountMap[eid] || 0) + 1;
+          }
+        });
+      }
+    } catch (e) {}
+
+    window.adminFeaturePopupsData = items;
+    renderFeaturePopupsAdminList(items, readsCountMap, clicksCountMap, usingLocalFallback);
+  }
+
+  function renderFeaturePopupsAdminList(itemsToRender, readsMap = {}, clicksMap = {}, usingLocalFallback = false) {
+    const listContainer = document.getElementById('admin-feat-popup-list');
+    if (!listContainer) return;
+
+    const sqlNoticeHtml = usingLocalFallback ? `
+      <div style="padding: 0.65rem 0.85rem; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: var(--radius-md); font-size: 0.75rem; color: var(--color-text-main); margin-bottom: 0.5rem;">
+        <i class="ri-database-2-line" style="color: #d97706;"></i> <strong>Nota:</strong> Ejecuta el archivo <code>supabase_schema_feature_popups.sql</code> en el SQL Editor de Supabase para sincronización global en la nube. (Modo caché local activo).
+      </div>
+    ` : '';
+
+    if (!itemsToRender || itemsToRender.length === 0) {
+      listContainer.innerHTML = sqlNoticeHtml + `
+        <div style="text-align: center; color: var(--color-text-muted); padding: 2.5rem 1rem; font-size: 0.85rem; border: 1px dashed var(--color-border); border-radius: var(--radius-md);">
+          <i class="ri-sparkling-2-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: #5c24ff; opacity: 0.6;"></i>
+          Aún no hay popups de nuevas funcionalidades publicados.
+        </div>
+      `;
+      return;
+    }
+
+    listContainer.innerHTML = sqlNoticeHtml + itemsToRender.map(item => {
+      const changeMeta = window.WMS_FEATURE_CHANGE_TYPES[item.change_type] || window.WMS_FEATURE_CHANGE_TYPES.new_feature;
+      const modInfo = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === item.module_key) || { label: item.module_label || 'General', icon: 'ri-apps-2-line' };
+      const targetModInfo = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === item.target_module);
+      const readsCount = readsMap[String(item.id)] || 0;
+      const clicksCount = clicksMap[String(item.id)] || 0;
+      const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-CL') : '';
+
+      return `
+        <div style="padding: 0.85rem; border: 1px solid ${item.is_active ? 'rgba(92, 36, 255, 0.3)' : 'var(--color-border)'}; border-radius: var(--radius-md); background: var(--color-surface); display: flex; gap: 0.75rem; align-items: flex-start; opacity: ${item.is_active ? '1' : '0.68'}; transition: all 0.2s;">
+          ${item.media_url ? `
+            <img src="${item.media_url}" alt="Media" style="width: 60px; height: 60px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--color-border); flex-shrink: 0; background: #0f172a;" onerror="this.style.display='none'">
+          ` : `
+            <div style="width: 60px; height: 60px; border-radius: var(--radius-sm); background: rgba(92, 36, 255, 0.08); border: 1px solid rgba(92, 36, 255, 0.2); display: flex; align-items: center; justify-content: center; color: #5c24ff; flex-shrink: 0;">
+              <i class="${changeMeta.icon}" style="font-size: 1.35rem;"></i>
+            </div>
+          `}
+
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+              <span class="feature-change-badge ${changeMeta.className}" style="font-size: 0.62rem; padding: 0.1rem 0.45rem;">
+                <i class="${changeMeta.icon}"></i> ${changeMeta.label}
+              </span>
+              <span class="feature-module-badge" style="font-size: 0.65rem; padding: 0.1rem 0.45rem;">
+                <i class="${modInfo.icon}"></i> ${item.module_label || modInfo.label}
+              </span>
+              <span style="font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 9999px; background: ${item.is_active ? 'rgba(16, 185, 129, 0.14)' : 'rgba(100, 116, 139, 0.15)'}; color: ${item.is_active ? '#059669' : '#64748b'};">
+                ${item.is_active ? '● Activo' : '○ Pausado'}
+              </span>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted); margin-left: auto;">${dateStr}</span>
+            </div>
+
+            <div style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${window.escapeHtml ? window.escapeHtml(item.title) : item.title}">
+              ${item.title}
+            </div>
+
+            ${item.subtitle ? `
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${item.subtitle}
+              </div>
+            ` : ''}
+
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.35rem; font-size: 0.72rem; color: var(--color-text-muted); flex-wrap: wrap;">
+              ${targetModInfo ? `<span><i class="ri-arrow-right-up-line" style="color: var(--color-primary);"></i> Dirige a: <strong>${targetModInfo.label}</strong></span>` : `<span>Sin redirección</span>`}
+              <span title="Usuarios que marcaron como leído"><i class="ri-check-double-line" style="color: #10b981;"></i> <strong>${readsCount}</strong> leídos</span>
+              <span title="Clics en el botón de ir al módulo"><i class="ri-cursor-line" style="color: #5c24ff;"></i> <strong>${clicksCount}</strong> clics</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.3rem; flex-shrink: 0;">
+            <button type="button" class="btn btn-outline preview-feat-popup-btn" data-id="${item.id}" title="Previsualizar en pantalla" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #5c24ff; border-color: rgba(92, 36, 255, 0.35);">
+              <i class="ri-eye-line"></i>
+            </button>
+            <button type="button" class="btn btn-outline toggle-feat-popup-btn" data-id="${item.id}" title="${item.is_active ? 'Pausar / Ocultar' : 'Activar'}" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: ${item.is_active ? '#10b981' : 'var(--color-text-muted)'};">
+              <i class="${item.is_active ? 'ri-toggle-fill' : 'ri-toggle-line'}"></i>
+            </button>
+            <button type="button" class="btn btn-outline edit-feat-popup-btn" data-id="${item.id}" title="Editar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+              <i class="ri-edit-line"></i>
+            </button>
+            <button type="button" class="btn btn-outline delete-feat-popup-btn" data-id="${item.id}" title="Eliminar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: var(--color-danger); border-color: var(--color-danger);">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Eventos de los botones de cada tarjeta
+    listContainer.querySelectorAll('.preview-feat-popup-btn').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.getAttribute('data-id');
+        const found = (window.adminFeaturePopupsData || []).find(x => String(x.id) === String(id));
+        if (found) window.showFeatureDockPopup([found], 'admin-preview', { isPreview: true });
+      };
+    });
+
+    listContainer.querySelectorAll('.toggle-feat-popup-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-id');
+        const found = (window.adminFeaturePopupsData || []).find(x => String(x.id) === String(id));
+        if (!found) return;
+        const newStatus = !found.is_active;
+        const { error } = await supabase.from('wms_feature_popups').update({ is_active: newStatus }).eq('id', id);
+        if (error) {
+          // Actualizar en caché local si aún no existe la tabla
+          const local = JSON.parse(localStorage.getItem('wms_feature_popups_local_cache') || '[]');
+          const idx = local.findIndex(x => String(x.id) === String(id));
+          if (idx !== -1) {
+            local[idx].is_active = newStatus;
+            localStorage.setItem('wms_feature_popups_local_cache', JSON.stringify(local));
+          }
+        }
+        loadFeaturePopupsAdmin();
+      };
+    });
+
+    listContainer.querySelectorAll('.edit-feat-popup-btn').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.getAttribute('data-id');
+        const found = (window.adminFeaturePopupsData || []).find(x => String(x.id) === String(id));
+        if (!found) return;
+
+        document.getElementById('feat-popup-id').value = found.id;
+        document.getElementById('feat-popup-title').value = found.title || '';
+        document.getElementById('feat-popup-subtitle').value = found.subtitle || '';
+        document.getElementById('feat-popup-change-type').value = found.change_type || 'new_feature';
+        if (featModuleSelect) featModuleSelect.value = found.module_key || 'inventory';
+        if (featTargetModuleSelect) featTargetModuleSelect.value = found.target_module || 'none';
+        if (featCtaTextInput) {
+          featCtaTextInput.disabled = (found.target_module === 'none');
+          featCtaTextInput.value = found.cta_text || '';
+        }
+        updateFeatMediaPreview(found.media_url || '');
+        if (featQuillInstance) featQuillInstance.root.innerHTML = found.description || '';
+        if (featRawHtmlTextarea) featRawHtmlTextarea.value = found.description || '';
+        document.getElementById('feat-popup-target-role').value = found.target_role || 'client';
+        document.getElementById('feat-popup-only-allowed').checked = found.only_allowed_module_users !== false;
+        document.getElementById('feat-popup-is-active').checked = found.is_active !== false;
+
+        document.getElementById('btn-save-feat-popup-text').textContent = 'Guardar Cambios';
+        document.getElementById('btn-cancel-feat-popup').style.display = 'inline-flex';
+        document.getElementById('form-create-feature-popup')?.scrollIntoView({ behavior: 'smooth' });
+      };
+    });
+
+    listContainer.querySelectorAll('.delete-feat-popup-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.getAttribute('data-id');
+        if (!confirm('¿Estás seguro de eliminar este popup de funcionalidad?')) return;
+        const { error } = await supabase.from('wms_feature_popups').delete().eq('id', id);
+        if (error) {
+          const local = JSON.parse(localStorage.getItem('wms_feature_popups_local_cache') || '[]').filter(x => String(x.id) !== String(id));
+          localStorage.setItem('wms_feature_popups_local_cache', JSON.stringify(local));
+        }
+        loadFeaturePopupsAdmin();
+      };
+    });
+  }
+
+  // Buscador de popups de funcionalidades
+  document.getElementById('admin-feat-popup-search')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    const all = window.adminFeaturePopupsData || [];
+    if (!q) {
+      renderFeaturePopupsAdminList(all);
+    } else {
+      const filtered = all.filter(item =>
+        (item.title && item.title.toLowerCase().includes(q)) ||
+        (item.subtitle && item.subtitle.toLowerCase().includes(q)) ||
+        (item.module_label && item.module_label.toLowerCase().includes(q))
+      );
+      renderFeaturePopupsAdminList(filtered);
+    }
+  });
+
+  // Guardar / Publicar Popup de Funcionalidad
+  document.getElementById('form-create-feature-popup')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const descHtml = getCurrentFeatDescriptionHtml();
+      if (!descHtml || descHtml === '<p><br></p>') {
+        alert('Por favor escribe la descripción detallada de la nueva funcionalidad.');
+        return;
+      }
+
+      const existingId = document.getElementById('feat-popup-id').value;
+      const formObj = buildFeatPopupFormObject();
+      const payload = {
+        title: formObj.title,
+        subtitle: formObj.subtitle,
+        change_type: formObj.change_type,
+        module_key: formObj.module_key,
+        module_label: formObj.module_label,
+        target_module: formObj.target_module,
+        cta_text: formObj.cta_text,
+        media_url: formObj.media_url,
+        description: descHtml,
+        target_role: formObj.target_role,
+        only_allowed_module_users: formObj.only_allowed_module_users,
+        is_active: formObj.is_active
+      };
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!existingId && user) {
+        payload.created_by = user.id;
+      }
+
+      let dbResult;
+      if (existingId) {
+        dbResult = await supabase.from('wms_feature_popups').update(payload).eq('id', existingId);
+      } else {
+        dbResult = await supabase.from('wms_feature_popups').insert([payload]);
+      }
+
+      if (dbResult.error) {
+        console.warn('Guardando en caché local mientras se ejecuta supabase_schema_feature_popups.sql:', dbResult.error);
+        const local = JSON.parse(localStorage.getItem('wms_feature_popups_local_cache') || '[]');
+        if (existingId) {
+          const idx = local.findIndex(x => String(x.id) === String(existingId));
+          if (idx !== -1) local[idx] = { ...local[idx], ...payload };
+        } else {
+          const newId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('feat-' + Date.now());
+          local.unshift({ id: newId, created_at: new Date().toISOString(), ...payload });
+        }
+        localStorage.setItem('wms_feature_popups_local_cache', JSON.stringify(local));
+      }
+
+      alert(existingId ? 'Popup de funcionalidad actualizado exitosamente.' : '¡Popup de nueva funcionalidad publicado exitosamente!');
+      resetFeatPopupForm();
+      loadFeaturePopupsAdmin();
+    } catch (err) {
+      console.error('Error guardando popup de funcionalidad:', err);
+      alert('Error al guardar el popup de funcionalidad: ' + err.message);
+    }
+  });
+
+  loadFeaturePopupsAdmin();
 }
 
 async function renderVisibilityRulesAdmin() {
@@ -91349,8 +92231,71 @@ window.showInfoModal = function(title, contentHtml) {
 // SOLICITUDES DE BAJA (ZONA ROJA) ADMIN LOGIC
 // ==========================================
 
+const REDZONE_JSON_START = '---REDZONE_DATA_JSON---';
+const REDZONE_JSON_END = '---END_REDZONE_DATA_JSON---';
+
+function calculateRedZoneTotals(items = [], pricingConfig = {}, extraCosts = []) {
+  const activeItems = (items || []).filter(it => !it.excluded && (Number(it.quantity) || 0) > 0);
+  const totalSKUs = activeItems.length;
+  const totalUnits = activeItems.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+
+  const baseFee = pricingConfig.baseFee !== undefined ? Number(pricingConfig.baseFee) : 1250;
+  const skuLimit = pricingConfig.skuLimit !== undefined ? Number(pricingConfig.skuLimit) : 3;
+  const skuRate = pricingConfig.skuRate !== undefined ? Number(pricingConfig.skuRate) : 100;
+  const unitsLimit = pricingConfig.unitsLimit !== undefined ? Number(pricingConfig.unitsLimit) : 10;
+  const unitsRate = pricingConfig.unitsRate !== undefined ? Number(pricingConfig.unitsRate) : 50;
+
+  const skuSurcharge = totalSKUs > skuLimit ? (totalSKUs - skuLimit) * skuRate : 0;
+  const unitsSurcharge = totalUnits > unitsLimit ? (totalUnits - unitsLimit) * unitsRate : 0;
+  const prepNetTotal = Math.max(0, baseFee + skuSurcharge + unitsSurcharge);
+
+  let extraNetCharges = 0;
+  let extraNetDiscounts = 0;
+  let extraExentoCharges = 0;
+  let extraExentoDiscounts = 0;
+
+  (extraCosts || []).forEach(c => {
+    const amt = Math.max(0, Number(c.amount) || 0);
+    if (!amt) return;
+    const isDiscount = c.type === 'discount';
+    const isExento = c.taxType === 'exento';
+    if (isExento) {
+      if (isDiscount) extraExentoDiscounts += amt;
+      else extraExentoCharges += amt;
+    } else {
+      if (isDiscount) extraNetDiscounts += amt;
+      else extraNetCharges += amt;
+    }
+  });
+
+  const netTotal = Math.max(0, prepNetTotal + extraNetCharges - extraNetDiscounts);
+  const iva = Math.round(netTotal * 0.19);
+  const brutoTotal = Math.max(0, netTotal + iva + extraExentoCharges - extraExentoDiscounts);
+
+  return {
+    totalSKUs,
+    totalUnits,
+    baseFee,
+    skuLimit,
+    skuRate,
+    unitsLimit,
+    unitsRate,
+    skuSurcharge,
+    unitsSurcharge,
+    prepNetTotal,
+    extraNetCharges,
+    extraNetDiscounts,
+    extraExentoCharges,
+    extraExentoDiscounts,
+    netTotal,
+    iva,
+    brutoTotal
+  };
+}
+
 function parseTicketDescription(desc) {
   const data = {
+    version: 2,
     commerce: '',
     repName: '',
     repRut: '',
@@ -91359,11 +92304,36 @@ function parseTicketDescription(desc) {
     email: '',
     phone: '',
     exitDate: '',
+    outboundPagado: false,
+    syncWithLiveInventory: true,
+    lastSyncedAt: null,
+    lastUpdatedByAdminAt: null,
+    adminNotes: '',
+    pricingConfig: {
+      baseFee: 1250,
+      skuLimit: 3,
+      skuRate: 100,
+      unitsLimit: 10,
+      unitsRate: 50
+    },
+    items: [],
+    itemOverrides: {},
+    customItems: [],
+    extraCosts: [],
     totalUnits: 0,
     totalSKUs: 0,
+    baseFee: 1250,
+    skuSurcharge: 0,
+    unitsSurcharge: 0,
+    prepNetTotal: 1250,
+    extraNetCharges: 0,
+    extraNetDiscounts: 0,
+    extraExentoCharges: 0,
+    extraExentoDiscounts: 0,
     netTotal: 0,
     iva: 0,
-    brutoTotal: 0
+    brutoTotal: 0,
+    hasStructuredJson: false
   };
 
   if (!desc) return data;
@@ -91384,7 +92354,7 @@ function parseTicketDescription(desc) {
 
   const parseNum = (val) => {
     if (!val) return 0;
-    const clean = val.replace(/\./g, '').replace(/CLP/g, '').replace(/\$/g, '').trim();
+    const clean = String(val).replace(/\./g, '').replace(/CLP/g, '').replace(/\$/g, '').replace(/,/g, '').trim();
     return parseInt(clean, 10) || 0;
   };
 
@@ -91394,7 +92364,374 @@ function parseTicketDescription(desc) {
   data.iva = parseNum(getVal(/- IVA \(19%\):\s*(.*)/));
   data.brutoTotal = parseNum(getVal(/- Costo Bruto Total de Preparación:\s*(.*)/));
 
+  const jsonStartIdx = desc.indexOf(REDZONE_JSON_START);
+  const jsonEndIdx = desc.indexOf(REDZONE_JSON_END);
+  if (jsonStartIdx !== -1 && jsonEndIdx !== -1 && jsonEndIdx > jsonStartIdx) {
+    const rawJson = desc.substring(jsonStartIdx + REDZONE_JSON_START.length, jsonEndIdx).trim();
+    try {
+      const parsedJson = JSON.parse(rawJson);
+      if (parsedJson && typeof parsedJson === 'object') {
+        data.hasStructuredJson = true;
+        if (parsedJson.commerce !== undefined) data.commerce = parsedJson.commerce || data.commerce;
+        if (parsedJson.repName !== undefined) data.repName = parsedJson.repName || data.repName;
+        if (parsedJson.repRut !== undefined) data.repRut = parsedJson.repRut || data.repRut;
+        if (parsedJson.companyName !== undefined) data.companyName = parsedJson.companyName || data.companyName;
+        if (parsedJson.rutText !== undefined) data.rutText = parsedJson.rutText || data.rutText;
+        if (parsedJson.email !== undefined) data.email = parsedJson.email || data.email;
+        if (parsedJson.phone !== undefined) data.phone = parsedJson.phone || data.phone;
+        if (parsedJson.exitDate !== undefined) data.exitDate = parsedJson.exitDate || data.exitDate;
+        if (parsedJson.outboundPagado !== undefined) data.outboundPagado = Boolean(parsedJson.outboundPagado);
+        if (parsedJson.syncWithLiveInventory !== undefined) data.syncWithLiveInventory = Boolean(parsedJson.syncWithLiveInventory);
+        if (parsedJson.lastSyncedAt !== undefined) data.lastSyncedAt = parsedJson.lastSyncedAt;
+        if (parsedJson.lastUpdatedByAdminAt !== undefined) data.lastUpdatedByAdminAt = parsedJson.lastUpdatedByAdminAt;
+        if (parsedJson.adminNotes !== undefined) data.adminNotes = parsedJson.adminNotes || '';
+        if (parsedJson.pricingConfig && typeof parsedJson.pricingConfig === 'object') {
+          data.pricingConfig = {
+            baseFee: parsedJson.pricingConfig.baseFee !== undefined ? Number(parsedJson.pricingConfig.baseFee) : 1250,
+            skuLimit: parsedJson.pricingConfig.skuLimit !== undefined ? Number(parsedJson.pricingConfig.skuLimit) : 3,
+            skuRate: parsedJson.pricingConfig.skuRate !== undefined ? Number(parsedJson.pricingConfig.skuRate) : 100,
+            unitsLimit: parsedJson.pricingConfig.unitsLimit !== undefined ? Number(parsedJson.pricingConfig.unitsLimit) : 10,
+            unitsRate: parsedJson.pricingConfig.unitsRate !== undefined ? Number(parsedJson.pricingConfig.unitsRate) : 50
+          };
+        }
+        if (Array.isArray(parsedJson.items)) data.items = parsedJson.items;
+        if (parsedJson.itemOverrides && typeof parsedJson.itemOverrides === 'object') data.itemOverrides = parsedJson.itemOverrides;
+        if (Array.isArray(parsedJson.customItems)) data.customItems = parsedJson.customItems;
+        if (Array.isArray(parsedJson.extraCosts)) data.extraCosts = parsedJson.extraCosts;
+
+        if (data.items.length > 0 || data.syncWithLiveInventory === false) {
+          const calc = calculateRedZoneTotals(data.items, data.pricingConfig, data.extraCosts);
+          Object.assign(data, calc);
+        } else if (parsedJson.totals && typeof parsedJson.totals === 'object') {
+          Object.assign(data, parsedJson.totals);
+        }
+      }
+    } catch (e) {
+      console.warn('Error al parsear JSON estructurado de Zona Roja:', e);
+    }
+  }
+
   return data;
+}
+
+function buildTicketDescriptionFromRedZoneData(state) {
+  const calc = calculateRedZoneTotals(state.items || [], state.pricingConfig || {}, state.extraCosts || []);
+  const merged = {
+    ...state,
+    ...calc,
+    pricingConfig: {
+      baseFee: calc.baseFee,
+      skuLimit: calc.skuLimit,
+      skuRate: calc.skuRate,
+      unitsLimit: calc.unitsLimit,
+      unitsRate: calc.unitsRate
+    }
+  };
+
+  const extraCostsLines = (merged.extraCosts || []).length > 0
+    ? '\nCOSTOS ADICIONALES Y AJUSTES:\n' + merged.extraCosts.map(c => {
+        const sign = c.type === 'discount' ? '-' : '+';
+        const taxLabel = c.taxType === 'exento' ? 'Exento/Bruto' : 'Neto + IVA';
+        return `- [${sign}] ${c.concept || 'Concepto'}: ${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')} CLP (${taxLabel})`;
+      }).join('\n') + '\n'
+    : '';
+
+  const adminNotesLines = merged.adminNotes
+    ? `\nOBSERVACIONES DE ADMINISTRACIÓN:\n${merged.adminNotes}\n`
+    : '';
+
+  const payload = {
+    version: 2,
+    commerce: merged.commerce || '',
+    repName: merged.repName || '',
+    repRut: merged.repRut || '',
+    companyName: merged.companyName || '',
+    rutText: merged.rutText || '',
+    email: merged.email || '',
+    phone: merged.phone || '',
+    exitDate: merged.exitDate || '',
+    outboundPagado: Boolean(merged.outboundPagado),
+    syncWithLiveInventory: merged.syncWithLiveInventory !== false,
+    lastSyncedAt: merged.lastSyncedAt || new Date().toISOString(),
+    lastUpdatedByAdminAt: merged.lastUpdatedByAdminAt || null,
+    adminNotes: merged.adminNotes || '',
+    pricingConfig: merged.pricingConfig,
+    items: (merged.items || []).map(it => ({
+      productId: it.productId || null,
+      sku: it.sku || 'S/SKU',
+      name: it.name || 'Sin nombre',
+      quantity: Number(it.quantity) || 0,
+      warehouses: it.warehouses || 'Bodega Stocka',
+      isCustom: Boolean(it.isCustom),
+      excluded: Boolean(it.excluded)
+    })),
+    itemOverrides: merged.itemOverrides || {},
+    customItems: merged.customItems || [],
+    extraCosts: (merged.extraCosts || []).map(c => ({
+      id: c.id || ('cost_' + Math.random().toString(36).substring(2, 9)),
+      concept: c.concept || 'Cargo / Ajuste',
+      amount: Math.max(0, Number(c.amount) || 0),
+      type: c.type === 'discount' ? 'discount' : 'charge',
+      taxType: c.taxType === 'exento' ? 'exento' : 'neto'
+    })),
+    totals: {
+      totalSKUs: calc.totalSKUs,
+      totalUnits: calc.totalUnits,
+      baseFee: calc.baseFee,
+      skuSurcharge: calc.skuSurcharge,
+      unitsSurcharge: calc.unitsSurcharge,
+      prepNetTotal: calc.prepNetTotal,
+      extraNetCharges: calc.extraNetCharges,
+      extraNetDiscounts: calc.extraNetDiscounts,
+      extraExentoCharges: calc.extraExentoCharges,
+      extraExentoDiscounts: calc.extraExentoDiscounts,
+      netTotal: calc.netTotal,
+      iva: calc.iva,
+      brutoTotal: calc.brutoTotal
+    }
+  };
+
+  return `SOLICITUD DE TÉRMINO DE SERVICIOS Y FINIQUITO DE CUENTA
+
+INFORMACIÓN DEL CLIENTE:
+- Comercio: ${merged.commerce || 'N/A'}
+- Representante Legal: ${merged.repName || 'N/A'}
+- RUT Representante Legal: ${merged.repRut || 'N/A'}
+- Empresa/Razón Social: ${merged.companyName || 'N/A'}
+- RUT Empresa: ${merged.rutText || 'N/A'}
+- Correo Representante: ${merged.email || 'N/A'}
+- Teléfono Representante: ${merged.phone || 'N/A'}
+
+DATOS DE SALIDA:
+- Fecha Estimada de Salida: ${merged.exitDate || 'N/A'}
+- Unidades Totales en Inventario: ${calc.totalUnits}
+- SKUs con Stock Activo: ${calc.totalSKUs}
+- Estado Pago Outbound: ${merged.outboundPagado ? 'PAGADO' : 'PENDIENTE'}
+
+DESGLOSE ECONÓMICO DE RETIRO:
+- Costo Base Preparación: $${calc.baseFee.toLocaleString('es-CL')} CLP
+- Recargo por SKU adicional (sobre ${calc.skuLimit}): $${calc.skuSurcharge.toLocaleString('es-CL')} CLP
+- Recargo por Unidades adicional (sobre ${calc.unitsLimit}): $${calc.unitsSurcharge.toLocaleString('es-CL')} CLP${extraCostsLines}- Costo Neto: $${calc.netTotal.toLocaleString('es-CL')} CLP
+- IVA (19%): $${calc.iva.toLocaleString('es-CL')} CLP
+- Costo Bruto Total de Preparación: $${calc.brutoTotal.toLocaleString('es-CL')} CLP
+${adminNotesLines}
+DECLARACIÓN JURADA DE FACTURACIÓN:
+- Aceptada por el usuario: SÍ
+- Texto: El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Renuncia irrevocablemente a cualquier reclamo posterior y libera de responsabilidad a la empresa y a su representante legal.
+
+${REDZONE_JSON_START}
+${JSON.stringify(payload)}
+${REDZONE_JSON_END}`;
+}
+
+async function fetchLiveInventoryForCommerces(commerceNamesList = []) {
+  const cleanCommerces = Array.from(new Set(
+    (commerceNamesList || [])
+      .flatMap(c => String(c || '').split(','))
+      .map(c => c.trim())
+      .filter(Boolean)
+  ));
+
+  if (cleanCommerces.length === 0) {
+    return { byCommerce: {}, allProducts: [] };
+  }
+
+  let products = [];
+  let page = 0;
+  const pageSize = 1000;
+  let keepFetching = true;
+
+  while (keepFetching) {
+    const { data: prods, error: prodError } = await supabase
+      .from('products')
+      .select(`
+        id,
+        sku,
+        name,
+        comercio,
+        is_virtual,
+        inventory (
+          quantity,
+          warehouse_id,
+          warehouses (name)
+        )
+      `)
+      .in('comercio', cleanCommerces)
+      .eq('is_virtual', false)
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+
+    if (prodError) throw prodError;
+
+    if (prods && prods.length > 0) {
+      products = products.concat(prods);
+      if (prods.length < pageSize) {
+        keepFetching = false;
+      } else {
+        page++;
+      }
+    } else {
+      keepFetching = false;
+    }
+  }
+
+  const byCommerce = {};
+  cleanCommerces.forEach(c => {
+    byCommerce[c.toLowerCase()] = {
+      liveStockItems: [],
+      allCatalogProducts: [],
+      liveTotalSKUs: 0,
+      liveTotalUnits: 0
+    };
+  });
+
+  products.forEach(p => {
+    const key = String(p.comercio || '').trim().toLowerCase();
+    if (!byCommerce[key]) {
+      byCommerce[key] = { liveStockItems: [], allCatalogProducts: [], liveTotalSKUs: 0, liveTotalUnits: 0 };
+    }
+    let qty = 0;
+    let warehousesStr = '';
+    if (Array.isArray(p.inventory)) {
+      p.inventory.forEach(inv => {
+        if (inv.quantity && inv.quantity > 0) {
+          qty += inv.quantity;
+          const wName = inv.warehouses ? inv.warehouses.name : `Bodega #${inv.warehouse_id}`;
+          warehousesStr += (warehousesStr ? ', ' : '') + `${wName} (${inv.quantity} ud)`;
+        }
+      });
+    }
+    const itemObj = {
+      productId: p.id,
+      sku: p.sku || 'S/SKU',
+      name: p.name || 'Sin nombre',
+      quantity: qty,
+      warehouses: warehousesStr || 'Bodega Stocka',
+      comercio: p.comercio || '',
+      isCustom: false
+    };
+    byCommerce[key].allCatalogProducts.push(itemObj);
+    if (qty > 0) {
+      byCommerce[key].liveStockItems.push(itemObj);
+      byCommerce[key].liveTotalSKUs++;
+      byCommerce[key].liveTotalUnits += qty;
+    }
+  });
+
+  return { byCommerce, allProducts: products };
+}
+
+function getLiveCommerceBundleForTicket(commerceStr, byCommerceMap) {
+  const comms = String(commerceStr || '').split(',').map(c => c.trim().toLowerCase()).filter(Boolean);
+  const liveStockItems = [];
+  const allCatalogProducts = [];
+  let liveTotalSKUs = 0;
+  let liveTotalUnits = 0;
+
+  comms.forEach(cKey => {
+    const bundle = byCommerceMap[cKey];
+    if (bundle) {
+      liveStockItems.push(...bundle.liveStockItems.map(x => ({ ...x })));
+      allCatalogProducts.push(...bundle.allCatalogProducts.map(x => ({ ...x })));
+      liveTotalSKUs += bundle.liveTotalSKUs;
+      liveTotalUnits += bundle.liveTotalUnits;
+    }
+  });
+
+  return { liveStockItems, allCatalogProducts, liveTotalSKUs, liveTotalUnits };
+}
+
+function resolveRedZoneStateWithLive(parsed, liveBundle) {
+  const state = JSON.parse(JSON.stringify(parsed));
+  const liveStockItems = liveBundle?.liveStockItems || [];
+  const allCatalogProducts = liveBundle?.allCatalogProducts || [];
+
+  const catalogBySku = {};
+  const catalogById = {};
+  allCatalogProducts.forEach(cp => {
+    if (cp.sku) catalogBySku[String(cp.sku).trim().toLowerCase()] = cp;
+    if (cp.productId) catalogById[cp.productId] = cp;
+  });
+
+  const overrides = state.itemOverrides || {};
+  let resolvedItems = [];
+
+  if (state.syncWithLiveInventory !== false) {
+    const seenSkus = new Set();
+
+    liveStockItems.forEach(liveItem => {
+      const skuKey = String(liveItem.sku || '').trim().toLowerCase();
+      seenSkus.add(skuKey);
+      const ov = overrides[skuKey];
+      if (ov && ov.excluded) return;
+
+      resolvedItems.push({
+        productId: liveItem.productId || null,
+        sku: ov?.sku || liveItem.sku,
+        name: ov?.name || liveItem.name,
+        quantity: ov && ov.quantity !== undefined ? Number(ov.quantity) : Number(liveItem.quantity),
+        warehouses: ov?.warehouses || liveItem.warehouses,
+        isCustom: false
+      });
+    });
+
+    // Incluir también productos del catálogo cuyo stock en vivo sea 0 pero el admin los haya sobreescrito con cantidad > 0
+    Object.keys(overrides).forEach(skuKey => {
+      if (seenSkus.has(skuKey)) return;
+      const ov = overrides[skuKey];
+      if (!ov || ov.excluded || !(Number(ov.quantity) > 0)) return;
+      const catProd = catalogBySku[skuKey];
+      resolvedItems.push({
+        productId: catProd?.productId || null,
+        sku: ov.sku || catProd?.sku || skuKey.toUpperCase(),
+        name: ov.name || catProd?.name || 'Producto Catálogo',
+        quantity: Number(ov.quantity) || 0,
+        warehouses: ov.warehouses || catProd?.warehouses || 'Ajuste Manual Admin',
+        isCustom: !catProd
+      });
+    });
+
+    // Añadir ítems manuales personalizados del admin
+    (state.customItems || []).forEach(ci => {
+      if ((Number(ci.quantity) || 0) > 0 && !ci.excluded) {
+        resolvedItems.push({
+          productId: null,
+          sku: ci.sku || 'MANUAL',
+          name: ci.name || 'Ítem Manual',
+          quantity: Number(ci.quantity) || 0,
+          warehouses: ci.warehouses || 'Manual / Bodega',
+          isCustom: true
+        });
+      }
+    });
+  } else {
+    // Modo listado fijado manualmente por el admin: aún así reflejamos si el nombre en el catálogo fue actualizado y no tenía nombre personalizado distinto
+    resolvedItems = (state.items || []).map(it => {
+      const catProd = (it.productId && catalogById[it.productId]) || catalogBySku[String(it.sku || '').trim().toLowerCase()];
+      return {
+        ...it,
+        name: it.name || catProd?.name || 'Sin nombre',
+        quantity: Number(it.quantity) || 0
+      };
+    }).filter(it => !it.excluded && it.quantity > 0);
+  }
+
+  state.items = resolvedItems;
+  const calc = calculateRedZoneTotals(state.items, state.pricingConfig, state.extraCosts);
+
+  const hasLiveDiff = (
+    !parsed.hasStructuredJson ||
+    parsed.totalSKUs !== calc.totalSKUs ||
+    parsed.totalUnits !== calc.totalUnits ||
+    parsed.brutoTotal !== calc.brutoTotal ||
+    (parsed.items || []).length !== resolvedItems.length
+  );
+
+  Object.assign(state, calc);
+  state.hasLiveDiff = hasLiveDiff;
+  state.liveTotalSKUs = liveBundle?.liveTotalSKUs ?? calc.totalSKUs;
+  state.liveTotalUnits = liveBundle?.liveTotalUnits ?? calc.totalUnits;
+
+  return state;
 }
 
 async function loadPeriodStatusListForCommerce(commerceName) {
@@ -91408,7 +92745,7 @@ async function loadPeriodStatusListForCommerce(commerceName) {
     console.warn('Error loading billing mappings:', err);
   }
 
-  const commerceList = commerceName.split(',').map(c => c.trim()).filter(Boolean);
+  const commerceList = String(commerceName || '').split(',').map(c => c.trim()).filter(Boolean);
   const uniqueBillingNames = new Set();
   commerceList.forEach(c => {
     const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
@@ -91462,7 +92799,7 @@ async function loadPeriodStatusListForCommerce(commerceName) {
 
 async function renderRedZoneAdmin() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando solicitudes de baja...</p>';
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando solicitudes de baja y sincronizando inventario/catálogo...</p>';
 
   try {
     const { data: tickets, error } = await supabase
@@ -91473,123 +92810,305 @@ async function renderRedZoneAdmin() {
 
     if (error) throw error;
 
-    if (!tickets || tickets.length === 0) {
-      appContent.innerHTML = `
-        <div class="card" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
-          <i class="ri-close-circle-line" style="font-size: 3rem; color: var(--color-primary); display: block; margin-bottom: 1rem;"></i>
-          <h4>No hay solicitudes de baja registradas</h4>
-          <p>Actualmente no se registran solicitudes de término de servicio por parte de los clientes.</p>
-        </div>
-      `;
-      return;
+    const allParsed = (tickets || []).map(t => ({
+      ticket: t,
+      parsed: parseTicketDescription(t.description)
+    }));
+
+    const commerceNames = allParsed.map(x => x.parsed.commerce || x.ticket.comercio || '').filter(Boolean);
+    const { byCommerce } = await fetchLiveInventoryForCommerces(commerceNames);
+
+    // Resolver estado en vivo y auto-sincronizar en BD las solicitudes abiertas que tengan modo auto-sync
+    const resolvedEntries = [];
+    for (const entry of allParsed) {
+      const comm = entry.parsed.commerce || entry.ticket.comercio || '';
+      entry.parsed.commerce = comm;
+      const liveBundle = getLiveCommerceBundleForTicket(comm, byCommerce);
+      const resolvedState = resolveRedZoneStateWithLive(entry.parsed, liveBundle);
+
+      if (entry.ticket.status === 'abierto' && resolvedState.syncWithLiveInventory !== false && resolvedState.hasLiveDiff) {
+        resolvedState.lastSyncedAt = new Date().toISOString();
+        const newDesc = buildTicketDescriptionFromRedZoneData(resolvedState);
+        entry.ticket.description = newDesc;
+        supabase
+          .from('tickets')
+          .update({ description: newDesc })
+          .eq('id', entry.ticket.id)
+          .then(({ error: syncErr }) => {
+            if (syncErr) console.warn('Advertencia al auto-sincronizar solicitud de baja:', syncErr);
+          });
+      }
+
+      resolvedEntries.push({
+        ticket: entry.ticket,
+        state: resolvedState,
+        liveBundle
+      });
     }
+
+    const openCount = resolvedEntries.filter(e => e.ticket.status === 'abierto').length;
 
     appContent.innerHTML = `
       <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
-        <h4 style="margin: 0 0 1.5rem 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-close-circle-line" style="color: #ef4444;"></i> Solicitudes de Baja (Término de Servicio)
-        </h4>
-
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Comercio</th>
-                <th>Representante / Empresa</th>
-                <th>Monto Salida</th>
-                <th>Fecha Salida</th>
-                <th>Estado</th>
-                <th style="text-align: center; width: 340px;">Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="redzone-requests-tbody">
-            </tbody>
-          </table>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem;">
+          <div>
+            <h4 style="margin: 0 0 0.25rem 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-close-circle-line" style="color: #ef4444;"></i> Solicitudes de Baja (Zona Roja - Término de Servicio)
+              <span style="background: rgba(239, 68, 68, 0.12); color: #ef4444; font-size: 0.78rem; padding: 2px 10px; border-radius: 99px; font-weight: 700;">
+                ${openCount} Activa${openCount === 1 ? '' : 's'}
+              </span>
+            </h4>
+            <p style="margin: 0; font-size: 0.82rem; color: var(--color-text-muted);">
+              Gestione el listado de ítems, sincronice cambios de inventario/catálogo, ajuste tarifas y añada o quite costos adicionales para el cliente y el admin.
+            </p>
+          </div>
+          <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+            <button type="button" id="btn-redzone-sync-all" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; padding: 0.5rem 0.9rem; cursor: pointer;">
+              <i class="ri-refresh-line"></i> Sincronizar Todo con Inventario / Catálogo
+            </button>
+            <button type="button" id="btn-redzone-new-request" class="btn btn-primary" style="background-color: #ef4444; border: none; color: white; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; padding: 0.5rem 0.95rem; cursor: pointer;">
+              <i class="ri-add-circle-line"></i> + Crear Solicitud de Baja
+            </button>
+          </div>
         </div>
+
+        ${resolvedEntries.length === 0 ? `
+          <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted); border: 1px dashed var(--color-border); border-radius: var(--radius-md);">
+            <i class="ri-close-circle-line" style="font-size: 3rem; color: #ef4444; display: block; margin-bottom: 0.75rem;"></i>
+            <h4 style="margin: 0 0 0.35rem 0; color: var(--color-text-main);">No hay solicitudes de baja registradas</h4>
+            <p style="margin: 0; font-size: 0.85rem;">Actualmente no se registran solicitudes de término de servicio. Puede crear una manualmente con el botón superior.</p>
+          </div>
+        ` : `
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Comercio</th>
+                  <th>Representante / Empresa</th>
+                  <th>Inventario Salida</th>
+                  <th>Monto Salida</th>
+                  <th>Fecha Salida</th>
+                  <th>Estado</th>
+                  <th style="text-align: center; width: 420px;">Herramientas / Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="redzone-requests-tbody">
+              </tbody>
+            </table>
+          </div>
+        `}
       </div>
     `;
 
+    const btnSyncAll = document.getElementById('btn-redzone-sync-all');
+    if (btnSyncAll) {
+      btnSyncAll.addEventListener('click', async () => {
+        btnSyncAll.disabled = true;
+        btnSyncAll.innerHTML = `<i class="ri-loader-4-line spin"></i> Sincronizando...`;
+        try {
+          for (const entry of resolvedEntries) {
+            if (entry.ticket.status !== 'abierto') continue;
+            const syncedState = {
+              ...entry.state,
+              syncWithLiveInventory: true,
+              itemOverrides: {},
+              items: entry.liveBundle.liveStockItems.concat(entry.state.customItems || []),
+              lastSyncedAt: new Date().toISOString()
+            };
+            const newDesc = buildTicketDescriptionFromRedZoneData(syncedState);
+            await supabase.from('tickets').update({ description: newDesc }).eq('id', entry.ticket.id);
+          }
+          await renderRedZoneAdmin();
+        } catch (err) {
+          alert('Error al sincronizar solicitudes: ' + err.message);
+          btnSyncAll.disabled = false;
+          btnSyncAll.innerHTML = `<i class="ri-refresh-line"></i> Sincronizar Todo con Inventario / Catálogo`;
+        }
+      });
+    }
+
+    const btnNewReq = document.getElementById('btn-redzone-new-request');
+    if (btnNewReq) {
+      btnNewReq.addEventListener('click', () => openCreateRedZoneAdminModal());
+    }
+
     const tbody = document.getElementById('redzone-requests-tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
-    tickets.forEach(t => {
-      const parsed = parseTicketDescription(t.description);
+    resolvedEntries.forEach(entry => {
+      const t = entry.ticket;
+      const state = entry.state;
+      const liveBundle = entry.liveBundle;
       const createdDate = new Date(t.created_at).toLocaleDateString('es-CL');
-      
+      const extraCount = (state.extraCosts || []).length;
+      const hasOverrides = Object.keys(state.itemOverrides || {}).length > 0 || (state.customItems || []).length > 0 || state.syncWithLiveInventory === false;
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${createdDate}</td>
-        <td><strong>${parsed.commerce || t.comercio || 'N/A'}</strong></td>
         <td>
-          <span style="display:block; font-weight:600;">${parsed.companyName || 'N/A'}</span>
-          <span style="font-size:0.75rem; color:var(--color-text-muted);">RUT: ${parsed.rutText || 'N/A'} • Rep: ${parsed.repName || 'N/A'}</span>
+          <div style="font-weight: 600;">${createdDate}</div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">Folio #${t.id.substring(0, 6)}</div>
         </td>
-        <td style="font-weight:700;">$${parsed.brutoTotal.toLocaleString('es-CL')} CLP</td>
-        <td style="font-weight:700; color:#ef4444;">${parsed.exitDate || 'N/A'}</td>
+        <td>
+          <strong style="display: block; color: var(--color-text-main);">${state.commerce || t.comercio || 'N/A'}</strong>
+          <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; margin-top: 3px; background: ${state.syncWithLiveInventory !== false ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.15)'}; color: ${state.syncWithLiveInventory !== false ? '#059669' : '#d97706'}; font-weight: 600;">
+            <i class="${state.syncWithLiveInventory !== false ? 'ri-refresh-line' : 'ri-lock-line'}"></i>
+            ${state.syncWithLiveInventory !== false ? (hasOverrides ? 'Sincronizado + Ajustes' : 'Sincronizado en Vivo') : 'Listado Fijado Admin'}
+          </span>
+        </td>
+        <td>
+          <span style="display:block; font-weight:600;">${state.companyName || 'N/A'}</span>
+          <span style="font-size:0.75rem; color:var(--color-text-muted);">RUT: ${state.rutText || 'N/A'} • Rep: ${state.repName || 'N/A'}</span>
+        </td>
+        <td>
+          <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">
+            ${state.totalSKUs} SKUs • ${state.totalUnits.toLocaleString('es-CL')} Uds
+          </div>
+          ${(liveBundle.liveTotalSKUs !== state.totalSKUs || liveBundle.liveTotalUnits !== state.totalUnits) ? `
+            <div style="font-size: 0.7rem; color: #d97706; margin-top: 2px;" title="Stock actual en WMS difiere por ajustes manuales">
+              En WMS hoy: ${liveBundle.liveTotalSKUs} SKUs / ${liveBundle.liveTotalUnits} Uds
+            </div>
+          ` : `
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">
+              Cuadrado con catálogo/WMS
+            </div>
+          `}
+        </td>
+        <td>
+          <div style="font-weight:700; color: var(--color-text-main); font-size: 0.92rem;">$${state.brutoTotal.toLocaleString('es-CL')} CLP</div>
+          <div style="font-size: 0.7rem; color: var(--color-text-muted);">
+            Neto: $${state.netTotal.toLocaleString('es-CL')} + IVA
+          </div>
+          ${extraCount > 0 ? `
+            <span style="display: inline-block; margin-top: 2px; font-size: 0.68rem; background: rgba(94, 23, 235, 0.12); color: var(--color-primary); padding: 1px 6px; border-radius: 4px; font-weight: 600;">
+              ${extraCount} costo(s) extra/ajuste(s)
+            </span>
+          ` : ''}
+        </td>
+        <td style="font-weight:700; color:#ef4444;">${state.exitDate || 'N/A'}</td>
         <td>
           <span class="badge" style="background-color: ${t.status === 'abierto' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'}; color: ${t.status === 'abierto' ? '#ef4444' : '#10b981'}; font-weight:bold; font-size:0.75rem; padding: 2px 8px; border-radius: 99px;">
             ${t.status.toUpperCase()}
           </span>
         </td>
         <td style="text-align: center;">
-          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
-            <button type="button" class="btn btn-outline btn-minuta" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+          <div style="display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-primary btn-gestionar-baja" style="padding: 0.35rem 0.65rem; font-size: 0.78rem; background-color: #ef4444; border: none; color: white; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;" title="Actualizar listado de ítems, añadir o quitar costos y editar solicitud">
+              <i class="ri-tools-line"></i> Gestionar Ítems y Costos
+            </button>
+            <button type="button" class="btn btn-outline btn-sync-baja" style="padding: 0.35rem 0.55rem; font-size: 0.78rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.2rem; cursor: pointer;" title="Sincronizar con el inventario y catálogo actual del comercio">
+              <i class="ri-refresh-line"></i> Sincronizar
+            </button>
+            <button type="button" class="btn btn-outline btn-minuta" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
               <i class="ri-file-text-line"></i> Minuta
             </button>
-            <button type="button" class="btn btn-outline btn-resumen" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+            <button type="button" class="btn btn-outline btn-resumen" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
               <i class="ri-file-chart-line"></i> Resumen
             </button>
-            <button type="button" class="btn btn-toggle-outbound" data-pagado="false" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; background-color: #fef3c7; border: 1px solid #d97706; color: #92400e; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; border-radius: var(--radius-sm);">
-              <i class="ri-money-dollar-circle-line"></i> Outbound: Pendiente
+            <button type="button" class="btn btn-toggle-outbound" data-pagado="${state.outboundPagado ? 'true' : 'false'}" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; background-color: ${state.outboundPagado ? '#d1fae5' : '#fef3c7'}; border: 1px solid ${state.outboundPagado ? '#059669' : '#d97706'}; color: ${state.outboundPagado ? '#065f46' : '#92400e'}; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; border-radius: var(--radius-sm);">
+              <i class="${state.outboundPagado ? 'ri-checkbox-circle-fill' : 'ri-money-dollar-circle-line'}"></i> ${state.outboundPagado ? 'Outbound: Pagado ✓' : 'Outbound: Pendiente'}
             </button>
             ${t.status === 'abierto' ? `
-              <button type="button" class="btn btn-primary btn-cerrar-baja" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; background-color: #10b981; border: none; color: white; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+              <button type="button" class="btn btn-primary btn-cerrar-baja" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; background-color: #10b981; border: none; color: white; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
                 <i class="ri-checkbox-circle-line"></i> Cerrar
               </button>
-            ` : ''}
+            ` : `
+              <button type="button" class="btn btn-outline btn-reabrir-baja" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                <i class="ri-restart-line"></i> Reabrir
+              </button>
+            `}
           </div>
         </td>
       `;
 
-      tr.querySelector('.btn-minuta').addEventListener('click', () => {
-        const dummyProfile = {
-          full_name: parsed.repName,
-          company_name: parsed.companyName,
-          rut: parsed.rutText,
-          phone: parsed.phone,
-          contact_email: parsed.email
-        };
-        printLegalDocument(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut);
+      // Botón Gestionar Ítems y Costos
+      tr.querySelector('.btn-gestionar-baja').addEventListener('click', () => {
+        openRedZoneAdminEditorModal(t, state, liveBundle);
       });
 
-      // Toggle "Outbound Pagado"
-      const btnToggleOutbound = tr.querySelector('.btn-toggle-outbound');
-      btnToggleOutbound.addEventListener('click', () => {
-        const isPagado = btnToggleOutbound.dataset.pagado === 'true';
-        const newState = !isPagado;
-        btnToggleOutbound.dataset.pagado = String(newState);
-        if (newState) {
-          btnToggleOutbound.style.backgroundColor = '#d1fae5';
-          btnToggleOutbound.style.borderColor = '#059669';
-          btnToggleOutbound.style.color = '#065f46';
-          btnToggleOutbound.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Outbound: Pagado ✓`;
-        } else {
-          btnToggleOutbound.style.backgroundColor = '#fef3c7';
-          btnToggleOutbound.style.borderColor = '#d97706';
-          btnToggleOutbound.style.color = '#92400e';
-          btnToggleOutbound.innerHTML = `<i class="ri-money-dollar-circle-line"></i> Outbound: Pendiente`;
+      // Botón Sincronizar individual con inventario y catálogo actual
+      const btnSync = tr.querySelector('.btn-sync-baja');
+      btnSync.addEventListener('click', async () => {
+        btnSync.disabled = true;
+        btnSync.innerHTML = `<i class="ri-loader-4-line spin"></i>`;
+        try {
+          const { byCommerce: freshMap } = await fetchLiveInventoryForCommerces([state.commerce]);
+          const freshBundle = getLiveCommerceBundleForTicket(state.commerce, freshMap);
+          const updatedState = {
+            ...state,
+            syncWithLiveInventory: true,
+            itemOverrides: {},
+            items: freshBundle.liveStockItems.concat(state.customItems || []),
+            lastSyncedAt: new Date().toISOString(),
+            lastUpdatedByAdminAt: new Date().toISOString()
+          };
+          const newDesc = buildTicketDescriptionFromRedZoneData(updatedState);
+          const { error: upErr } = await supabase.from('tickets').update({ description: newDesc }).eq('id', t.id);
+          if (upErr) throw upErr;
+          await renderRedZoneAdmin();
+        } catch (err) {
+          alert('Error al sincronizar con inventario/catálogo: ' + err.message);
+          btnSync.disabled = false;
+          btnSync.innerHTML = `<i class="ri-refresh-line"></i> Sincronizar`;
         }
       });
 
+      // Botón Minuta
+      tr.querySelector('.btn-minuta').addEventListener('click', () => {
+        const dummyProfile = {
+          full_name: state.repName,
+          company_name: state.companyName,
+          rut: state.rutText,
+          phone: state.phone,
+          contact_email: state.email
+        };
+        printLegalDocument(dummyProfile, state.commerce, state.totalSKUs, state.totalUnits, state.netTotal, state.iva, state.brutoTotal, state.exitDate, state.rutText, state.companyName, state.repName, state.repRut, state);
+      });
+
+      // Toggle "Outbound Pagado" persistente en base de datos
+      const btnToggleOutbound = tr.querySelector('.btn-toggle-outbound');
+      btnToggleOutbound.addEventListener('click', async () => {
+        const isPagado = btnToggleOutbound.dataset.pagado === 'true';
+        const newState = !isPagado;
+        btnToggleOutbound.disabled = true;
+        try {
+          state.outboundPagado = newState;
+          state.lastUpdatedByAdminAt = new Date().toISOString();
+          const newDesc = buildTicketDescriptionFromRedZoneData(state);
+          const { error: upErr } = await supabase.from('tickets').update({ description: newDesc }).eq('id', t.id);
+          if (upErr) throw upErr;
+
+          btnToggleOutbound.dataset.pagado = String(newState);
+          if (newState) {
+            btnToggleOutbound.style.backgroundColor = '#d1fae5';
+            btnToggleOutbound.style.borderColor = '#059669';
+            btnToggleOutbound.style.color = '#065f46';
+            btnToggleOutbound.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Outbound: Pagado ✓`;
+          } else {
+            btnToggleOutbound.style.backgroundColor = '#fef3c7';
+            btnToggleOutbound.style.borderColor = '#d97706';
+            btnToggleOutbound.style.color = '#92400e';
+            btnToggleOutbound.innerHTML = `<i class="ri-money-dollar-circle-line"></i> Outbound: Pendiente`;
+          }
+        } catch (err) {
+          alert('Error al actualizar estado de pago Outbound: ' + err.message);
+        } finally {
+          btnToggleOutbound.disabled = false;
+        }
+      });
+
+      // Botón Resumen (Informe de Salida PDF)
       tr.querySelector('.btn-resumen').addEventListener('click', async () => {
         const outboundPagado = tr.querySelector('.btn-toggle-outbound').dataset.pagado === 'true';
+        state.outboundPagado = outboundPagado;
         const dummyProfile = {
-          full_name: parsed.repName,
-          company_name: parsed.companyName,
-          rut: parsed.rutText,
-          phone: parsed.phone,
-          contact_email: parsed.email
+          full_name: state.repName,
+          company_name: state.companyName,
+          rut: state.rutText,
+          phone: state.phone,
+          contact_email: state.email
         };
         
         const btnResumen = tr.querySelector('.btn-resumen');
@@ -91598,8 +93117,8 @@ async function renderRedZoneAdmin() {
         btnResumen.disabled = true;
 
         try {
-          const periodStatusList = await loadPeriodStatusListForCommerce(parsed.commerce);
-          printExitReport(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, periodStatusList, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut, outboundPagado);
+          const periodStatusList = await loadPeriodStatusListForCommerce(state.commerce);
+          printExitReport(dummyProfile, state.commerce, state.totalSKUs, state.totalUnits, state.netTotal, state.iva, state.brutoTotal, state.exitDate, periodStatusList, state.rutText, state.companyName, state.repName, state.repRut, outboundPagado, state);
         } catch(err) {
           alert('Error al generar resumen: ' + err.message);
         } finally {
@@ -91611,7 +93130,7 @@ async function renderRedZoneAdmin() {
       const btnCerrar = tr.querySelector('.btn-cerrar-baja');
       if (btnCerrar) {
         btnCerrar.addEventListener('click', async () => {
-          if (!confirm(`¿Está seguro de cerrar la solicitud de baja para el comercio ${parsed.commerce}?`)) return;
+          if (!confirm(`¿Está seguro de cerrar la solicitud de baja para el comercio ${state.commerce}?`)) return;
           
           btnCerrar.disabled = true;
           btnCerrar.innerHTML = `<i class="ri-loader-4-line spin"></i>...`;
@@ -91624,12 +93143,32 @@ async function renderRedZoneAdmin() {
 
             if (updateError) throw updateError;
 
-            alert('Solicitud de baja cerrada con éxito.');
+            if (window.updateAdminBadges) window.updateAdminBadges();
             renderRedZoneAdmin();
           } catch(err) {
             alert('Error al cerrar solicitud: ' + err.message);
             btnCerrar.disabled = false;
             btnCerrar.innerHTML = `<i class="ri-checkbox-circle-line"></i> Cerrar`;
+          }
+        });
+      }
+
+      const btnReabrir = tr.querySelector('.btn-reabrir-baja');
+      if (btnReabrir) {
+        btnReabrir.addEventListener('click', async () => {
+          if (!confirm(`¿Desea reabrir la solicitud de baja del comercio ${state.commerce}?`)) return;
+          btnReabrir.disabled = true;
+          try {
+            const { error: updateError } = await supabase
+              .from('tickets')
+              .update({ status: 'abierto' })
+              .eq('id', t.id);
+            if (updateError) throw updateError;
+            if (window.updateAdminBadges) window.updateAdminBadges();
+            renderRedZoneAdmin();
+          } catch (err) {
+            alert('Error al reabrir solicitud: ' + err.message);
+            btnReabrir.disabled = false;
           }
         });
       }
@@ -91648,8 +93187,951 @@ async function renderRedZoneAdmin() {
   }
 }
 
-function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany) {
-  const repName = profile.full_name || "[Nombre del Representante]";
+function openRedZoneAdminEditorModal(ticket, initialState, initialLiveBundle) {
+  let existing = document.getElementById('modal-redzone-admin-editor');
+  if (existing) existing.remove();
+
+  // Copia de trabajo editable
+  let workingState = JSON.parse(JSON.stringify(initialState));
+  let liveBundle = JSON.parse(JSON.stringify(initialLiveBundle || { liveStockItems: [], allCatalogProducts: [], liveTotalSKUs: 0, liveTotalUnits: 0 }));
+
+  if (!Array.isArray(workingState.items)) workingState.items = [];
+  if (!Array.isArray(workingState.extraCosts)) workingState.extraCosts = [];
+  if (!workingState.pricingConfig) {
+    workingState.pricingConfig = { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-redzone-admin-editor';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+
+  const catalogOptionsHtml = (liveBundle.allCatalogProducts || [])
+    .sort((a, b) => String(a.sku).localeCompare(String(b.sku)))
+    .map(cp => `<option value="${String(cp.sku).replace(/"/g, '&quot;')}">${cp.sku} — ${cp.name} (Stock actual: ${cp.quantity} ud)</option>`)
+    .join('');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1020px; width: 95%; display: flex; flex-direction: column; max-height: 92vh; padding: 0; border-radius: var(--radius-lg); overflow: hidden;">
+      <!-- Header -->
+      <div class="modal-header" style="padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--color-border); background: linear-gradient(135deg, #fef2f2 0%, #ffe4e6 100%); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="background: #ef4444; color: white; width: 38px; height: 38px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-tools-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; color: #991b1b; font-size: 1.1rem; font-weight: 700;">
+              Gestión de Solicitud de Término de Servicio — ${workingState.commerce || ticket.comercio}
+            </h3>
+            <span style="font-size: 0.78rem; color: #7f1d1d;">
+              Los cambios guardados aquí se reflejan inmediatamente en la Solicitud de Salida tanto para el Cliente como para el Admin.
+            </span>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-rz-editor" style="font-size: 1.5rem; color: #991b1b; background: none; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Tabs de Navegación -->
+      <div style="display: flex; border-bottom: 1px solid var(--color-border); background: var(--color-bg); padding: 0 1.5rem; gap: 0.5rem;">
+        <button type="button" class="rz-editor-tab active" data-tab="items" style="padding: 0.75rem 1rem; border: none; background: none; border-bottom: 3px solid #ef4444; color: #ef4444; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-list-check-2"></i> 1. Listado de Ítems e Inventario (<span id="rz-tab-count-items">0</span>)
+        </button>
+        <button type="button" class="rz-editor-tab" data-tab="costs" style="padding: 0.75rem 1rem; border: none; background: none; border-bottom: 3px solid transparent; color: var(--color-text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-money-dollar-circle-line"></i> 2. Costos Base y Cargos / Descuentos (<span id="rz-tab-count-costs">0</span>)
+        </button>
+        <button type="button" class="rz-editor-tab" data-tab="details" style="padding: 0.75rem 1rem; border: none; background: none; border-bottom: 3px solid transparent; color: var(--color-text-muted); font-weight: 600; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-file-user-line"></i> 3. Datos de Salida, Pago y Observaciones
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        <!-- TAB 1: ITEMS E INVENTARIO -->
+        <div id="rz-editor-pane-items" class="rz-editor-pane">
+          <!-- Barra de Sincronización con Catálogo / Inventario -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="flex: 1; min-width: 260px;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <input type="checkbox" id="rz-chk-live-sync" ${workingState.syncWithLiveInventory !== false ? 'checked' : ''} style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="rz-chk-live-sync" style="font-weight: 700; font-size: 0.88rem; color: var(--color-text-main); cursor: pointer;">
+                  Sincronizar automáticamente con cambios de inventario y catálogo
+                </label>
+              </div>
+              <p style="margin: 0; font-size: 0.78rem; color: var(--color-text-muted);">
+                Si está activo, cualquier cambio posterior en el inventario o catálogo se reflejará automáticamente en la solicitud de salida (conservando los ajustes manuales o costos extra que agregues).
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="btn-rz-pull-live-inventory" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.45rem 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-color: #059669; color: #059669; font-weight: 600;">
+                <i class="ri-refresh-line"></i> Traer Inventario y Catálogo Actual (${liveBundle.liveTotalSKUs} SKUs / ${liveBundle.liveTotalUnits} Uds)
+              </button>
+            </div>
+          </div>
+
+          <!-- Formulario para Añadir Ítem del Catálogo o Manual -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem;">
+            <div style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-add-box-line" style="color: var(--color-primary);"></i> Añadir Ítem al Listado de Salida (desde Catálogo o Manual)
+            </div>
+            <div style="display: grid; grid-template-columns: 1.3fr 1.6fr 1.2fr 0.7fr auto; gap: 0.5rem; align-items: end;">
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">SKU (Catálogo o Nuevo)</label>
+                <input type="text" id="rz-add-item-sku" list="rz-catalog-sku-list" class="form-input" placeholder="Buscar o escribir SKU..." style="font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+                <datalist id="rz-catalog-sku-list">${catalogOptionsHtml}</datalist>
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Descripción / Producto</label>
+                <input type="text" id="rz-add-item-name" class="form-input" placeholder="Nombre del producto..." style="font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Ubicación / Bodega</label>
+                <input type="text" id="rz-add-item-warehouse" class="form-input" placeholder="Ej. Bodega Central" value="Bodega Central" style="font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Unidades</label>
+                <input type="number" id="rz-add-item-qty" class="form-input" min="1" value="1" style="font-size: 0.8rem; padding: 0.4rem 0.6rem;">
+              </div>
+              <div>
+                <button type="button" id="btn-rz-add-item" class="btn btn-primary" style="font-size: 0.8rem; padding: 0.45rem 0.85rem; white-space: nowrap; cursor: pointer;">
+                  <i class="ri-add-line"></i> Añadir Ítem
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabla Editable de Ítems -->
+          <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;">
+            <div style="max-height: 330px; overflow-y: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+                <thead style="position: sticky; top: 0; background: var(--color-bg); z-index: 2;">
+                  <tr>
+                    <th style="padding: 0.6rem 0.75rem; width: 160px;">SKU</th>
+                    <th style="padding: 0.6rem 0.75rem;">Descripción / Nombre en Catálogo</th>
+                    <th style="padding: 0.6rem 0.75rem; width: 210px;">Bodega / Ubicación</th>
+                    <th style="padding: 0.6rem 0.75rem; width: 120px; text-align: center;">Unidades</th>
+                    <th style="padding: 0.6rem 0.75rem; width: 80px; text-align: center;">Quitar</th>
+                  </tr>
+                </thead>
+                <tbody id="rz-editor-items-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: COSTOS BASE Y CARGOS / DESCUENTOS ADICIONALES -->
+        <div id="rz-editor-pane-costs" class="rz-editor-pane" style="display: none;">
+          <!-- Parámetros de Tarifa de Preparación -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.25rem;">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-Calculator-line" style="color: var(--color-primary);"></i> Parámetros de Cálculo de Preparación por Inventario (Netos)
+            </h4>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 0.75rem;">
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-bottom: 3px;">Tarifa Base Preparación ($)</label>
+                <input type="number" id="rz-cfg-base-fee" class="form-input" min="0" value="${workingState.pricingConfig.baseFee}" style="font-size: 0.85rem; padding: 0.45rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-bottom: 3px;">Umbral SKUs sin recargo</label>
+                <input type="number" id="rz-cfg-sku-limit" class="form-input" min="0" value="${workingState.pricingConfig.skuLimit}" style="font-size: 0.85rem; padding: 0.45rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-bottom: 3px;">Costo por SKU Adicional ($)</label>
+                <input type="number" id="rz-cfg-sku-rate" class="form-input" min="0" value="${workingState.pricingConfig.skuRate}" style="font-size: 0.85rem; padding: 0.45rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-bottom: 3px;">Umbral Unidades sin recargo</label>
+                <input type="number" id="rz-cfg-units-limit" class="form-input" min="0" value="${workingState.pricingConfig.unitsLimit}" style="font-size: 0.85rem; padding: 0.45rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-bottom: 3px;">Costo por Unidad Adicional ($)</label>
+                <input type="number" id="rz-cfg-units-rate" class="form-input" min="0" value="${workingState.pricingConfig.unitsRate}" style="font-size: 0.85rem; padding: 0.45rem 0.6rem;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Gestor de Costos Adicionales y Descuentos -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-add-circle-line" style="color: #ef4444;"></i> Añadir Costos Adicionales o Descuentos a la Solicitud
+              </h4>
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline rz-preset-cost" data-concept="Paletizado y film stretch (Pallets de salida)" data-type="charge" data-tax="neto" data-amount="15000" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; cursor: pointer;">+ Pallet / Alusado</button>
+                <button type="button" class="btn btn-outline rz-preset-cost" data-concept="Almacenaje proporcional mes en curso" data-type="charge" data-tax="neto" data-amount="25000" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; cursor: pointer;">+ Almacenaje Proporcional</button>
+                <button type="button" class="btn btn-outline rz-preset-cost" data-concept="Mano de obra / Hora operativa adicional de retiro" data-type="charge" data-tax="neto" data-amount="12000" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; cursor: pointer;">+ Horas Operativas</button>
+                <button type="button" class="btn btn-outline rz-preset-cost" data-concept="Insumos de embalaje / Cajas de retiro" data-type="charge" data-tax="neto" data-amount="8000" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; cursor: pointer;">+ Cajas / Embalaje</button>
+                <button type="button" class="btn btn-outline rz-preset-cost" data-concept="Descuento / Rebaja comercial autorizada" data-type="discount" data-tax="neto" data-amount="5000" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; cursor: pointer; color: #059669; border-color: #059669;">- Descuento / Ajuste</button>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 0.5rem; align-items: end;">
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Concepto / Glosa del Costo o Descuento</label>
+                <input type="text" id="rz-new-cost-concept" class="form-input" placeholder="Ej. Paletizado, Almacenaje proporcional, Descuento..." style="font-size: 0.82rem; padding: 0.42rem 0.6rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Tipo de Movimiento</label>
+                <select id="rz-new-cost-type" class="form-input" style="font-size: 0.82rem; padding: 0.42rem 0.6rem;">
+                  <option value="charge">Cargo Adicional (+)</option>
+                  <option value="discount">Descuento / Rebaja (-)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Tratamiento IVA</label>
+                <select id="rz-new-cost-tax" class="form-input" style="font-size: 0.82rem; padding: 0.42rem 0.6rem;">
+                  <option value="neto">Monto Neto (+19% IVA)</option>
+                  <option value="exento">Exento / Monto Bruto</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.73rem; color: var(--color-text-muted); display: block; margin-bottom: 2px;">Monto ($ CLP)</label>
+                <input type="number" id="rz-new-cost-amount" class="form-input" min="0" placeholder="0" style="font-size: 0.82rem; padding: 0.42rem 0.6rem;">
+              </div>
+              <div>
+                <button type="button" id="btn-rz-add-extra-cost" class="btn btn-primary" style="background-color: #ef4444; border: none; color: white; font-size: 0.82rem; padding: 0.45rem 0.9rem; white-space: nowrap; cursor: pointer;">
+                  <i class="ri-add-line"></i> Añadir Costo
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Lista de Costos Adicionales Activos -->
+          <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+              <thead style="background: var(--color-bg);">
+                <tr>
+                  <th style="padding: 0.6rem 0.75rem;">Concepto / Descripción</th>
+                  <th style="padding: 0.6rem 0.75rem; width: 145px;">Tipo</th>
+                  <th style="padding: 0.6rem 0.75rem; width: 155px;">Afectación IVA</th>
+                  <th style="padding: 0.6rem 0.75rem; width: 145px; text-align: right;">Monto ($ CLP)</th>
+                  <th style="padding: 0.6rem 0.75rem; width: 80px; text-align: center;">Quitar</th>
+                </tr>
+              </thead>
+              <tbody id="rz-editor-costs-tbody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: DATOS DE SALIDA, PAGO Y OBSERVACIONES -->
+        <div id="rz-editor-pane-details" class="rz-editor-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">Fecha Estimada / Acordada de Salida</label>
+              <input type="text" id="rz-edit-exit-date" class="form-input" value="${workingState.exitDate || ''}" placeholder="Ej. 15 de noviembre de 2026" style="font-size: 0.85rem;">
+            </div>
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">Estado de Pago del Outbound (Retiro)</label>
+              <select id="rz-edit-outbound-paid" class="form-input" style="font-size: 0.85rem;">
+                <option value="false" ${!workingState.outboundPagado ? 'selected' : ''}>Pendiente de Pago</option>
+                <option value="true" ${workingState.outboundPagado ? 'selected' : ''}>Pagado ✓ (Descontar del saldo a pagar)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">Empresa / Razón Social</label>
+              <input type="text" id="rz-edit-company" class="form-input" value="${workingState.companyName || ''}" style="font-size: 0.85rem;">
+            </div>
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">RUT Empresa</label>
+              <input type="text" id="rz-edit-company-rut" class="form-input" value="${workingState.rutText || ''}" style="font-size: 0.85rem;">
+            </div>
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">Nombre Representante Legal</label>
+              <input type="text" id="rz-edit-rep-name" class="form-input" value="${workingState.repName || ''}" style="font-size: 0.85rem;">
+            </div>
+            <div>
+              <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">RUT Representante Legal</label>
+              <input type="text" id="rz-edit-rep-rut" class="form-input" value="${workingState.repRut || ''}" style="font-size: 0.85rem;">
+            </div>
+          </div>
+          <div>
+            <label style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); display: block; margin-bottom: 4px;">
+              Observaciones / Notas de Administración (Visibles para el Cliente y en el Informe de Salida)
+            </label>
+            <textarea id="rz-edit-admin-notes" class="form-input" rows="3" placeholder="Ej. Conteo físico realizado en bodega. Se incluye paletizado de 2 pallets y ajuste de inventario según último despacho..." style="font-size: 0.85rem; resize: vertical;">${workingState.adminNotes || ''}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Barra de Resumen Económico en Vivo + Footer -->
+      <div style="border-top: 2px solid var(--color-border); background: var(--color-bg); padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        <div id="rz-live-summary-bar" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.65rem; background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.8rem;">
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" id="btn-rz-preview-minuta" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.5rem 0.9rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+              <i class="ri-file-text-line"></i> Ver Minuta Legal
+            </button>
+            <button type="button" id="btn-rz-preview-resumen" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.5rem 0.9rem; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+              <i class="ri-file-chart-line"></i> Ver Informe de Salida (PDF)
+            </button>
+          </div>
+          <div style="display: flex; gap: 0.6rem;">
+            <button type="button" id="btn-rz-cancel" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.55rem 1.1rem; cursor: pointer;">Cancelar</button>
+            <button type="button" id="btn-rz-save" class="btn btn-primary" style="background-color: #ef4444; border: none; color: white; font-weight: 700; font-size: 0.88rem; padding: 0.55rem 1.35rem; display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <i class="ri-save-line"></i> Guardar Cambios en Solicitud
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Autocompletar nombre y bodega cuando selecciona un SKU del catálogo
+  const skuInput = modal.querySelector('#rz-add-item-sku');
+  const nameInput = modal.querySelector('#rz-add-item-name');
+  const whInput = modal.querySelector('#rz-add-item-warehouse');
+  const qtyInput = modal.querySelector('#rz-add-item-qty');
+
+  skuInput.addEventListener('input', () => {
+    const val = skuInput.value.trim().toLowerCase();
+    const match = (liveBundle.allCatalogProducts || []).find(p => String(p.sku || '').trim().toLowerCase() === val);
+    if (match) {
+      nameInput.value = match.name || '';
+      if (match.warehouses) whInput.value = match.warehouses;
+      if (match.quantity > 0) qtyInput.value = match.quantity;
+    }
+  });
+
+  // Cambiar de pestaña
+  modal.querySelectorAll('.rz-editor-tab').forEach(tabBtn => {
+    tabBtn.addEventListener('click', () => {
+      modal.querySelectorAll('.rz-editor-tab').forEach(b => {
+        b.classList.remove('active');
+        b.style.borderBottomColor = 'transparent';
+        b.style.color = 'var(--color-text-muted)';
+      });
+      tabBtn.classList.add('active');
+      tabBtn.style.borderBottomColor = '#ef4444';
+      tabBtn.style.color = '#ef4444';
+
+      const target = tabBtn.dataset.tab;
+      modal.querySelectorAll('.rz-editor-pane').forEach(p => { p.style.display = 'none'; });
+      const activePane = modal.querySelector(`#rz-editor-pane-${target}`);
+      if (activePane) activePane.style.display = 'block';
+    });
+  });
+
+  function syncOverridesFromItemsList() {
+    const liveBySku = {};
+    (liveBundle.liveStockItems || []).forEach(li => {
+      liveBySku[String(li.sku || '').trim().toLowerCase()] = li;
+    });
+
+    const newOverrides = {};
+    const newCustomItems = [];
+    const currentSkus = new Set();
+
+    workingState.items.forEach(it => {
+      const skuKey = String(it.sku || '').trim().toLowerCase();
+      currentSkus.add(skuKey);
+      const liveMatch = liveBySku[skuKey];
+      if (liveMatch) {
+        if (
+          Number(it.quantity) !== Number(liveMatch.quantity) ||
+          it.name !== liveMatch.name ||
+          it.warehouses !== liveMatch.warehouses
+        ) {
+          newOverrides[skuKey] = {
+            sku: it.sku,
+            name: it.name,
+            quantity: Number(it.quantity) || 0,
+            warehouses: it.warehouses,
+            excluded: false
+          };
+        }
+      } else {
+        const inCatalog = (liveBundle.allCatalogProducts || []).find(cp => String(cp.sku || '').trim().toLowerCase() === skuKey);
+        if (inCatalog) {
+          newOverrides[skuKey] = {
+            sku: it.sku,
+            name: it.name,
+            quantity: Number(it.quantity) || 0,
+            warehouses: it.warehouses,
+            excluded: false
+          };
+        } else {
+          newCustomItems.push({
+            sku: it.sku,
+            name: it.name,
+            quantity: Number(it.quantity) || 0,
+            warehouses: it.warehouses,
+            isCustom: true
+          });
+        }
+      }
+    });
+
+    // Marcar como excluidos los SKUs que tienen stock en vivo pero el admin quitó del listado
+    Object.keys(liveBySku).forEach(skuKey => {
+      if (!currentSkus.has(skuKey)) {
+        newOverrides[skuKey] = { excluded: true };
+      }
+    });
+
+    workingState.itemOverrides = newOverrides;
+    workingState.customItems = newCustomItems;
+  }
+
+  function renderItemsTable() {
+    const tbody = modal.querySelector('#rz-editor-items-tbody');
+    const activeItems = (workingState.items || []).filter(it => !it.excluded && (Number(it.quantity) || 0) > 0);
+    workingState.items = activeItems;
+    modal.querySelector('#rz-tab-count-items').textContent = `${activeItems.length} SKUs`;
+
+    if (activeItems.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+            No hay ítems en el listado de salida. Puede añadir ítems arriba o pulsar "Traer Inventario y Catálogo Actual".
+          </td>
+        </tr>
+      `;
+      updateLiveSummary();
+      return;
+    }
+
+    tbody.innerHTML = activeItems.map((item, idx) => `
+      <tr data-idx="${idx}" style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.45rem 0.6rem;">
+          <input type="text" class="form-input rz-item-sku-input" data-idx="${idx}" value="${String(item.sku || '').replace(/"/g, '&quot;')}" style="font-size: 0.8rem; font-weight: 600; padding: 0.3rem 0.5rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem;">
+          <input type="text" class="form-input rz-item-name-input" data-idx="${idx}" value="${String(item.name || '').replace(/"/g, '&quot;')}" style="font-size: 0.8rem; padding: 0.3rem 0.5rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem;">
+          <input type="text" class="form-input rz-item-wh-input" data-idx="${idx}" value="${String(item.warehouses || '').replace(/"/g, '&quot;')}" style="font-size: 0.78rem; padding: 0.3rem 0.5rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem; text-align: center;">
+          <input type="number" class="form-input rz-item-qty-input" data-idx="${idx}" min="1" value="${Number(item.quantity) || 1}" style="font-size: 0.82rem; font-weight: 700; text-align: center; padding: 0.3rem 0.4rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem; text-align: center;">
+          <button type="button" class="btn btn-outline rz-btn-remove-item" data-idx="${idx}" style="color: #ef4444; border-color: #fecdd3; padding: 0.28rem 0.5rem; font-size: 0.8rem; cursor: pointer;" title="Quitar ítem de la solicitud">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('.rz-item-sku-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const i = Number(e.target.dataset.idx);
+        workingState.items[i].sku = e.target.value.trim();
+        syncOverridesFromItemsList();
+        updateLiveSummary();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-item-name-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const i = Number(e.target.dataset.idx);
+        workingState.items[i].name = e.target.value;
+        syncOverridesFromItemsList();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-item-wh-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const i = Number(e.target.dataset.idx);
+        workingState.items[i].warehouses = e.target.value;
+        syncOverridesFromItemsList();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-item-qty-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const i = Number(e.target.dataset.idx);
+        workingState.items[i].quantity = Math.max(0, parseInt(e.target.value, 10) || 0);
+        syncOverridesFromItemsList();
+        updateLiveSummary();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-btn-remove-item').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const i = Number(e.currentTarget.dataset.idx);
+        workingState.items.splice(i, 1);
+        syncOverridesFromItemsList();
+        renderItemsTable();
+      });
+    });
+
+    updateLiveSummary();
+  }
+
+  function renderExtraCostsTable() {
+    const tbody = modal.querySelector('#rz-editor-costs-tbody');
+    const costs = workingState.extraCosts || [];
+    modal.querySelector('#rz-tab-count-costs').textContent = `${costs.length}`;
+
+    if (costs.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 1.75rem; color: var(--color-text-muted);">
+            No se han añadido costos adicionales ni descuentos. Use los botones rápidos o el formulario superior para añadir cargos o rebajas.
+          </td>
+        </tr>
+      `;
+      updateLiveSummary();
+      return;
+    }
+
+    tbody.innerHTML = costs.map((c, idx) => `
+      <tr data-idx="${idx}" style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.45rem 0.6rem;">
+          <input type="text" class="form-input rz-cost-concept-input" data-idx="${idx}" value="${String(c.concept || '').replace(/"/g, '&quot;')}" style="font-size: 0.8rem; padding: 0.3rem 0.5rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem;">
+          <select class="form-input rz-cost-type-select" data-idx="${idx}" style="font-size: 0.8rem; padding: 0.3rem 0.5rem; color: ${c.type === 'discount' ? '#059669' : '#ef4444'}; font-weight: 600;">
+            <option value="charge" ${c.type !== 'discount' ? 'selected' : ''}>Cargo (+)</option>
+            <option value="discount" ${c.type === 'discount' ? 'selected' : ''}>Descuento (-)</option>
+          </select>
+        </td>
+        <td style="padding: 0.45rem 0.6rem;">
+          <select class="form-input rz-cost-tax-select" data-idx="${idx}" style="font-size: 0.8rem; padding: 0.3rem 0.5rem;">
+            <option value="neto" ${c.taxType !== 'exento' ? 'selected' : ''}>Neto (+19% IVA)</option>
+            <option value="exento" ${c.taxType === 'exento' ? 'selected' : ''}>Exento / Bruto</option>
+          </select>
+        </td>
+        <td style="padding: 0.45rem 0.6rem; text-align: right;">
+          <input type="number" class="form-input rz-cost-amount-input" data-idx="${idx}" min="0" value="${Number(c.amount) || 0}" style="font-size: 0.82rem; font-weight: 700; text-align: right; padding: 0.3rem 0.5rem;">
+        </td>
+        <td style="padding: 0.45rem 0.6rem; text-align: center;">
+          <button type="button" class="btn btn-outline rz-btn-remove-cost" data-idx="${idx}" style="color: #ef4444; border-color: #fecdd3; padding: 0.28rem 0.5rem; font-size: 0.8rem; cursor: pointer;" title="Quitar costo">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('.rz-cost-concept-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        workingState.extraCosts[Number(e.target.dataset.idx)].concept = e.target.value;
+      });
+    });
+
+    tbody.querySelectorAll('.rz-cost-type-select').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        workingState.extraCosts[idx].type = e.target.value;
+        renderExtraCostsTable();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-cost-tax-select').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        workingState.extraCosts[idx].taxType = e.target.value;
+        updateLiveSummary();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-cost-amount-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        workingState.extraCosts[idx].amount = Math.max(0, parseInt(e.target.value, 10) || 0);
+        updateLiveSummary();
+      });
+    });
+
+    tbody.querySelectorAll('.rz-btn-remove-cost').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const idx = Number(e.currentTarget.dataset.idx);
+        workingState.extraCosts.splice(idx, 1);
+        renderExtraCostsTable();
+      });
+    });
+
+    updateLiveSummary();
+  }
+
+  function updateLiveSummary() {
+    workingState.pricingConfig = {
+      baseFee: Math.max(0, parseInt(modal.querySelector('#rz-cfg-base-fee').value, 10) || 0),
+      skuLimit: Math.max(0, parseInt(modal.querySelector('#rz-cfg-sku-limit').value, 10) || 0),
+      skuRate: Math.max(0, parseInt(modal.querySelector('#rz-cfg-sku-rate').value, 10) || 0),
+      unitsLimit: Math.max(0, parseInt(modal.querySelector('#rz-cfg-units-limit').value, 10) || 0),
+      unitsRate: Math.max(0, parseInt(modal.querySelector('#rz-cfg-units-rate').value, 10) || 0)
+    };
+
+    const calc = calculateRedZoneTotals(workingState.items, workingState.pricingConfig, workingState.extraCosts);
+    Object.assign(workingState, calc);
+
+    const netExtrasDelta = calc.extraNetCharges - calc.extraNetDiscounts;
+    const exentoExtrasDelta = calc.extraExentoCharges - calc.extraExentoDiscounts;
+
+    const summaryBar = modal.querySelector('#rz-live-summary-bar');
+    summaryBar.innerHTML = `
+      <div>
+        <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block;">Ítems / Unidades</span>
+        <strong style="color: var(--color-text-main); font-size: 0.92rem;">${calc.totalSKUs} SKUs • ${calc.totalUnits.toLocaleString('es-CL')} Uds</strong>
+      </div>
+      <div>
+        <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block;">Prep. Inventario (Neto)</span>
+        <strong style="color: var(--color-text-main); font-size: 0.92rem;">$${calc.prepNetTotal.toLocaleString('es-CL')}</strong>
+      </div>
+      <div>
+        <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block;">Costos / Ajustes Extra</span>
+        <strong style="color: ${(netExtrasDelta + exentoExtrasDelta) >= 0 ? 'var(--color-text-main)' : '#059669'}; font-size: 0.92rem;">
+          ${(netExtrasDelta + exentoExtrasDelta) >= 0 ? '+' : '-'}$${Math.abs(netExtrasDelta + exentoExtrasDelta).toLocaleString('es-CL')}
+        </strong>
+      </div>
+      <div>
+        <span style="color: var(--color-text-muted); font-size: 0.72rem; display: block;">Total Neto + IVA (19%)</span>
+        <strong style="color: var(--color-text-main); font-size: 0.92rem;">$${calc.netTotal.toLocaleString('es-CL')} + $${calc.iva.toLocaleString('es-CL')}</strong>
+      </div>
+      <div style="background: rgba(239, 68, 68, 0.08); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.25);">
+        <span style="color: #991b1b; font-size: 0.72rem; font-weight: 700; display: block;">TOTAL BRUTO SALIDA</span>
+        <strong style="color: #ef4444; font-size: 1.05rem;">$${calc.brutoTotal.toLocaleString('es-CL')} CLP</strong>
+      </div>
+    `;
+  }
+
+  // Eventos de Inputs de Configuración de Tarifas
+  ['#rz-cfg-base-fee', '#rz-cfg-sku-limit', '#rz-cfg-sku-rate', '#rz-cfg-units-limit', '#rz-cfg-units-rate'].forEach(sel => {
+    modal.querySelector(sel).addEventListener('input', updateLiveSummary);
+  });
+
+  // Checkbox de sincronización en vivo
+  modal.querySelector('#rz-chk-live-sync').addEventListener('change', (e) => {
+    workingState.syncWithLiveInventory = e.target.checked;
+  });
+
+  // Botón Traer Inventario y Catálogo Actual en vivo
+  const btnPullLive = modal.querySelector('#btn-rz-pull-live-inventory');
+  btnPullLive.addEventListener('click', async () => {
+    btnPullLive.disabled = true;
+    const oldHtml = btnPullLive.innerHTML;
+    btnPullLive.innerHTML = `<i class="ri-loader-4-line spin"></i> Consultando inventario y catálogo...`;
+    try {
+      const { byCommerce: freshMap } = await fetchLiveInventoryForCommerces([workingState.commerce || ticket.comercio]);
+      liveBundle = getLiveCommerceBundleForTicket(workingState.commerce || ticket.comercio, freshMap);
+      workingState.itemOverrides = {};
+      workingState.customItems = [];
+      workingState.items = liveBundle.liveStockItems.map(x => ({ ...x }));
+      workingState.syncWithLiveInventory = true;
+      modal.querySelector('#rz-chk-live-sync').checked = true;
+      renderItemsTable();
+    } catch (err) {
+      alert('Error al obtener inventario actual: ' + err.message);
+    } finally {
+      btnPullLive.disabled = false;
+      btnPullLive.innerHTML = `<i class="ri-refresh-line"></i> Traer Inventario y Catálogo Actual (${liveBundle.liveTotalSKUs} SKUs / ${liveBundle.liveTotalUnits} Uds)`;
+    }
+  });
+
+  // Botón Añadir Ítem
+  modal.querySelector('#btn-rz-add-item').addEventListener('click', () => {
+    const skuVal = skuInput.value.trim() || 'S/SKU';
+    const nameVal = nameInput.value.trim() || 'Producto sin nombre';
+    const whVal = whInput.value.trim() || 'Bodega Central';
+    const qtyVal = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+
+    const existingIdx = workingState.items.findIndex(it => String(it.sku || '').trim().toLowerCase() === skuVal.toLowerCase());
+    if (existingIdx !== -1) {
+      workingState.items[existingIdx].quantity = (Number(workingState.items[existingIdx].quantity) || 0) + qtyVal;
+      workingState.items[existingIdx].name = nameVal;
+      workingState.items[existingIdx].warehouses = whVal;
+    } else {
+      workingState.items.push({
+        sku: skuVal,
+        name: nameVal,
+        quantity: qtyVal,
+        warehouses: whVal,
+        isCustom: true
+      });
+    }
+
+    skuInput.value = '';
+    nameInput.value = '';
+    qtyInput.value = '1';
+    syncOverridesFromItemsList();
+    renderItemsTable();
+  });
+
+  // Botones rápidos de costos adicionales
+  modal.querySelectorAll('.rz-preset-cost').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modal.querySelector('#rz-new-cost-concept').value = btn.dataset.concept || '';
+      modal.querySelector('#rz-new-cost-type').value = btn.dataset.type || 'charge';
+      modal.querySelector('#rz-new-cost-tax').value = btn.dataset.tax || 'neto';
+      modal.querySelector('#rz-new-cost-amount').value = btn.dataset.amount || '0';
+      modal.querySelector('#rz-new-cost-amount').focus();
+    });
+  });
+
+  // Botón Añadir Costo Adicional / Descuento
+  modal.querySelector('#btn-rz-add-extra-cost').addEventListener('click', () => {
+    const concept = modal.querySelector('#rz-new-cost-concept').value.trim();
+    const type = modal.querySelector('#rz-new-cost-type').value;
+    const taxType = modal.querySelector('#rz-new-cost-tax').value;
+    const amount = Math.max(0, parseInt(modal.querySelector('#rz-new-cost-amount').value, 10) || 0);
+
+    if (!concept) {
+      alert('Por favor ingrese el concepto o descripción del costo/descuento.');
+      return;
+    }
+    if (amount <= 0) {
+      alert('Por favor ingrese un monto mayor a 0.');
+      return;
+    }
+
+    workingState.extraCosts.push({
+      id: 'cost_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+      concept,
+      type,
+      taxType,
+      amount
+    });
+
+    modal.querySelector('#rz-new-cost-concept').value = '';
+    modal.querySelector('#rz-new-cost-amount').value = '';
+    renderExtraCostsTable();
+  });
+
+  function collectFormDetailsIntoState() {
+    workingState.exitDate = modal.querySelector('#rz-edit-exit-date').value.trim() || workingState.exitDate;
+    workingState.outboundPagado = modal.querySelector('#rz-edit-outbound-paid').value === 'true';
+    workingState.companyName = modal.querySelector('#rz-edit-company').value.trim();
+    workingState.rutText = modal.querySelector('#rz-edit-company-rut').value.trim();
+    workingState.repName = modal.querySelector('#rz-edit-rep-name').value.trim();
+    workingState.repRut = modal.querySelector('#rz-edit-rep-rut').value.trim();
+    workingState.adminNotes = modal.querySelector('#rz-edit-admin-notes').value.trim();
+    workingState.syncWithLiveInventory = modal.querySelector('#rz-chk-live-sync').checked;
+    updateLiveSummary();
+  }
+
+  // Vista previa Minuta
+  modal.querySelector('#btn-rz-preview-minuta').addEventListener('click', () => {
+    collectFormDetailsIntoState();
+    const dummyProfile = {
+      full_name: workingState.repName,
+      company_name: workingState.companyName,
+      rut: workingState.rutText,
+      phone: workingState.phone,
+      contact_email: workingState.email
+    };
+    printLegalDocument(dummyProfile, workingState.commerce, workingState.totalSKUs, workingState.totalUnits, workingState.netTotal, workingState.iva, workingState.brutoTotal, workingState.exitDate, workingState.rutText, workingState.companyName, workingState.repName, workingState.repRut, workingState);
+  });
+
+  // Vista previa Informe de Salida
+  modal.querySelector('#btn-rz-preview-resumen').addEventListener('click', async () => {
+    collectFormDetailsIntoState();
+    const dummyProfile = {
+      full_name: workingState.repName,
+      company_name: workingState.companyName,
+      rut: workingState.rutText,
+      phone: workingState.phone,
+      contact_email: workingState.email
+    };
+    const periodStatusList = await loadPeriodStatusListForCommerce(workingState.commerce);
+    printExitReport(dummyProfile, workingState.commerce, workingState.totalSKUs, workingState.totalUnits, workingState.netTotal, workingState.iva, workingState.brutoTotal, workingState.exitDate, periodStatusList, workingState.rutText, workingState.companyName, workingState.repName, workingState.repRut, workingState.outboundPagado, workingState);
+  });
+
+  // Guardar cambios en Supabase
+  const btnSave = modal.querySelector('#btn-rz-save');
+  btnSave.addEventListener('click', async () => {
+    collectFormDetailsIntoState();
+    syncOverridesFromItemsList();
+    workingState.lastSyncedAt = new Date().toISOString();
+    workingState.lastUpdatedByAdminAt = new Date().toISOString();
+
+    btnSave.disabled = true;
+    btnSave.innerHTML = `<i class="ri-loader-4-line spin"></i> Guardando...`;
+
+    try {
+      const newDescription = buildTicketDescriptionFromRedZoneData(workingState);
+      const { error: upErr } = await supabase
+        .from('tickets')
+        .update({ description: newDescription })
+        .eq('id', ticket.id);
+
+      if (upErr) throw upErr;
+
+      modal.remove();
+      await renderRedZoneAdmin();
+    } catch (err) {
+      alert('Error al guardar cambios en la solicitud: ' + err.message);
+      btnSave.disabled = false;
+      btnSave.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios en Solicitud`;
+    }
+  });
+
+  const closeModal = () => modal.remove();
+  modal.querySelector('#btn-close-rz-editor').addEventListener('click', closeModal);
+  modal.querySelector('#btn-rz-cancel').addEventListener('click', closeModal);
+
+  renderItemsTable();
+  renderExtraCostsTable();
+}
+
+async function openCreateRedZoneAdminModal() {
+  let existing = document.getElementById('modal-redzone-create-admin');
+  if (existing) existing.remove();
+
+  // Obtener lista de comercios disponibles
+  const { data: configs } = await supabase
+    .from('comercios_adicional_config')
+    .select('comercio, rut, razon_social, rep_legal_nombre, rep_legal_rut, rep_legal_telefono, rep_legal_email')
+    .order('comercio', { ascending: true });
+
+  const { data: prodCommerces } = await supabase
+    .from('products')
+    .select('comercio')
+    .not('comercio', 'is', null);
+
+  const commerceSet = new Set();
+  (configs || []).forEach(c => { if (c.comercio) commerceSet.add(c.comercio.trim()); });
+  (prodCommerces || []).forEach(p => { if (p.comercio) commerceSet.add(p.comercio.trim()); });
+  const sortedCommerces = Array.from(commerceSet).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+  const exitDate = new Date();
+  exitDate.setDate(exitDate.getDate() + 30);
+  const defaultExitDateStr = exitDate.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-redzone-create-admin';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 560px; width: 95%; padding: 0; border-radius: var(--radius-lg); overflow: hidden;">
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); background: #fef2f2; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; color: #991b1b; font-size: 1.05rem; font-weight: 700;">
+          <i class="ri-add-circle-line"></i> Crear Solicitud de Término de Servicio
+        </h3>
+        <button type="button" class="modal-close" id="btn-close-create-rz" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#991b1b;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 0.9rem;">
+        <div>
+          <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">Comercio</label>
+          <select id="rz-create-commerce" class="form-input">
+            <option value="">Seleccione un comercio...</option>
+            ${sortedCommerces.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">Empresa / Razón Social</label>
+            <input type="text" id="rz-create-company" class="form-input" placeholder="Razón Social">
+          </div>
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">RUT Empresa</label>
+            <input type="text" id="rz-create-rut" class="form-input" placeholder="76.xxx.xxx-x">
+          </div>
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">Representante Legal</label>
+            <input type="text" id="rz-create-rep" class="form-input" placeholder="Nombre Representante">
+          </div>
+          <div>
+            <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">RUT Representante</label>
+            <input type="text" id="rz-create-rep-rut" class="form-input" placeholder="12.xxx.xxx-x">
+          </div>
+        </div>
+        <div>
+          <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">Fecha Estimada de Salida</label>
+          <input type="text" id="rz-create-exit-date" class="form-input" value="${defaultExitDateStr}">
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.6rem;">
+        <button type="button" id="btn-cancel-create-rz" class="btn btn-outline">Cancelar</button>
+        <button type="button" id="btn-submit-create-rz" class="btn btn-primary" style="background-color: #ef4444; border: none; color: white; font-weight: 700;">
+          Crear y Abrir Gestor de Costos/Ítems
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const selCommerce = modal.querySelector('#rz-create-commerce');
+  selCommerce.addEventListener('change', () => {
+    const val = selCommerce.value;
+    const cfg = (configs || []).find(c => c.comercio === val);
+    if (cfg) {
+      modal.querySelector('#rz-create-company').value = cfg.razon_social || '';
+      modal.querySelector('#rz-create-rut').value = cfg.rut || '';
+      modal.querySelector('#rz-create-rep').value = cfg.rep_legal_nombre || '';
+      modal.querySelector('#rz-create-rep-rut').value = cfg.rep_legal_rut || '';
+    }
+  });
+
+  const close = () => modal.remove();
+  modal.querySelector('#btn-close-create-rz').addEventListener('click', close);
+  modal.querySelector('#btn-cancel-create-rz').addEventListener('click', close);
+
+  modal.querySelector('#btn-submit-create-rz').addEventListener('click', async () => {
+    const comm = selCommerce.value.trim();
+    if (!comm) {
+      alert('Seleccione un comercio.');
+      return;
+    }
+    const btn = modal.querySelector('#btn-submit-create-rz');
+    btn.disabled = true;
+    btn.innerHTML = `<i class="ri-loader-4-line spin"></i> Creando...`;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { byCommerce } = await fetchLiveInventoryForCommerces([comm]);
+      const bundle = getLiveCommerceBundleForTicket(comm, byCommerce);
+      const cfg = (configs || []).find(c => c.comercio === comm) || {};
+
+      const newState = {
+        version: 2,
+        commerce: comm,
+        companyName: modal.querySelector('#rz-create-company').value.trim() || cfg.razon_social || comm,
+        rutText: modal.querySelector('#rz-create-rut').value.trim() || cfg.rut || '',
+        repName: modal.querySelector('#rz-create-rep').value.trim() || cfg.rep_legal_nombre || '',
+        repRut: modal.querySelector('#rz-create-rep-rut').value.trim() || cfg.rep_legal_rut || '',
+        email: cfg.rep_legal_email || '',
+        phone: cfg.rep_legal_telefono || '',
+        exitDate: modal.querySelector('#rz-create-exit-date').value.trim() || defaultExitDateStr,
+        outboundPagado: false,
+        syncWithLiveInventory: true,
+        lastSyncedAt: new Date().toISOString(),
+        lastUpdatedByAdminAt: new Date().toISOString(),
+        adminNotes: '',
+        pricingConfig: { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 },
+        items: bundle.liveStockItems,
+        itemOverrides: {},
+        customItems: [],
+        extraCosts: []
+      };
+
+      const desc = buildTicketDescriptionFromRedZoneData(newState);
+      const { data: inserted, error: insErr } = await supabase
+        .from('tickets')
+        .insert([{
+          user_id: user.id,
+          comercio: comm,
+          subject: `[SOLICITUD DE BAJA] Término de Servicio - ${comm}`,
+          category: 'facturacion',
+          priority: 'alta',
+          status: 'abierto',
+          description: desc
+        }])
+        .select()
+        .single();
+
+      if (insErr) throw insErr;
+
+      close();
+      await renderRedZoneAdmin();
+      const resolved = resolveRedZoneStateWithLive(parseTicketDescription(inserted.description), bundle);
+      openRedZoneAdminEditorModal(inserted, resolved, bundle);
+    } catch (err) {
+      alert('Error al crear solicitud: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = 'Crear y Abrir Gestor de Costos/Ítems';
+    }
+  });
+}
+
+function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut, redzoneState = null) {
+  const repName = repNombre || profile.full_name || "[Nombre del Representante]";
   const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
   const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
   const dateTodayStr = new Date().toLocaleDateString('es-CL', {
@@ -91657,6 +94139,15 @@ function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits,
     month: 'long',
     year: 'numeric'
   });
+
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraLines = (redzoneState?.extraCosts || []).map(c => {
+    const sign = c.type === 'discount' ? '-' : '+';
+    const taxNote = c.taxType === 'exento' ? 'exento/bruto' : 'neto';
+    return `- ${c.concept}: ${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')} CLP (${taxNote})`;
+  }).join('\n');
 
   return `CONVENIO DE TÉRMINO DE PRESTACIÓN DE SERVICIOS LOGÍSTICOS Y FINIQUITO DE CUENTA
 
@@ -91683,11 +94174,11 @@ Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se 
 Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
 
 CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
-De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
-- Tarifa Fija Base de Preparación: $1.250 CLP neto
-- Recargo por SKU adicional (sobre 3): $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto
-- Recargo por unidades adicionales (sobre 10): $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto
-- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la siguiente estructura:
+- Tarifa Fija Base de Preparación: $${cfg.baseFee.toLocaleString('es-CL')} CLP neto
+- Recargo por SKU adicional (sobre ${cfg.skuLimit}): $${skuSurcharge.toLocaleString('es-CL')} CLP neto
+- Recargo por unidades adicionales (sobre ${cfg.unitsLimit}): $${unitsSurcharge.toLocaleString('es-CL')} CLP neto
+${extraLines ? extraLines + '\n' : ''}- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
 - IVA (19%): $${iva.toLocaleString('es-CL')} CLP
 - TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
 
@@ -91704,16 +94195,24 @@ __________________________________            __________________________________
          Representante Legal                        ${repName}`;
 }
 
-function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany) {
-  const repName = profile.full_name || "[Nombre del Representante]";
+function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRutParam, redzoneState = null) {
+  const repName = repNombre || profile.full_name || "[Nombre del Representante]";
   const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
   const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
-  const repRutText = "[RUT del Representante]";
   const dateTodayStr = new Date().toLocaleDateString('es-CL', {
     day: '2-digit',
     month: 'long',
     year: 'numeric'
   });
+
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraCostsHtml = (redzoneState?.extraCosts || []).map(c => {
+    const sign = c.type === 'discount' ? '-' : '+';
+    const taxLabel = c.taxType === 'exento' ? 'exento/bruto' : 'neto';
+    return `<li><strong>${c.concept}:</strong> ${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')} CLP (${taxLabel})</li>`;
+  }).join('');
 
   const printWindow = window.open('', '_blank');
   
@@ -91800,12 +94299,13 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
 
         <p class="no-indent">
           <strong><u>CUARTA</u>: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)</strong><br>
-          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
+          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro de salida consolidada:
         </p>
         <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
-          <li><strong>Tarifa Fija Base de Preparación:</strong> $1.250 CLP neto</li>
-          <li><strong>Recargo por SKU adicional (sobre 3):</strong> $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto</li>
-          <li><strong>Recargo por unidades adicionales (sobre 10):</strong> $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Tarifa Fija Base de Preparación:</strong> $${cfg.baseFee.toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Recargo por SKU adicional (sobre ${cfg.skuLimit}):</strong> $${skuSurcharge.toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Recargo por unidades adicionales (sobre ${cfg.unitsLimit}):</strong> $${unitsSurcharge.toLocaleString('es-CL')} CLP neto</li>
+          ${extraCostsHtml}
           <li><strong>Subtotal Neto Estimado:</strong> $${netTotal.toLocaleString('es-CL')} CLP</li>
           <li><strong>IVA (19%):</strong> $${iva.toLocaleString('es-CL')} CLP</li>
           <li><strong>TOTAL BRUTO ESTIMADO A PAGAR:</strong> $${brutoTotal.toLocaleString('es-CL')} CLP</li>
@@ -91843,7 +94343,7 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
   printWindow.document.close();
 }
 
-function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRutParam, outboundPagado) {
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRutParam, outboundPagado, redzoneState = null) {
   const repName = repNombre || profile.full_name || "No especificado";
   const compName = resolvedCompany || profile.company_name || "No especificada";
   const rutText = resolvedRut || profile.rut || "No informado";
@@ -91853,9 +94353,13 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
     year: 'numeric'
   });
 
-  const baseFee = 1250;
-  const skuSurcharge = totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0;
-  const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
+  const cfg = redzoneState?.pricingConfig || { baseFee: 1250, skuLimit: 3, skuRate: 100, unitsLimit: 10, unitsRate: 50 };
+  const baseFee = cfg.baseFee;
+  const skuSurcharge = totalSKUs > cfg.skuLimit ? (totalSKUs - cfg.skuLimit) * cfg.skuRate : 0;
+  const unitsSurcharge = totalUnits > cfg.unitsLimit ? (totalUnits - cfg.unitsLimit) * cfg.unitsRate : 0;
+  const extraCosts = redzoneState?.extraCosts || [];
+  const itemsList = (redzoneState?.items || []).filter(it => !it.excluded && (Number(it.quantity) || 0) > 0);
+  const adminNotes = redzoneState?.adminNotes || '';
 
   const totalPendingBilling = periodStatusList.reduce((sum, p) => sum + (p.pending || 0), 0);
   const totalToPayConsolidated = totalPendingBilling + (outboundPagado ? 0 : brutoTotal);
@@ -92073,9 +94577,9 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           <strong>Declaración de Conformidad:</strong> El Comercio acepta formalmente la liquidación de las tarifas del servicio correspondientes a los períodos señalados, reconociendo que se encuentran íntegramente saldadas y renuncia irrevocablemente a cualquier reclamo posterior por diferencias de cobro.
         </p>
 
-        <h2 class="section-title">2. Resumen de Inventario Registrado</h2>
+        <h2 class="section-title">2. Resumen y Listado de Inventario Registrado</h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Resumen total de existencias en el WMS a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
+          Resumen total de existencias en la solicitud de salida a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
         </p>
         <table class="data-table">
           <thead>
@@ -92094,32 +94598,66 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <tr>
               <td><strong>Total de Unidades Físicas</strong></td>
               <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalUnits}</td>
-              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas almacenadas en bodegas Stocka.</td>
+              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas contempladas en la salida.</td>
             </tr>
           </tbody>
         </table>
+
+        ${itemsList.length > 0 ? `
+          <table class="data-table" style="font-size: 0.78rem; margin-top: 0.5rem;">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Descripción / Producto</th>
+                <th>Ubicación / Bodega</th>
+                <th style="text-align: center;">Unidades</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsList.map(it => `
+                <tr>
+                  <td><strong>${it.sku}</strong></td>
+                  <td>${it.name}</td>
+                  <td>${it.warehouses || 'Bodega Stocka'}</td>
+                  <td style="text-align: center; font-weight: bold;">${it.quantity}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
 
         <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)
           ${outboundPagado ? `<span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">✔ PAGADO</span>` : `<span style="background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">PENDIENTE DE PAGO</span>`}
         </h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
-          Costo estimado del retiro físico (preparación y entrega de stock) según Anexo de Tarifarios Stocka 2024-2025:
+          Costo del retiro físico (preparación, entrega de stock y cargos/ajustes asociados):
         </p>
         <div class="cost-box" ${outboundPagado ? 'style="opacity:0.7;"' : ''}>
           <div class="cost-row">
             <span>Costo de Preparación Base:</span>
-            <span>$1.250</span>
+            <span>$${baseFee.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row">
-            <span>Recargo SKU Adicional (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > 3 ? totalSKUs - 3 : 0} SKUs excedentes)</span></span>
+            <span>Recargo SKU Adicional (+$${cfg.skuRate.toLocaleString('es-CL')} por cada SKU > ${cfg.skuLimit}): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > cfg.skuLimit ? totalSKUs - cfg.skuLimit : 0} SKUs excedentes)</span></span>
             <span>$${skuSurcharge.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row">
-            <span>Recargo Unidades Adicional (+$50 por cada unidad > 10): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+            <span>Recargo Unidades Adicional (+$${cfg.unitsRate.toLocaleString('es-CL')} por cada unidad > ${cfg.unitsLimit}): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > cfg.unitsLimit ? totalUnits - cfg.unitsLimit : 0} unidades excedentes)</span></span>
             <span>$${unitsSurcharge.toLocaleString('es-CL')}</span>
           </div>
+          ${extraCosts.map(c => {
+            const isDisc = c.type === 'discount';
+            const sign = isDisc ? '-' : '+';
+            const taxBadge = c.taxType === 'exento' ? '(Exento / Bruto)' : '(Neto)';
+            return `
+              <div class="cost-row" style="color: ${isDisc ? '#047857' : '#111827'};">
+                <span>${c.concept} <span style="font-size: 0.72rem; color: #6b7280;">${taxBadge}</span>:</span>
+                <span style="font-weight: 600;">${sign}$${(Number(c.amount) || 0).toLocaleString('es-CL')}</span>
+              </div>
+            `;
+          }).join('')}
           <div class="cost-row" style="font-weight: bold; border-top: 1px dashed #ccc; padding-top: 0.5rem; margin-top: 0.25rem;">
-            <span>Total Neto Preparación:</span>
+            <span>Total Neto Preparación y Cargos Afectos:</span>
             <span>$${netTotal.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row" style="color: #666;">
@@ -92127,12 +94665,18 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <span>$${iva.toLocaleString('es-CL')}</span>
           </div>
           <div class="cost-row total" ${outboundPagado ? 'style="color:#065f46;"' : ''}>
-            <span>Total Bruto Estimado de Salida:</span>
+            <span>Total Bruto de Salida:</span>
             <span>$${brutoTotal.toLocaleString('es-CL')} CLP${outboundPagado ? ' &nbsp;✔ PAGADO' : ''}</span>
           </div>
         </div>
+        ${adminNotes ? `
+          <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.8rem; color: #92400e; margin-bottom: 1.5rem;">
+            <strong>Observaciones de Operaciones / Administración:</strong><br>
+            ${adminNotes.replace(/\n/g, '<br>')}
+          </div>
+        ` : ''}
         <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
-          *Nota: Este presupuesto no contempla los costos proporcionales de almacenamiento y despachos que puedan devengarse durante el mes en curso antes del retiro físico definitivo.
+          *Nota: Este presupuesto contempla los ítems y conceptos detallados en la presente liquidación de salida.
         </p>
 
         <h2 class="section-title">4. Liquidación y Pago Total Consolidado</h2>
@@ -92164,7 +94708,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
               Representación y Operaciones
             </div>
           </div>
-          <div class="signature-col">
+          <div style="width: 45%; text-align: center;" class="signature-col">
             <div class="signature-line">
               <strong>${compName}</strong><br>
               ${repName}

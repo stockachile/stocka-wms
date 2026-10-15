@@ -669,7 +669,7 @@ export async function renderTicketsClient(appContent) {
       }
 
       // Cargar mensajes en el chat
-      await loadChatMessages(ticketId);
+      await loadChatMessages(ticketId, ticket);
 
       // Realtime subscription (opcional para el chat, pero útil)
       subscribeToTicketMessages(ticketId);
@@ -681,7 +681,7 @@ export async function renderTicketsClient(appContent) {
   }
 
   // Cargar lista de mensajes
-  async function loadChatMessages(ticketId) {
+  async function loadChatMessages(ticketId, ticketObj = null) {
     const box = document.getElementById('chat-messages-box');
     if (!box) return;
 
@@ -694,12 +694,26 @@ export async function renderTicketsClient(appContent) {
 
       if (error) throw error;
 
-      if (messages.length === 0) {
+      const cleanDesc = ticketObj?.description
+        ? stripRedZoneJsonBlock(ticketObj.description)
+        : '';
+
+      if (messages.length === 0 && !cleanDesc) {
         box.innerHTML = `<div style="text-align: center; color: var(--color-text-muted); font-size: 0.9rem; padding: 2rem;">No hay mensajes en esta conversación.</div>`;
         return;
       }
 
-      box.innerHTML = messages.map(m => {
+      const initialBubbleHtml = (messages.length === 0 && cleanDesc) ? `
+        <div class="chat-bubble client">
+          <div class="chat-bubble-sender" style="font-size: 0.75rem; opacity: 0.85; margin-bottom: 0.25rem;">Detalle de la Solicitud</div>
+          <div>${escapeHtml(cleanDesc).replace(/\n/g, '<br>')}</div>
+          <div class="chat-meta">
+            <span>${formatDate(ticketObj?.created_at)}</span>
+          </div>
+        </div>
+      ` : '';
+
+      box.innerHTML = initialBubbleHtml + messages.map(m => {
         const isClient = m.sender?.role !== 'admin';
         const senderName = isClient ? (m.sender?.full_name || 'Tú (Cliente)') : (m.sender?.full_name || 'Operaciones Stocka');
         const bubbleClass = isClient ? 'client' : 'admin';
@@ -707,7 +721,7 @@ export async function renderTicketsClient(appContent) {
         return `
           <div class="chat-bubble ${bubbleClass}">
             <div class="chat-bubble-sender" style="font-size: 0.75rem; opacity: 0.85; margin-bottom: 0.25rem;">${escapeHtml(senderName)}</div>
-            <div>${escapeHtml(m.message).replace(/\n/g, '<br>')}</div>
+            <div>${escapeHtml(stripRedZoneJsonBlock(m.message)).replace(/\n/g, '<br>')}</div>
             <div class="chat-meta">
               <span>${formatDate(m.created_at)}</span>
             </div>
@@ -1268,7 +1282,7 @@ export async function renderTicketsAdmin(appContent) {
             <div class="chat-bubble-sender" style="font-size: 0.75rem; opacity: 0.85; margin-bottom: 0.25rem;">
               ${escapeHtml(senderName)} ${internalBadge}
             </div>
-            <div>${escapeHtml(m.message).replace(/\n/g, '<br>')}</div>
+            <div>${escapeHtml(stripRedZoneJsonBlock(m.message)).replace(/\n/g, '<br>')}</div>
             <div class="chat-meta">
               <span>${formatDate(m.created_at)}</span>
             </div>
@@ -1357,6 +1371,11 @@ export async function renderTicketsAdmin(appContent) {
 // ==========================================
 // AUXILIARES
 // ==========================================
+
+function stripRedZoneJsonBlock(str) {
+  if (!str) return '';
+  return String(str).replace(/\n*---REDZONE_DATA_JSON---\n[\s\S]*?\n---END_REDZONE_DATA_JSON---\s*$/m, '').trim();
+}
 
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
