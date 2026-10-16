@@ -1944,22 +1944,25 @@ body.feature-dock-minimized .scroll-to-top-btn {
 @keyframes featureDockSlideIn {
   0% {
     opacity: 0;
-    transform: translate3d(40px, 100%, 0);
+    transform: translate3d(28px, 105%, 0) scale(0.97);
+  }
+  45% {
+    opacity: 0.92;
   }
   100% {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 @keyframes featureDockSlideOut {
   0% {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate3d(20px, 105%, 0);
+    transform: translate3d(16px, 105%, 0) scale(0.97);
   }
 }
 
@@ -1980,8 +1983,8 @@ body.feature-dock-minimized .scroll-to-top-btn {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: featureDockSlideIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  transition: width 0.28s ease, max-height 0.28s ease, transform 0.28s ease, box-shadow 0.25s ease;
+  animation: featureDockSlideIn 1.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1), max-height 0.45s cubic-bezier(0.22, 1, 0.36, 1), transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
   font-family: var(--font-family, 'Inter', sans-serif);
 }
 
@@ -1992,7 +1995,7 @@ body.feature-dock-minimized .scroll-to-top-btn {
 }
 
 .wms-feature-dock.closing {
-  animation: featureDockSlideOut 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: featureDockSlideOut 0.55s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 /* Barra superior decorativa en gradiente */

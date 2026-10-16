@@ -38553,8 +38553,8 @@ async function renderNotificationsAdmin() {
                 <textarea id="feat-popup-raw-html" class="raw-html-editor" placeholder="Escribe o pega código HTML aquí..." style="display: none; min-height: 150px;"></textarea>
               </div>
 
-              <!-- Segmentación y Estado -->
-              <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+              <!-- Segmentación, Margen de Tiempo y Estado -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.75rem;">
                 <div class="form-group" style="margin-bottom: 0;">
                   <label class="form-label" style="font-weight: 600; font-size: 0.82rem;">Audiencia</label>
                   <select id="feat-popup-target-role" class="form-input">
@@ -38563,16 +38563,31 @@ async function renderNotificationsAdmin() {
                     <option value="admin">Solo Administradores (Pruebas internas)</option>
                   </select>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 0.45rem; padding-top: 1.1rem;">
-                  <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin: 0;">
-                    <input type="checkbox" id="feat-popup-only-allowed" checked style="width: 16px; height: 16px; cursor: pointer;">
-                    <span>Mostrar solo a clientes con permiso en el módulo</span>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.82rem;">
+                    <i class="ri-timer-flash-line" style="color: #5c24ff;"></i> Margen de tiempo antes de aparecer
                   </label>
-                  <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 700; color: #059669; cursor: pointer; margin: 0;">
-                    <input type="checkbox" id="feat-popup-is-active" checked style="width: 16px; height: 16px; cursor: pointer;">
-                    <span>Popup Activo (Visible para los usuarios)</span>
-                  </label>
+                  <select id="feat-popup-delay" class="form-input">
+                    <option value="0">Inmediato (0 segundos)</option>
+                    <option value="3">Tras 3 segundos</option>
+                    <option value="5" selected>Tras 5 segundos (Recomendado)</option>
+                    <option value="8">Tras 8 segundos</option>
+                    <option value="10">Tras 10 segundos</option>
+                    <option value="15">Tras 15 segundos</option>
+                    <option value="20">Tras 20 segundos</option>
+                  </select>
                 </div>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; background: var(--color-bg); padding: 0.65rem 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1rem;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin: 0;">
+                  <input type="checkbox" id="feat-popup-only-allowed" checked style="width: 16px; height: 16px; cursor: pointer;">
+                  <span>Mostrar solo a clientes con permiso en el módulo</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 700; color: #059669; cursor: pointer; margin: 0;">
+                  <input type="checkbox" id="feat-popup-is-active" checked style="width: 16px; height: 16px; cursor: pointer;">
+                  <span>Popup Activo (Visible para los usuarios)</span>
+                </label>
               </div>
 
               <!-- Botones de Acción -->
@@ -39543,7 +39558,7 @@ async function renderNotificationsAdmin() {
     const closeDock = () => {
       dock.classList.add('closing');
       document.body.classList.remove('feature-dock-open', 'feature-dock-minimized');
-      setTimeout(() => { if (dock.parentNode) dock.remove(); }, 260);
+      setTimeout(() => { if (dock.parentNode) dock.remove(); }, 550);
     };
 
     const renderPreviewDock = () => {
@@ -39800,11 +39815,28 @@ async function renderNotificationsAdmin() {
     if (featMediaFileInput) featMediaFileInput.value = '';
   });
 
+  function extractAdminFeatDelaySeconds(item) {
+    if (!item) return 5;
+    if (typeof item.delay_seconds === 'number' && !isNaN(item.delay_seconds)) {
+      return Math.max(0, Math.min(120, item.delay_seconds));
+    }
+    const desc = String(item.description || '');
+    const m = desc.match(/<!--\s*wms_delay:(\d+)\s*-->/);
+    if (m && m[1]) {
+      return Math.max(0, Math.min(120, parseInt(m[1], 10)));
+    }
+    return 5;
+  }
+
+  function stripAdminFeatDelayComment(html) {
+    return String(html || '').replace(/<!--\s*wms_delay:\d+\s*-->/g, '').trim();
+  }
+
   function getCurrentFeatDescriptionHtml() {
     if (isFeatHtmlMode) {
-      return (featRawHtmlTextarea?.value || '').trim();
+      return stripAdminFeatDelayComment(featRawHtmlTextarea?.value || '');
     }
-    return featQuillInstance ? featQuillInstance.root.innerHTML.trim() : '';
+    return featQuillInstance ? stripAdminFeatDelayComment(featQuillInstance.root.innerHTML) : '';
   }
 
   function buildFeatPopupFormObject() {
@@ -39812,6 +39844,7 @@ async function renderNotificationsAdmin() {
     const modObj = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === modKey);
     const targetMod = featTargetModuleSelect?.value || 'none';
     const descHtml = getCurrentFeatDescriptionHtml();
+    const delaySec = parseInt(document.getElementById('feat-popup-delay')?.value || '5', 10);
 
     return {
       id: document.getElementById('feat-popup-id')?.value || ('preview-' + Date.now()),
@@ -39824,6 +39857,7 @@ async function renderNotificationsAdmin() {
       cta_text: targetMod !== 'none' ? (featCtaTextInput?.value.trim() || `Explorar en ${modObj?.label || 'Módulo'}`) : null,
       media_url: featMediaUrlInput?.value.trim() || null,
       description: (descHtml && descHtml !== '<p><br></p>') ? descHtml : '<p>Aquí verás la descripción detallada con formato de texto e instrucciones paso a paso para tus usuarios.</p>',
+      delay_seconds: isNaN(delaySec) ? 5 : delaySec,
       target_role: document.getElementById('feat-popup-target-role')?.value || 'client',
       only_allowed_module_users: document.getElementById('feat-popup-only-allowed')?.checked !== false,
       is_active: document.getElementById('feat-popup-is-active')?.checked !== false,
@@ -39847,6 +39881,8 @@ async function renderNotificationsAdmin() {
       featCtaTextInput.disabled = false;
       featCtaTextInput.value = 'Explorar en Inventario';
     }
+    const delaySelect = document.getElementById('feat-popup-delay');
+    if (delaySelect) delaySelect.value = '5';
     updateFeatMediaPreview('');
     if (featQuillInstance) featQuillInstance.root.innerHTML = '';
     if (featRawHtmlTextarea) featRawHtmlTextarea.value = '';
@@ -39940,6 +39976,7 @@ async function renderNotificationsAdmin() {
       const targetModInfo = window.WMS_CLIENT_MODULES_CATALOG.find(m => m.key === item.target_module);
       const readsCount = readsMap[String(item.id)] || 0;
       const clicksCount = clicksMap[String(item.id)] || 0;
+      const delaySec = extractAdminFeatDelaySeconds(item);
       const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString('es-CL') : '';
 
       return `
@@ -39978,6 +40015,7 @@ async function renderNotificationsAdmin() {
 
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.35rem; font-size: 0.72rem; color: var(--color-text-muted); flex-wrap: wrap;">
               ${targetModInfo ? `<span><i class="ri-arrow-right-up-line" style="color: var(--color-primary);"></i> Dirige a: <strong>${targetModInfo.label}</strong></span>` : `<span>Sin redirección</span>`}
+              <span title="Margen de tiempo antes de aparecer"><i class="ri-timer-flash-line" style="color: #f59e0b;"></i> <strong>${delaySec}s</strong> de margen</span>
               <span title="Usuarios que marcaron como leído"><i class="ri-check-double-line" style="color: #10b981;"></i> <strong>${readsCount}</strong> leídos</span>
               <span title="Clics en el botón de ir al módulo"><i class="ri-cursor-line" style="color: #5c24ff;"></i> <strong>${clicksCount}</strong> clics</span>
             </div>
@@ -40046,9 +40084,14 @@ async function renderNotificationsAdmin() {
           featCtaTextInput.disabled = (found.target_module === 'none');
           featCtaTextInput.value = found.cta_text || '';
         }
+        const delayEl = document.getElementById('feat-popup-delay');
+        if (delayEl) {
+          delayEl.value = String(extractAdminFeatDelaySeconds(found));
+        }
         updateFeatMediaPreview(found.media_url || '');
-        if (featQuillInstance) featQuillInstance.root.innerHTML = found.description || '';
-        if (featRawHtmlTextarea) featRawHtmlTextarea.value = found.description || '';
+        const cleanDesc = stripAdminFeatDelayComment(found.description || '');
+        if (featQuillInstance) featQuillInstance.root.innerHTML = cleanDesc;
+        if (featRawHtmlTextarea) featRawHtmlTextarea.value = cleanDesc;
         document.getElementById('feat-popup-target-role').value = found.target_role || 'client';
         document.getElementById('feat-popup-only-allowed').checked = found.only_allowed_module_users !== false;
         document.getElementById('feat-popup-is-active').checked = found.is_active !== false;
@@ -40101,6 +40144,7 @@ async function renderNotificationsAdmin() {
 
       const existingId = document.getElementById('feat-popup-id').value;
       const formObj = buildFeatPopupFormObject();
+      const descWithDelayMeta = `${descHtml}<!-- wms_delay:${formObj.delay_seconds} -->`;
       const payload = {
         title: formObj.title,
         subtitle: formObj.subtitle,
@@ -40110,7 +40154,7 @@ async function renderNotificationsAdmin() {
         target_module: formObj.target_module,
         cta_text: formObj.cta_text,
         media_url: formObj.media_url,
-        description: descHtml,
+        description: descWithDelayMeta,
         target_role: formObj.target_role,
         only_allowed_module_users: formObj.only_allowed_module_users,
         is_active: formObj.is_active

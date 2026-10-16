@@ -23869,6 +23869,19 @@ window.navigateToClientModule = function(moduleKey) {
   return false;
 };
 
+window.extractFeatureDelaySeconds = function(item) {
+  if (!item) return 5;
+  if (typeof item.delay_seconds === 'number' && !isNaN(item.delay_seconds)) {
+    return Math.max(0, item.delay_seconds);
+  }
+  const desc = String(item.description || '');
+  const match = desc.match(/<!--\s*wms_delay:(\d+)\s*-->/);
+  if (match) {
+    return Math.max(0, parseInt(match[1], 10));
+  }
+  return 5; // 5 segundos por defecto
+};
+
 window.checkFeaturePopups = async function(userId) {
   try {
     const roleToUse = typeof userRole !== 'undefined' ? userRole : 'client';
@@ -23940,7 +23953,12 @@ window.checkFeaturePopups = async function(userId) {
     );
 
     if (activeSessionList.length > 0) {
-      window.showFeatureDockPopup(activeSessionList, userId, { startMinimized: false });
+      const delaySec = window.extractFeatureDelaySeconds(activeSessionList[0]);
+      const delayMs = Math.max(0, delaySec * 1000);
+      if (window._featureDockTimeoutId) clearTimeout(window._featureDockTimeoutId);
+      window._featureDockTimeoutId = setTimeout(() => {
+        window.showFeatureDockPopup(activeSessionList, userId, { startMinimized: false });
+      }, delayMs);
     } else {
       // Si todas fueron pospuestas en la sesión actual, dejar como pestaña minimizada en el borde inferior
       // y en el próximo inicio de sesión volverá a emerger desplegada
@@ -23987,7 +24005,7 @@ window.showFeatureDockPopup = function(featureList, userId, options = {}) {
     document.body.classList.remove('feature-dock-open', 'feature-dock-minimized');
     setTimeout(() => {
       if (dock.parentNode) dock.remove();
-    }, 260);
+    }, 550);
   };
 
   const renderCurrentFeature = () => {
