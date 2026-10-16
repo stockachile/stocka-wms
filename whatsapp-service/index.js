@@ -48,12 +48,13 @@ function getCalendarService() {
   return require('../services/calendar_service');
 }
 
-const OLD_COORDINACION_GROUP = '120363043911687615@g.us';
-const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us';
+const OLD_COORDINACION_GROUP = '120363043911687615@g.us'; // Coordinación Stocka
+const OLD_GESTION_GROUP = '120363422429248666@g.us';      // Gestión Stocka
+const NOTIFICACIONES_STOX_GROUP = '120363413357945543@g.us'; // NOTIFICACIONES STOX
 
 function resolveTargetWaGroup(group) {
   const g = group || process.env.TARGET_WA_GROUP;
-  if (!g || g === OLD_COORDINACION_GROUP) {
+  if (!g || g === OLD_COORDINACION_GROUP || g === OLD_GESTION_GROUP) {
     return NOTIFICACIONES_STOX_GROUP;
   }
   return g;
@@ -169,6 +170,11 @@ function formatJid(target) {
   if (!target) return null;
   let cleaned = String(target).trim();
 
+  // Redirigir automáticamente grupos antiguos (Coordinación Stocka y Gestión Stocka) a NOTIFICACIONES STOX
+  if (cleaned === OLD_COORDINACION_GROUP || cleaned === OLD_GESTION_GROUP) {
+    cleaned = NOTIFICACIONES_STOX_GROUP;
+  }
+
   // Si ya es un JID completo (grupo o usuario)
   if (cleaned.endsWith('@s.whatsapp.net') || cleaned.endsWith('@g.us')) {
     return cleaned;
@@ -204,7 +210,7 @@ function requireAuth(req, res, next) {
 // 1. Estado de conexión
 app.get('/status', requireAuth, (req, res) => {
   res.json({
-    version: '1.2.0-stox-notificaciones',
+    version: '1.3.0-stox-notificaciones',
     status: connectionStatus,
     targetGroup: resolveTargetWaGroup(),
     user: botUser,

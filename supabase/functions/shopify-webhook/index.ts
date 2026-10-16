@@ -11,7 +11,7 @@ const globalShopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
 // Configuración de notificaciones WhatsApp
 const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
 const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
-const GESTION_STOCKA_GROUP_JID = "120363422429248666@g.us";
+const GESTION_STOCKA_GROUP_JID = "120363413357945543@g.us"; // NOTIFICACIONES STOX
 
 async function notifyWhatsAppGestion(message: string) {
   try {
@@ -28,7 +28,7 @@ async function notifyWhatsAppGestion(message: string) {
       }),
     });
     const resData = await res.json();
-    console.log(`[WhatsApp Bot] Notificación enviada a Gestión Stocka:`, resData);
+    console.log(`[WhatsApp Bot] Notificación enviada a NOTIFICACIONES STOX:`, resData);
     return resData;
   } catch (err: any) {
     console.error(`[WhatsApp Bot] Error enviando mensaje a WhatsApp:`, err.message);

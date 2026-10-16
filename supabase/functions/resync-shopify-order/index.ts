@@ -7,7 +7,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const WHATSAPP_API_URL = Deno.env.get("WHATSAPP_API_URL") || "https://stocka-whatsapp-bot.onrender.com";
 const WHATSAPP_API_KEY = Deno.env.get("WHATSAPP_API_KEY") || "stocka_wa_internal_secret_2026";
-const GESTION_STOCKA_GROUP_JID = "120363422429248666@g.us";
+const GESTION_STOCKA_GROUP_JID = "120363413357945543@g.us"; // NOTIFICACIONES STOX
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
