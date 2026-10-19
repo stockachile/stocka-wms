@@ -63,12 +63,45 @@ window.locationsState = {
   statusFilter: 'ALL',       // ALL | WITH_LOCATION | WITHOUT_LOCATION | WITH_STOCK_WITHOUT_LOCATION | WITH_STOCK | ZERO
   sortBy: 'DEFAULT',         // DEFAULT | STOCK_DESC | STOCK_ASC
   quickEditMode: false,      // Modo de edición rápida tipo planilla
+  quickEditDrafts: {},       // Borradores en memoria del modo Edición Rápida (persisten al buscar o filtrar)
   locations: [],             // Lista de registros de product_locations
   productsCatalog: [],       // Lista de productos del comercio actual
   comerciosList: [],         // Lista de comercios disponibles
   warehouses: [],            // Lista de bodegas disponibles
   loading: false
 };
+
+/**
+ * Genera un UUID v4 válido para compartir el mismo ID entre WMS y Picker
+ */
+function generateLocationUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Adapta un payload de ubicación para la tabla product_locations de Picker (que no posee columna warehouse_id)
+ */
+function toPickerLocationPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const copy = { ...payload };
+  delete copy.warehouse_id;
+  return copy;
+}
+
+/**
+ * Genera la clave única de borrador para una fila en Edición Rápida
+ */
+function getQuickEditDraftKey(sku, locId) {
+  if (locId) return `ID:${String(locId).trim()}`;
+  return `SKU:${String(sku || '').trim().toUpperCase()}`;
+}
 
 /**
  * Normaliza nombres de bodega para comparaciones flexibles (elimina tildes, mayúsculas y prefijos)
@@ -439,11 +472,21 @@ async function saveProductLocation(payload) {
   const pickerClient = getPickerClient();
   const results = { wms: false, picker: false };
 
+  const normalizedPayload = {
+    ...payload,
+    id: payload.id || generateLocationUUID()
+  };
+  const pickerPayload = toPickerLocationPayload(normalizedPayload);
+
   // Guardar en WMS
   if (supa && typeof supa.from === 'function') {
     try {
-      const { error: wmsErr } = await supa.from('product_locations').upsert([payload]);
-      if (!wmsErr) results.wms = true;
+      const { error: wmsErr } = await supa.from('product_locations').upsert([normalizedPayload]);
+      if (!wmsErr) {
+        results.wms = true;
+      } else {
+        console.warn('Error al guardar en WMS product_locations:', wmsErr);
+      }
     } catch (e) {
       console.warn('No se pudo guardar en WMS product_locations:', e);
     }
@@ -452,8 +495,12 @@ async function saveProductLocation(payload) {
   // Guardar en Picker Supabase
   if (pickerClient) {
     try {
-      const { error: pErr } = await pickerClient.from('product_locations').upsert([payload]);
-      if (!pErr) results.picker = true;
+      const { error: pErr } = await pickerClient.from('product_locations').upsert([pickerPayload]);
+      if (!pErr) {
+        results.picker = true;
+      } else {
+        console.warn('Error al guardar en Picker product_locations:', pErr);
+      }
     } catch (pe) {
       console.warn('No se pudo guardar en Picker product_locations:', pe);
     }
@@ -604,38 +651,81 @@ window.renderAdminLocationsTab = async function(container) {
 };
 
 /**
- * Obtiene y valida todos los cambios realizados en el modo de Edición Rápida (planilla)
+ * Sincroniza una fila del DOM en el diccionario en memoria quickEditDrafts
+ */
+function syncRowToQuickEditDraft(row) {
+  if (!row) return;
+  if (!window.locationsState.quickEditDrafts) window.locationsState.quickEditDrafts = {};
+
+  const sku = row.getAttribute('data-sku') || '';
+  const zonaInput = row.querySelector('.quick-loc-zona');
+  const espacioInput = row.querySelector('.quick-loc-espacio');
+  const posicionInput = row.querySelector('.quick-loc-posicion');
+  const zeroInput = row.querySelector('.quick-loc-zero');
+
+  if (!zonaInput || !espacioInput) return;
+
+  const locId = zonaInput.getAttribute('data-loc-id') || null;
+  const draftKey = row.getAttribute('data-draft-key') || getQuickEditDraftKey(sku, locId);
+
+  const oldZona = (zonaInput.getAttribute('data-old') || '').trim();
+  const oldEspacio = (espacioInput.getAttribute('data-old') || '').trim();
+  const oldPosicion = (posicionInput ? posicionInput.getAttribute('data-old') || '' : '').trim();
+  const oldZero = zeroInput ? zeroInput.getAttribute('data-old') === 'true' : false;
+
+  const newZona = zonaInput.value.trim();
+  const newEspacio = espacioInput.value.trim();
+  const newPosicion = posicionInput ? posicionInput.value.trim() : '';
+  const newZero = zeroInput ? zeroInput.checked : false;
+
+  const isChanged = (
+    newZona !== oldZona ||
+    newEspacio !== oldEspacio ||
+    newPosicion !== oldPosicion ||
+    newZero !== oldZero
+  );
+
+  if (isChanged) {
+    const prev = window.locationsState.quickEditDrafts[draftKey];
+    window.locationsState.quickEditDrafts[draftKey] = {
+      draftKey,
+      sku,
+      locId,
+      generatedId: prev?.generatedId || (!locId ? generateLocationUUID() : null),
+      oldZona,
+      oldEspacio,
+      oldPosicion,
+      oldZero,
+      newZona,
+      newEspacio,
+      newPosicion,
+      newZero
+    };
+  } else {
+    delete window.locationsState.quickEditDrafts[draftKey];
+  }
+}
+
+/**
+ * Obtiene y valida todos los cambios realizados en el modo de Edición Rápida (planilla),
+ * incluyendo aquellos realizados antes de usar el buscador o cambiar de filtro.
  */
 function getQuickEditChanges() {
   const container = document.getElementById('admin-inv-tab-content');
-  if (!container) return { changes: [], errors: [] };
+  if (container) {
+    const rows = container.querySelectorAll('tr[data-quick-row="true"]');
+    rows.forEach(row => syncRowToQuickEditDraft(row));
+  }
 
-  const rows = container.querySelectorAll('tr[data-quick-row="true"]');
+  const drafts = Object.values(window.locationsState.quickEditDrafts || {});
   const changes = [];
   const errors = [];
 
   const { activeBodega, activeCommerce, warehouses, productsCatalog } = window.locationsState;
   const wh = warehouses.find(w => normalizeBodegaName(w.name) === normalizeBodegaName(activeBodega));
 
-  rows.forEach(row => {
-    const sku = row.getAttribute('data-sku');
-    const zonaInput = row.querySelector('.quick-loc-zona');
-    const espacioInput = row.querySelector('.quick-loc-espacio');
-    const posicionInput = row.querySelector('.quick-loc-posicion');
-    const zeroInput = row.querySelector('.quick-loc-zero');
-
-    if (!zonaInput || !espacioInput) return;
-
-    const locId = zonaInput.getAttribute('data-loc-id') || null;
-    const oldZona = (zonaInput.getAttribute('data-old') || '').trim();
-    const oldEspacio = (espacioInput.getAttribute('data-old') || '').trim();
-    const oldPosicion = (posicionInput ? posicionInput.getAttribute('data-old') || '' : '').trim();
-    const oldZero = zeroInput ? zeroInput.getAttribute('data-old') === 'true' : false;
-
-    const newZona = zonaInput.value.trim();
-    const newEspacio = espacioInput.value.trim();
-    const newPosicion = posicionInput ? posicionInput.value.trim() : '';
-    const newZero = zeroInput ? zeroInput.checked : false;
+  drafts.forEach(draft => {
+    const { draftKey, sku, locId, generatedId, oldZona, oldEspacio, oldPosicion, oldZero, newZona, newEspacio, newPosicion, newZero } = draft;
 
     const isChanged = (
       newZona !== oldZona ||
@@ -644,63 +734,132 @@ function getQuickEditChanges() {
       newZero !== oldZero
     );
 
-    if (isChanged) {
-      // Caso 1: Existía y se borraron tanto Zona como Espacio -> Eliminar ubicación física
-      if (locId && !newZona && !newEspacio) {
-        changes.push({
-          type: 'DELETE',
-          locId,
-          sku
-        });
-        return;
-      }
+    if (!isChanged) return;
 
-      // Caso 2: Uno de los dos campos obligatorios quedó vacío -> Error de validación
-      if ((newZona && !newEspacio) || (!newZona && newEspacio)) {
-        errors.push({
-          sku,
-          element: !newZona ? zonaInput : espacioInput,
-          msg: `El producto ${sku} debe tener tanto Zona como Espacio definidos para poder guardar.`
-        });
-        return;
-      }
-
-      // Caso 3: Ambos vacíos y no existía locId previo -> Omitir
-      if (!locId && !newZona && !newEspacio) {
-        return;
-      }
-
-      // Caso 4: Se asigna o actualiza la ubicación física
-      const prod = productsCatalog.find(p => p.sku?.trim().toUpperCase() === sku.trim().toUpperCase());
+    // Caso 1: Existía y se borraron tanto Zona como Espacio -> Eliminar ubicación física
+    if (locId && !newZona && !newEspacio) {
       changes.push({
-        type: locId ? 'UPDATE' : 'INSERT',
+        type: 'DELETE',
+        draftKey,
         locId,
-        sku,
-        payload: {
-          ...(locId ? { id: locId } : {}),
-          product_id: prod?.id || null,
-          sku: sku,
-          comercio: prod?.comercio || activeCommerce || null,
-          warehouse_id: wh?.id || null,
-          bodega_nombre: activeBodega,
-          zona: newZona,
-          espacio: newEspacio,
-          posicion: newPosicion,
-          stock: newZero ? 0 : 1,
-          is_zero_stock: newZero,
-          updated_at: new Date().toISOString()
-        }
+        sku
       });
+      return;
     }
+
+    // Caso 2: Uno de los dos campos obligatorios quedó vacío -> Error de validación
+    if ((newZona && !newEspacio) || (!newZona && newEspacio)) {
+      let element = null;
+      if (container) {
+        const row = Array.from(container.querySelectorAll('tr[data-quick-row="true"]'))
+          .find(r => (r.getAttribute('data-draft-key') || getQuickEditDraftKey(r.getAttribute('data-sku'), r.querySelector('.quick-loc-zona')?.getAttribute('data-loc-id'))) === draftKey);
+        if (row) {
+          element = !newZona ? row.querySelector('.quick-loc-zona') : row.querySelector('.quick-loc-espacio');
+        }
+      }
+      errors.push({
+        sku,
+        draftKey,
+        element,
+        msg: `El producto ${sku} debe tener tanto Zona como Espacio definidos para poder guardar.`
+      });
+      return;
+    }
+
+    // Caso 3: Ambos vacíos y no existía locId previo -> Omitir
+    if (!locId && !newZona && !newEspacio) {
+      return;
+    }
+
+    // Caso 4: Se asigna o actualiza la ubicación física (siempre con un UUID válido en id)
+    const prod = productsCatalog.find(p => p.sku?.trim().toUpperCase() === sku.trim().toUpperCase());
+    const effectiveId = locId || generatedId || generateLocationUUID();
+    changes.push({
+      type: locId ? 'UPDATE' : 'INSERT',
+      draftKey,
+      locId: effectiveId,
+      sku,
+      payload: {
+        id: effectiveId,
+        product_id: prod?.id || null,
+        sku: sku,
+        comercio: prod?.comercio || activeCommerce || null,
+        warehouse_id: wh?.id || null,
+        bodega_nombre: activeBodega,
+        zona: newZona,
+        espacio: newEspacio,
+        posicion: newPosicion,
+        stock: newZero ? 0 : 1,
+        is_zero_stock: newZero,
+        updated_at: new Date().toISOString()
+      }
+    });
   });
 
   return { changes, errors };
 }
 
 /**
+ * Actualiza el contador visual en el banner y en el botón principal de guardado rápido
+ */
+function updateQuickEditCounterBadge() {
+  const { changes, errors } = getQuickEditChanges();
+  const totalModified = changes.length + errors.length;
+  const counterEl = document.getElementById('quick-edit-counter-badge');
+  if (counterEl) {
+    counterEl.innerText = `${totalModified} cambio${totalModified === 1 ? '' : 's'} pendiente${totalModified === 1 ? '' : 's'}`;
+    counterEl.style.background = totalModified > 0 ? '#6366f1' : 'rgba(99, 102, 241, 0.15)';
+    counterEl.style.color = totalModified > 0 ? '#fff' : '#4338ca';
+  }
+  const saveQuickBtn = document.getElementById('btn-loc-save-quick-edit');
+  if (saveQuickBtn && !saveQuickBtn.disabled) {
+    saveQuickBtn.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios Rápidos${totalModified > 0 ? ` (${totalModified})` : ''}`;
+  }
+}
+
+/**
+ * Renderiza el contenido de la celda de Estado en modo Edición Rápida
+ */
+function renderQuickRowStatusHtml(isChanged, hasOldLoc, extraLocCount, activeBodega, draftKey) {
+  if (isChanged) {
+    return `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem;">
+        <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700;">
+          <i class="ri-edit-line"></i> Modificado
+        </span>
+        <div style="display: inline-flex; gap: 0.25rem; align-items: center;">
+          <button type="button" class="btn btn-outline btn-quick-save-row" data-draft-key="${escapeHtml(draftKey)}" style="height: 24px; padding: 0 0.45rem; font-size: 0.68rem; font-weight: 700; color: #059669; border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Guardar solo esta fila ahora">
+            <i class="ri-check-line"></i> Guardar
+          </button>
+          <button type="button" class="btn btn-outline btn-quick-undo-row" data-draft-key="${escapeHtml(draftKey)}" style="height: 24px; padding: 0 0.35rem; font-size: 0.68rem; color: var(--color-text-muted); border-color: var(--color-border); cursor: pointer;" title="Deshacer cambios de esta fila">
+            <i class="ri-arrow-go-back-line"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+  if (hasOldLoc) {
+    return `
+      <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
+        Asignada
+      </span>
+      ${extraLocCount > 0 ? `<div style="font-size: 0.68rem; color: #6366f1; margin-top: 0.2rem;" title="Tiene ${extraLocCount} ubicación adicional en ${escapeHtml(activeBodega)}">+${extraLocCount} otra</div>` : ''}
+    `;
+  }
+  return `
+    <span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
+      Sin asignar
+    </span>
+  `;
+}
+
+/**
  * Resalta en vivo las celdas y filas modificadas en el modo planilla y actualiza el contador
  */
 function updateRowHighlight(row) {
+  syncRowToQuickEditDraft(row);
+
+  const sku = row.getAttribute('data-sku') || '';
   const zonaInput = row.querySelector('.quick-loc-zona');
   const espacioInput = row.querySelector('.quick-loc-espacio');
   const posicionInput = row.querySelector('.quick-loc-posicion');
@@ -708,6 +867,10 @@ function updateRowHighlight(row) {
   const statusCol = row.querySelector('.quick-loc-status-col');
 
   if (!zonaInput || !espacioInput) return;
+
+  const locId = zonaInput.getAttribute('data-loc-id') || '';
+  const draftKey = row.getAttribute('data-draft-key') || getQuickEditDraftKey(sku, locId);
+  const extraLocCount = Number(row.getAttribute('data-extra-loc-count') || 0);
 
   const oldZona = (zonaInput.getAttribute('data-old') || '').trim();
   const oldEspacio = (espacioInput.getAttribute('data-old') || '').trim();
@@ -728,42 +891,19 @@ function updateRowHighlight(row) {
       inp.style.borderColor = isFieldChanged ? '#6366f1' : 'var(--color-border)';
       inp.style.background = isFieldChanged ? '#f5f3ff' : 'var(--color-surface)';
     });
-    if (statusCol) {
-      statusCol.innerHTML = `
-        <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px; font-weight: 700;">
-          <i class="ri-edit-line"></i> Modificado
-        </span>
-      `;
-    }
   } else {
-    row.style.background = '';
+    row.style.background = !locId ? 'rgba(245, 158, 11, 0.02)' : '';
     [zonaInput, espacioInput, posicionInput].filter(Boolean).forEach(inp => {
       inp.style.borderColor = 'var(--color-border)';
       inp.style.background = 'var(--color-surface)';
     });
-    if (statusCol) {
-      const hasOldLoc = Boolean(zonaInput.getAttribute('data-loc-id'));
-      statusCol.innerHTML = hasOldLoc ? `
-        <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
-          Asignada
-        </span>
-      ` : `
-        <span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
-          Sin asignar
-        </span>
-      `;
-    }
   }
 
-  // Actualizar contador visual en el banner
-  const { changes } = getQuickEditChanges();
-  const counterEl = document.getElementById('quick-edit-counter-badge');
-  if (counterEl) {
-    const count = changes.length;
-    counterEl.innerText = `${count} cambio${count === 1 ? '' : 's'} detectado${count === 1 ? '' : 's'}`;
-    counterEl.style.background = count > 0 ? '#6366f1' : 'rgba(99, 102, 241, 0.15)';
-    counterEl.style.color = count > 0 ? '#fff' : '#4338ca';
+  if (statusCol) {
+    statusCol.innerHTML = renderQuickRowStatusHtml(isChanged, Boolean(locId), extraLocCount, window.locationsState.activeBodega, draftKey);
   }
+
+  updateQuickEditCounterBadge();
 }
 
 /**
@@ -1021,8 +1161,31 @@ function renderLocationsTableRowsHtml(filteredItems) {
     if (quickEditMode) {
       const primaryLoc = bLocs[0] || null;
       const extraLocCount = bLocs.length > 1 ? bLocs.length - 1 : 0;
+      const draftKey = getQuickEditDraftKey(item.sku, primaryLoc?.id || null);
+      const draft = (window.locationsState.quickEditDrafts || {})[draftKey] || null;
+
+      const oldZona = (primaryLoc?.zona || '').trim();
+      const oldEspacio = (primaryLoc?.espacio || '').trim();
+      const oldPosicion = (primaryLoc?.posicion || '').trim();
+      const oldZero = Boolean(primaryLoc?.is_zero_stock);
+
+      const curZona = draft ? draft.newZona : oldZona;
+      const curEspacio = draft ? draft.newEspacio : oldEspacio;
+      const curPosicion = draft ? draft.newPosicion : oldPosicion;
+      const curZero = draft ? Boolean(draft.newZero) : oldZero;
+
+      const isZonaChanged = curZona !== oldZona;
+      const isEspacioChanged = curEspacio !== oldEspacio;
+      const isPosicionChanged = curPosicion !== oldPosicion;
+      const isZeroChanged = curZero !== oldZero;
+      const isRowChanged = isZonaChanged || isEspacioChanged || isPosicionChanged || isZeroChanged;
+
+      const rowBg = isRowChanged
+        ? 'background: rgba(99, 102, 241, 0.05);'
+        : (!primaryLoc ? 'background: rgba(245, 158, 11, 0.02);' : '');
+
       return `
-        <tr data-quick-row="true" data-sku="${escapeHtml(item.sku)}" style="border-bottom: 1px solid var(--color-border); ${!primaryLoc ? 'background: rgba(245, 158, 11, 0.02);' : ''}">
+        <tr data-quick-row="true" data-sku="${escapeHtml(item.sku)}" data-draft-key="${escapeHtml(draftKey)}" data-extra-loc-count="${extraLocCount}" style="border-bottom: 1px solid var(--color-border); ${rowBg}">
           <!-- SKU -->
           <td style="padding: 0.65rem 0.75rem; vertical-align: middle;">
             <div style="font-weight: 700; color: var(--color-text-main); font-family: monospace; font-size: 0.88rem;">
@@ -1069,11 +1232,11 @@ function renderLocationsTableRowsHtml(filteredItems) {
             <input type="text" class="quick-loc-zona" 
               data-sku="${escapeHtml(item.sku)}" 
               data-loc-id="${primaryLoc?.id || ''}" 
-              data-old="${escapeHtml(primaryLoc?.zona || '')}" 
-              value="${escapeHtml(primaryLoc?.zona || '')}" 
+              data-old="${escapeHtml(oldZona)}" 
+              value="${escapeHtml(curZona)}" 
               placeholder="Ej: Salón" 
               list="quick-zonas-datalist" 
-              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
+              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid ${isZonaChanged ? '#6366f1' : 'var(--color-border)'}; background: ${isZonaChanged ? '#f5f3ff' : 'var(--color-surface)'}; color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
           </td>
 
           <!-- 3. Espacio -->
@@ -1081,11 +1244,11 @@ function renderLocationsTableRowsHtml(filteredItems) {
             <input type="text" class="quick-loc-espacio" 
               data-sku="${escapeHtml(item.sku)}" 
               data-loc-id="${primaryLoc?.id || ''}" 
-              data-old="${escapeHtml(primaryLoc?.espacio || '')}" 
-              value="${escapeHtml(primaryLoc?.espacio || '')}" 
+              data-old="${escapeHtml(oldEspacio)}" 
+              value="${escapeHtml(curEspacio)}" 
               placeholder="Ej: Estante 1" 
               list="quick-espacios-datalist" 
-              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
+              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid ${isEspacioChanged ? '#6366f1' : 'var(--color-border)'}; background: ${isEspacioChanged ? '#f5f3ff' : 'var(--color-surface)'}; color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
           </td>
 
           <!-- 4. Posición -->
@@ -1093,11 +1256,11 @@ function renderLocationsTableRowsHtml(filteredItems) {
             <input type="text" class="quick-loc-posicion" 
               data-sku="${escapeHtml(item.sku)}" 
               data-loc-id="${primaryLoc?.id || ''}" 
-              data-old="${escapeHtml(primaryLoc?.posicion || '')}" 
-              value="${escapeHtml(primaryLoc?.posicion || '')}" 
+              data-old="${escapeHtml(oldPosicion)}" 
+              value="${escapeHtml(curPosicion)}" 
               placeholder="Ej: Nivel 2" 
               list="quick-posiciones-datalist" 
-              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
+              style="width: 100%; height: 32px; padding: 0 8px; font-size: 0.83rem; border-radius: 4px; border: 1px solid ${isPosicionChanged ? '#6366f1' : 'var(--color-border)'}; background: ${isPosicionChanged ? '#f5f3ff' : 'var(--color-surface)'}; color: var(--color-text-main); transition: border-color 0.2s, background 0.2s;">
           </td>
 
           <!-- 0 Stock -->
@@ -1105,24 +1268,15 @@ function renderLocationsTableRowsHtml(filteredItems) {
             <input type="checkbox" class="quick-loc-zero" 
               data-sku="${escapeHtml(item.sku)}" 
               data-loc-id="${primaryLoc?.id || ''}" 
-              data-old="${Boolean(primaryLoc?.is_zero_stock)}" 
-              ${primaryLoc?.is_zero_stock ? 'checked' : ''} 
+              data-old="${oldZero}" 
+              ${curZero ? 'checked' : ''} 
               title="Marcar con 0 stock (evita recomendación en Picker)" 
               style="width: 17px; height: 17px; accent-color: #ef4444; cursor: pointer;">
           </td>
 
           <!-- Estado -->
           <td style="padding: 0.55rem 0.75rem; vertical-align: middle; text-align: center;" class="quick-loc-status-col">
-            ${primaryLoc ? `
-              <span class="badge" style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
-                Asignada
-              </span>
-              ${extraLocCount > 0 ? `<div style="font-size: 0.68rem; color: #6366f1; margin-top: 0.2rem;" title="Tiene ${extraLocCount} ubicación adicional en ${escapeHtml(activeBodega)}">+${extraLocCount} otra</div>` : ''}
-            ` : `
-              <span class="badge" style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.25); font-size: 0.72rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
-                Sin asignar
-              </span>
-            `}
+            ${renderQuickRowStatusHtml(isRowChanged, Boolean(primaryLoc?.id), extraLocCount, activeBodega, draftKey)}
           </td>
         </tr>
       `;
@@ -1300,6 +1454,11 @@ function refreshLocationsTableOnly(container) {
   if (!container) container = document.getElementById('admin-inv-tab-content');
   if (!container) return;
 
+  if (window.locationsState.quickEditMode) {
+    const existingRows = container.querySelectorAll('tr[data-quick-row="true"]');
+    existingRows.forEach(row => syncRowToQuickEditDraft(row));
+  }
+
   const { filteredItems, totalCatalogCount } = buildLocationsItemsAndMetrics();
   const { activeCommerce, searchFilter } = window.locationsState;
 
@@ -1317,11 +1476,20 @@ function refreshLocationsTableOnly(container) {
   if (clearBtn) {
     clearBtn.style.display = searchFilter ? 'flex' : 'none';
   }
+
+  if (window.locationsState.quickEditMode) {
+    updateQuickEditCounterBadge();
+  }
 }
 
 function renderLocationsWorkspace(container) {
   if (!container) container = document.getElementById('admin-inv-tab-content');
   if (!container) return;
+
+  if (window.locationsState.quickEditMode) {
+    const existingRows = container.querySelectorAll('tr[data-quick-row="true"]');
+    existingRows.forEach(row => syncRowToQuickEditDraft(row));
+  }
 
   // Preservar foco y posición del cursor si el buscador estaba activo antes del re-render
   const activeEl = document.activeElement;
@@ -1550,11 +1718,11 @@ function renderLocationsWorkspace(container) {
             <div>
               <strong>Modo Edición Rápida (Planilla) Activo en: </strong>
               <span class="badge" style="background: rgba(37, 99, 235, 0.1); color: #1d4ed8; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">🏢 ${escapeHtml(activeBodega)}</span>
-              <span style="color: var(--color-text-muted); margin-left: 0.35rem;">Escribe o modifica directamente los campos. Usa <kbd style="background: var(--color-surface); padding: 2px 5px; border-radius: 4px; border: 1px solid var(--color-border); font-family: monospace;">Tab</kbd> o <kbd style="background: var(--color-surface); padding: 2px 5px; border-radius: 4px; border: 1px solid var(--color-border); font-family: monospace;">Enter</kbd> para navegar como en Excel.</span>
+              <span style="color: var(--color-text-muted); margin-left: 0.35rem;">Puedes editar <strong>varios productos simultáneamente</strong> (incluso buscando o filtrando entre ellos) y guardar todo junto con <strong>Guardar Cambios Rápidos</strong>, o guardar fila por fila con el botón <strong>Guardar</strong> de cada fila.</span>
             </div>
           </div>
           <div id="quick-edit-counter-badge" class="badge" style="background: rgba(99, 102, 241, 0.15); color: #4338ca; font-size: 0.8rem; font-weight: 700; padding: 0.3rem 0.65rem; border-radius: 9999px;">
-            0 cambios detectados
+            0 cambios pendientes
           </div>
         </div>
       ` : ''}
@@ -1591,7 +1759,7 @@ function renderLocationsWorkspace(container) {
                 <th style="padding: 0.75rem 0.85rem; width: 155px;">3. Espacio <span style="color:#ef4444;">*</span></th>
                 <th style="padding: 0.75rem 0.85rem; width: 145px;">4. Posición <small style="font-weight:normal; text-transform:none;">(opcional)</small></th>
                 <th style="padding: 0.75rem 0.85rem; text-align: center; width: 80px;">0 Stock</th>
-                <th style="padding: 0.75rem 0.85rem; text-align: center; width: 105px;">Estado</th>
+                <th style="padding: 0.75rem 0.85rem; text-align: center; width: 120px;">Estado</th>
               </tr>
             `}
           </thead>
@@ -1624,6 +1792,10 @@ function renderLocationsWorkspace(container) {
     </div>
   `;
 
+  if (quickEditMode) {
+    updateQuickEditCounterBadge();
+  }
+
   // =========================================================================
   // LISTENERS DE INTERACCIÓN REACTIVA
   // =========================================================================
@@ -1645,6 +1817,8 @@ function renderLocationsWorkspace(container) {
           if (!newCommerce || newCommerce === window.locationsState.activeCommerce) return;
           window.locationsState.activeCommerce = newCommerce;
           window.activeAdminInventoryCommerce = newCommerce;
+          window.locationsState.quickEditMode = false;
+          window.locationsState.quickEditDrafts = {};
 
           container.innerHTML = `
             <div style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
@@ -1682,6 +1856,8 @@ function renderLocationsWorkspace(container) {
           if (!newCommerce) return;
           window.locationsState.activeCommerce = newCommerce;
           window.activeAdminInventoryCommerce = newCommerce;
+          window.locationsState.quickEditMode = false;
+          window.locationsState.quickEditDrafts = {};
 
           container.innerHTML = `
             <div style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
@@ -1707,12 +1883,14 @@ function renderLocationsWorkspace(container) {
   if (bodegaSelect) {
     bodegaSelect.addEventListener('change', (e) => {
       if (window.locationsState.quickEditMode) {
-        const { changes } = getQuickEditChanges();
-        if (changes.length > 0 && !confirm(`Tienes ${changes.length} cambios en planilla sin guardar. ¿Deseas descartarlos y cambiar de bodega?`)) {
+        const { changes, errors } = getQuickEditChanges();
+        const pendingCount = changes.length + errors.length;
+        if (pendingCount > 0 && !confirm(`Tienes ${pendingCount} cambios en planilla sin guardar. ¿Deseas descartarlos y cambiar de bodega?`)) {
           bodegaSelect.value = window.locationsState.activeBodega;
           return;
         }
         window.locationsState.quickEditMode = false;
+        window.locationsState.quickEditDrafts = {};
       }
       window.locationsState.activeBodega = e.target.value;
       renderLocationsWorkspace(container);
@@ -1792,6 +1970,7 @@ function renderLocationsWorkspace(container) {
         return;
       }
       window.locationsState.quickEditMode = true;
+      window.locationsState.quickEditDrafts = {};
       renderLocationsWorkspace(container);
     });
   }
@@ -1799,11 +1978,13 @@ function renderLocationsWorkspace(container) {
   const cancelQuickBtn = document.getElementById('btn-loc-cancel-quick-edit');
   if (cancelQuickBtn) {
     cancelQuickBtn.addEventListener('click', () => {
-      const { changes } = getQuickEditChanges();
-      if (changes.length > 0 && !confirm(`Tienes ${changes.length} cambios sin guardar. ¿Deseas descartarlos y salir de la edición rápida?`)) {
+      const { changes, errors } = getQuickEditChanges();
+      const pendingCount = changes.length + errors.length;
+      if (pendingCount > 0 && !confirm(`Tienes ${pendingCount} cambios sin guardar. ¿Deseas descartarlos y salir de la edición rápida?`)) {
         return;
       }
       window.locationsState.quickEditMode = false;
+      window.locationsState.quickEditDrafts = {};
       renderLocationsWorkspace(container);
     });
   }
@@ -1815,7 +1996,7 @@ function renderLocationsWorkspace(container) {
 
       if (errors.length > 0) {
         alert(errors[0].msg);
-        errors[0].element.focus();
+        if (errors[0].element) errors[0].element.focus();
         return;
       }
 
@@ -1830,6 +2011,7 @@ function renderLocationsWorkspace(container) {
           });
         }
         window.locationsState.quickEditMode = false;
+        window.locationsState.quickEditDrafts = {};
         renderLocationsWorkspace(container);
         return;
       }
@@ -1848,22 +2030,34 @@ function renderLocationsWorkspace(container) {
         const toUpsert = changes.filter(c => c.type === 'INSERT' || c.type === 'UPDATE').map(c => c.payload);
         const toDeleteIds = changes.filter(c => c.type === 'DELETE').map(c => c.locId);
 
-        // Guardar en WMS
+        let wmsSaveError = null;
+        let pickerSaveError = null;
+
+        // Guardar en WMS y Picker
         if (toUpsert.length > 0) {
           if (supa && typeof supa.from === 'function') {
             try {
               const { error: wmsErr } = await supa.from('product_locations').upsert(toUpsert);
-              if (wmsErr) console.warn('Error WMS upsert masivo:', wmsErr);
+              if (wmsErr) {
+                console.warn('Error WMS upsert masivo:', wmsErr);
+                wmsSaveError = wmsErr;
+              }
             } catch (e) {
               console.warn('WMS upsert error:', e);
+              wmsSaveError = e;
             }
           }
           if (pickerClient) {
             try {
-              const { error: pickErr } = await pickerClient.from('product_locations').upsert(toUpsert);
-              if (pickErr) console.warn('Error Picker upsert masivo:', pickErr);
+              const pickerPayloads = toUpsert.map(toPickerLocationPayload);
+              const { error: pickErr } = await pickerClient.from('product_locations').upsert(pickerPayloads);
+              if (pickErr) {
+                console.warn('Error Picker upsert masivo:', pickErr);
+                pickerSaveError = pickErr;
+              }
             } catch (pe) {
               console.warn('Picker upsert error:', pe);
+              pickerSaveError = pe;
             }
           }
         }
@@ -1882,24 +2076,29 @@ function renderLocationsWorkspace(container) {
           }
         }
 
+        if (toUpsert.length > 0 && wmsSaveError && pickerSaveError) {
+          throw new Error(wmsSaveError.message || pickerSaveError.message || 'No se pudieron guardar los cambios en la base de datos.');
+        }
+
         if (typeof Swal !== 'undefined') {
           Swal.fire({
             icon: 'success',
             title: '¡Ubicaciones Guardadas!',
-            text: `Se actualizaron correctamente ${changes.length} productos en ${window.locationsState.activeBodega}.`,
+            text: `Se actualizaron correctamente ${changes.length} producto${changes.length === 1 ? '' : 's'} en ${window.locationsState.activeBodega}.`,
             timer: 2000,
             showConfirmButton: false
           });
         }
 
         window.locationsState.quickEditMode = false;
+        window.locationsState.quickEditDrafts = {};
         await loadProductLocations({ comercio: window.locationsState.activeCommerce });
         renderLocationsWorkspace(container);
 
       } catch (err) {
         alert('Error al guardar cambios rápidos: ' + err.message);
         saveQuickBtn.disabled = false;
-        saveQuickBtn.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios Rápidos`;
+        updateQuickEditCounterBadge();
       }
     });
   }
@@ -1967,6 +2166,76 @@ function renderLocationsWorkspace(container) {
   const moduleRoot = container.querySelector('.locations-module-container');
   if (moduleRoot) {
     moduleRoot.addEventListener('click', async (e) => {
+      // 8.0 Guardar o deshacer una fila individual en Edición Rápida
+      const quickSaveRowBtn = e.target.closest('.btn-quick-save-row');
+      if (quickSaveRowBtn) {
+        e.preventDefault();
+        const draftKey = quickSaveRowBtn.getAttribute('data-draft-key');
+        const row = quickSaveRowBtn.closest('tr[data-quick-row="true"]');
+        if (row) syncRowToQuickEditDraft(row);
+
+        const { changes, errors } = getQuickEditChanges();
+        const rowError = errors.find(er => er.draftKey === draftKey);
+        if (rowError) {
+          alert(rowError.msg);
+          if (rowError.element) rowError.element.focus();
+          return;
+        }
+
+        const rowChange = changes.find(ch => ch.draftKey === draftKey);
+        if (!rowChange) return;
+
+        quickSaveRowBtn.disabled = true;
+        quickSaveRowBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+
+        try {
+          if (rowChange.type === 'DELETE') {
+            await deleteProductLocation(rowChange.locId);
+            window.locationsState.locations = window.locationsState.locations.filter(l => String(l.id) !== String(rowChange.locId));
+          } else {
+            const ok = await saveProductLocation(rowChange.payload);
+            if (!ok) throw new Error('No se pudo guardar la ubicación en la base de datos.');
+            const savedLoc = { ...rowChange.payload };
+            const existingIdx = window.locationsState.locations.findIndex(l => String(l.id) === String(savedLoc.id));
+            if (existingIdx >= 0) {
+              window.locationsState.locations[existingIdx] = { ...window.locationsState.locations[existingIdx], ...savedLoc };
+            } else {
+              window.locationsState.locations.unshift(savedLoc);
+            }
+          }
+
+          delete window.locationsState.quickEditDrafts[draftKey];
+          refreshLocationsTableOnly(container);
+        } catch (err) {
+          alert('Error al guardar la fila: ' + err.message);
+          quickSaveRowBtn.disabled = false;
+          quickSaveRowBtn.innerHTML = '<i class="ri-check-line"></i> Guardar';
+        }
+        return;
+      }
+
+      const quickUndoRowBtn = e.target.closest('.btn-quick-undo-row');
+      if (quickUndoRowBtn) {
+        e.preventDefault();
+        const draftKey = quickUndoRowBtn.getAttribute('data-draft-key');
+        const row = quickUndoRowBtn.closest('tr[data-quick-row="true"]');
+        if (draftKey && window.locationsState.quickEditDrafts) {
+          delete window.locationsState.quickEditDrafts[draftKey];
+        }
+        if (row) {
+          const zInp = row.querySelector('.quick-loc-zona');
+          const eInp = row.querySelector('.quick-loc-espacio');
+          const pInp = row.querySelector('.quick-loc-posicion');
+          const zeroInp = row.querySelector('.quick-loc-zero');
+          if (zInp) zInp.value = zInp.getAttribute('data-old') || '';
+          if (eInp) eInp.value = eInp.getAttribute('data-old') || '';
+          if (pInp) pInp.value = pInp.getAttribute('data-old') || '';
+          if (zeroInp) zeroInp.checked = zeroInp.getAttribute('data-old') === 'true';
+          updateRowHighlight(row);
+        }
+        return;
+      }
+
       // 8.1 Asignar Ubicación
       const assignBtn = e.target.closest('.btn-assign-loc');
       if (assignBtn) {
@@ -2514,9 +2783,10 @@ async function saveValidatedLocationsBatch(validRows, replaceExisting = true) {
     }
   }
 
-  // Preparar payloads
+  // Preparar payloads (compartiendo el mismo UUID entre WMS y Picker)
   const payloads = validRows.map(r => {
     return {
+      id: generateLocationUUID(),
       product_id: r.product?.id || null,
       sku: r.sku.trim().toUpperCase(),
       comercio: r.product?.comercio || window.locationsState.activeCommerce || null,
@@ -2544,7 +2814,8 @@ async function saveValidatedLocationsBatch(validRows, replaceExisting = true) {
   // Insertar en Picker Supabase
   if (pickerClient) {
     try {
-      const { error: pErr } = await pickerClient.from('product_locations').insert(payloads);
+      const pickerPayloads = payloads.map(toPickerLocationPayload);
+      const { error: pErr } = await pickerClient.from('product_locations').insert(pickerPayloads);
       if (pErr) console.warn('Error insertando en Picker product_locations:', pErr);
     } catch (pe) {
       console.warn('Picker insert error:', pe);
