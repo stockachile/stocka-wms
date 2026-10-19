@@ -64,7 +64,7 @@ async function loadAndRenderData(container) {
   }
 
   const rawProfiles = profilesRes.data || [];
-  let qrCodes = (qrsRes && qrsRes.data) ? qrsRes.data : [];
+  let qrCodes = ((qrsRes && qrsRes.data) ? qrsRes.data : []).filter(q => !String(q.token || '').startsWith('tw_cfg_'));
   let visitLogs = (logsRes && logsRes.data) ? logsRes.data : [];
   let notifications = (notifsRes && notifsRes.data) ? notifsRes.data : [];
 

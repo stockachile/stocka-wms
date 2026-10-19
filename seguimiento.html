@@ -2517,23 +2517,49 @@
     }
 
     // Helper: Load Stored Customization from Supabase for a commerce
+    function getTrackingConfigToken(commerceName) {
+      const norm = String(commerceName || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+      return ('tw_cfg_' + norm).slice(0, 64);
+    }
+
     async function loadCommerceCustomization(commerceName) {
       if (!commerceName) return;
+      const normName = commerceName.trim();
       try {
-        const { data } = await sbClient
-          .from('merchant_integrations')
-          .select('access_token')
-          .eq('platform', 'TrackingWidget')
-          .ilike('comercio', commerceName.trim())
+        const tokenKey = getTrackingConfigToken(normName);
+        let { data } = await sbClient
+          .from('qr_codes')
+          .select('description')
+          .eq('token', tokenKey)
+          .eq('status', 'active')
           .maybeSingle();
 
-        if (data && data.access_token) {
-          const cfg = JSON.parse(data.access_token);
+        if (!data) {
+          const res2 = await sbClient
+            .from('qr_codes')
+            .select('description')
+            .eq('type', 'system_badge')
+            .ilike('title', normName)
+            .eq('status', 'active')
+            .maybeSingle();
+          if (res2 && res2.data) data = res2.data;
+        }
+
+        if (data && data.description) {
+          const cfg = JSON.parse(data.description);
           applyCustomTheme(cfg);
+          return;
         }
       } catch(e) {
         console.warn("Notice loading tracking customization:", e);
       }
+
+      try {
+        const localRaw = localStorage.getItem('stocka_tw_config_' + normName);
+        if (localRaw) {
+          applyCustomTheme(JSON.parse(localRaw));
+        }
+      } catch(e) {}
     }
 
     // Form Submit Event (Zero PII in URL)

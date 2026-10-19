@@ -15,6 +15,12 @@ function getDefaultConfig(commerceName) {
   };
 }
 
+// Generar token único para la configuración de tracking del comercio
+function getTrackingConfigToken(commerceName) {
+  const norm = String(commerceName || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+  return ('tw_cfg_' + norm).slice(0, 64);
+}
+
 // Cargar configuración guardada
 export async function loadTrackingWidgetConfig(commerceName) {
   const normName = (commerceName || '').trim();
@@ -25,15 +31,27 @@ export async function loadTrackingWidgetConfig(commerceName) {
   } catch (e) {}
 
   try {
-    const { data, error } = await supabase
-      .from('merchant_integrations')
-      .select('*')
-      .eq('platform', 'TrackingWidget')
-      .ilike('comercio', normName)
+    const tokenKey = getTrackingConfigToken(normName);
+    let { data, error } = await supabase
+      .from('qr_codes')
+      .select('id, description')
+      .eq('token', tokenKey)
+      .eq('status', 'active')
       .maybeSingle();
 
-    if (!error && data && data.access_token) {
-      const parsed = JSON.parse(data.access_token);
+    if (!data && !error) {
+      const res2 = await supabase
+        .from('qr_codes')
+        .select('id, description')
+        .eq('type', 'system_badge')
+        .ilike('title', normName)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (res2 && res2.data) data = res2.data;
+    }
+
+    if (data && data.description) {
+      const parsed = JSON.parse(data.description);
       return { ...getDefaultConfig(normName), ...parsed, id: data.id };
     }
   } catch (err) {
@@ -51,34 +69,50 @@ export async function saveTrackingWidgetConfig(commerceName, config) {
   } catch (e) {}
 
   try {
-    const { data: userAuth } = await supabase.auth.getUser();
-    const merchantId = userAuth?.user?.id || null;
+    const tokenKey = getTrackingConfigToken(normName);
 
-    const { data: existing } = await supabase
-      .from('merchant_integrations')
+    let { data: existing } = await supabase
+      .from('qr_codes')
       .select('id')
-      .eq('platform', 'TrackingWidget')
-      .ilike('comercio', normName)
+      .eq('token', tokenKey)
       .maybeSingle();
 
-    const payload = {
-      platform: 'TrackingWidget',
-      comercio: normName,
-      access_token: JSON.stringify(config),
-      is_active: true
-    };
+    if (!existing) {
+      const res2 = await supabase
+        .from('qr_codes')
+        .select('id')
+        .eq('type', 'system_badge')
+        .ilike('title', normName)
+        .maybeSingle();
+      if (res2 && res2.data) existing = res2.data;
+    }
+
+    const cleanConfig = { ...config };
+    delete cleanConfig.id;
 
     if (existing && existing.id) {
       const { error } = await supabase
-        .from('merchant_integrations')
-        .update(payload)
+        .from('qr_codes')
+        .update({
+          token: tokenKey,
+          type: 'system_badge',
+          title: normName,
+          description: JSON.stringify(cleanConfig),
+          status: 'active',
+          updated_at: new Date().toISOString()
+        })
         .eq('id', existing.id);
       if (error) throw error;
     } else {
-      if (merchantId) payload.merchant_id = merchantId;
       const { error } = await supabase
-        .from('merchant_integrations')
-        .insert([payload]);
+        .from('qr_codes')
+        .insert([{
+          token: tokenKey,
+          type: 'system_badge',
+          title: normName,
+          description: JSON.stringify(cleanConfig),
+          status: 'active'
+        }]);
       if (error) throw error;
     }
     return { success: true };
