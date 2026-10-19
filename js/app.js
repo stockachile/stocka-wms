@@ -1343,14 +1343,17 @@ async function init() {
     if (navItems) {
       if (userRole === 'observer') {
         navItems.forEach(item => {
+          const parentLi = item.closest('li');
+          if (item.classList.contains('hidden-ticket-nav')) {
+            if (parentLi) parentLi.style.display = 'none';
+            return;
+          }
           const view = item.getAttribute('data-view');
           if (view === 'dashboard' || view === 'profile' || view === 'inbox') {
-            const parentLi = item.closest('li');
-            if (parentLi) parentLi.style.display = 'block';
-            else item.style.display = 'block';
+            if (parentLi) parentLi.style.display = '';
+            else item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
           } else {
-            const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'none';
             else item.style.display = 'none';
           }
@@ -1359,18 +1362,23 @@ async function init() {
         allowedModules = allowedModulesStr.split(',').map(m => m.trim());
         
         navItems.forEach(item => {
+          const parentLi = item.closest('li');
+          if (item.classList.contains('hidden-ticket-nav')) {
+            if (parentLi) parentLi.style.display = 'none';
+            return;
+          }
+
           const view = item.getAttribute('data-view');
           let isAllowed = allowedModules.includes(view);
 
-          // Compatibilidad con perfiles antiguos guardados antes de que dashboard fuera configurable
-          if (view === 'dashboard' && !allowedModules.includes('dashboard') && allowedModules.length > 5) {
+          // Compatibilidad con perfiles antiguos guardados antes de que dashboard o tracking_widget fueran configurables
+          if ((view === 'dashboard' || view === 'tracking_widget') && !allowedModules.includes(view) && allowedModules.length > 5) {
             isAllowed = true;
           }
 
-          const parentLi = item.closest('li');
           if (isAllowed) {
-            if (parentLi) parentLi.style.display = 'block';
-            else item.style.display = 'block';
+            if (parentLi) parentLi.style.display = '';
+            else item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
           } else {
             if (parentLi) parentLi.style.display = 'none';
@@ -5937,6 +5945,14 @@ function getMovementCategoryInfo(referenceDoc, type) {
   };
 }
 
+function formatMovementReferenceWithIngCode(refText) {
+  if (!refText) return '-';
+  return String(refText).replace(
+    /\[(#ING-[A-Z0-9]{8})\]/gi,
+    '<span style="background: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.74rem; font-weight: 700; margin: 0 2px; display: inline-block;">$1</span>'
+  );
+}
+
 // ============================================================================
 // MODAL RÁPIDO DE PRODUCTO ("KARDEX EXPRESS" MEJORADO - CLIENTE)
 // ============================================================================
@@ -6318,7 +6334,7 @@ async function openProductMovementsModal(productId, sku, name) {
               <div style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
               <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
             </td>
-            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${m.displayRef}</td>
+            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${formatMovementReferenceWithIngCode(m.displayRef)}</td>
           </tr>
         `;
       }).join('');
@@ -7413,7 +7429,7 @@ function renderMovementsTableBody() {
         <td style="padding: 0.75rem 1rem;">${platformHtml}</td>
         <td style="padding: 0.75rem 1rem; text-align: center; ${qtyStyle}">${qtyText}</td>
         <td style="padding: 0.75rem 1rem; text-align: center;">${resultingStockHtml}</td>
-        <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${operationDoc}</td>
+        <td style="padding: 0.75rem 1rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${formatMovementReferenceWithIngCode(operationDoc)}</td>
         <td style="padding: 0.75rem 1rem; text-align: center; white-space: nowrap;">
           <button class="btn btn-outline btn-sm btn-view-movements" data-prod-id="${r.productId}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
             <i class="ri-history-line"></i> Kardex
@@ -17546,11 +17562,37 @@ async function renderRedZone(container, profile, commerceList) {
 
     const uniqueBillingNames = new Set();
     commerceList.forEach(c => {
+      uniqueBillingNames.add(c);
       const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
-      const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
-      uniqueBillingNames.add(nameToUse);
+      if (matchedMapping && matchedMapping.billing_name) {
+        uniqueBillingNames.add(matchedMapping.billing_name);
+      }
     });
+    if (uniqueBillingNames.has('BIG BANG') || uniqueBillingNames.has('BIG BANG SPA')) {
+      uniqueBillingNames.add('BIG BANG');
+      uniqueBillingNames.add('BIG BANG SPA');
+    }
+    if (uniqueBillingNames.has('SILVER FOX') || uniqueBillingNames.has('SILVER FOX SPA')) {
+      uniqueBillingNames.add('SILVER FOX');
+      uniqueBillingNames.add('SILVER FOX SPA');
+    }
     const resolvedCompanyList = Array.from(uniqueBillingNames);
+
+    // 1a. Verificar estado de suspensión administrativa en commerce_billing_status
+    let isCommercePaused = false;
+    try {
+      if (resolvedCompanyList.length > 0) {
+        const { data: statusRows } = await supabase
+          .from('commerce_billing_status')
+          .select('comercio, al_dia')
+          .in('comercio', resolvedCompanyList);
+        if (statusRows && statusRows.some(s => s.al_dia === false)) {
+          isCommercePaused = true;
+        }
+      }
+    } catch (err) {
+      console.warn('Advertencia al verificar commerce_billing_status en Zona Roja:', err);
+    }
 
     // 1b. Obtener RUT, Razón Social y datos del Representante Legal de los comercios desde comercios_adicional_config
     let resolvedRut = '';
@@ -17817,40 +17859,267 @@ async function renderRedZone(container, profile, commerceList) {
       ...totals
     };
 
-    // Mapear los períodos con sus registros de facturación
-    const periodStatusList = periods.map(p => {
-      const records = billingRecords ? billingRecords.filter(r => r.period_id === p.id) : [];
-      
-      const totalFulf = records.reduce((sum, r) => sum + (r.total_fulfillment || 0), 0);
-      const abonoFulf = records.reduce((sum, r) => sum + (r.abono_fulfillment || 0), 0);
-      const totalEnv = records.reduce((sum, r) => sum + (r.enviame || 0), 0);
-      const abonoEnv = records.reduce((sum, r) => sum + (r.abono_enviame || 0), 0);
+    // Ordenar períodos cronológicamente (más reciente primero) e identificar el período vigente de cobranza
+    const getRedZonePeriodSortInfo = (p) => {
+      let year = p?.period_year ? parseInt(p.period_year, 10) : null;
+      let month = p?.period_month ? parseInt(p.period_month, 10) : null;
+      if (!year || !month) {
+        const nameUpper = String(p?.name || '').trim().toUpperCase();
+        const yearMatch = nameUpper.match(/\b(20\d\d)\b/);
+        if (!year && yearMatch) year = parseInt(yearMatch[1], 10);
+        const monthMap = {
+          'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+          'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+          'SEPTIEMBRE': 9, 'SETIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+        };
+        if (!month) {
+          for (const [k, v] of Object.entries(monthMap)) {
+            if (nameUpper.includes(k)) { month = v; break; }
+          }
+        }
+      }
+      year = year || new Date().getFullYear();
+      month = month || 1;
+      return { year, month, sortKey: year * 100 + month };
+    };
 
+    const sortedPeriods = (periods || []).map(p => ({
+      ...p,
+      ...getRedZonePeriodSortInfo(p)
+    })).sort((a, b) => b.sortKey - a.sortKey);
+
+    const activePeriod =
+      sortedPeriods.find(p => String(p.status || '').toLowerCase() === 'activo') ||
+      sortedPeriods.find(p => String(p.status || '').toLowerCase() === 'en_proceso') ||
+      sortedPeriods.find(p => String(p.status || '').toLowerCase() !== 'proximo') ||
+      sortedPeriods[0] ||
+      null;
+
+    // Determinar el primer período en el que el comercio registra actividad/historial real
+    let earliestActiveSortKey = null;
+    sortedPeriods.forEach(p => {
+      const recs = (billingRecords || []).filter(r => r.period_id === p.id);
+      const hasActivity = recs.some(r => {
+        const tf = Number(r.total_fulfillment) || 0;
+        const te = Number(r.enviame) || 0;
+        const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+        const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+        const pe = String(r.pago_enviame || '').trim().toLowerCase();
+        const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+        return tf > 0 || te > 0 || hasSnap ||
+          ['enviado', 'publicado', 'aprobado', 'sin movimientos', 'creado'].includes(desg) ||
+          ['recibido', 'aprobado', 'sin movimientos', 'atrasado', 'en espera', 'abono', 'incobrable'].includes(pf) ||
+          ['recibido', 'aprobado', 'sin movimientos', 'atrasado', 'en espera', 'abono', 'incobrable'].includes(pe);
+      });
+      if (hasActivity) {
+        if (earliestActiveSortKey === null || p.sortKey < earliestActiveSortKey) {
+          earliestActiveSortKey = p.sortKey;
+        }
+      }
+    });
+
+    // Mapear los períodos con sus registros de facturación, estado de desglose y estado de pago
+    const periodStatusList = sortedPeriods.map(p => {
+      const records = billingRecords ? billingRecords.filter(r => r.period_id === p.id) : [];
+      const isCurrentActivePeriod = Boolean(activePeriod && p.id === activePeriod.id);
+      const isPreviousPeriod = Boolean(activePeriod && p.sortKey < activePeriod.sortKey);
+      const isUpToActivePeriod = isCurrentActivePeriod || isPreviousPeriod || !activePeriod;
+      const pStatusLower = String(p.status || '').toLowerCase();
+      const isWithinCommerceTimeline =
+        isCurrentActivePeriod ||
+        pStatusLower === 'activo' ||
+        pStatusLower === 'en_proceso' ||
+        (earliestActiveSortKey !== null && p.sortKey >= earliestActiveSortKey);
+
+      const totalFulf = records.reduce((sum, r) => sum + (Number(r.total_fulfillment) || 0), 0);
+      const abonoFulf = records.reduce((sum, r) => sum + (Number(r.abono_fulfillment) || 0), 0);
+      const totalEnv = records.reduce((sum, r) => sum + (Number(r.enviame) || 0), 0);
+      const abonoEnv = records.reduce((sum, r) => sum + (Number(r.abono_enviame) || 0), 0);
+
+      const pendingFulf = Math.max(0, totalFulf - abonoFulf);
+      const pendingEnv = Math.max(0, totalEnv - abonoEnv);
       const totalFacturado = totalFulf + totalEnv;
       const totalAbonado = abonoFulf + abonoEnv;
-      const pendingAmount = totalFacturado - totalAbonado;
+      const pendingAmount = pendingFulf + pendingEnv;
 
-      let isPaid = true;
+      // Evaluar emisión de desglose
+      let isDesglosePending = false;
+      let desgloseStatusLabel = 'Sin movimientos';
+      let desgloseBadgeBg = 'rgba(107, 114, 128, 0.12)';
+      let desgloseBadgeColor = '#4b5563';
+
+      if (records.length === 0) {
+        if (isUpToActivePeriod && isWithinCommerceTimeline) {
+          isDesglosePending = true;
+          desgloseStatusLabel = 'Pendiente de Emisión';
+          desgloseBadgeBg = 'rgba(245, 158, 11, 0.16)';
+          desgloseBadgeColor = '#b45309';
+        }
+      } else {
+        const anyDraft = records.some(r => String(r.desglose_fulfillment || '').trim().toLowerCase() === 'creado' && !(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))));
+        const allEmittedOrNoMov = records.every(r => {
+          const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+          const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+          const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+          const rTot = (Number(r.total_fulfillment) || 0) + (Number(r.enviame) || 0);
+          const isExplicitNoMov = desg === 'sin movimientos' || (rTot === 0 && ['sin movimientos', 'recibido', 'aprobado'].includes(pf));
+          const isEmitted = ['enviado', 'publicado', 'aprobado'].includes(desg) || hasSnap;
+
+          if (isExplicitNoMov) return true;
+          if (!isEmitted) {
+            if (isCurrentActivePeriod || rTot > 0 || (isUpToActivePeriod && isWithinCommerceTimeline)) {
+              return false;
+            }
+            return true;
+          }
+          // Si figura emitido pero en el período vigente tiene monto $0 y sigue "Por solicitar" (no liquidado ni sin movimientos)
+          if (isCurrentActivePeriod && rTot === 0 && !['recibido', 'aprobado', 'sin movimientos'].includes(pf)) {
+            return false;
+          }
+          return true;
+        });
+
+        const hasPublished = records.some(r => {
+          const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+          const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+          return ['enviado', 'publicado', 'aprobado'].includes(desg) || hasSnap;
+        });
+
+        if (!allEmittedOrNoMov) {
+          isDesglosePending = true;
+          desgloseStatusLabel = anyDraft ? 'En Preparación (Pendiente Emisión)' : 'Pendiente de Emisión';
+          desgloseBadgeBg = 'rgba(245, 158, 11, 0.16)';
+          desgloseBadgeColor = '#b45309';
+        } else if (hasPublished || totalFacturado > 0) {
+          desgloseStatusLabel = 'Emitido / Publicado';
+          desgloseBadgeBg = 'rgba(99, 102, 241, 0.14)';
+          desgloseBadgeColor = '#4f46e5';
+        } else {
+          desgloseStatusLabel = 'Sin Movimientos';
+          desgloseBadgeBg = 'rgba(107, 114, 128, 0.12)';
+          desgloseBadgeColor = '#4b5563';
+        }
+      }
+
+      // Evaluar estado de pago
+      let hasUnpaidFulf = false;
+      let hasUnpaidEnv = false;
+      let hasPaymentInReview = false;
+      let hasOverdue = false;
+
       if (records.length > 0) {
-        const hasUnpaidFulf = records.some(r => r.total_fulfillment > 0 && r.pago_fulfillment !== 'Recibido');
-        const hasUnpaidEnv = records.some(r => r.enviame > 0 && r.pago_enviame !== 'Recibido');
-        isPaid = !hasUnpaidFulf && !hasUnpaidEnv && pendingAmount <= 0;
+        hasUnpaidFulf = records.some(r => {
+          const tf = Number(r.total_fulfillment) || 0;
+          const af = Number(r.abono_fulfillment) || 0;
+          const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+          if (pf === 'atrasado') hasOverdue = true;
+          if (pf === 'en espera' || pf === 'abono') hasPaymentInReview = true;
+          if (tf > 0) return (tf - af) > 0 || !['recibido', 'aprobado'].includes(pf);
+          return ['atrasado', 'en espera', 'abono', 'incobrable'].includes(pf);
+        });
+        hasUnpaidEnv = records.some(r => {
+          const te = Number(r.enviame) || 0;
+          const ae = Number(r.abono_enviame) || 0;
+          const pe = String(r.pago_enviame || '').trim().toLowerCase();
+          if (pe === 'atrasado') hasOverdue = true;
+          if (pe === 'en espera' || pe === 'abono') hasPaymentInReview = true;
+          if (te > 0) return (te - ae) > 0 || !['recibido', 'aprobado'].includes(pe);
+          return ['atrasado', 'en espera', 'abono', 'incobrable'].includes(pe);
+        });
+      }
+
+      const hasUnpaidBalance = hasUnpaidFulf || hasUnpaidEnv || pendingAmount > 0;
+      const isPaid = !isDesglosePending && !hasUnpaidBalance;
+
+      let statusText = 'Saldado';
+      let statusBg = 'rgba(16, 185, 129, 0.15)';
+      let statusColor = '#10b981';
+
+      if (isDesglosePending && hasUnpaidBalance) {
+        statusText = 'Desglose y Pago Pendiente';
+        statusBg = 'rgba(239, 68, 68, 0.15)';
+        statusColor = '#ef4444';
+      } else if (isDesglosePending) {
+        statusText = 'Emisión Desglose Pendiente';
+        statusBg = 'rgba(245, 158, 11, 0.18)';
+        statusColor = '#b45309';
+      } else if (hasUnpaidBalance) {
+        if (hasOverdue) {
+          statusText = 'Pago Atrasado';
+        } else if (hasPaymentInReview && pendingAmount <= 0) {
+          statusText = 'Pago en Verificación';
+        } else {
+          statusText = 'Pendiente de Pago';
+        }
+        statusBg = 'rgba(239, 68, 68, 0.15)';
+        statusColor = '#ef4444';
+      } else if (totalFacturado === 0) {
+        statusText = 'Sin Movimientos';
+        statusBg = 'rgba(107, 114, 128, 0.12)';
+        statusColor = '#4b5563';
       }
 
       return {
         id: p.id,
         name: p.name,
+        sortKey: p.sortKey,
+        isCurrentActivePeriod,
+        isPreviousPeriod,
+        isUpToActivePeriod,
         total: totalFacturado,
         pending: pendingAmount,
-        isPaid: isPaid,
-        totalFulf: totalFulf,
-        pendingFulf: totalFulf - abonoFulf,
-        totalEnv: totalEnv,
-        pendingEnv: totalEnv - abonoEnv
+        isPaid,
+        isDesglosePending,
+        hasUnpaidBalance,
+        desgloseStatusLabel,
+        desgloseBadgeBg,
+        desgloseBadgeColor,
+        statusText,
+        statusBg,
+        statusColor,
+        totalFulf,
+        pendingFulf,
+        totalEnv,
+        pendingEnv
       };
     });
 
-    const hasPendingBilling = periodStatusList.some(p => !p.isPaid && p.total > 0);
+    // Evaluar condiciones bloqueantes para iniciar solicitud de baja
+    const activePeriodStatus = periodStatusList.find(p => p.isCurrentActivePeriod) || periodStatusList[0] || null;
+    const activePeriodName = activePeriodStatus ? activePeriodStatus.name : 'Período Actual';
+
+    const previousUnpaidPeriods = periodStatusList.filter(p => p.isPreviousPeriod && p.hasUnpaidBalance);
+    const previousPendingDesglosePeriods = periodStatusList.filter(p => p.isPreviousPeriod && p.isDesglosePending);
+    const futureUnpaidPeriods = periodStatusList.filter(p => !p.isUpToActivePeriod && p.hasUnpaidBalance);
+
+    const isCurrentPeriodDesglosePending = Boolean(!activePeriodStatus || activePeriodStatus.isDesglosePending);
+    const isCurrentPeriodPaymentPending = Boolean(activePeriodStatus && activePeriodStatus.hasUnpaidBalance);
+
+    const blockingReasons = [];
+    if (isCommercePaused) {
+      blockingReasons.push(`<strong>Cuenta con suspensión de cobranza activa:</strong> El comercio registra estado de morosidad / servicio pausado en Facturación.`);
+    }
+    if (previousUnpaidPeriods.length > 0) {
+      const listStr = previousUnpaidPeriods.map(p => `${p.name} ($${p.pending.toLocaleString('es-CL')} pendiente)`).join(', ');
+      blockingReasons.push(`<strong>Saldos pendientes en períodos anteriores al vigente:</strong> Registra pagos o saldos pendientes en: <strong>${listStr}</strong>.`);
+    }
+    if (previousPendingDesglosePeriods.length > 0) {
+      const listStr = previousPendingDesglosePeriods.map(p => p.name).join(', ');
+      blockingReasons.push(`<strong>Desgloses pendientes en períodos previos:</strong> Existen períodos anteriores sin desglose emitido o liquidado: <strong>${listStr}</strong>.`);
+    }
+    if (isCurrentPeriodDesglosePending) {
+      blockingReasons.push(`<strong>Emisión pendiente del período vigente (${activePeriodName}):</strong> El desglose de servicios correspondiente al período vigente de cobranza (<strong>${activePeriodName}</strong>) aún se encuentra pendiente de emisión/publicación. Es requisito que el desglose de <strong>${activePeriodName}</strong> haya sido emitido y pagado para iniciar la baja del servicio.`);
+    }
+    if (isCurrentPeriodPaymentPending) {
+      blockingReasons.push(`<strong>Pago pendiente del período vigente (${activePeriodName}):</strong> El período vigente de cobranza (<strong>${activePeriodName}</strong>) presenta un saldo o pago pendiente de confirmación (${activePeriodStatus.pending > 0 ? `$${activePeriodStatus.pending.toLocaleString('es-CL')} CLP` : activePeriodStatus.statusText}).`);
+    }
+    if (futureUnpaidPeriods.length > 0) {
+      const listStr = futureUnpaidPeriods.map(p => `${p.name} ($${p.pending.toLocaleString('es-CL')})`).join(', ');
+      blockingReasons.push(`<strong>Saldos pendientes adicionales:</strong> ${listStr}.`);
+    }
+
+    const isExitBlockedByBilling = blockingReasons.length > 0;
+    const hasPendingBilling = periodStatusList.some(p => !p.isPaid);
     const hasOpenExitTicket = activeExitTicket && activeExitTicket.status !== 'cerrado';
 
     // Renderizar panel de Zona Roja
@@ -17897,6 +18166,41 @@ async function renderRedZone(container, profile, commerceList) {
           </div>
         ` : ''}
 
+        ${!hasOpenExitTicket && isExitBlockedByBilling ? `
+          <!-- Banner Bloqueante de Cobranza y Desgloses -->
+          <div style="background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%); border: 2px solid #f43f5e; border-radius: var(--radius-lg); padding: 1.35rem 1.5rem; box-shadow: 0 6px 16px -4px rgba(244, 63, 94, 0.2);">
+            <div style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap;">
+              <div style="background-color: #e11d48; color: white; width: 44px; height: 44px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.4rem;">
+                <i class="ri-lock-2-fill"></i>
+              </div>
+              <div style="flex: 1; min-width: 260px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+                  <h4 style="margin: 0; color: #881337; font-size: 1.05rem; font-weight: 800;">
+                    Solicitud de Baja Bloqueada — Requisito de Pagos y Desgloses al Día
+                  </h4>
+                  <span style="background: #be123c; color: white; font-size: 0.72rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase;">
+                    Período Vigente: ${activePeriodName}
+                  </span>
+                </div>
+                <p style="margin: 0 0 0.75rem 0; color: #9f1239; font-size: 0.86rem; line-height: 1.5;">
+                  Para poder iniciar el proceso de baja del servicio es requisito obligatorio encontrarse <strong>al día con sus pagos al menos hasta el período vigente de cobranza (${activePeriodName})</strong>, con todos los desgloses emitidos y pagados (sin saldos pendientes en períodos previos ni emisión pendiente del período actual):
+                </p>
+                <ul style="margin: 0 0 1rem 0; padding-left: 1.25rem; font-size: 0.84rem; color: #881337; display: flex; flex-direction: column; gap: 0.4rem; background: rgba(255,255,255,0.75); padding-top: 0.75rem; padding-bottom: 0.75rem; padding-right: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(225, 29, 72, 0.2);">
+                  ${blockingReasons.map(reason => `<li>${reason}</li>`).join('')}
+                </ul>
+                <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                  <button type="button" id="btn-redzone-go-billing" class="btn" style="background-color: #be123c; color: white; border: none; padding: 0.5rem 1rem; font-size: 0.82rem; font-weight: 700; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;">
+                    <i class="ri-bill-line"></i> Ir a Mis Facturas y Estado de Cuenta
+                  </button>
+                  <span style="font-size: 0.78rem; color: #9f1239; font-weight: 500;">
+                    Una vez emitido y pagado el período <strong>${activePeriodName}</strong> (y saldados los períodos previos), el formulario quedará habilitado automáticamente.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
         <!-- Banner de Advertencia -->
         <div style="background: linear-gradient(135deg, #fef2f2 0%, #ffe4e6 100%); border: 1px solid #fecdd3; border-radius: var(--radius-lg); padding: 1.5rem; display: flex; gap: 1rem; align-items: flex-start; box-shadow: var(--shadow-sm);">
           <div style="background-color: #ef4444; color: white; width: 44px; height: 44px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.4);">
@@ -17910,9 +18214,9 @@ async function renderRedZone(container, profile, commerceList) {
             <div style="margin-top: 1rem; background-color: rgba(255,255,255,0.6); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(239, 68, 68, 0.15);">
               <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">Condiciones Contractuales Obligatorias:</h4>
               <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: #7f1d1d; display: flex; flex-direction: column; gap: 0.35rem;">
-                <li><strong>1. Cuenta al Día:</strong> No poseer deudas, saldos pendientes o disputas de pago activas en la plataforma.</li>
+                <li><strong>1. Cuenta al Día hasta el Período Vigente (${activePeriodName}):</strong> No poseer saldos pendientes de servicios en períodos previos ni en el período actual, contando con los desgloses emitidos y pagados al menos hasta <strong>${activePeriodName}</strong>.</li>
                 <li><strong>2. Aviso de Salida Anticipado:</strong> Informar la baja del servicio con un mínimo de <strong>30 días corridos de anticipación</strong> antes del retiro físico.</li>
-                <li><strong>3. Liquidación Total:</strong> Todo desglose de servicios o tarifas que se encuentre pendiente o en proceso de facturación a la fecha será emitido para asegurar que la cuenta quede saldada.</li>
+                <li><strong>3. Liquidación Total:</strong> Todo desglose de servicios o tarifas que se encuentre pendiente o en proceso de facturación a la fecha debe encontrarse emitido y saldado para autorizar el término de servicio.</li>
               </ul>
             </div>
           </div>
@@ -17923,11 +18227,17 @@ async function renderRedZone(container, profile, commerceList) {
 
           <!-- SECCIÓN 1: Períodos de Facturación y Liquidación de Desgloses -->
           <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
-            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-refund-2-line" style="color: var(--color-primary);"></i> 1. Historial de Facturación y Desgloses
-            </h4>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-refund-2-line" style="color: var(--color-primary);"></i> 1. Historial de Facturación y Desgloses
+              </h4>
+              <span style="font-size: 0.76rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; background: ${isExitBlockedByBilling ? 'rgba(239, 68, 68, 0.14)' : 'rgba(16, 185, 129, 0.14)'}; color: ${isExitBlockedByBilling ? '#dc2626' : '#059669'};">
+                <i class="${isExitBlockedByBilling ? 'ri-error-warning-fill' : 'ri-checkbox-circle-fill'}"></i>
+                ${isExitBlockedByBilling ? `Cuenta con Pendientes (Req. al día hasta ${activePeriodName})` : `Cuenta al Día hasta ${activePeriodName}`}
+              </span>
+            </div>
             <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
-              Revise a continuación el estado de pago de cada periodo registrado para sus comercios asociados:
+              Revise a continuación el estado de emisión de desglose y pago de cada período registrado para sus comercios asociados (período vigente de cobranza: <strong>${activePeriodName}</strong>):
             </p>
             
             <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: 1.25rem;">
@@ -17935,19 +18245,27 @@ async function renderRedZone(container, profile, commerceList) {
                 <thead>
                   <tr style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border);">
                     <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Período</th>
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Estado Desglose</th>
                     <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Monto Facturado</th>
                     <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Saldo Pendiente</th>
-                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Estado</th>
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Estado de Cuenta</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${periodStatusList.map(p => {
-                    const statusText = p.isPaid ? 'Saldado' : 'Pendiente de Pago';
-                    const statusBg = p.isPaid ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
-                    const statusColor = p.isPaid ? '#10b981' : '#ef4444';
                     return `
-                      <tr style="border-bottom: 1px solid var(--color-border);">
-                        <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">${p.name}</td>
+                      <tr style="border-bottom: 1px solid var(--color-border); ${p.isCurrentActivePeriod ? 'background-color: rgba(99, 102, 241, 0.04);' : ''}">
+                        <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">
+                          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                            <span>${p.name}</span>
+                            ${p.isCurrentActivePeriod ? `<span style="background: var(--color-primary); color: white; font-size: 0.65rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; text-transform: uppercase;">Vigente</span>` : ''}
+                          </div>
+                        </td>
+                        <td style="padding: 0.75rem 1rem;">
+                          <span style="background-color: ${p.desgloseBadgeBg}; color: ${p.desgloseBadgeColor}; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.74rem; font-weight: 700; display: inline-block;">
+                            ${p.desgloseStatusLabel}
+                          </span>
+                        </td>
                         <td style="padding: 0.75rem 1rem; color: var(--color-text-main);">
                           <strong>$${p.total.toLocaleString('es-CL')}</strong>
                           <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 2px;">
@@ -17961,8 +18279,8 @@ async function renderRedZone(container, profile, commerceList) {
                           </div>
                         </td>
                         <td style="padding: 0.75rem 1rem;">
-                          <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
-                            ${statusText}
+                          <span style="background-color: ${p.statusBg}; color: ${p.statusColor}; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; display: inline-block;">
+                            ${p.statusText}
                           </span>
                         </td>
                       </tr>
@@ -17973,18 +18291,25 @@ async function renderRedZone(container, profile, commerceList) {
             </div>
 
             ${hasPendingBilling ? `
-              <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
-                <i class="ri-error-warning-fill" style="color: #d97706; font-size: 1.25rem;"></i>
-                <span style="font-size: 0.8rem; color: #92400e; font-weight: 500;">
-                  Atención: Posee períodos con montos pendientes de pago. Para autorizar el retiro físico de su stock, deberá regularizar su saldo.
+              <div style="background-color: #fef2f2; border: 1px solid #fecdd3; border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.6rem; align-items: flex-start;">
+                <i class="ri-error-warning-fill" style="color: #dc2626; font-size: 1.25rem; margin-top: 1px;"></i>
+                <div style="font-size: 0.82rem; color: #991b1b; line-height: 1.45;">
+                  <strong>Requisito de Cuenta al Día No Cumplido:</strong> Para iniciar el proceso de baja del servicio, su comercio debe encontrarse al día al menos hasta el período vigente de cobranza (<strong>${activePeriodName}</strong>), con todos los desgloses emitidos y pagados. ${isCurrentPeriodDesglosePending ? `Actualmente se encuentra pendiente la emisión del desglose del período <strong>${activePeriodName}</strong>.` : ''}
+                </div>
+              </div>
+            ` : `
+              <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                <i class="ri-checkbox-circle-fill" style="color: #16a34a; font-size: 1.2rem;"></i>
+                <span style="font-size: 0.82rem; color: #166534; font-weight: 600;">
+                  Su cuenta se encuentra al día con sus desgloses emitidos y pagados hasta el período vigente (${activePeriodName}).
                 </span>
               </div>
-            ` : ''}
+            `}
 
             <!-- Checkbox de Declaración Jurada Legal -->
-            <div style="display: flex; gap: 0.75rem; align-items: flex-start; background-color: var(--color-bg); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
-              <input type="checkbox" id="chk-legal-billing-declaration" ${hasOpenExitTicket ? 'checked disabled' : 'required'} style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
-              <label for="chk-legal-billing-declaration" style="font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5; cursor: pointer; font-weight: 500;">
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start; background-color: var(--color-bg); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); ${!hasOpenExitTicket && isExitBlockedByBilling ? 'opacity: 0.65;' : ''}">
+              <input type="checkbox" id="chk-legal-billing-declaration" ${hasOpenExitTicket ? 'checked disabled' : (isExitBlockedByBilling ? 'disabled' : 'required')} style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: ${!hasOpenExitTicket && isExitBlockedByBilling ? 'not-allowed' : 'pointer'}; flex-shrink: 0;">
+              <label for="chk-legal-billing-declaration" style="font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5; cursor: ${!hasOpenExitTicket && isExitBlockedByBilling ? 'not-allowed' : 'pointer'}; font-weight: 500;">
                 <span style="color: #ef4444; font-weight: 700;">[DECLARACIÓN JURADA DE PAGO Y NO RECLAMO]</span> El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Asimismo, declara que no existen disputas de cobro ni reclamos pendientes y renuncia irrevocablemente a cualquier acción legal, civil, comercial o administrativa posterior tendiente a reclamar diferencias de cobros, tarifas o saldos de los períodos detallados en esta declaración, liberando de toda responsabilidad a Stocka SpA y a su representante legal.
               </label>
             </div>
@@ -18184,6 +18509,10 @@ async function renderRedZone(container, profile, commerceList) {
               <button type="button" class="btn" disabled style="background-color: #10b981; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); opacity: 0.95; font-size: 0.92rem; display: inline-flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-checkbox-circle-line"></i> Solicitud de Salida Activa y Sincronizada
               </button>
+            ` : isExitBlockedByBilling ? `
+              <button type="button" id="btn-submit-exit-request" class="btn" disabled title="Debe encontrarse al día con sus desgloses emitidos y pagados hasta ${activePeriodName} para solicitar la baja" style="background-color: #9ca3af; color: #ffffff; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: not-allowed; opacity: 0.85; font-size: 0.92rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-lock-2-line"></i> Solicitud Bloqueada — Regularice Desgloses y Pagos (${activePeriodName})
+              </button>
             ` : `
               <button type="submit" id="btn-submit-exit-request" class="btn" style="background-color: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.5rem;">
                 <i class="ri-close-circle-line"></i> Enviar Solicitud Oficial de Baja de Servicio
@@ -18197,6 +18526,18 @@ async function renderRedZone(container, profile, commerceList) {
     const btnRefreshRz = document.getElementById('btn-refresh-client-redzone');
     if (btnRefreshRz) {
       btnRefreshRz.addEventListener('click', () => renderRedZone(container, profile, commerceList));
+    }
+
+    const btnGoBilling = document.getElementById('btn-redzone-go-billing');
+    if (btnGoBilling) {
+      btnGoBilling.addEventListener('click', () => {
+        const billingNavItem = document.querySelector('[data-view="billing"]');
+        if (billingNavItem) {
+          billingNavItem.click();
+        } else if (typeof window.renderBillingClient === 'function') {
+          window.renderBillingClient();
+        }
+      });
     }
 
     // 9. Inyectar texto formal en el colapsable del documento
@@ -18238,6 +18579,19 @@ async function renderRedZone(container, profile, commerceList) {
       const alertContainer = document.getElementById('redzone-alert-container');
       const submitBtn = document.getElementById('btn-submit-exit-request');
       if (!submitBtn) return;
+
+      if (isExitBlockedByBilling) {
+        alertContainer.innerHTML = `
+          <div class="alert alert-error" style="display: block; line-height: 1.5;">
+            <strong>No es posible iniciar la solicitud de baja:</strong> Su comercio debe encontrarse al día con sus pagos al menos hasta el período vigente de cobranza (<strong>${activePeriodName}</strong>), con todos los desgloses emitidos y pagados.<br>
+            <ul style="margin: 0.4rem 0 0 1.2rem; padding: 0;">
+              ${blockingReasons.map(r => `<li>${r}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+        alertContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
 
       if (!chk.checked) {
         alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Debe aceptar la declaración jurada sobre el estado de facturación para proceder.</div>`;
@@ -18760,15 +19114,17 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           <thead>
             <tr>
               <th>Período</th>
+              <th>Estado Desglose</th>
               <th>Monto Facturado</th>
               <th>Saldo Pendiente</th>
-              <th>Estado de Pago</th>
+              <th>Estado de Cuenta</th>
             </tr>
           </thead>
           <tbody>
             ${periodStatusList.map(p => `
               <tr>
-                <td><strong>${p.name}</strong></td>
+                <td><strong>${p.name}</strong>${p.isCurrentActivePeriod ? ' <span style="font-size:0.7rem;color:#4f46e5;">(Vigente)</span>' : ''}</td>
+                <td>${p.desgloseStatusLabel || (p.isDesglosePending ? 'Pendiente de Emisión' : 'Emitido')}</td>
                 <td>
                   <strong>$${p.total.toLocaleString('es-CL')}</strong>
                   <div style="font-size: 0.7rem; color: #666; margin-top: 2px;">
@@ -18783,7 +19139,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
                 </td>
                 <td>
                   <span style="font-weight: bold; color: ${p.isPaid ? '#047857' : '#b91c1c'};">
-                    ${p.isPaid ? 'Saldado' : 'Pendiente'}
+                    ${p.statusText || (p.isPaid ? 'Saldado' : 'Pendiente')}
                   </span>
                 </td>
               </tr>
@@ -25969,6 +26325,28 @@ window.renderDeclarations = async function() {
           estimatedArrivalPeriod = `${pQty} ${pUnit}`;
         }
 
+        // Verificar que no exista otro ingreso con el mismo nombre dentro del mismo comercio
+        if (title && commerce) {
+          try {
+            let dupQuery = supabase
+              .from('stock_declarations')
+              .select('id, title')
+              .ilike('comercio', commerce.trim());
+            if (editingDeclarationId) {
+              dupQuery = dupQuery.neq('id', editingDeclarationId);
+            }
+            const { data: existingDecs } = await dupQuery;
+            const normalizedTitle = title.trim().toLowerCase();
+            const dupDec = (existingDecs || []).find(d => (d.title || '').trim().toLowerCase() === normalizedTitle);
+            if (dupDec) {
+              const dupCode = `#ING-${dupDec.id.substring(0, 8).toUpperCase()}`;
+              formErrors.push(`Ya existe un ingreso de stock con el nombre "<strong>${title.trim()}</strong>" en tu comercio (${dupCode}). Por favor utiliza un nombre distinto para evitar confusiones.`);
+            }
+          } catch (dupErr) {
+            console.warn('Error verificando duplicidad de nombre de ingreso:', dupErr);
+          }
+        }
+
         if (formErrors.length > 0) {
           const scrollContainer = document.getElementById('dec-form-scroll-container') || document.querySelector('.slide-over-body > div');
           if (scrollContainer) scrollContainer.scrollTop = 0;
@@ -26792,7 +27170,7 @@ async function fetchAndRenderClientDeclarations() {
       html += `
         <tr style="transition: background-color 0.2s;">
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
-            <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
+            <span style="font-weight: 700; font-family: monospace; font-size: 0.72rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 5px; border-radius: 4px; color: #059669; margin-right: 4px;" title="Código Único de Ingreso">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
             ${dec.title}
             ${dec.parallel_count ? `
             <div style="margin-top: 3px;">
@@ -32141,8 +32519,24 @@ async function loadInboxData() {
   }
 }
 
-// Ocultar cabeceras de categorías vacías en el menú
+// Ocultar cabeceras o grupos de categorías vacías en el menú
 function updateCategoryHeadersVisibility() {
+  // Soporte para grupos Flyout (Propuesta 3)
+  const flyoutGroups = document.querySelectorAll('.sidebar-nav .sidebar-flyout-group');
+  if (flyoutGroups.length > 0) {
+    flyoutGroups.forEach(group => {
+      const innerLis = Array.from(group.querySelectorAll('.flyout-panel-list > li'));
+      const hasVisible = innerLis.some(li => {
+        if (li.style.display === 'none') return false;
+        const link = li.querySelector('.nav-item');
+        if (link && link.classList.contains('hidden-ticket-nav')) return false;
+        return true;
+      });
+      group.style.display = hasVisible ? '' : 'none';
+    });
+  }
+
+  // Soporte legado para cabeceras planas
   const listItems = Array.from(document.querySelectorAll('.sidebar-nav > ul > li'));
   let currentHeader = null;
   let hasVisibleItems = false;
@@ -32163,6 +32557,10 @@ function updateCategoryHeadersVisibility() {
   
   if (currentHeader && !hasVisibleItems) {
     currentHeader.style.display = 'none';
+  }
+
+  if (typeof window.refreshSidebarFlyoutSystem === 'function') {
+    window.refreshSidebarFlyoutSystem();
   }
 }
 

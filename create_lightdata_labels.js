@@ -63,15 +63,35 @@ function generateTrackingCode(sigla, externalOrderNumber, orderId) {
   return `${sigla}${cleanOrderNum}`;
 }
 
-// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
+// Helper para resolver el SKU que se envía al Picker en active_orders (concatenación SKU + todos los códigos de barra asociados)
 function resolvePickerSku(prod, order, commerceStrict = false) {
+  const codes = [];
+  const seen = new Set();
+  const addCode = (val) => {
+    const clean = String(val || '').trim();
+    if (!clean) return;
+    const upper = clean.toUpperCase();
+    if (!seen.has(upper)) {
+      seen.add(upper);
+      codes.push(clean);
+    }
+  };
+
+  const baseSku = (prod?.sku || order?.sku || '').trim();
   const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
   const originBarcode = prod?.barcode && String(prod.barcode).trim();
   const sendWms = prod?.send_barcode_wms_to_picker !== false;
-  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
-  if (cbarWms && sendWms) return cbarWms;
-  if (sendOrigin && originBarcode) return originBarcode;
-  return (prod?.sku || order?.sku || 'SKU-TEMP');
+  const rawAlt = Array.isArray(prod?.alternate_barcodes)
+    ? prod.alternate_barcodes
+    : (Array.isArray(prod?.options?.alternate_barcodes) ? prod.options.alternate_barcodes : []);
+
+  if (baseSku) addCode(baseSku);
+  if (cbarWms && sendWms) addCode(cbarWms);
+  if (originBarcode) addCode(originBarcode);
+  rawAlt.forEach(b => addCode(b));
+
+  if (codes.length === 0) return 'SKU-TEMP';
+  return codes.join(' | ');
 }
 
 const SUPPORTED_COMUNAS = [

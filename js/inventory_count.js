@@ -1477,6 +1477,9 @@ async function findProductInDatabase(code) {
     const bcOrigin = String(p.barcode || '').trim().toUpperCase();
     const bcWms = String(p.barcode_wms || '').trim().toUpperCase();
     const bcAlt = String(p.codigo_barra || '').trim().toUpperCase();
+    const altList = typeof window.getProductAlternateBarcodes === 'function'
+      ? window.getProductAlternateBarcodes(p).map(x => String(x || '').trim().toUpperCase())
+      : (Array.isArray(p.options?.alternate_barcodes) ? p.options.alternate_barcodes.map(x => String(x || '').trim().toUpperCase()) : []);
     const sku = String(p.sku || '').trim().toUpperCase();
     const alias = String(p.alias || '').trim().toUpperCase();
 
@@ -1490,12 +1493,14 @@ async function findProductInDatabase(code) {
       if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
       if (bcWms && bcWms === cleanUpper) return { match: true, by: 'Código WMS' };
       if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+      if (altList.includes(cleanUpper)) return { match: true, by: 'Código Barras (Multi-Código)' };
       return { match: false };
     }
 
     if (mode === 'barcode_origin') {
       if (bcOrigin && bcOrigin === cleanUpper) return { match: true, by: 'Código Barras (Origen)' };
       if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+      if (altList.includes(cleanUpper)) return { match: true, by: 'Código Barras (Multi-Código)' };
       return { match: false };
     }
 
@@ -1510,6 +1515,7 @@ async function findProductInDatabase(code) {
     if (sku && sku === cleanUpper) return { match: true, by: 'SKU' };
     if (alias && alias === cleanUpper) return { match: true, by: 'Alias SKU' };
     if (bcAlt && bcAlt === cleanUpper) return { match: true, by: 'Código Barras (Alternativo)' };
+    if (altList.includes(cleanUpper)) return { match: true, by: 'Código Barras (Multi-Código)' };
     return { match: false };
   };
 

@@ -2093,15 +2093,63 @@ window.getOrderNoteText = function(order) {
   return '';
 };
 
-// Helper para resolver el SKU que se envía al Picker en active_orders (prioridad: CBAR WMS > CBAR Origen > SKU)
-window.resolvePickerSku = function(prod, order, commerceStrict) {
+// Helper para obtener la lista limpia de códigos de barra alternativos (multi-código) de un producto
+window.getProductAlternateBarcodes = function(prod) {
+  if (!prod) return [];
+  const rawList = Array.isArray(prod.alternate_barcodes)
+    ? prod.alternate_barcodes
+    : (Array.isArray(prod.options?.alternate_barcodes) ? prod.options.alternate_barcodes : []);
+  const seen = new Set();
+  const result = [];
+  const primarySku = String(prod.sku || '').trim().toUpperCase();
+  const primaryBar = String(prod.barcode || '').trim().toUpperCase();
+  const primaryWms = String(prod.barcode_wms || '').trim().toUpperCase();
+
+  rawList.forEach(code => {
+    const clean = String(code || '').trim();
+    if (!clean) return;
+    const upper = clean.toUpperCase();
+    if (upper !== primarySku && upper !== primaryBar && upper !== primaryWms && !seen.has(upper)) {
+      seen.add(upper);
+      result.push(clean);
+    }
+  });
+  return result;
+};
+
+// Helper para obtener todos los códigos escaneables únicos de un producto (SKU + CBAR WMS + CBAR Origen + Alternativos)
+window.getProductAllScannableCodes = function(prod, order, commerceStrict) {
+  const codes = [];
+  const seen = new Set();
+  const addCode = (val) => {
+    const clean = String(val || '').trim();
+    if (!clean) return;
+    const upper = clean.toUpperCase();
+    if (!seen.has(upper)) {
+      seen.add(upper);
+      codes.push(clean);
+    }
+  };
+
+  const baseSku = (prod?.sku || order?.sku || '').trim();
   const cbarWms = prod?.barcode_wms && String(prod.barcode_wms).trim();
   const originBarcode = prod?.barcode && String(prod.barcode).trim();
   const sendWms = prod?.send_barcode_wms_to_picker !== false;
-  const sendOrigin = Boolean(prod?.send_barcode_to_picker || prod?.picking_match_strict || commerceStrict);
-  if (cbarWms && sendWms) return cbarWms;
-  if (sendOrigin && originBarcode) return originBarcode;
-  return (prod?.sku || order?.sku || 'SKU-TEMP');
+  const altBarcodes = window.getProductAlternateBarcodes(prod);
+
+  if (baseSku) addCode(baseSku);
+  if (cbarWms && sendWms) addCode(cbarWms);
+  if (originBarcode) addCode(originBarcode);
+  altBarcodes.forEach(b => addCode(b));
+
+  if (codes.length === 0) return ['SKU-TEMP'];
+  return codes;
+};
+
+// Helper para resolver el SKU que se envía al Picker en active_orders (concatenación SKU + todos los códigos de barra asociados)
+window.resolvePickerSku = function(prod, order, commerceStrict) {
+  const allCodes = window.getProductAllScannableCodes(prod, order, commerceStrict);
+  return allCodes.join(' | ');
 };
 
 // Helper para construir la observación que se envía al Picker en active_orders (campo observation / Nota)
@@ -4401,7 +4449,7 @@ async function init() {
     console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user?.email || 'Usuario');
 
     console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
-    const { data: profile, error: profileError } = await supabase
+    let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role, company_name, full_name, allowed_modules, comercio')
       .eq('id', session.user.id)
@@ -4423,6 +4471,36 @@ async function init() {
     } else {
       console.log('DEBUG: Perfil encontrado:', profile);
     }
+
+    // Si otra pestaña inició sesión con una cuenta de cliente (ej. cliente.test@stocka.cl), intentar restaurar el respaldo de sesión Admin
+    if (!profile || profile.role !== 'admin') {
+      try {
+        const backupRaw = sessionStorage.getItem('sb-wms-admin-session-backup') || localStorage.getItem('sb-wms-admin-session-backup');
+        if (backupRaw) {
+          const backupSess = JSON.parse(backupRaw);
+          if (backupSess?.access_token && backupSess?.refresh_token && backupSess?.user?.id !== session.user.id) {
+            console.log('DEBUG: Restaurando sesión de Administrador desde respaldo local...');
+            const { data: restored, error: restErr } = await supabase.auth.setSession({
+              access_token: backupSess.access_token,
+              refresh_token: backupSess.refresh_token
+            });
+            if (!restErr && restored?.session) {
+              session = restored.session;
+              const { data: adminProf } = await supabase
+                .from('profiles')
+                .select('role, company_name, full_name, allowed_modules, comercio')
+                .eq('id', session.user.id)
+                .single();
+              if (adminProf && adminProf.role === 'admin') {
+                profile = adminProf;
+              }
+            }
+          }
+        }
+      } catch (eRestore) {
+        console.warn('DEBUG: No se pudo restaurar respaldo de sesión Admin:', eRestore);
+      }
+    }
     
     if (!profile || profile.role !== 'admin') {
       console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
@@ -4434,6 +4512,15 @@ async function init() {
     userRole = profile.role || 'admin';
     window.currentAdminProfile = profile;
     window.currentAdminUser = session.user;
+    try {
+      const serializedAdminSession = JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        user: session.user
+      });
+      sessionStorage.setItem('sb-wms-admin-session-backup', serializedAdminSession);
+      localStorage.setItem('sb-wms-admin-session-backup', serializedAdminSession);
+    } catch (eBackup) {}
 
     // Auto-update admin profile if missing integrations or documentation_admin
     if (profile.allowed_modules && profile.allowed_modules !== 'all') {
@@ -4679,6 +4766,11 @@ async function init() {
         allowedModules = allowedModulesStr.split(',').map(m => m.trim());
         
         navItems.forEach(item => {
+          const parentLi = item.closest('li');
+          if (item.classList.contains('hidden-ticket-nav')) {
+            if (parentLi) parentLi.style.display = 'none';
+            return;
+          }
           const view = item.getAttribute('data-view');
           const isAllowed = allowedModules.includes(view) ||
             (view === 'inventory_count' && (allowedModules.includes('inventory_admin') || allowedModules.length === 0)) ||
@@ -4688,12 +4780,10 @@ async function init() {
             view === 'movements_admin' || view === 'surveys_admin' || view === 'inventory_count';
 
           if (isAllowed) {
-            const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = '';
             else item.style.display = '';
             if (!firstVisibleItem) firstVisibleItem = item;
           } else {
-            const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'none';
             else item.style.display = 'none';
           }
@@ -4764,8 +4854,24 @@ async function init() {
   }
 }
 
-// Ocultar cabeceras de categorías vacías en el menú
+// Ocultar cabeceras o grupos de categorías vacías en el menú
 function updateCategoryHeadersVisibility() {
+  // Soporte para grupos Flyout (Propuesta 3)
+  const flyoutGroups = document.querySelectorAll('.sidebar-nav .sidebar-flyout-group');
+  if (flyoutGroups.length > 0) {
+    flyoutGroups.forEach(group => {
+      const innerLis = Array.from(group.querySelectorAll('.flyout-panel-list > li'));
+      const hasVisible = innerLis.some(li => {
+        if (li.style.display === 'none') return false;
+        const link = li.querySelector('.nav-item');
+        if (link && link.classList.contains('hidden-ticket-nav')) return false;
+        return true;
+      });
+      group.style.display = hasVisible ? '' : 'none';
+    });
+  }
+
+  // Soporte legado para cabeceras planas
   const listItems = Array.from(document.querySelectorAll('.sidebar-nav > ul > li'));
   let currentHeader = null;
   let hasVisibleItems = false;
@@ -4786,6 +4892,10 @@ function updateCategoryHeadersVisibility() {
   
   if (currentHeader && !hasVisibleItems) {
     currentHeader.style.display = 'none';
+  }
+
+  if (typeof window.refreshSidebarFlyoutSystem === 'function') {
+    window.refreshSidebarFlyoutSystem();
   }
 
   // Initial badge update and periodic refresh
@@ -20344,6 +20454,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
               ? String(sp.barcode).trim() 
               : (existing?.barcode || null);
 
+            let resolvedOptions = existing?.options || null;
+            const oldBarcode = existing?.barcode ? String(existing.barcode).trim() : '';
+            if (oldBarcode && resolvedBarcode && oldBarcode.toUpperCase() !== resolvedBarcode.toUpperCase()) {
+              const currentAlts = window.getProductAlternateBarcodes ? window.getProductAlternateBarcodes(existing) : [];
+              if (!currentAlts.some(c => String(c).trim().toUpperCase() === oldBarcode.toUpperCase())) {
+                resolvedOptions = {
+                  ...(resolvedOptions && typeof resolvedOptions === 'object' ? resolvedOptions : {}),
+                  alternate_barcodes: [...currentAlts, oldBarcode]
+                };
+              }
+            }
+
             const productRow = {
               merchant_id: merchantId,
               comercio: commerce,
@@ -20371,7 +20493,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
               talla: existing?.talla || null,
               variable_1: existing?.variable_1 || null,
               variable_2: existing?.variable_2 || null,
-              options: existing?.options || null,
+              options: resolvedOptions,
               is_pack: existing?.is_pack ?? false,
               is_virtual: existing?.is_virtual ?? false,
               status: existing?.status || 'active'
@@ -26321,7 +26443,8 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
 
                 let m3 = null;
                 if (l !== null && w !== null && h !== null && l > 0 && w > 0 && h > 0) {
-                  m3 = (l * w * h) / 1000000;
+                  const rawM3 = (l * w * h) / 1000000;
+                  m3 = window.roundUpVolume ? window.roundUpVolume(rawM3) : rawM3;
                 }
 
                 updates.push({
@@ -26329,9 +26452,11 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
                   length: l,
                   width: w,
                   height: h,
+                  largo: l,
+                  ancho: w,
+                  alto: h,
                   weight: kg,
-                  volumen: m3,
-                  packaging_type: pkg
+                  volumen: m3
                 });
               });
 
@@ -26342,10 +26467,11 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
                     length: u.length,
                     width: u.width,
                     height: u.height,
+                    largo: u.largo,
+                    ancho: u.ancho,
+                    alto: u.alto,
                     weight: u.weight,
-                    volumen: u.volumen,
-                    packaging_type: u.packaging_type,
-                    updated_at: new Date().toISOString()
+                    volumen: u.volumen
                   })
                   .eq('id', u.id);
 
@@ -26564,15 +26690,17 @@ async function openAdminProductDimensionsModal(defaultCommerce = null, defaultSc
                 let updatedCount = 0;
 
                 for (const item of toUpdate) {
+                  const finalVol = (item.newVol && window.roundUpVolume) ? window.roundUpVolume(item.newVol) : item.newVol;
                   const payload = {
                     length: item.newL,
                     width: item.newW,
                     height: item.newH,
+                    largo: item.newL,
+                    ancho: item.newW,
+                    alto: item.newH,
                     weight: item.newKg,
-                    volumen: item.newVol,
-                    updated_at: new Date().toISOString()
+                    volumen: finalVol
                   };
-                  if (item.newPkg) payload.packaging_type = item.newPkg;
                   if (item.newBar) payload.barcode = item.newBar;
 
                   const { error: updErr } = await supabase
@@ -26835,6 +26963,14 @@ function getMovementCategoryInfo(referenceDoc, type) {
     color: '#6b7280',
     bg: 'rgba(107, 114, 128, 0.1)'
   };
+}
+
+function formatMovementReferenceWithIngCode(refText) {
+  if (!refText) return '-';
+  return String(refText).replace(
+    /\[(#ING-[A-Z0-9]{8})\]/gi,
+    '<span style="background: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.74rem; font-weight: 700; margin: 0 2px; display: inline-block;">$1</span>'
+  );
 }
 
 // ============================================================================
@@ -27966,7 +28102,7 @@ function renderAdminMovementsTableBody() {
         <td style="padding: 0.75rem 0.8rem;">${platformHtml}</td>
         <td style="padding: 0.75rem 0.8rem; text-align: center; font-size: 0.95rem; ${qtyStyle}">${qtyText}</td>
         <td style="padding: 0.75rem 0.8rem; text-align: center;">${resultingStockHtml}</td>
-        <td style="padding: 0.75rem 0.8rem; font-weight: 500; color: var(--color-text-main); font-size: 0.82rem;" title="${m.referenceDoc}">${m.friendlyRef}</td>
+        <td style="padding: 0.75rem 0.8rem; font-weight: 500; color: var(--color-text-main); font-size: 0.82rem;" title="${m.referenceDoc}">${formatMovementReferenceWithIngCode(m.friendlyRef)}</td>
         <td style="padding: 0.75rem 0.8rem; text-align: center; white-space: nowrap;">
           <button class="btn btn-outline btn-sm btn-quick-inspect-sku" data-prod-id="${m.productId}" data-prod-sku="${m.sku}" data-prod-name="${escapeHtmlAttr(m.name)}" title="Ver Kardex Express de este producto" style="height: 26px; padding: 0 0.5rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;">
             <i class="ri-history-line"></i> Kardex
@@ -28654,7 +28790,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
               <div style="font-weight: 800; font-size: 0.95rem; color: var(--color-text-main);">${m.stockTotalAfter} <span style="font-size: 0.75rem; font-weight: 500; color: var(--color-text-muted);">uds</span></div>
               <div style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 500;" title="Stock en ${m.warehouseName}: ${m.warehouseStockAfter} uds">(${m.warehouseStockAfter} en bodega)</div>
             </td>
-            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${m.displayRef}</td>
+            <td style="padding: 0.75rem 0.8rem; color: var(--color-text-main); font-size: 0.82rem; font-weight: 500;" title="${m.reference_doc}">${formatMovementReferenceWithIngCode(m.displayRef)}</td>
           </tr>
         `;
       }).join('');
@@ -40664,25 +40800,106 @@ window.toggleDeclarationBillingStatus = async function(id, currentStatus) {
   }
 };
 
+window.parseAndSortBillingPeriods = function(rawPeriods, currentVal = '') {
+  const monthMap = {
+    'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+    'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+    'SEPTIEMBRE': 9, 'SETIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+  };
+
+  const seen = new Set();
+  const parsed = [];
+
+  const addItem = (item) => {
+    const rawName = typeof item === 'object' && item !== null ? item.name : item;
+    const name = String(rawName || '').trim().toUpperCase();
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+
+    let year = (typeof item === 'object' && item?.period_year) ? parseInt(item.period_year, 10) : null;
+    let month = (typeof item === 'object' && item?.period_month) ? parseInt(item.period_month, 10) : null;
+
+    if (!year || isNaN(year)) {
+      const yearMatch = name.match(/\b(20\d{2})\b/);
+      year = yearMatch ? parseInt(yearMatch[1], 10) : null;
+    }
+
+    if (!month || isNaN(month)) {
+      for (const [mName, mNum] of Object.entries(monthMap)) {
+        if (name.includes(mName)) {
+          month = mNum;
+          break;
+        }
+      }
+    }
+
+    const sortYear = year || 0;
+    const sortMonth = month || 0;
+    const sortKey = sortYear * 100 + sortMonth;
+
+    parsed.push({
+      name,
+      year: year || null,
+      month: month || null,
+      status: (typeof item === 'object' && item?.status) ? item.status : null,
+      sortKey
+    });
+  };
+
+  (rawPeriods || []).forEach(addItem);
+  if (currentVal && String(currentVal).trim()) {
+    addItem(currentVal);
+  }
+
+  // Ordenar del más reciente al más antiguo (mayor año y mayor mes primero)
+  parsed.sort((a, b) => {
+    if (b.sortKey !== a.sortKey) return b.sortKey - a.sortKey;
+    return a.name.localeCompare(b.name, 'es');
+  });
+
+  return parsed;
+};
+
+window.buildGroupedBillingPeriodsOptionsHtml = function(rawPeriods, currentVal = '') {
+  const normCurrent = String(currentVal || '').trim().toUpperCase();
+  const sorted = window.parseAndSortBillingPeriods(rawPeriods, normCurrent);
+
+  const groupsMap = new Map();
+  sorted.forEach(item => {
+    const groupKey = item.year ? `📅 Año ${item.year}` : '📅 Otros Periodos';
+    if (!groupsMap.has(groupKey)) {
+      groupsMap.set(groupKey, []);
+    }
+    groupsMap.get(groupKey).push(item);
+  });
+
+  let html = '';
+  for (const [groupLabel, items] of groupsMap.entries()) {
+    const opts = items.map(p => {
+      const isSelected = p.name === normCurrent ? 'selected' : '';
+      return `<option value="${p.name}" ${isSelected}>${p.name}</option>`;
+    }).join('');
+    html += `<optgroup label="${groupLabel}">${opts}</optgroup>`;
+  }
+  return html;
+};
+
 window.changeDeclarationBillingPeriod = async function(declarationId, currentVal) {
-  let periodNames = [];
+  let rawPeriods = [];
   try {
     const { data } = await supabase
       .from('billing_periods')
-      .select('name, status')
-      .order('created_at', { ascending: false });
-    periodNames = (data || []).map(p => p.name);
+      .select('*');
+    rawPeriods = data || [];
   } catch (e) {
     console.warn('Error fetching billing_periods for declaration:', e);
   }
 
-  if (periodNames.length === 0) {
-    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  if (rawPeriods.length === 0) {
+    rawPeriods = ['OCTUBRE 2026', 'SEPTIEMBRE 2026', 'AGOSTO 2026', 'JULIO 2026', 'JUNIO 2026'];
   }
 
-  const optionsHtml = periodNames.map(p => `
-    <option value="${p}" ${p === currentVal ? 'selected' : ''}>${p}</option>
-  `).join('');
+  const optionsHtml = window.buildGroupedBillingPeriodsOptionsHtml(rawPeriods, currentVal);
 
   const { value: selectedVal } = await Swal.fire({
     title: 'Asignar Periodo de Facturación al Ingreso',
@@ -40923,7 +41140,7 @@ function buildDeclarationRowHtml(dec) {
       </td>
       <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
         <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 2px;">
-          <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted);" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
+          <span style="font-weight: 700; font-family: monospace; font-size: 0.72rem; background: rgba(5, 150, 105, 0.1); border: 1px solid rgba(5, 150, 105, 0.3); padding: 1px 6px; border-radius: 4px; color: #059669;" title="Código Único de Ingreso">#ING-${dec.id.substring(0, 8).toUpperCase()}</span>
           ${isPrinted ? `
             <button type="button" onclick="window.toggleDeclarationPrintedStatus('${dec.id}', true)" style="background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center;" title="Marcado como Impreso. Clic para desmarcar">
               <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;">
@@ -43384,10 +43601,21 @@ document.addEventListener('submit', async (e) => {
       const isStay = status === prevStatus;
       const isAdvance = newStep > prevStep;
 
+      const decShortCode = id ? id.substring(0, 8).toUpperCase() : '';
+      const getEffectiveClosedAddedQty = (p) => {
+        if (p.qty_inventory_added !== undefined && p.qty_inventory_added !== null) {
+          return parseInt(p.qty_inventory_added, 10) || 0;
+        }
+        if (p.qty_confirmed !== undefined && p.qty_confirmed !== null) {
+          return parseInt(p.qty_confirmed, 10) || 0;
+        }
+        return parseInt(p.qty, 10) || 0;
+      };
+
       // Si retrocede desde una etapa de recepción cerrada (Recibido Conforme, Recepción Parcial, Recibido con Incidencias),
       // confirmar y revertir stock físico si ya se había sumado
       if (isRollback && ['Recibido Conforme', 'Recepción Parcial', 'Recibido con Incidencias'].includes(prevStatus)) {
-        const hasStockAdded = (latestDec.products_list || []).some(p => (parseInt(p.qty_inventory_added, 10) || 0) > 0);
+        const hasStockAdded = (latestDec.products_list || []).some(p => getEffectiveClosedAddedQty(p) > 0);
         if (hasStockAdded) {
           const confirmRollback = await Swal.fire({
             title: '¿Confirmar retroceso de etapa?',
@@ -43417,7 +43645,7 @@ document.addEventListener('submit', async (e) => {
           const targetWarehouseId = latestDec.warehouse_id || warehouseId;
           if (targetWarehouseId) {
             for (const item of (latestDec.products_list || [])) {
-              const addedQty = parseInt(item.qty_inventory_added, 10) || 0;
+              const addedQty = getEffectiveClosedAddedQty(item);
               if (addedQty > 0 && item.sku) {
                 try {
                   const { data: prod } = await supabase
@@ -43450,7 +43678,7 @@ document.addEventListener('submit', async (e) => {
                           warehouse_id: targetWarehouseId,
                           type: 'out',
                           quantity: addedQty,
-                          reference_doc: `Reversa por retroceso de Ingreso (${prevStatus} -> ${status}): ${latestDec.title}`
+                          reference_doc: `Reversa por retroceso de Ingreso (${prevStatus} -> ${status}) [#ING-${decShortCode}]: ${latestDec.title}`
                         }]);
                     }
                   }
@@ -43567,7 +43795,16 @@ document.addEventListener('submit', async (e) => {
             confirmed_alto: confAlto,
             confirmed_volumen: confVol,
             qty_confirmed: qtyConfirmed,
-            qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
+            qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0,
+            sku_check: item.sku_check !== false,
+            barcode_check: item.barcode_check !== false,
+            scanned_barcode: item.scanned_barcode ? String(item.scanned_barcode).trim() : '',
+            needs_label: Boolean(item.needs_label),
+            label_qty: item.needs_label ? (parseInt(item.label_qty, 10) || 0) : 0,
+            label_qty_manual: Boolean(item.label_qty_manual),
+            label_code: item.label_code || item.sku || '',
+            label_name: item.label_name || item.name || '',
+            label_size: item.label_size || '5x2.5'
           };
         });
         updateData.quantity_declared = updateData.products_list.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
@@ -43623,6 +43860,72 @@ document.addEventListener('submit', async (e) => {
         throw error;
       }
 
+      // 2.4 Sincronizar códigos de barras físicos escaneados en recepción hacia el catálogo maestro (soporte Multi-Código de Barras)
+      const allEditedProducts = updateData.products_list || [];
+      for (const item of allEditedProducts) {
+        const scannedCode = String(item.scanned_barcode || '').trim();
+        if (!scannedCode || !item.sku) continue;
+        try {
+          const { data: catProd } = await supabase
+            .from('products')
+            .select('id, sku, barcode, barcode_wms, options')
+            .eq('comercio', latestDec.comercio)
+            .ilike('sku', item.sku.trim())
+            .limit(1)
+            .maybeSingle();
+
+          if (catProd) {
+            const existingPrimary = String(catProd.barcode || '').trim();
+            const existingWms = String(catProd.barcode_wms || '').trim();
+            const existingSku = String(catProd.sku || '').trim();
+            const currentAlts = window.getProductAlternateBarcodes ? window.getProductAlternateBarcodes(catProd) : [];
+            const prodPatch = {};
+
+            if (!existingPrimary) {
+              // Si el producto no tenía código de barras origen/principal, asignarlo directamente
+              prodPatch.barcode = scannedCode;
+              item.barcode = scannedCode;
+            } else if (
+              existingPrimary.toUpperCase() !== scannedCode.toUpperCase() &&
+              existingWms.toUpperCase() !== scannedCode.toUpperCase() &&
+              existingSku.toUpperCase() !== scannedCode.toUpperCase()
+            ) {
+              // Si ya tenía un código de barras distinto, preservar el anterior y agregar el nuevo a alternate_barcodes
+              const alreadyInAlts = currentAlts.some(c => String(c).trim().toUpperCase() === scannedCode.toUpperCase());
+              if (!alreadyInAlts) {
+                const updatedAlts = [...currentAlts, scannedCode];
+                prodPatch.options = {
+                  ...(catProd.options && typeof catProd.options === 'object' ? catProd.options : {}),
+                  alternate_barcodes: updatedAlts
+                };
+                item.options = {
+                  ...(item.options && typeof item.options === 'object' ? item.options : {}),
+                  alternate_barcodes: updatedAlts
+                };
+              }
+            }
+
+            if (Object.keys(prodPatch).length > 0) {
+              await supabase
+                .from('products')
+                .update(prodPatch)
+                .eq('id', catProd.id);
+
+              // Actualizar también caché en memoria
+              if (Array.isArray(window.adminCatalogProductsCache)) {
+                const cached = window.adminCatalogProductsCache.find(p => p.id === catProd.id || String(p.sku || '').trim().toUpperCase() === existingSku.toUpperCase());
+                if (cached) {
+                  if (prodPatch.barcode) cached.barcode = prodPatch.barcode;
+                  if (prodPatch.options) cached.options = prodPatch.options;
+                }
+              }
+            }
+          }
+        } catch (scanSyncErr) {
+          console.warn('Error sincronizando código escaneado en catálogo:', scanSyncErr);
+        }
+      }
+
       // 2.5 Actualizar inventario físico de productos (credito incremental delta) y actualizar catálogo de medidas
       const isStockReceivingStatus = ['Recepción Parcial', 'Recibido Conforme', 'Recibido con Incidencias'].includes(status);
       const shouldProcessInventoryDeltas = isStockReceivingStatus || isParallelCountActive;
@@ -43660,9 +43963,12 @@ document.addEventListener('submit', async (e) => {
               if (p.sku) newProdsMap.set(p.sku.trim().toUpperCase(), p);
             });
 
+            const wasAlreadyClosedStage = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial'].includes(prevStatus);
             for (const [oldSku, oldItem] of oldProdsMap.entries()) {
               if (!newProdsMap.has(oldSku)) {
-                const oldAdded = parseInt(oldItem.qty_inventory_added, 10) || 0;
+                const oldAdded = wasAlreadyClosedStage
+                  ? getEffectiveClosedAddedQty(oldItem)
+                  : (parseInt(oldItem.qty_inventory_added, 10) || 0);
                 if (oldAdded > 0) {
                   try {
                     const { data: remProd } = await supabase
@@ -43695,7 +44001,7 @@ document.addEventListener('submit', async (e) => {
                             warehouse_id: targetWarehouseId,
                             type: 'out',
                             quantity: oldAdded,
-                            reference_doc: `Reversa Conteo en Paralelo (Producto retirado/modificado): ${latestDec.title}`
+                            reference_doc: `Reversa Conteo en Paralelo (Producto retirado/modificado) [#ING-${decShortCode}]: ${latestDec.title}`
                           }]);
                         inventoryModified = true;
                       }
@@ -43726,7 +44032,16 @@ document.addEventListener('submit', async (e) => {
                 item.qty = itemQty;
               }
 
-              const alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
+              const oldSkuItem = item.sku ? oldProdsMap.get(item.sku.trim().toUpperCase()) : null;
+              let alreadyAdded = parseInt(item.qty_inventory_added, 10) || 0;
+              if (alreadyAdded === 0 && wasAlreadyClosedStage && oldSkuItem) {
+                const rawOldAdded = oldSkuItem.qty_inventory_added;
+                if (rawOldAdded === undefined || rawOldAdded === null) {
+                  alreadyAdded = (oldSkuItem.qty_confirmed !== undefined && oldSkuItem.qty_confirmed !== null)
+                    ? (parseInt(oldSkuItem.qty_confirmed, 10) || 0)
+                    : (parseInt(oldSkuItem.qty, 10) || 0);
+                }
+              }
               const delta = itemQty - alreadyAdded;
 
               const confLargo = (item.confirmed_largo !== undefined && item.confirmed_largo !== null && item.confirmed_largo !== '') ? parseFloat(item.confirmed_largo) : (parseFloat(item.largo) || null);
@@ -43745,7 +44060,7 @@ document.addEventListener('submit', async (e) => {
                 // Buscar producto por SKU y comercio
                 const { data: prod, error: prodErr } = await supabase
                   .from('products')
-                  .select('id, volumen, largo, ancho, alto')
+                  .select('id, volumen, largo, ancho, alto, barcode, options')
                   .eq('comercio', latestDec.comercio)
                   .ilike('sku', item.sku.trim())
                   .limit(1)
@@ -43767,7 +44082,7 @@ document.addEventListener('submit', async (e) => {
                         ancho: confAncho,
                         alto: confAlto,
                         price: item.price || 0,
-                        barcode: item.barcode || ''
+                        barcode: item.scanned_barcode || item.barcode || ''
                       }])
                       .select('id')
                       .single();
@@ -43828,11 +44143,11 @@ document.addEventListener('submit', async (e) => {
 
                       let refDocIn = '';
                       if (isParallelCountActive && !isFinishingStatus) {
-                        refDocIn = `Ingreso Provisional (Conteo en Paralelo): ${latestDec.title}`;
+                        refDocIn = `Ingreso Provisional (Conteo en Paralelo) [#ING-${decShortCode}]: ${latestDec.title}`;
                       } else if (alreadyAdded > 0) {
-                        refDocIn = `Ajuste Conteo Final (Sobrante +${delta} uds): ${latestDec.title}`;
+                        refDocIn = `Ajuste Conteo Final (Sobrante +${delta} uds) [#ING-${decShortCode}]: ${latestDec.title}`;
                       } else {
-                        refDocIn = `Ingreso de Stock (${status}): ${latestDec.title}`;
+                        refDocIn = `Ingreso de Stock (${status}) [#ING-${decShortCode}]: ${latestDec.title}`;
                       }
 
                       await supabase
@@ -43855,9 +44170,9 @@ document.addEventListener('submit', async (e) => {
 
                       let refDocOut = '';
                       if (isParallelCountActive && !isFinishingStatus) {
-                        refDocOut = `Ajuste Provisional (Conteo en Paralelo): ${latestDec.title}`;
+                        refDocOut = `Ajuste Provisional (Conteo en Paralelo) [#ING-${decShortCode}]: ${latestDec.title}`;
                       } else {
-                        refDocOut = `Ajuste Conteo Final (Faltante -${toDeduct} uds): ${latestDec.title}`;
+                        refDocOut = `Ajuste Conteo Final (Faltante -${toDeduct} uds) [#ING-${decShortCode}]: ${latestDec.title}`;
                       }
 
                       await supabase
@@ -44226,7 +44541,7 @@ window.startParallelCountStockIntake = async function() {
             warehouse_id: warehouseId,
             type: 'in',
             quantity: toCredit,
-            reference_doc: `Ingreso Provisional (Conteo en Paralelo): ${dec.title}`
+            reference_doc: `Ingreso Provisional (Conteo en Paralelo) [#ING-${dec.id.substring(0, 8).toUpperCase()}]: ${dec.title}`
           }]);
 
         item.qty_inventory_added = (parseInt(item.qty_inventory_added, 10) || 0) + toCredit;
@@ -44600,7 +44915,7 @@ window.confirmDeclarationFinalCount = async function() {
               warehouse_id: warehouseId,
               type: 'in',
               quantity: delta,
-              reference_doc: `Ajuste Conteo Final (Sobrante +${delta} uds): ${dec.title}`
+              reference_doc: `Ajuste Conteo Final (Sobrante +${delta} uds) [#ING-${dec.id.substring(0, 8).toUpperCase()}]: ${dec.title}`
             }]);
         } else if (delta < 0 && inv) {
           // Faltante: Deducir delta de inventario
@@ -44618,7 +44933,7 @@ window.confirmDeclarationFinalCount = async function() {
               warehouse_id: warehouseId,
               type: 'out',
               quantity: toDeduct,
-              reference_doc: `Ajuste Conteo Final (Faltante -${toDeduct} uds): ${dec.title}`
+              reference_doc: `Ajuste Conteo Final (Faltante -${toDeduct} uds) [#ING-${dec.id.substring(0, 8).toUpperCase()}]: ${dec.title}`
             }]);
         }
       }
@@ -44894,21 +45209,30 @@ window.editDeclarationAdmin = async function(id) {
     // Cargar productos
     const prods = getDeclarationProducts(dec) || [];
     window.adminEditingDeclarationProducts_id = dec.id;
-    window.adminEditingDeclarationProducts = prods.map(p => ({
-      sku: p.sku || '',
-      name: p.name || p.sku || '',
-      qty: parseInt(p.qty, 10) || 0,
-      price: parseFloat(p.price) || 0,
-      volumen: parseFloat(p.volumen || p.vol) || 0,
-      barcode: p.barcode || '',
-      color: p.color || null,
-      talla: p.talla || null,
-      variable_1: p.variable_1 || null,
-      variable_2: p.variable_2 || null,
-      options: p.options || null,
-      qty_inventory_added: parseInt(p.qty_inventory_added, 10) || 0,
-      qty_confirmed: p.qty_confirmed !== undefined ? p.qty_confirmed : null
-    }));
+    const isDecAlreadyReceived = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial'].includes(dec.status);
+    window.adminEditingDeclarationProducts = prods.map(p => {
+      const confQty = (p.qty_confirmed !== undefined && p.qty_confirmed !== null) ? parseInt(p.qty_confirmed, 10) : null;
+      const fallbackAdded = isDecAlreadyReceived ? (confQty !== null ? confQty : (parseInt(p.qty, 10) || 0)) : 0;
+      const invAdded = (p.qty_inventory_added !== undefined && p.qty_inventory_added !== null)
+        ? (parseInt(p.qty_inventory_added, 10) || 0)
+        : fallbackAdded;
+      return {
+        ...p,
+        sku: p.sku || '',
+        name: p.name || p.sku || '',
+        qty: parseInt(p.qty, 10) || 0,
+        price: parseFloat(p.price) || 0,
+        volumen: parseFloat(p.volumen || p.vol) || 0,
+        barcode: p.barcode || '',
+        color: p.color || null,
+        talla: p.talla || null,
+        variable_1: p.variable_1 || null,
+        variable_2: p.variable_2 || null,
+        options: p.options || null,
+        qty_inventory_added: invAdded,
+        qty_confirmed: confQty
+      };
+    });
 
     window.renderAdminEditDeclarationProducts();
     window.recalculateAdminEditTotals();
@@ -45471,6 +45795,29 @@ document.addEventListener('submit', async (e) => {
     saveBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Guardando cambios...';
 
     try {
+      // 0. Validar que no exista otra declaración con el mismo título para el mismo comercio
+      if (orig.comercio && title.toLowerCase() !== (orig.title || '').trim().toLowerCase()) {
+        const { data: existingDecs, error: dupCheckErr } = await supabase
+          .from('stock_declarations')
+          .select('id, title')
+          .eq('comercio', orig.comercio)
+          .neq('id', id);
+
+        if (!dupCheckErr && existingDecs) {
+          const normalizedTitle = title.toLowerCase();
+          const hasDuplicate = existingDecs.some(d => (d.title || '').trim().toLowerCase() === normalizedTitle);
+          if (hasDuplicate) {
+            alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Ya existe otra declaración de ingreso con el título <strong>"${escapeHtml(title)}"</strong> para el comercio <strong>${escapeHtml(orig.comercio)}</strong>. Por favor utiliza un nombre único.</div>`;
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="ri-save-3-line"></i> Guardar Cambios y Registrar Auditoría';
+            return;
+          }
+        }
+      }
+
+      const decShortCode = String(id || '').substring(0, 8).toUpperCase();
+      const isClosedStage = ['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial'].includes(orig.status);
+
       // 1. Recalcular costo estimado si se cuenta con la función
       let newEstimatedCost = orig.estimated_cost || 0;
       if (typeof window.calculateEntryCost === 'function') {
@@ -45589,7 +45936,7 @@ document.addEventListener('submit', async (e) => {
                         warehouse_id: warehouseId,
                         type: 'out',
                         quantity: oldAdded,
-                        reference_doc: `Reversa Conteo en Paralelo (Producto retirado en edición): ${title}`
+                        reference_doc: `Reversa Conteo en Paralelo (Producto retirado en edición) [#ING-${decShortCode}]: ${title}`
                       }]);
                   }
                 }
@@ -45668,7 +46015,7 @@ document.addEventListener('submit', async (e) => {
                     warehouse_id: warehouseId,
                     type: 'in',
                     quantity: delta,
-                    reference_doc: `Ingreso Provisional (Conteo en Paralelo): ${title}`
+                    reference_doc: `Ingreso Provisional (Conteo en Paralelo) [#ING-${decShortCode}]: ${title}`
                   }]);
               } else if (delta < 0 && inv) {
                 const toDeduct = Math.abs(delta);
@@ -45685,7 +46032,7 @@ document.addEventListener('submit', async (e) => {
                     warehouse_id: warehouseId,
                     type: 'out',
                     quantity: toDeduct,
-                    reference_doc: `Ajuste Provisional (Conteo en Paralelo): ${title}`
+                    reference_doc: `Ajuste Provisional (Conteo en Paralelo) [#ING-${decShortCode}]: ${title}`
                   }]);
               }
             }
@@ -45700,6 +46047,170 @@ document.addEventListener('submit', async (e) => {
           ...(orig.parallel_count_data || {}),
           initial_qty_added: prods.reduce((sum, p) => sum + (parseInt(p.qty_inventory_added, 10) || 0), 0)
         };
+      } else if (isClosedStage && warehouseId) {
+        // Reconciliación segura en declaraciones cerradas cuando se editan/agregan/eliminan productos desde el editor general
+        const getOldEffectiveAdded = (item) => {
+          if (!item) return 0;
+          if (item.qty_inventory_added !== undefined && item.qty_inventory_added !== null) {
+            return parseInt(item.qty_inventory_added, 10) || 0;
+          }
+          if (item.qty_confirmed !== undefined && item.qty_confirmed !== null) {
+            return parseInt(item.qty_confirmed, 10) || 0;
+          }
+          return parseInt(item.qty, 10) || 0;
+        };
+
+        // 1. Revertir inventario de productos eliminados en la edición
+        for (const [oldSku, oldItem] of origProdsMap.entries()) {
+          if (!newProdsMap.has(oldSku)) {
+            const oldAdded = getOldEffectiveAdded(oldItem);
+            if (oldAdded > 0) {
+              try {
+                const { data: remProd } = await supabase
+                  .from('products')
+                  .select('id')
+                  .eq('comercio', orig.comercio)
+                  .ilike('sku', oldSku)
+                  .limit(1)
+                  .maybeSingle();
+
+                if (remProd) {
+                  const { data: remInv } = await supabase
+                    .from('inventory')
+                    .select('id, quantity')
+                    .eq('product_id', remProd.id)
+                    .eq('warehouse_id', warehouseId)
+                    .maybeSingle();
+
+                  if (remInv) {
+                    const newRemQty = Math.max(0, (remInv.quantity || 0) - oldAdded);
+                    await supabase
+                      .from('inventory')
+                      .update({ quantity: newRemQty })
+                      .eq('id', remInv.id);
+
+                    await supabase
+                      .from('movements')
+                      .insert([{
+                        product_id: remProd.id,
+                        warehouse_id: warehouseId,
+                        type: 'out',
+                        quantity: oldAdded,
+                        reference_doc: `Reversa por Producto Retirado en Edición Admin [#ING-${decShortCode}]: ${title}`
+                      }]);
+                  }
+                }
+              } catch (remErr) {
+                console.error('Error revirtiendo producto eliminado en declaración cerrada:', remErr);
+              }
+            }
+          }
+        }
+
+        // 2. Conciliar productos agregados o cuya cantidad fue explícitamente modificada
+        for (const p of prods) {
+          const skuKey = (p.sku || '').trim().toUpperCase();
+          const oldItem = origProdsMap.get(skuKey);
+          const alreadyAdded = getOldEffectiveAdded(oldItem);
+          const newDeclaredQty = parseInt(p.qty, 10) || 0;
+          const oldDeclaredQty = oldItem ? (parseInt(oldItem.qty, 10) || 0) : null;
+          const qtyWasModified = !oldItem || (newDeclaredQty !== oldDeclaredQty);
+
+          if (!qtyWasModified) {
+            p.qty_inventory_added = alreadyAdded;
+            p.qty_confirmed = (oldItem.qty_confirmed !== undefined && oldItem.qty_confirmed !== null) ? oldItem.qty_confirmed : alreadyAdded;
+            continue;
+          }
+
+          const delta = newDeclaredQty - alreadyAdded;
+          if (delta !== 0 && p.sku) {
+            let productId = null;
+            const { data: prod } = await supabase
+              .from('products')
+              .select('id')
+              .eq('comercio', orig.comercio)
+              .ilike('sku', p.sku.trim())
+              .limit(1)
+              .maybeSingle();
+
+            if (prod) {
+              productId = prod.id;
+            } else {
+              const { data: newProd, error: newProdErr } = await supabase
+                .from('products')
+                .insert([{
+                  sku: p.sku.trim(),
+                  name: p.name || p.sku.trim(),
+                  comercio: orig.comercio,
+                  volumen: parseFloat(p.volumen) || 0,
+                  price: p.price || 0,
+                  barcode: p.barcode || ''
+                }])
+                .select('id')
+                .single();
+              if (!newProdErr && newProd) productId = newProd.id;
+            }
+
+            if (productId) {
+              const { data: inv } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', productId)
+                .eq('warehouse_id', warehouseId)
+                .maybeSingle();
+
+              if (delta > 0) {
+                if (inv) {
+                  await supabase
+                    .from('inventory')
+                    .update({ quantity: (inv.quantity || 0) + delta })
+                    .eq('id', inv.id);
+                } else {
+                  await supabase
+                    .from('inventory')
+                    .insert([{
+                      product_id: productId,
+                      warehouse_id: warehouseId,
+                      quantity: delta,
+                      committed_quantity: 0
+                    }]);
+                }
+
+                await supabase
+                  .from('movements')
+                  .insert([{
+                    product_id: productId,
+                    warehouse_id: warehouseId,
+                    type: 'in',
+                    quantity: delta,
+                    reference_doc: `Ajuste Positivo en Edición Admin (${orig.status}) [#ING-${decShortCode}]: ${title}`
+                  }]);
+              } else if (delta < 0 && inv) {
+                const toDeduct = Math.abs(delta);
+                const newQty = Math.max(0, (inv.quantity || 0) - toDeduct);
+                await supabase
+                  .from('inventory')
+                  .update({ quantity: newQty })
+                  .eq('id', inv.id);
+
+                await supabase
+                  .from('movements')
+                  .insert([{
+                    product_id: productId,
+                    warehouse_id: warehouseId,
+                    type: 'out',
+                    quantity: toDeduct,
+                    reference_doc: `Ajuste Negativo en Edición Admin (${orig.status}) [#ING-${decShortCode}]: ${title}`
+                  }]);
+              }
+            }
+          }
+
+          p.qty_inventory_added = newDeclaredQty;
+          p.qty_confirmed = newDeclaredQty;
+        }
+
+        updateData.quantity_confirmed = prods.reduce((sum, item) => sum + (parseInt(item.qty_confirmed ?? item.qty_inventory_added ?? item.qty, 10) || 0), 0);
       }
 
       // Si el ingreso ya estaba en recepción o finalizado y se cambiaron productos, mantener consistencia
@@ -47572,6 +48083,25 @@ window.submitAdminNewDeclaration = async function() {
   submitBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Registrando declaración...';
 
   try {
+    // 0. Validar que no exista otra declaración con el mismo título para el mismo comercio
+    const { data: existingDecs, error: dupCheckErr } = await supabase
+      .from('stock_declarations')
+      .select('id, title')
+      .eq('comercio', commerce);
+
+    if (!dupCheckErr && existingDecs) {
+      const normalizedTitle = title.toLowerCase();
+      const hasDuplicate = existingDecs.some(d => (d.title || '').trim().toLowerCase() === normalizedTitle);
+      if (hasDuplicate) {
+        if (alertContainer) {
+          alertContainer.innerHTML = `<div class="alert alert-error" style="display:block; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.45;">Ya existe una declaración de ingreso con el título <strong>"${escapeHtml(title)}"</strong> para el comercio <strong>${escapeHtml(commerce)}</strong>. Por favor ingresa un nombre único para evitar confusiones.</div>`;
+        }
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="ri-check-double-line"></i> Crear Declaración de Ingreso';
+        return;
+      }
+    }
+
     // 1. Resolver información del Administrador (Trazabilidad)
     const sessionData = await supabase.auth.getSession();
     const session = sessionData?.data?.session;
@@ -48058,7 +48588,8 @@ window.deleteDeclarationAdmin = async function(id) {
 // =========================================================================
 
 function injectBillingStyles() {
-  if (document.getElementById('billing-styles')) return;
+  const existing = document.getElementById('billing-styles');
+  if (existing) existing.remove();
   
   const style = document.createElement('style');
   style.id = 'billing-styles';
@@ -48637,56 +49168,132 @@ function injectBillingStyles() {
       text-align: right;
     }
     
-    .billing-tab-btn {
-      background: transparent;
-      border: none;
-      padding: 0.5rem 1rem;
-      color: var(--color-text-muted);
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 0.9rem;
-      border-bottom: 2px solid transparent;
+    .billing-tabs-wrapper {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      padding: 0.38rem 0.5rem;
+      margin-bottom: 1.35rem;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+    .billing-tabs {
       display: flex;
       align-items: center;
-      gap: 0.35rem;
-      transition: all 0.2s;
+      gap: 0.28rem;
+      flex-wrap: nowrap;
+      min-width: max-content;
     }
-    .billing-tab-btn.active {
-      color: var(--color-primary);
-      border-bottom-color: var(--color-primary);
+    .billing-tab-divider {
+      width: 1px;
+      height: 22px;
+      background: var(--color-border);
+      margin: 0 0.25rem;
+      flex-shrink: 0;
+    }
+    .billing-tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0.48rem 0.82rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
       font-weight: 600;
+      font-size: 0.815rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      white-space: nowrap;
+      transition: all 0.18s ease;
+      line-height: 1.2;
+    }
+    .billing-tab-btn i {
+      font-size: 0.98rem;
+      opacity: 0.85;
+      transition: transform 0.18s ease, opacity 0.18s ease;
     }
     .billing-tab-btn:hover {
       color: var(--color-text-main);
+      background: var(--color-bg);
+    }
+    .billing-tab-btn:hover i {
+      opacity: 1;
+    }
+    .billing-tab-btn.active {
+      background: linear-gradient(135deg, rgba(95, 6, 250, 0.12) 0%, rgba(124, 58, 237, 0.07) 100%);
+      color: #5f06fa;
+      border-color: rgba(95, 6, 250, 0.28);
+      font-weight: 700;
+      box-shadow: 0 2px 6px rgba(95, 6, 250, 0.1);
+    }
+    .billing-tab-btn.active i {
+      color: #5f06fa !important;
+      opacity: 1;
+    }
+    [data-theme="dark"] .billing-tab-btn.active {
+      background: rgba(139, 92, 246, 0.22);
+      color: #c4b5fd;
+      border-color: rgba(139, 92, 246, 0.45);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+    [data-theme="dark"] .billing-tab-btn.active i {
+      color: #c4b5fd !important;
+    }
+    .billing-tab-badge {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      border-radius: 999px;
+      margin-left: 2px;
+      line-height: 1;
     }
     
     /* Dashboard styles */
     .dashboard-subtabs {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1.5rem;
-      background: var(--color-surface-hover);
-      padding: 0.35rem;
-      border-radius: var(--radius-md);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 1.35rem;
+      background: var(--color-surface);
+      padding: 0.32rem;
+      border-radius: 10px;
       border: 1px solid var(--color-border);
-      width: fit-content;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
     }
     .dashboard-subtab-btn {
       background: transparent;
-      border: none;
-      padding: 0.4rem 1rem;
+      border: 1px solid transparent;
+      padding: 0.42rem 0.95rem;
       color: var(--color-text-muted);
       cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 500;
-      border-radius: var(--radius-sm);
-      transition: all 0.2s;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      transition: all 0.18s ease;
+    }
+    .dashboard-subtab-btn:hover {
+      color: var(--color-text-main);
+      background: var(--color-bg);
     }
     .dashboard-subtab-btn.active {
-      background: var(--color-surface);
-      color: var(--color-primary);
-      box-shadow: var(--shadow-sm);
-      font-weight: 600;
+      background: rgba(95, 6, 250, 0.1);
+      color: #5f06fa;
+      border-color: rgba(95, 6, 250, 0.25);
+      font-weight: 700;
+    }
+    [data-theme="dark"] .dashboard-subtab-btn.active {
+      background: rgba(139, 92, 246, 0.22);
+      color: #c4b5fd;
+      border-color: rgba(139, 92, 246, 0.4);
     }
     .dashboard-grid {
       display: grid;
@@ -49776,32 +50383,73 @@ window.renderBillingAdmin = async function() {
   Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
   
   appContent.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.75rem;">
       <div>
-        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Control de Facturación</h3>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Gestiona periodos, registros de facturación y avisos de pago de los comercios</p>
+        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); letter-spacing: -0.01em;">Control de Facturación</h3>
+        <p style="margin: 0.2rem 0 0 0; font-size: 0.83rem; color: var(--color-text-muted);">Gestiona desgloses, métricas, periodos de facturación y avisos de pago de los comercios</p>
       </div>
       <div style="display: flex; gap: 0.75rem; align-items: center;">
         <span id="saving-badge" class="billing-saving-badge"><i class="ri-checkbox-circle-line"></i> Guardado</span>
-        <button class="btn btn-primary" onclick="openCreatePeriodModal()"><i class="ri-add-line"></i> Nuevo Periodo</button>
+        <button class="btn btn-primary" onclick="openCreatePeriodModal()" style="border-radius: 9px; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; box-shadow: 0 2px 6px rgba(95, 6, 250, 0.2);"><i class="ri-add-line"></i> Nuevo Periodo</button>
       </div>
     </div>
     
-    <!-- Tabs -->
-    <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem; flex-wrap: wrap;">
-      <button class="billing-tab-btn" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
-      <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
-      <button class="billing-tab-btn active" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
-      <button class="billing-tab-btn" id="tab-status-btn" onclick="switchBillingAdminTab('status')"><i class="ri-toggle-line"></i> Estados de Comercio</button>
-      <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')"><i class="ri-add-circle-line"></i> Saldos Adicionales</button>
-      <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
-      <button class="billing-tab-btn" id="tab-notification-logs-btn" onclick="switchBillingAdminTab('notification-logs')"><i class="ri-history-line"></i> Historial de Notificaciones</button>
-      <button class="billing-tab-btn" id="tab-observations-btn" onclick="switchBillingAdminTab('observations')"><i class="ri-question-answer-line"></i> Apelaciones / Observaciones <span id="pending-observations-badge" class="badge" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%; background: #d97706; color: white;">0</span></button>
-      <button class="billing-tab-btn" id="tab-generator-btn" onclick="switchBillingAdminTab('generator')"><i class="ri-calculator-line" style="color: #5f06fa;"></i> Gestor de Facturación</button>
-      <button class="billing-tab-btn" id="tab-clickup-btn" onclick="switchBillingAdminTab('clickup')"><i class="ri-table-line"></i> Facturación ClickUp</button>
+    <!-- Barra única de pestañas -->
+    <div class="billing-tabs-wrapper">
+      <div class="billing-tabs">
+        <button class="billing-tab-btn active" id="tab-generator-btn" onclick="switchBillingAdminTab('generator')">
+          <i class="ri-calculator-line"></i> Gestor de Facturación
+        </button>
+        <button class="billing-tab-btn" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')">
+          <i class="ri-dashboard-3-line"></i> Dashboard
+        </button>
+        <button class="billing-tab-btn" id="tab-commerce-btn" onclick="switchBillingAdminTab('commerce')">
+          <i class="ri-store-2-line"></i> Vista por Comercio
+        </button>
+        <button class="billing-tab-btn" id="tab-pending-btn" onclick="switchBillingAdminTab('pending')">
+          <i class="ri-task-line"></i> Tareas y Pendientes
+        </button>
+
+        <div class="billing-tab-divider"></div>
+
+        <button class="billing-tab-btn" id="tab-control-btn" onclick="switchBillingAdminTab('control')">
+          <i class="ri-bill-line"></i> Control de Facturas
+        </button>
+        <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')">
+          <i class="ri-notification-3-line"></i> Avisos de Pago
+          <span id="pending-reports-badge" class="billing-tab-badge badge-danger" style="display: none;">0</span>
+        </button>
+        <button class="billing-tab-btn" id="tab-observations-btn" onclick="switchBillingAdminTab('observations')">
+          <i class="ri-question-answer-line"></i> Apelaciones / Observaciones
+          <span id="pending-observations-badge" class="billing-tab-badge badge-warning" style="display: none;">0</span>
+        </button>
+        <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')">
+          <i class="ri-add-circle-line"></i> Saldos Adicionales
+        </button>
+
+        <div class="billing-tab-divider"></div>
+
+        <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')">
+          <i class="ri-contacts-book-line"></i> Contactos
+        </button>
+        <button class="billing-tab-btn" id="tab-clickup-btn" onclick="switchBillingAdminTab('clickup')">
+          <i class="ri-table-line"></i> Facturación ClickUp
+        </button>
+      </div>
     </div>
     
-    <div id="tab-generator-content" style="display: none;"></div>
+    <div id="tab-generator-content" style="display: block;"></div>
+    <div id="tab-metrics-content" style="display: none;">
+      <div id="metrics-dashboard-container">
+        <!-- Cargado dinámicamente -->
+      </div>
+    </div>
+    <div id="tab-commerce-content" style="display: none;">
+      <div id="d-content-commerce"></div>
+    </div>
+    <div id="tab-pending-content" style="display: none;">
+      <div id="d-content-pending"></div>
+    </div>
     <div id="tab-clickup-content" style="display: none;"></div>
     
     <div id="tab-control-content" style="display: none;">
@@ -49832,54 +50480,10 @@ window.renderBillingAdmin = async function() {
         </div>
       </div>
     </div>
-
-    <div id="tab-metrics-content" style="display: block;">
-      <div id="metrics-dashboard-container">
-        <!-- Cargado dinámicamente -->
-      </div>
-    </div>
-
-    <div id="tab-status-content" style="display: none;">
-      <div class="card">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-toggle-line"></i> Estados de Servicio de Comercios</h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Controla el estado del servicio activo o pausado por facturación para cada comercio</p>
-          </div>
-          <div style="position: relative;">
-            <input type="text" id="status-search-input" class="form-input" placeholder="Buscar comercio..." style="padding-left: 2rem; margin: 0; width: 220px;" oninput="filterStatusComercios()">
-            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-          </div>
-        </div>
-        <div class="card-body table-responsive" id="status-list-container" style="padding: 0;">
-          <!-- Cargado dinámicamente -->
-        </div>
-      </div>
-    </div>
     
     <div id="tab-contacts-content" style="display: none;">
       <div class="card">
         <div id="contacts-list-container">
-          <!-- Cargado dinámicamente -->
-        </div>
-      </div>
-    </div>
-
-    <div id="tab-notification-logs-content" style="display: none;">
-      <div class="card">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-history-line"></i> Historial de Notificaciones de Facturación</h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Registro visual de correos de cobranza enviados por comercio y periodo</p>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <select id="logs-period-select" class="form-input" style="margin: 0; height: 38px; font-size: 0.85rem;" onchange="loadNotificationLogsGrid()">
-              <!-- Cargado dinámicamente -->
-            </select>
-            <button onclick="loadNotificationLogsTab()" class="btn btn-outline" style="height: 38px; padding: 0.5rem 0.75rem;" title="Recargar"><i class="ri-refresh-line"></i></button>
-          </div>
-        </div>
-        <div class="card-body table-responsive" id="notification-logs-list-container" style="padding: 0;">
           <!-- Cargado dinámicamente -->
         </div>
       </div>
@@ -49914,15 +50518,26 @@ window.renderBillingAdmin = async function() {
         </div>
       </div>
     </div>
+
+    <!-- Dashboard Detail Modal -->
+    <div id="dashboard-detail-modal" class="d-modal-overlay" onclick="closeDashboardModal()">
+      <div class="d-modal-container" onclick="event.stopPropagation()">
+        <div class="d-modal-header">
+          <h3 id="d-modal-title">Detalles de Métrica</h3>
+          <button class="d-modal-close" onclick="closeDashboardModal()">&times;</button>
+        </div>
+        <div class="d-modal-body" id="d-modal-body-content"></div>
+      </div>
+    </div>
   `;
   
-  await updatePendingReportsBadge();
-  await updatePendingObservationsBadge();
-  switchBillingAdminTab('metrics');
+  updatePendingReportsBadge().catch(e => console.warn(e));
+  updatePendingObservationsBadge().catch(e => console.warn(e));
+  switchBillingAdminTab('generator');
 };
 
 window.switchBillingAdminTab = function(tabName, ...args) {
-  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations', 'generator', 'clickup'];
+  const tabs = ['generator', 'metrics', 'commerce', 'pending', 'control', 'reports', 'observations', 'extra', 'contacts', 'clickup'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
     const content = document.getElementById(`tab-${t}-content`);
@@ -49937,26 +50552,26 @@ window.switchBillingAdminTab = function(tabName, ...args) {
     }
   });
 
-  if (tabName === 'control') {
+  if (tabName === 'generator') {
+    if (window.renderBillingGeneratorAdmin) {
+      window.renderBillingGeneratorAdmin('tab-generator-content', ...args);
+    }
+  } else if (tabName === 'metrics') {
+    loadBillingMetricsDashboard();
+  } else if (tabName === 'commerce') {
+    loadBillingCommerceTab();
+  } else if (tabName === 'pending') {
+    loadBillingPendingTab();
+  } else if (tabName === 'control') {
     loadBillingPeriods();
   } else if (tabName === 'reports') {
     loadPendingPaymentReports();
-  } else if (tabName === 'metrics') {
-    loadBillingMetricsDashboard();
-  } else if (tabName === 'status') {
-    loadCommerceStatusTab();
   } else if (tabName === 'extra') {
     loadExtraChargesTab();
   } else if (tabName === 'contacts') {
     loadBillingContactsTab();
-  } else if (tabName === 'notification-logs') {
-    loadNotificationLogsTab();
   } else if (tabName === 'observations') {
     loadBillingObservationsTab();
-  } else if (tabName === 'generator') {
-    if (window.renderBillingGeneratorAdmin) {
-      window.renderBillingGeneratorAdmin('tab-generator-content', ...args);
-    }
   } else if (tabName === 'clickup') {
     if (window.renderClickupFacturacionAdmin) {
       window.renderClickupFacturacionAdmin('tab-clickup-content', ...args);
@@ -55354,6 +55969,46 @@ let cachedDashboardCommerceStatus = [];
 let cachedDashboardCommerceAdicionalConfig = [];
 let cachedDashboardBillingMappings = [];
 
+async function fetchBillingDashboardData() {
+  const [recRes, perRes, csRes, adcRes, mapRes] = await Promise.all([
+    supabase
+      .from('billing_records')
+      .select('*, billing_periods(name, status, period_month, period_year)'),
+    supabase
+      .from('billing_periods')
+      .select('*')
+      .order('period_year', { ascending: false })
+      .order('period_month', { ascending: false }),
+    supabase
+      .from('commerce_billing_status')
+      .select('*'),
+    supabase
+      .from('comercios_adicional_config')
+      .select('comercio, rut, razon_social')
+      .then(r => r, e => {
+        console.warn("Error fetching comercios_adicional_config for dashboard:", e);
+        return { data: [] };
+      }),
+    supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name')
+      .then(r => r, e => {
+        console.warn("Error fetching billing_mappings for dashboard:", e);
+        return { data: [] };
+      })
+  ]);
+
+  if (recRes.error) throw recRes.error;
+  if (perRes.error) throw perRes.error;
+  if (csRes.error) throw csRes.error;
+
+  cachedDashboardRecords = recRes.data || [];
+  cachedDashboardPeriods = perRes.data || [];
+  cachedDashboardCommerceStatus = csRes.data || [];
+  cachedDashboardCommerceAdicionalConfig = adcRes?.data || [];
+  cachedDashboardBillingMappings = mapRes?.data || [];
+}
+
 async function loadBillingMetricsDashboard() {
   const container = document.getElementById('metrics-dashboard-container');
   if (!container) return;
@@ -55366,55 +56021,7 @@ async function loadBillingMetricsDashboard() {
   `;
   
   try {
-    const { data: records, error: recError } = await supabase
-      .from('billing_records')
-      .select('*, billing_periods(name, status, period_month, period_year)');
-      
-    if (recError) throw recError;
-    
-    const { data: periods, error: perError } = await supabase
-      .from('billing_periods')
-      .select('*')
-      .order('period_year', { ascending: false })
-      .order('period_month', { ascending: false });
-      
-    if (perError) throw perError;
-
-    const { data: commerceStatus, error: csError } = await supabase
-      .from('commerce_billing_status')
-      .select('*');
-      
-    if (csError) throw csError;
-
-    let adcConfigs = [];
-    try {
-      const { data, error: adcError } = await supabase
-        .from('comercios_adicional_config')
-        .select('comercio, rut, razon_social');
-      if (!adcError) {
-        adcConfigs = data || [];
-      }
-    } catch (e) {
-      console.warn("Error fetching comercios_adicional_config for dashboard:", e);
-    }
-
-    let billMappings = [];
-    try {
-      const { data, error: mErr } = await supabase
-        .from('billing_mappings')
-        .select('comercio_nombre, billing_name');
-      if (!mErr) {
-        billMappings = data || [];
-      }
-    } catch (e) {
-      console.warn("Error fetching billing_mappings for dashboard:", e);
-    }
-    
-    cachedDashboardRecords = records || [];
-    cachedDashboardPeriods = periods || [];
-    cachedDashboardCommerceStatus = commerceStatus || [];
-    cachedDashboardCommerceAdicionalConfig = adcConfigs;
-    cachedDashboardBillingMappings = billMappings;
+    await fetchBillingDashboardData();
     
     if (cachedDashboardRecords.length === 0) {
       container.innerHTML = `
@@ -55430,26 +56037,11 @@ async function loadBillingMetricsDashboard() {
     container.innerHTML = `
       <div class="dashboard-subtabs">
         <button class="dashboard-subtab-btn active" id="d-subtab-period" onclick="switchDashboardSubTab('period')"><i class="ri-calendar-line"></i> Vista por Periodo</button>
-        <button class="dashboard-subtab-btn" id="d-subtab-commerce" onclick="switchDashboardSubTab('commerce')"><i class="ri-store-2-line"></i> Vista por Comercio</button>
-        <button class="dashboard-subtab-btn" id="d-subtab-pending" onclick="switchDashboardSubTab('pending')"><i class="ri-checkbox-circle-line"></i> Tareas y Pendientes</button>
         <button class="dashboard-subtab-btn" id="d-subtab-year" onclick="switchDashboardSubTab('year')"><i class="ri-bar-chart-box-line"></i> Vista Anual</button>
       </div>
       
       <div id="d-content-period"></div>
-      <div id="d-content-commerce" style="display: none;"></div>
-      <div id="d-content-pending" style="display: none;"></div>
       <div id="d-content-year" style="display: none;"></div>
-
-      <!-- Dashboard Detail Modal -->
-      <div id="dashboard-detail-modal" class="d-modal-overlay" onclick="closeDashboardModal()">
-        <div class="d-modal-container" onclick="event.stopPropagation()">
-          <div class="d-modal-header">
-            <h3 id="d-modal-title">Detalles de Métrica</h3>
-            <button class="d-modal-close" onclick="closeDashboardModal()">&times;</button>
-          </div>
-          <div class="d-modal-body" id="d-modal-body-content"></div>
-        </div>
-      </div>
     `;
     
     switchDashboardSubTab('period');
@@ -55464,8 +56056,85 @@ async function loadBillingMetricsDashboard() {
   }
 }
 
+async function loadBillingCommerceTab() {
+  const container = document.getElementById('d-content-commerce');
+  if (!container) return;
+
+  if (cachedDashboardRecords.length === 0) {
+    container.innerHTML = `
+      <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando vista por comercio...
+      </div>
+    `;
+  }
+
+  try {
+    await fetchBillingDashboardData();
+    if (cachedDashboardRecords.length === 0) {
+      container.innerHTML = `
+        <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-store-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
+          <p style="font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem;">No hay registros de facturación creados</p>
+          <p style="font-size: 0.85rem;">Primero crea un periodo mensual y agrega cobros para visualizar el detalle por comercio.</p>
+        </div>
+      `;
+      return;
+    }
+    renderDashboardCommerceView();
+  } catch (err) {
+    console.error('Error loading commerce tab:', err);
+    container.innerHTML = `
+      <div class="card" style="padding: 2rem; border-color: var(--color-danger); color: var(--color-danger);">
+        <p><strong>Error al cargar vista por comercio:</strong> ${err.message}</p>
+      </div>
+    `;
+  }
+}
+
+async function loadBillingPendingTab() {
+  const container = document.getElementById('d-content-pending');
+  if (!container) return;
+
+  if (cachedDashboardRecords.length === 0) {
+    container.innerHTML = `
+      <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando tareas y pendientes...
+      </div>
+    `;
+  }
+
+  try {
+    await fetchBillingDashboardData();
+    if (cachedDashboardRecords.length === 0) {
+      container.innerHTML = `
+        <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-task-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
+          <p style="font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem;">No hay registros de facturación creados</p>
+          <p style="font-size: 0.85rem;">Primero crea un periodo mensual y agrega cobros para gestionar tareas y pendientes.</p>
+        </div>
+      `;
+      return;
+    }
+    renderDashboardPendingView();
+  } catch (err) {
+    console.error('Error loading pending tab:', err);
+    container.innerHTML = `
+      <div class="card" style="padding: 2rem; border-color: var(--color-danger); color: var(--color-danger);">
+        <p><strong>Error al cargar tareas y pendientes:</strong> ${err.message}</p>
+      </div>
+    `;
+  }
+}
+
 window.switchDashboardSubTab = function(tabName) {
-  const tabs = ['period', 'commerce', 'pending', 'year'];
+  if (tabName === 'commerce' || tabName === 'pending') {
+    window.switchBillingAdminTab(tabName);
+    return;
+  }
+
+  const tabs = ['period', 'year'];
   tabs.forEach(t => {
     const btn = document.getElementById(`d-subtab-${t}`);
     const content = document.getElementById(`d-content-${t}`);
@@ -55482,10 +56151,6 @@ window.switchDashboardSubTab = function(tabName) {
   
   if (tabName === 'period') {
     renderDashboardPeriodView();
-  } else if (tabName === 'commerce') {
-    renderDashboardCommerceView();
-  } else if (tabName === 'pending') {
-    renderDashboardPendingView();
   } else if (tabName === 'year') {
     renderDashboardYearView();
   }
@@ -65928,6 +66593,56 @@ function calculateVolumeFromDims() {
   }
 }
 
+window.currentEditProdAltBarcodes = [];
+
+window.renderEditProdAltBarcodes = function() {
+  const chipsContainer = document.getElementById('edit-prod-alt-barcodes-chips');
+  const hiddenInp = document.getElementById('edit-prod-alternate-barcodes');
+  const list = Array.isArray(window.currentEditProdAltBarcodes) ? window.currentEditProdAltBarcodes : [];
+  if (hiddenInp) {
+    hiddenInp.value = JSON.stringify(list);
+  }
+  if (!chipsContainer) return;
+
+  if (list.length === 0) {
+    chipsContainer.innerHTML = `<span style="font-size: 0.74rem; color: var(--color-text-muted); font-style: italic;">Sin códigos adicionales registrados.</span>`;
+    return;
+  }
+
+  chipsContainer.innerHTML = list.map((code, idx) => `
+    <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(5, 150, 105, 0.12); color: #065f46; border: 1px solid rgba(5, 150, 105, 0.3); padding: 2px 8px; border-radius: 999px; font-family: monospace; font-size: 0.76rem; font-weight: 700;">
+      <i class="ri-barcode-line" style="font-size: 0.8rem;"></i>
+      ${window.escapeHtml ? window.escapeHtml(code) : code}
+      <button type="button" onclick="window.removeEditProdAltBarcode(${idx})" style="background: none; border: none; color: #b91c1c; cursor: pointer; padding: 0 2px; font-size: 0.85rem; line-height: 1; display: inline-flex; align-items: center;" title="Eliminar este código adicional">
+        &times;
+      </button>
+    </span>
+  `).join('');
+};
+
+window.addEditProdAltBarcode = function() {
+  const inp = document.getElementById('edit-prod-new-alt-barcode');
+  if (!inp) return;
+  const code = String(inp.value || '').trim();
+  if (!code) return;
+
+  if (!Array.isArray(window.currentEditProdAltBarcodes)) {
+    window.currentEditProdAltBarcodes = [];
+  }
+  const exists = window.currentEditProdAltBarcodes.some(c => String(c).trim().toUpperCase() === code.toUpperCase());
+  if (!exists) {
+    window.currentEditProdAltBarcodes.push(code);
+  }
+  inp.value = '';
+  window.renderEditProdAltBarcodes();
+};
+
+window.removeEditProdAltBarcode = function(idx) {
+  if (!Array.isArray(window.currentEditProdAltBarcodes)) return;
+  window.currentEditProdAltBarcodes.splice(idx, 1);
+  window.renderEditProdAltBarcodes();
+};
+
 window.openEditProductModal = openEditProductModal;
 async function openEditProductModal(prodId) {
   try {
@@ -65948,6 +66663,10 @@ async function openEditProductModal(prodId) {
     if (barcodeWmsInput) barcodeWmsInput.value = product.barcode_wms || '';
     const sendBarcodeWmsInput = document.getElementById('edit-prod-send-barcode-wms');
     if (sendBarcodeWmsInput) sendBarcodeWmsInput.checked = product.send_barcode_wms_to_picker !== false;
+    window.currentEditProdAltBarcodes = window.getProductAlternateBarcodes ? window.getProductAlternateBarcodes(product) : [];
+    const newAltInp = document.getElementById('edit-prod-new-alt-barcode');
+    if (newAltInp) newAltInp.value = '';
+    window.renderEditProdAltBarcodes();
     document.getElementById('edit-prod-picking-strict').checked = product.picking_match_strict || false;
     document.getElementById('edit-prod-alias').value = product.alias || '';
     const sendAliasInput = document.getElementById('edit-prod-send-alias');
@@ -66299,6 +67018,13 @@ function initProductFormListeners() {
           return;
         }
 
+        // Si quedó un texto escrito sin presionar "+ Agregar", incluirlo automáticamente
+        const pendingAltBarcodeInp = document.getElementById('edit-prod-new-alt-barcode');
+        if (pendingAltBarcodeInp && pendingAltBarcodeInp.value.trim()) {
+          window.addEditProdAltBarcode();
+        }
+        const altBarcodesToSave = Array.isArray(window.currentEditProdAltBarcodes) ? window.currentEditProdAltBarcodes : [];
+
         const currentOptions = (window.currentEditingProduct && window.currentEditingProduct.options) || {};
         const updatedOptions = {
           ...currentOptions,
@@ -66307,7 +67033,8 @@ function initProductFormListeners() {
           var1: var1Val,
           var2: var2Val,
           manga: var1Val,
-          cuello: var2Val
+          cuello: var2Val,
+          alternate_barcodes: altBarcodesToSave
         };
 
         const { error } = await supabase
@@ -69086,7 +69813,7 @@ window.sendIntakeToPicker = async function(id) {
     if (skus.length > 0) {
       const { data: dbProds } = await supabase
         .from('products')
-        .select('sku, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, options')
+        .select('sku, barcode, barcode_wms, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2, options')
         .eq('comercio', dec.comercio)
         .in('sku', skus);
       if (dbProds) {
@@ -69110,16 +69837,31 @@ window.sendIntakeToPicker = async function(id) {
     }
 
     for (const item of products) {
-      // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
       const cleanSku = item.sku.trim();
-      const pickingSku = (item.barcode && item.barcode.trim() && item.barcode.trim() !== cleanSku)
-        ? item.barcode.trim()
+      const prodData = prodVariantMap.get(cleanSku.toLowerCase()) || {};
+      const prodOpt = prodData.options || {};
+
+      // Concatenar SKU + todos los códigos de barra asociados al producto (y el escaneado en la declaración si existe)
+      const combinedProd = {
+        ...prodData,
+        sku: cleanSku,
+        barcode: item.barcode || prodData.barcode || '',
+        barcode_wms: item.barcode_wms || prodData.barcode_wms || '',
+        options: {
+          ...prodOpt,
+          alternate_barcodes: [
+            ...(Array.isArray(prodOpt.alternate_barcodes) ? prodOpt.alternate_barcodes : []),
+            ...(item.scanned_barcode ? [item.scanned_barcode] : []),
+            ...(item.barcode && prodData.barcode && item.barcode !== prodData.barcode ? [prodData.barcode] : [])
+          ]
+        }
+      };
+      const pickingSku = window.resolvePickerSku
+        ? window.resolvePickerSku(combinedProd, null, false)
         : cleanSku;
 
       const isStrict = strictSkusMap.get(cleanSku.toLowerCase()) || false;
       const aliasData = aliasProdsMap.get(cleanSku.toLowerCase()) || {};
-      const prodData = prodVariantMap.get(cleanSku.toLowerCase()) || {};
-      const prodOpt = prodData.options || {};
       const colorVal = prodData.color || prodOpt.color || null;
       const tallaVal = prodData.talla || prodOpt.talla || prodOpt.size || null;
       const mangaVal = prodData.variable_1 || prodOpt.var1 || prodOpt.manga || null;
@@ -69278,7 +70020,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       window._loadingAdminCatalogForDec = true;
       (async () => {
         try {
-          const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
+          const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, largo, ancho, alto, price, barcode, barcode_wms, color, talla, variable_1, variable_2, options', q => q.eq('comercio', dec.comercio).order('name'));
           window.adminCatalogProductsCache = prods || [];
           window._loadingAdminCatalogForDec = false;
           if (document.getElementById('manage-dec-products-tbody')) {
@@ -69304,6 +70046,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   // Si no está inicializado en memoria, o es una declaración distinta, la inicializamos
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
     window.currentDeclarationProductsEditing_id = dec.id;
+    window._inboundLabelsTouched = false;
     window.currentDeclarationProductsEditing = products.map(item => {
       // Buscar en el catálogo precargado si faltan dimensiones o variantes (manejo seguro de SKUs numéricos)
       const itemSku = String(item.sku || '').trim().toLowerCase();
@@ -69335,6 +70078,17 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         ? parseInt(item.qty_confirmed, 10) 
         : (parseInt(item.qty, 10) || 0);
 
+      // Por defecto, ambas columnas de verificación (SKU y Código de Barras WMS) vienen marcadas con check (true)
+      const skuCheck = item.sku_check !== undefined ? Boolean(item.sku_check) : true;
+      const barcodeCheck = item.barcode_check !== undefined ? Boolean(item.barcode_check) : true;
+      const scannedBarcode = item.scanned_barcode ? String(item.scanned_barcode).trim() : '';
+      const needsLabel = item.needs_label !== undefined
+        ? Boolean(item.needs_label)
+        : (!skuCheck || (!barcodeCheck && !scannedBarcode));
+      const labelQty = (item.label_qty !== undefined && item.label_qty !== null)
+        ? parseInt(item.label_qty, 10)
+        : (needsLabel ? qtyConfirmed : 0);
+
       return {
         ...item,
         color: item.color || catProd?.color || null,
@@ -69344,6 +70098,16 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         options: { ...(catProd?.options || {}), ...(item.options || {}) },
         price: item.price || catProd?.price || 0,
         barcode: item.barcode || catProd?.barcode || '',
+        barcode_wms: item.barcode_wms || catProd?.barcode_wms || '',
+        sku_check: skuCheck,
+        barcode_check: barcodeCheck,
+        scanned_barcode: scannedBarcode,
+        needs_label: needsLabel,
+        label_qty: labelQty,
+        label_qty_manual: Boolean(item.label_qty_manual),
+        label_code: item.label_code || item.sku || '',
+        label_name: item.label_name || item.name || '',
+        label_size: item.label_size || '5x2.5',
         declared_largo: declaredLargo ? parseFloat(declaredLargo) : null,
         declared_ancho: declaredAncho ? parseFloat(declaredAncho) : null,
         declared_alto: declaredAlto ? parseFloat(declaredAlto) : null,
@@ -69357,7 +70121,9 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         confirmed_alto: confirmedAlto ? parseFloat(confirmedAlto) : null,
         confirmed_volumen: confirmedVol ? parseFloat(confirmedVol) : 0,
         qty_confirmed: qtyConfirmed,
-        qty_inventory_added: parseInt(item.qty_inventory_added, 10) || 0
+        qty_inventory_added: (item.qty_inventory_added !== undefined && item.qty_inventory_added !== null)
+          ? (parseInt(item.qty_inventory_added, 10) || 0)
+          : (['Recibido Conforme', 'Recibido con Incidencias', 'Recepción Parcial'].includes(dec.status) ? qtyConfirmed : 0)
       };
     });
   }
@@ -69365,11 +70131,12 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   if (window.currentDeclarationProductsEditing.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+        <td colspan="11" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
           No hay productos registrados en esta recepción. Usa el buscador superior para agregar productos.
         </td>
       </tr>
     `;
+    window.renderInboundDeclarationLabelsPanel();
     return;
   }
 
@@ -69420,6 +70187,14 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
 
     const itemSku = String(item.sku || '').trim().toLowerCase();
     const catProd = (window.adminCatalogProductsCache || []).find(p => itemSku && String(p.sku || '').trim().toLowerCase() === itemSku);
+    if (catProd) {
+      if (!item.barcode && catProd.barcode) item.barcode = catProd.barcode;
+      if (!item.barcode_wms && catProd.barcode_wms) item.barcode_wms = catProd.barcode_wms;
+      if (catProd.options?.alternate_barcodes && (!item.options || !item.options.alternate_barcodes)) {
+        item.options = { ...(item.options || {}), alternate_barcodes: catProd.options.alternate_barcodes };
+      }
+    }
+
     const prodForBadges = {
       ...catProd,
       ...item,
@@ -69433,15 +70208,63 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       ? window.renderProductVariantBadges(prodForBadges, window.currentDeclarationVariantConfig, { compact: true }) 
       : '';
 
+    const skuChecked = item.sku_check !== false;
+    const barcodeChecked = item.barcode_check !== false;
+    const wmsBarcodesList = [];
+    if (item.barcode_wms && String(item.barcode_wms).trim()) wmsBarcodesList.push(String(item.barcode_wms).trim());
+    if (item.barcode && String(item.barcode).trim() && !wmsBarcodesList.includes(String(item.barcode).trim())) wmsBarcodesList.push(String(item.barcode).trim());
+    const altBarcodes = window.getProductAlternateBarcodes ? window.getProductAlternateBarcodes(prodForBadges) : [];
+    altBarcodes.forEach(ab => {
+      if (ab && !wmsBarcodesList.includes(ab)) wmsBarcodesList.push(ab);
+    });
+
+    const primaryBarcodeDisplay = wmsBarcodesList.length > 0
+      ? `<span style="font-family: monospace; font-size: 0.76rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--color-border);" title="Códigos registrados: ${window.escapeHtml ? window.escapeHtml(wmsBarcodesList.join(' | ')) : wmsBarcodesList.join(' | ')}">${window.escapeHtml ? window.escapeHtml(wmsBarcodesList[0]) : wmsBarcodesList[0]}${wmsBarcodesList.length > 1 ? ` <span style="color: var(--color-primary); font-size: 0.68rem;">+${wmsBarcodesList.length - 1}</span>` : ''}</span>`
+      : `<span style="font-size: 0.7rem; color: #dc2626; background: rgba(239,68,68,0.08); padding: 1px 5px; border-radius: 4px; font-weight: 600;">Sin cód. WMS</span>`;
+
     tbody.innerHTML += `
-      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle; ${item.needs_label ? 'background: rgba(124, 58, 237, 0.03);' : ''}">
         <td style="padding: 8px 6px; text-align: center; color: var(--color-text-muted); font-size: 0.82rem; font-weight: 700; font-family: monospace;">
           ${idx + 1}
         </td>
-        <td style="padding: 8px 10px; min-width: 200px; max-width: 320px;">
-          <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.85rem; font-family: monospace;" title="${item.sku}">${item.sku}</div>
+        <td style="padding: 8px 10px; min-width: 190px; max-width: 300px;">
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span style="font-weight: 700; color: var(--color-text-main); font-size: 0.85rem; font-family: monospace;" title="${item.sku}">${item.sku}</span>
+            ${item.needs_label ? `<span class="badge" style="background: rgba(124, 58, 237, 0.12); color: #6d28d9; font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; font-weight: 700;"><i class="ri-Barcode-box-line"></i> Etiq. ${item.label_size || '5x2.5'} (${item.label_qty || 0})</span>` : ''}
+          </div>
           <div style="font-size: 0.78rem; color: var(--color-text-main); font-weight: 500; line-height: 1.3; margin-top: 2px;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
           ${variantsBadgeHtml}
+        </td>
+        <!-- Columna Check SKU -->
+        <td style="padding: 8px 6px; text-align: center; background: ${skuChecked ? 'rgba(59, 130, 246, 0.03)' : 'rgba(124, 58, 237, 0.08)'};">
+          <label style="display: inline-flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; user-select: none;" title="${skuChecked ? 'SKU verificado en etiqueta física. Desmarcar para imprimir etiqueta 5x2.5 cm directa' : 'Desmarcado: Se generará etiqueta 5x2.5 cm con el SKU'}">
+            <input type="checkbox" ${skuChecked ? 'checked' : ''} onchange="window.toggleInboundProductSkuCheck(${idx}, this.checked)" style="width: 17px; height: 17px; accent-color: #2563eb; cursor: pointer;">
+            <span style="font-size: 0.66rem; font-weight: 700; color: ${skuChecked ? '#1d4ed8' : '#6d28d9'};">
+              ${skuChecked ? 'SKU OK' : 'Imprimir 5x2.5'}
+            </span>
+          </label>
+        </td>
+        <!-- Columna Check Cód. Barras WMS + Escaneo Físico -->
+        <td style="padding: 8px 6px; text-align: center; background: ${barcodeChecked ? 'rgba(16, 185, 129, 0.03)' : 'rgba(245, 158, 11, 0.08)'}; min-width: 155px;">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <input type="checkbox" ${barcodeChecked ? 'checked' : ''} onchange="window.toggleInboundProductBarcodeCheck(${idx}, this.checked)" style="width: 17px; height: 17px; accent-color: #059669; cursor: pointer;" title="${barcodeChecked ? 'Código de barras físico coincide con WMS. Desmarcar para escanear nuevo código o generar etiqueta.' : 'Desmarcado: Escanea el código físico que trae el producto o déjalo vacío si no trae código.'}">
+            ${primaryBarcodeDisplay}
+          </div>
+          ${!barcodeChecked ? `
+            <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 3px; align-items: center;">
+              <div style="display: flex; gap: 3px; width: 100%; max-width: 165px;">
+                <input type="text" id="manage-dec-scan-barcode-${idx}" class="form-input" value="${window.escapeHtml ? window.escapeHtml(item.scanned_barcode || '') : (item.scanned_barcode || '')}" placeholder="Escanear cód. físico..." onchange="window.updateInboundProductScannedBarcode(${idx}, this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); window.updateInboundProductScannedBarcode(${idx}, this.value);}" style="height: 26px; font-size: 0.74rem; padding: 2px 6px; font-family: monospace; border-color: ${item.scanned_barcode ? '#059669' : '#f59e0b'}; background: #ffffff; flex: 1;">
+                <button type="button" onclick="window.focusInboundBarcodeScanner(${idx})" class="btn btn-outline" style="height: 26px; padding: 0 6px; font-size: 0.75rem; border-color: #d97706; color: #b45309; background: #fffbeb;" title="Posicionar lector de código de barras">
+                  <i class="ri-qr-scan-2-line"></i>
+                </button>
+              </div>
+              <span style="font-size: 0.64rem; font-weight: 600; color: ${item.scanned_barcode ? '#059669' : (!skuChecked ? '#6d28d9' : '#b45309')};">
+                ${item.scanned_barcode 
+                  ? `<i class="ri-check-double-line"></i> Se asociará al SKU (Multi-Barra)` 
+                  : (!skuChecked ? `<i class="ri-price-tag-3-line"></i> Sin código → Etiq. SKU 5x2.5` : `Escanea barra física o desmarca SKU`)}
+              </span>
+            </div>
+          ` : ''}
         </td>
         <td style="padding: 8px 6px; text-align: center;">
           ${(item.declared_largo && item.declared_ancho && item.declared_alto) ? `
@@ -69488,6 +70311,352 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       </tr>
     `;
   });
+
+  window.renderInboundDeclarationLabelsPanel();
+};
+
+// ============================================================================
+// CONTROLADORES DE CHECK SKU, ESCANEO CÓDIGO DE BARRAS Y ETIQUETAS 5x2.5 CM
+// ============================================================================
+
+window.toggleInboundProductSkuCheck = function(idx, isChecked) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  window._inboundLabelsTouched = true;
+  item.sku_check = Boolean(isChecked);
+
+  const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+    ? parseInt(item.qty_confirmed, 10)
+    : (parseInt(item.qty, 10) || 0);
+
+  if (!item.sku_check) {
+    // Al desmarcar SKU, pasa directo a impresión de etiqueta en formato 5x2.5 cm
+    item.needs_label = true;
+    item.label_size = item.label_size || '5x2.5';
+    item.label_code = item.label_code || item.sku || '';
+    item.label_name = item.label_name || item.name || '';
+    if (!item.label_qty || item.label_qty <= 0) {
+      item.label_qty = confirmed > 0 ? confirmed : (parseInt(item.qty, 10) || 1);
+    }
+  } else {
+    // Si se vuelve a marcar SKU y el código de barras está OK (o tiene código escaneado), desactivar etiqueta automática
+    if (item.barcode_check !== false || (item.scanned_barcode && String(item.scanned_barcode).trim() !== '')) {
+      item.needs_label = false;
+      item.label_qty = 0;
+      item.label_qty_manual = false;
+    }
+  }
+
+  const currentStatusVal = document.getElementById('manage-dec-status')?.value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+  window.syncInboundLabelsToBilling();
+};
+
+window.toggleInboundProductBarcodeCheck = function(idx, isChecked) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  window._inboundLabelsTouched = true;
+  item.barcode_check = Boolean(isChecked);
+
+  const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+    ? parseInt(item.qty_confirmed, 10)
+    : (parseInt(item.qty, 10) || 0);
+
+  if (item.barcode_check) {
+    item.scanned_barcode = '';
+    if (item.sku_check !== false) {
+      item.needs_label = false;
+      item.label_qty = 0;
+      item.label_qty_manual = false;
+    }
+  } else {
+    // Si ambas columnas están desmarcadas y no hay código escaneado, generar etiquetas automáticamente
+    if (item.sku_check === false) {
+      item.needs_label = true;
+      item.label_size = item.label_size || '5x2.5';
+      item.label_code = item.label_code || item.sku || '';
+      item.label_name = item.label_name || item.name || '';
+      if (!item.label_qty || item.label_qty <= 0) {
+        item.label_qty = confirmed > 0 ? confirmed : (parseInt(item.qty, 10) || 1);
+      }
+    }
+  }
+
+  const currentStatusVal = document.getElementById('manage-dec-status')?.value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+  window.syncInboundLabelsToBilling();
+
+  if (!isChecked) {
+    setTimeout(() => {
+      const scanInp = document.getElementById(`manage-dec-scan-barcode-${idx}`);
+      if (scanInp) scanInp.focus();
+    }, 60);
+  }
+};
+
+window.focusInboundBarcodeScanner = function(idx) {
+  const scanInp = document.getElementById(`manage-dec-scan-barcode-${idx}`);
+  if (scanInp) {
+    scanInp.focus();
+    scanInp.select();
+  }
+};
+
+window.updateInboundProductScannedBarcode = function(idx, rawValue) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  const code = String(rawValue || '').trim();
+  window._inboundLabelsTouched = true;
+
+  if (code) {
+    // Validación anti-colisión contra otros SKUs del mismo comercio
+    const currentSkuNorm = String(item.sku || '').trim().toUpperCase();
+    const catalog = window.adminCatalogProductsCache || [];
+    const conflictingProd = catalog.find(p => {
+      const pSku = String(p.sku || '').trim().toUpperCase();
+      if (!pSku || pSku === currentSkuNorm) return false;
+      const allCodes = window.getProductAllScannableCodes ? window.getProductAllScannableCodes(p) : [p.sku, p.barcode, p.barcode_wms].filter(Boolean);
+      return allCodes.some(c => String(c).trim().toUpperCase() === code.toUpperCase());
+    });
+
+    if (conflictingProd) {
+      if (window.Swal) {
+        window.Swal.fire({
+          icon: 'warning',
+          title: 'Código ya asignado a otro SKU',
+          html: `El código de barras <code>${window.escapeHtml ? window.escapeHtml(code) : code}</code> ya está registrado en el producto <strong>${window.escapeHtml ? window.escapeHtml(conflictingProd.sku) : conflictingProd.sku}</strong> (${window.escapeHtml ? window.escapeHtml(conflictingProd.name || '') : (conflictingProd.name || '')}).<br><br>Verifica si corresponde a otro producto antes de asociarlo.`
+        });
+      }
+    }
+
+    item.scanned_barcode = code;
+    // Si tenía SKU con check y ahora escaneó un código físico válido, no requiere imprimir etiqueta a menos que SKU esté desmarcado
+    if (item.sku_check !== false && !item.label_qty_manual) {
+      item.needs_label = false;
+      item.label_qty = 0;
+    }
+  } else {
+    item.scanned_barcode = '';
+    if (item.sku_check === false) {
+      const confirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+        ? parseInt(item.qty_confirmed, 10)
+        : (parseInt(item.qty, 10) || 0);
+      item.needs_label = true;
+      item.label_qty = confirmed > 0 ? confirmed : (parseInt(item.qty, 10) || 1);
+    }
+  }
+
+  const currentStatusVal = document.getElementById('manage-dec-status')?.value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+  window.syncInboundLabelsToBilling();
+};
+
+window.syncInboundLabelsToBilling = function() {
+  if (!window.currentDeclarationProductsEditing) return;
+  const totalLabelCopies = window.currentDeclarationProductsEditing.reduce((sum, it) => {
+    if (!it.needs_label) return sum;
+    return sum + (parseInt(it.label_qty, 10) || 0);
+  }, 0);
+
+  const labelingInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+  if (labelingInput && (totalLabelCopies > 0 || window._inboundLabelsTouched)) {
+    labelingInput.value = totalLabelCopies;
+    // Si había un override manual de etiquetado en 0, eliminarlo para que refleje el cobro automático de $100/ud
+    if (window.currentDeclarationChargesOverrides && window.currentDeclarationChargesOverrides['labeling']) {
+      delete window.currentDeclarationChargesOverrides['labeling'];
+    }
+  }
+
+  if (typeof window.recalculateManageDeclarationCosts === 'function') {
+    window.recalculateManageDeclarationCosts();
+  }
+};
+
+window.renderInboundDeclarationLabelsPanel = function() {
+  const panel = document.getElementById('manage-dec-labels-panel');
+  const tbody = document.getElementById('manage-dec-labels-tbody');
+  if (!panel || !tbody) return;
+
+  const items = window.currentDeclarationProductsEditing || [];
+  const labelItems = items
+    .map((item, idx) => ({ item, idx }))
+    .filter(entry => entry.item.needs_label);
+
+  if (labelItems.length === 0) {
+    panel.style.display = 'none';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+
+  let totalCopies = 0;
+  tbody.innerHTML = labelItems.map(({ item, idx }, rowNum) => {
+    const qty = parseInt(item.label_qty, 10) || 0;
+    totalCopies += qty;
+    const itemCostClp = qty * 100;
+    const labelCode = item.label_code || item.sku || '';
+    const labelName = item.label_name || item.name || '';
+    const labelSize = item.label_size || '5x2.5';
+
+    return `
+      <tr style="border-bottom: 1px solid #ede9fe; vertical-align: middle;">
+        <td style="padding: 6px 8px; text-align: center; font-weight: 700; color: #6d28d9; font-family: monospace;">
+          ${rowNum + 1}
+        </td>
+        <td style="padding: 6px 8px;">
+          <div style="font-weight: 700; font-family: monospace; font-size: 0.8rem; color: var(--color-text-main);">${window.escapeHtml ? window.escapeHtml(item.sku || '') : (item.sku || '')}</div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            ${!item.sku_check && !item.barcode_check ? '<span style="color:#dc2626; font-weight:600;">Sin SKU ni Cód. Barras</span>' : (!item.sku_check ? '<span style="color:#6d28d9; font-weight:600;">Check SKU desmarcado</span>' : 'Etiqueta manual')}
+          </div>
+        </td>
+        <td style="padding: 6px 8px;">
+          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelCode) : labelCode}" onchange="window.updateInboundLabelField(${idx}, 'label_code', this.value)" style="height: 28px; font-size: 0.78rem; font-family: monospace; font-weight: 700; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Código que se codificará en las barras (por defecto el SKU)">
+        </td>
+        <td style="padding: 6px 8px;">
+          <input type="text" class="form-input" value="${window.escapeHtml ? window.escapeHtml(labelName) : labelName}" onchange="window.updateInboundLabelField(${idx}, 'label_name', this.value)" style="height: 28px; font-size: 0.78rem; padding: 2px 6px; background: #fff; border-color: #c4b5fd;" title="Nombre descriptivo impreso bajo el código de barras">
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          <select class="form-select" onchange="window.updateInboundLabelField(${idx}, 'label_size', this.value)" style="height: 28px; font-size: 0.75rem; padding: 2px 6px; background: #fff; border-color: #c4b5fd; width: 105px; margin: 0 auto;">
+            <option value="5x2.5" ${labelSize === '5x2.5' ? 'selected' : ''}>5 x 2.5 cm</option>
+            <option value="7x5" ${labelSize === '7x5' ? 'selected' : ''}>7 x 5 cm</option>
+            <option value="10x5" ${labelSize === '10x5' ? 'selected' : ''}>10 x 5 cm</option>
+          </select>
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          <input type="number" min="0" class="form-input" value="${qty}" oninput="window.updateInboundLabelField(${idx}, 'label_qty', this.value)" style="width: 72px; height: 28px; text-align: center; font-weight: 700; font-size: 0.82rem; padding: 2px 6px; margin: 0 auto; background: #fff; border-color: #8b5cf6;">
+        </td>
+        <td style="padding: 6px 8px; text-align: right; font-weight: 700; color: #5b21b6; font-family: monospace; font-size: 0.8rem;">
+          $${itemCostClp.toLocaleString('es-CL')} CLP
+        </td>
+        <td style="padding: 6px 8px; text-align: center;">
+          <div style="display: inline-flex; gap: 4px; align-items: center;">
+            <button type="button" onclick="window.printSingleInboundProductLabel(${idx})" class="btn btn-outline" style="padding: 2px 6px; font-size: 0.72rem; border-color: #7c3aed; color: #6d28d9; background: #f5f3ff; height: 26px;" title="Imprimir solo las etiquetas de este SKU">
+              <i class="ri-printer-line"></i>
+            </button>
+            <button type="button" onclick="window.removeInboundProductFromLabels(${idx})" class="btn btn-outline" style="padding: 2px 6px; font-size: 0.72rem; border-color: rgba(239,68,68,0.4); color: var(--color-danger); height: 26px;" title="Quitar de la cola de impresión y restaurar check">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalCostClp = totalCopies * 100;
+  const skuCountEl = document.getElementById('manage-dec-labels-sku-count');
+  const copiesCountEl = document.getElementById('manage-dec-labels-total-copies');
+  const billingBadgeEl = document.getElementById('manage-dec-labels-billing-badge');
+  const totalCostEl = document.getElementById('manage-dec-labels-total-cost');
+
+  if (skuCountEl) skuCountEl.textContent = labelItems.length;
+  if (copiesCountEl) copiesCountEl.textContent = totalCopies;
+  if (billingBadgeEl) billingBadgeEl.textContent = `+$${totalCostClp.toLocaleString('es-CL')} CLP (${totalCopies} uds × $100)`;
+  if (totalCostEl) totalCostEl.textContent = `$${totalCostClp.toLocaleString('es-CL')} CLP`;
+};
+
+window.updateInboundLabelField = function(idx, field, value) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  window._inboundLabelsTouched = true;
+
+  if (field === 'label_qty') {
+    const parsed = parseInt(value, 10);
+    item.label_qty = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+    item.label_qty_manual = true;
+    window.renderInboundDeclarationLabelsPanel();
+    window.syncInboundLabelsToBilling();
+    return;
+  }
+
+  item[field] = String(value || '').trim();
+  window.renderInboundDeclarationLabelsPanel();
+};
+
+window.updateInboundLabelsGlobalSize = function(newSize) {
+  if (!window.currentDeclarationProductsEditing) return;
+  window.currentDeclarationProductsEditing.forEach(item => {
+    if (item.needs_label) {
+      item.label_size = newSize || '5x2.5';
+    }
+  });
+  const currentStatusVal = document.getElementById('manage-dec-status')?.value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+};
+
+window.removeInboundProductFromLabels = function(idx) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  window._inboundLabelsTouched = true;
+  item.needs_label = false;
+  item.label_qty = 0;
+  item.label_qty_manual = false;
+  item.sku_check = true;
+  const currentStatusVal = document.getElementById('manage-dec-status')?.value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+  window.syncInboundLabelsToBilling();
+};
+
+window.printSingleInboundProductLabel = function(idx) {
+  if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
+  const item = window.currentDeclarationProductsEditing[idx];
+  const copies = parseInt(item.label_qty, 10) || parseInt(item.qty_confirmed, 10) || parseInt(item.qty, 10) || 1;
+  const size = item.label_size || document.getElementById('manage-dec-labels-global-size')?.value || '5x2.5';
+  const queue = [{
+    sku: item.label_code || item.sku,
+    barcode: item.label_code || item.sku,
+    name: item.label_name || item.name || item.sku,
+    copies: copies
+  }];
+  if (typeof window.printLabels === 'function') {
+    window.printLabels(queue, { size });
+  } else {
+    alert('El generador de etiquetas no está disponible.');
+  }
+};
+
+window.printInboundDeclarationLabels = function() {
+  const items = (window.currentDeclarationProductsEditing || []).filter(it => it.needs_label && (parseInt(it.label_qty, 10) || 0) > 0);
+  if (items.length === 0) {
+    if (window.Swal) {
+      window.Swal.fire('Sin etiquetas', 'No hay etiquetas con cantidad mayor a 0 para imprimir.', 'info');
+    }
+    return;
+  }
+  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || items[0]?.label_size || '5x2.5';
+  const queue = items.map(it => ({
+    sku: it.label_code || it.sku,
+    barcode: it.label_code || it.sku,
+    name: it.label_name || it.name || it.sku,
+    copies: parseInt(it.label_qty, 10) || 1
+  }));
+  if (typeof window.printLabels === 'function') {
+    window.printLabels(queue, { size: globalSize });
+  } else {
+    alert('El motor de impresión de etiquetas no está cargado.');
+  }
+};
+
+window.exportInboundDeclarationLabelsZPL = function() {
+  const items = (window.currentDeclarationProductsEditing || []).filter(it => it.needs_label && (parseInt(it.label_qty, 10) || 0) > 0);
+  if (items.length === 0) {
+    if (window.Swal) {
+      window.Swal.fire('Sin etiquetas', 'No hay etiquetas con cantidad mayor a 0 para exportar ZPL.', 'info');
+    }
+    return;
+  }
+  const globalSize = document.getElementById('manage-dec-labels-global-size')?.value || items[0]?.label_size || '5x2.5';
+  const queue = items.map(it => ({
+    sku: it.label_code || it.sku,
+    barcode: it.label_code || it.sku,
+    name: it.label_name || it.name || it.sku,
+    copies: parseInt(it.label_qty, 10) || 1
+  }));
+  if (typeof window.showZPLModal === 'function') {
+    window.showZPLModal(queue, { size: globalSize });
+  } else {
+    alert('El exportador ZPL no está disponible.');
+  }
 };
 
 window.updateManageDeclarationProductDims = function(idx) {
@@ -69556,9 +70725,14 @@ window.updateManageDeclarationProductQty = function(idx, val) {
 
   if (!window.currentDeclarationProductsEditing || !window.currentDeclarationProductsEditing[idx]) return;
 
-  window.currentDeclarationProductsEditing[idx].qty_confirmed = parsedVal;
+  const item = window.currentDeclarationProductsEditing[idx];
+  item.qty_confirmed = parsedVal;
+  if (item.needs_label && !item.label_qty_manual) {
+    item.label_qty = parsedVal;
+    window.renderInboundDeclarationLabelsPanel();
+  }
   
-  const declared = parseInt(window.currentDeclarationProductsEditing[idx].qty, 10) || 0;
+  const declared = parseInt(item.qty, 10) || 0;
   const pending = Math.max(0, declared - parsedVal);
   const diff = parsedVal - declared;
 
@@ -69585,9 +70759,9 @@ window.updateManageDeclarationProductQty = function(idx, val) {
   }
 
   // Actualizar el volumen total de la fila
-  const unitVol = (window.currentDeclarationProductsEditing[idx].confirmed_volumen !== undefined && window.currentDeclarationProductsEditing[idx].confirmed_volumen !== null && window.currentDeclarationProductsEditing[idx].confirmed_volumen > 0)
-    ? parseFloat(window.currentDeclarationProductsEditing[idx].confirmed_volumen)
-    : (parseFloat(window.currentDeclarationProductsEditing[idx].volumen) || parseFloat(window.currentDeclarationProductsEditing[idx].vol) || 0);
+  const unitVol = (item.confirmed_volumen !== undefined && item.confirmed_volumen !== null && item.confirmed_volumen > 0)
+    ? parseFloat(item.confirmed_volumen)
+    : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
 
   const formatVol = (v) => {
     const num = parseFloat(v);
@@ -69603,7 +70777,7 @@ window.updateManageDeclarationProductQty = function(idx, val) {
     totVolEl.textContent = `${formatVol(unitVol * parsedVal)} m³ tot`;
   }
 
-  // Recalcular los totales de la declaración (Física, Volumen e Incidencias)
+  // Recalcular los totales de la declaración (Física, Volumen, Etiquetado e Incidencias)
   window.recalculateManageDeclarationTotals();
 };
 
@@ -69622,6 +70796,8 @@ window.recalculateManageDeclarationTotals = function() {
   let totalDeclared = 0;
   let missingQty = 0;
   let totalVolumeConfirmed = 0;
+  let totalLabelCopies = 0;
+  let anyNeedsLabel = false;
 
   window.currentDeclarationProductsEditing.forEach(item => {
     const rec = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) ? parseInt(item.qty_confirmed, 10) || 0 : (parseInt(item.qty, 10) || 0);
@@ -69636,6 +70812,11 @@ window.recalculateManageDeclarationTotals = function() {
       ? parseFloat(item.confirmed_volumen)
       : (parseFloat(item.volumen) || parseFloat(item.vol) || 0);
     totalVolumeConfirmed += (unitVol * rec);
+
+    if (item.needs_label) {
+      anyNeedsLabel = true;
+      totalLabelCopies += (parseInt(item.label_qty, 10) || 0);
+    }
   });
 
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
@@ -69645,9 +70826,13 @@ window.recalculateManageDeclarationTotals = function() {
   const tableTotalVol = document.getElementById('manage-dec-table-total-vol');
   const tableTotalQty = document.getElementById('manage-dec-table-total-qty');
   const tableVolDiff = document.getElementById('manage-dec-table-vol-diff');
+  const labelingConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
 
   if (qtyReceivedInput) {
     qtyReceivedInput.value = totalReceived;
+  }
+  if (labelingConfirmedInput && (anyNeedsLabel || window._inboundLabelsTouched)) {
+    labelingConfirmedInput.value = totalLabelCopies;
   }
   if (volumeConfirmedInput) {
     if (totalVolumeConfirmed > 0) {
@@ -70586,34 +71771,44 @@ window.loadCountsFromPicker = async function(id, itemsSummary) {
       return;
     }
 
-    // 2. Parsear el campo items_summary
-    // Formato típico: "SKU-A (10/10), SKU-B (9/12)" o "#N/A (1/1)"
+    // 2. Parsear el campo items_summary (soporta formato simple "SKU-A (10/10)" y concatenado "SKU-A | 780111 | 780222 (10/10)")
     const countsMap = {};
-    const regex = /([\w.-]+)\s*\((\d+)\/(\d+)\)/g;
-    let match;
-    while ((match = regex.exec(itemsSummary)) !== null) {
-      const code = match[1].trim().toUpperCase();
-      const scanned = parseInt(match[2], 10) || 0;
-      countsMap[code] = scanned;
-    }
+    const segments = String(itemsSummary || '').split(',');
+    segments.forEach(seg => {
+      const m = seg.match(/^(.*?)\s*\((\d+)\/(\d+)\)\s*$/);
+      if (m) {
+        const rawCodeBlock = m[1].trim();
+        const scanned = parseInt(m[2], 10) || 0;
+        const fullKey = rawCodeBlock.toUpperCase();
+        countsMap[fullKey] = scanned;
+        // También indexar cada sub-código separado por '|'
+        rawCodeBlock.split('|').forEach(sub => {
+          const cleanSub = sub.trim().toUpperCase();
+          if (cleanSub) countsMap[cleanSub] = scanned;
+        });
+      }
+    });
 
     // 3. Cruzar conteo del Picker con los productos de la declaración
     let totalScanned = 0;
     let totalExpected = 0;
 
     const matchedProducts = products.map(item => {
-      const itemSkuNorm = item.sku.trim().toUpperCase();
-      const itemBarcodeNorm = item.barcode ? item.barcode.trim().toUpperCase() : null;
+      const candidateCodes = [
+        item.sku,
+        item.barcode,
+        item.barcode_wms,
+        item.scanned_barcode,
+        ...(Array.isArray(item.alternate_barcodes) ? item.alternate_barcodes : []),
+        ...(Array.isArray(item.options?.alternate_barcodes) ? item.options.alternate_barcodes : [])
+      ].map(c => String(c || '').trim().toUpperCase()).filter(Boolean);
 
-      // Buscar si el picker escaneó por SKU o por Barcode
       let scannedQty = 0;
-      if (countsMap[itemSkuNorm] !== undefined) {
-        scannedQty = countsMap[itemSkuNorm];
-      } else if (itemBarcodeNorm && countsMap[itemBarcodeNorm] !== undefined) {
-        scannedQty = countsMap[itemBarcodeNorm];
-      } else {
-        // No escaneado por el picker, se asume 0 unidades
-        scannedQty = 0;
+      for (const code of candidateCodes) {
+        if (countsMap[code] !== undefined) {
+          scannedQty = countsMap[code];
+          break;
+        }
       }
 
       totalScanned += scannedQty;
@@ -71569,24 +72764,23 @@ window.bulkSetWmsOrderCategoria = async function() {
 };
 
 window.changeOrderBillingPeriod = async function(orderId, currentVal) {
-  let periodNames = [];
+  let rawPeriods = [];
   try {
     const { data } = await supabase
       .from('billing_periods')
-      .select('name, status')
-      .order('created_at', { ascending: false });
-    periodNames = (data || []).map(p => p.name);
+      .select('*');
+    rawPeriods = data || [];
   } catch (e) {
     console.warn('Error fetching billing_periods:', e);
   }
 
-  if (periodNames.length === 0) {
-    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  if (rawPeriods.length === 0) {
+    rawPeriods = ['OCTUBRE 2026', 'SEPTIEMBRE 2026', 'AGOSTO 2026', 'JULIO 2026', 'JUNIO 2026'];
   }
 
-  const optionsHtml = periodNames.map(p => `
-    <option value="${p}" ${p === currentVal ? 'selected' : ''}>${p}</option>
-  `).join('');
+  const optionsHtml = typeof window.buildGroupedBillingPeriodsOptionsHtml === 'function'
+    ? window.buildGroupedBillingPeriodsOptionsHtml(rawPeriods, currentVal)
+    : rawPeriods.map(p => `<option value="${p.name || p}" ${(p.name || p) === currentVal ? 'selected' : ''}>${p.name || p}</option>`).join('');
 
   const { value: selectedVal } = await Swal.fire({
     title: 'Asignar Periodo de Facturación',
@@ -71672,24 +72866,23 @@ window.bulkSetWmsOrderBillingPeriod = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);
   if (ids.length === 0) return;
 
-  let periodNames = [];
+  let rawPeriods = [];
   try {
     const { data } = await supabase
       .from('billing_periods')
-      .select('name, status')
-      .order('created_at', { ascending: false });
-    periodNames = (data || []).map(p => p.name);
+      .select('*');
+    rawPeriods = data || [];
   } catch (e) {
     console.warn('Error fetching billing_periods:', e);
   }
 
-  if (periodNames.length === 0) {
-    periodNames = ['AGOSTO 2026', 'SEPTIEMBRE 2026', 'OCTUBRE 2026', 'JULIO 2026', 'JUNIO 2026'];
+  if (rawPeriods.length === 0) {
+    rawPeriods = ['OCTUBRE 2026', 'SEPTIEMBRE 2026', 'AGOSTO 2026', 'JULIO 2026', 'JUNIO 2026'];
   }
 
-  const optionsHtml = periodNames.map(p => `
-    <option value="${p}">${p}</option>
-  `).join('');
+  const optionsHtml = typeof window.buildGroupedBillingPeriodsOptionsHtml === 'function'
+    ? window.buildGroupedBillingPeriodsOptionsHtml(rawPeriods, '')
+    : rawPeriods.map(p => `<option value="${p.name || p}">${p.name || p}</option>`).join('');
 
   const { value: selectedVal } = await Swal.fire({
     title: `Asignación Masiva: Periodo de Facturación (${ids.length} pedidos)`,
@@ -73010,7 +74203,7 @@ window.openEditOrderItemsModal = async function(orderId) {
   try {
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('id, comercio, sucursal_pickeo')
+      .select('id, external_order_number, comercio, sucursal_pickeo, estado_wms, status, stock_descontado')
       .eq('id', orderId)
       .single();
 
@@ -73018,7 +74211,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     const { data: orderItems, error: itemsErr } = await supabase
       .from('order_items')
-      .select('*, products(id, sku, name, price, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict)')
+      .select('*, products(id, sku, name, price, is_virtual, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict)')
       .eq('order_id', orderId);
 
     if (itemsErr) throw itemsErr;
@@ -73033,7 +74226,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     const { data: commerceProducts, error: prodErr } = await supabase
       .from('products')
-      .select('id, sku, name, price')
+      .select('id, sku, name, price, is_virtual')
       .eq('comercio', order.comercio)
       .order('name');
 
@@ -73041,12 +74234,20 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     window.tempCommerceProducts = commerceProducts || [];
 
+    const isDispatched = (order.estado_wms === 'Despachado') || (order.stock_descontado === true);
+    window.tempEditOrderData = {
+      ...order,
+      isDispatched
+    };
+    window.tempEditAdjustDispatchedStock = false;
+
     window.tempEditOrderItems = orderItems.map(item => ({
       id: item.id,
       product_id: item.product_id,
       sku: item.products?.sku || 'S/SKU',
       name: item.products?.name || 'Desconocido',
       price: item.products?.price || 0,
+      is_virtual: !!item.products?.is_virtual,
       quantity: item.quantity,
       warehouse_id: item.warehouse_id
     }));
@@ -73104,20 +74305,274 @@ window.tryAddTempEditItem = function(orderId, commerce, rawSku, rawQty) {
     window.tempEditOrderItems[existingIdx].quantity += qty;
   } else {
     const firstItemWh = window.tempEditOrderItems.length > 0 ? window.tempEditOrderItems[0].warehouse_id : null;
+    const origItemWh = (window.originalEditOrderItems && window.originalEditOrderItems.length > 0) ? window.originalEditOrderItems[0].warehouse_id : null;
+    const sucursalWh = (window.tempEditOrderData?.sucursal_pickeo && typeof getWarehouseIdFromSucursal === 'function')
+      ? getWarehouseIdFromSucursal(window.tempEditOrderData.sucursal_pickeo)
+      : null;
     const centralWh = (window.tempWarehouses || []).find(w => w.name.toLowerCase().includes('central') || w.name.toLowerCase().includes('ñuñoa'));
-    const defaultWarehouseId = firstItemWh || (centralWh ? centralWh.id : (window.tempWarehouses && window.tempWarehouses.length > 0 ? window.tempWarehouses[0].id : null));
+    const defaultWarehouseId = firstItemWh || origItemWh || sucursalWh || (centralWh ? centralWh.id : (window.tempWarehouses && window.tempWarehouses.length > 0 ? window.tempWarehouses[0].id : null));
+
+    // Si el producto pertenecía originalmente al pedido y fue eliminado en esta sesión, reutilizar su id y bodega original
+    const origMatch = (window.originalEditOrderItems || []).find(o => o.product_id === product.id && !window.tempEditOrderItems.some(t => t.id === o.id));
 
     window.tempEditOrderItems.push({
-      id: null,
+      id: origMatch ? origMatch.id : null,
       product_id: product.id,
       sku: product.sku,
       name: product.name,
       price: product.price || 0,
+      is_virtual: !!product.is_virtual,
       quantity: qty,
-      warehouse_id: defaultWarehouseId
+      warehouse_id: origMatch?.warehouse_id || defaultWarehouseId
     });
   }
   return true;
+};
+
+window.computeDispatchedOrderStockDiffs = function(defaultWarehouseIdFallback = null) {
+  const origItems = window.originalEditOrderItems || [];
+  const currItems = window.tempEditOrderItems || [];
+  const whList = window.tempWarehouses || [];
+  const orderData = window.tempEditOrderData || {};
+  const orderRefLabel = `Pedido ${orderData.external_order_number || orderData.id || ''}`.trim();
+
+  const centralWh = whList.find(w => w.name.toLowerCase().includes('central') || w.name.toLowerCase().includes('ñuñoa'));
+  const sucursalWh = (orderData.sucursal_pickeo && typeof getWarehouseIdFromSucursal === 'function')
+    ? getWarehouseIdFromSucursal(orderData.sucursal_pickeo)
+    : null;
+  const fallbackWhId = defaultWarehouseIdFallback || sucursalWh || (centralWh ? centralWh.id : (whList[0]?.id || null));
+
+  const getWhName = (whId) => whList.find(w => w.id === whId)?.name || 'Bodega Central';
+
+  // Agrupar estado original y actual por product_id
+  const origByProd = new Map();
+  origItems.forEach(it => {
+    if (!it.product_id) return;
+    const effWh = it.warehouse_id || fallbackWhId;
+    if (!origByProd.has(it.product_id)) {
+      origByProd.set(it.product_id, {
+        product_id: it.product_id,
+        sku: it.sku || 'S/SKU',
+        name: it.name || 'Producto',
+        is_virtual: !!it.is_virtual,
+        quantity: Number(it.quantity) || 0,
+        warehouse_id: effWh
+      });
+    } else {
+      origByProd.get(it.product_id).quantity += (Number(it.quantity) || 0);
+    }
+  });
+
+  const currByProd = new Map();
+  currItems.forEach(it => {
+    if (!it.product_id) return;
+    const effWh = it.warehouse_id || fallbackWhId;
+    if (!currByProd.has(it.product_id)) {
+      currByProd.set(it.product_id, {
+        product_id: it.product_id,
+        sku: it.sku || 'S/SKU',
+        name: it.name || 'Producto',
+        is_virtual: !!it.is_virtual,
+        quantity: Number(it.quantity) || 0,
+        warehouse_id: effWh
+      });
+    } else {
+      const existing = currByProd.get(it.product_id);
+      existing.quantity += (Number(it.quantity) || 0);
+      if (it.warehouse_id) existing.warehouse_id = it.warehouse_id;
+    }
+  });
+
+  const allProductIds = new Set([...origByProd.keys(), ...currByProd.keys()]);
+  const operations = [];
+  const virtualNotes = [];
+
+  for (const prodId of allProductIds) {
+    const orig = origByProd.get(prodId) || null;
+    const curr = currByProd.get(prodId) || null;
+    const isVirtual = (curr ? curr.is_virtual : orig?.is_virtual) === true;
+    const sku = curr ? curr.sku : orig.sku;
+    const name = curr ? curr.name : orig.name;
+
+    if (orig && !curr) {
+      // Producto eliminado del pedido
+      if (isVirtual) {
+        virtualNotes.push(`SKU ${sku} es virtual (sin efecto en stock físico ni Kardex).`);
+        continue;
+      }
+      const origWhName = getWhName(orig.warehouse_id);
+      operations.push({
+        type: 'removed',
+        product_id: prodId,
+        sku,
+        name,
+        old_qty: orig.quantity,
+        new_qty: 0,
+        old_warehouse_id: orig.warehouse_id,
+        new_warehouse_id: null,
+        old_warehouse_name: origWhName,
+        new_warehouse_name: null,
+        stock_summary_html: `<span style="color:#059669; font-weight:700;">+ Reponer ${orig.quantity} un.</span> de <strong>${sku}</strong> en <strong>${origWhName}</strong> y <span style="color:#059669; font-weight:600;">eliminar salida en Kardex</span> (${orderRefLabel}).`,
+        audit_text: `[Inventario/Kardex] Repuesto +${orig.quantity} un. de SKU ${sku} en bodega "${origWhName}" y anulada su salida en Kardex (${orderRefLabel})`
+      });
+    } else if (!orig && curr) {
+      // Producto nuevo añadido al pedido
+      if (isVirtual) {
+        virtualNotes.push(`SKU ${sku} es virtual (sin efecto en stock físico ni Kardex).`);
+        continue;
+      }
+      const newWhName = getWhName(curr.warehouse_id);
+      operations.push({
+        type: 'added',
+        product_id: prodId,
+        sku,
+        name,
+        old_qty: 0,
+        new_qty: curr.quantity,
+        old_warehouse_id: null,
+        new_warehouse_id: curr.warehouse_id,
+        old_warehouse_name: null,
+        new_warehouse_name: newWhName,
+        stock_summary_html: `<span style="color:#dc2626; font-weight:700;">- Descontar ${curr.quantity} un.</span> de <strong>${sku}</strong> en <strong>${newWhName}</strong> y <span style="color:#dc2626; font-weight:600;">registrar salida en Kardex</span> (${orderRefLabel}).`,
+        audit_text: `[Inventario/Kardex] Descontado -${curr.quantity} un. de SKU ${sku} en bodega "${newWhName}" y registrada salida en Kardex (${orderRefLabel})`
+      });
+    } else if (orig && curr) {
+      // Producto existente: verificar si cambió bodega o cantidad
+      if (orig.warehouse_id !== curr.warehouse_id) {
+        if (isVirtual) {
+          virtualNotes.push(`SKU ${sku} es virtual (sin efecto en stock físico ni Kardex).`);
+          continue;
+        }
+        const origWhName = getWhName(orig.warehouse_id);
+        const newWhName = getWhName(curr.warehouse_id);
+        operations.push({
+          type: 'warehouse_changed',
+          product_id: prodId,
+          sku,
+          name,
+          old_qty: orig.quantity,
+          new_qty: curr.quantity,
+          old_warehouse_id: orig.warehouse_id,
+          new_warehouse_id: curr.warehouse_id,
+          old_warehouse_name: origWhName,
+          new_warehouse_name: newWhName,
+          stock_summary_html: `<span style="color:#d97706; font-weight:700;">⇄ Cambio de bodega (${sku}):</span> Reponer <strong>+${orig.quantity} un.</strong> en <strong>${origWhName}</strong>, descontar <strong>-${curr.quantity} un.</strong> en <strong>${newWhName}</strong> y actualizar salida en Kardex (${orderRefLabel}).`,
+          audit_text: `[Inventario/Kardex] SKU ${sku}: repuesto +${orig.quantity} un. en "${origWhName}", descontado -${curr.quantity} un. en "${newWhName}" y actualizado Kardex (${orderRefLabel})`
+        });
+      } else if (orig.quantity !== curr.quantity) {
+        if (isVirtual) {
+          virtualNotes.push(`SKU ${sku} es virtual (sin efecto en stock físico ni Kardex).`);
+          continue;
+        }
+        const whName = getWhName(curr.warehouse_id);
+        const diff = curr.quantity - orig.quantity;
+        if (diff > 0) {
+          operations.push({
+            type: 'qty_increased',
+            product_id: prodId,
+            sku,
+            name,
+            old_qty: orig.quantity,
+            new_qty: curr.quantity,
+            diff_qty: diff,
+            old_warehouse_id: orig.warehouse_id,
+            new_warehouse_id: curr.warehouse_id,
+            old_warehouse_name: whName,
+            new_warehouse_name: whName,
+            stock_summary_html: `<span style="color:#dc2626; font-weight:700;">- Descontar ${diff} un. adicional(es)</span> de <strong>${sku}</strong> en <strong>${whName}</strong> y actualizar salida en Kardex de ${orig.quantity} a <strong>${curr.quantity} un.</strong> (${orderRefLabel}).`,
+            audit_text: `[Inventario/Kardex] Descontado -${diff} un. adicional(es) de SKU ${sku} en "${whName}" y actualizada salida en Kardex de ${orig.quantity} a ${curr.quantity} un. (${orderRefLabel})`
+          });
+        } else {
+          const returnedQty = Math.abs(diff);
+          operations.push({
+            type: 'qty_decreased',
+            product_id: prodId,
+            sku,
+            name,
+            old_qty: orig.quantity,
+            new_qty: curr.quantity,
+            diff_qty: diff,
+            returned_qty: returnedQty,
+            old_warehouse_id: orig.warehouse_id,
+            new_warehouse_id: curr.warehouse_id,
+            old_warehouse_name: whName,
+            new_warehouse_name: whName,
+            stock_summary_html: `<span style="color:#059669; font-weight:700;">+ Reponer ${returnedQty} un.</span> de <strong>${sku}</strong> en <strong>${whName}</strong> y reducir salida en Kardex de ${orig.quantity} a <strong>${curr.quantity} un.</strong> (${orderRefLabel}).`,
+            audit_text: `[Inventario/Kardex] Repuesto +${returnedQty} un. de SKU ${sku} en "${whName}" y reducida salida en Kardex de ${orig.quantity} a ${curr.quantity} un. (${orderRefLabel})`
+          });
+        }
+      }
+    }
+  }
+
+  return { operations, virtualNotes };
+};
+
+window.renderDispatchedEditImpactPreviewHtml = function() {
+  const isChecked = !!window.tempEditAdjustDispatchedStock;
+  const { operations, virtualNotes } = window.computeDispatchedOrderStockDiffs();
+
+  if (!isChecked) {
+    return `
+      <div style="margin-top: 0.5rem; padding: 0.55rem 0.7rem; background: rgba(100, 116, 139, 0.08); border-left: 3px solid #64748b; border-radius: 4px; font-size: 0.77rem; color: var(--color-text-muted); line-height: 1.4;">
+        <strong style="color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">
+          <i class="ri-information-line"></i> Modo Solo Pedido (Opción desactivada):
+        </strong>
+        Se actualizarán únicamente los ítems y montos del pedido. <strong>No se descontará ni devolverá stock físico en bodega, ni se modificará el Kardex.</strong>
+      </div>
+    `;
+  }
+
+  let opsListHtml = '';
+  if (operations.length === 0) {
+    opsListHtml = `
+      <div style="font-size: 0.77rem; color: #991b1b; font-style: italic; margin-top: 0.35rem;">
+        Aún no hay diferencias de unidades o productos físicos respecto al pedido original. Agrega, elimina o modifica la cantidad de un producto arriba para ver el impacto exacto.
+      </div>
+    `;
+  } else {
+    opsListHtml = `
+      <ul style="margin: 0.4rem 0 0 1.1rem; padding: 0; font-size: 0.78rem; color: var(--color-text-main); line-height: 1.45; display: flex; flex-direction: column; gap: 0.25rem;">
+        ${operations.map(op => `<li>${op.stock_summary_html}</li>`).join('')}
+      </ul>
+    `;
+  }
+
+  const virtualHtml = virtualNotes.length > 0
+    ? `<div style="margin-top: 0.35rem; font-size: 0.73rem; color: var(--color-text-muted); font-style: italic;">ℹ️ ${virtualNotes.join(' ')}</div>`
+    : '';
+
+  return `
+    <div style="margin-top: 0.55rem; padding: 0.65rem 0.75rem; background: rgba(220, 38, 38, 0.08); border: 1px solid rgba(220, 38, 38, 0.35); border-left: 4px solid #dc2626; border-radius: 6px; font-size: 0.78rem; line-height: 1.4;">
+      <div style="color: #b91c1c; font-weight: 800; display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem;">
+        <i class="ri-error-warning-fill" style="font-size: 1rem; color: #dc2626;"></i>
+        ADVERTENCIA: SE MODIFICARÁ EL INVENTARIO FÍSICO Y EL KARDEX
+      </div>
+      <div style="color: #7f1d1d; font-size: 0.75rem; margin-top: 0.2rem;">
+        Este pedido ya fue despachado. Al guardar con esta opción activa, se ejecutarán de inmediato los siguientes movimientos reales en bodega y en el Kardex:
+      </div>
+      ${opsListHtml}
+      ${virtualHtml}
+    </div>
+  `;
+};
+
+window.toggleDispatchedEditStockAdjust = function(checked) {
+  window.tempEditAdjustDispatchedStock = !!checked;
+  window.refreshDispatchedEditImpactPreview();
+};
+
+window.refreshDispatchedEditImpactPreview = function() {
+  const previewContainer = document.getElementById('swal-dispatched-stock-impact-preview');
+  const cardContainer = document.getElementById('swal-dispatched-stock-card');
+  if (previewContainer) {
+    previewContainer.innerHTML = window.renderDispatchedEditImpactPreviewHtml();
+  }
+  if (cardContainer) {
+    const isChecked = !!window.tempEditAdjustDispatchedStock;
+    cardContainer.style.borderColor = isChecked ? '#dc2626' : '#f59e0b';
+    cardContainer.style.background = isChecked ? 'rgba(254, 242, 242, 0.55)' : 'rgba(255, 251, 235, 0.6)';
+  }
 };
 
 window.renderEditOrderItemsModal = function(orderId, commerce, existingComment = '') {
@@ -73139,7 +74594,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.5rem; text-align: left;">
-            <strong>${item.sku}</strong><br>
+            <strong>${item.sku}</strong> ${item.is_virtual ? '<span style="font-size:0.65rem; background:#e0e7ff; color:#4338ca; padding:1px 5px; border-radius:4px; font-weight:700;">Virtual</span>' : ''}<br>
             <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">${item.name}</span>
             <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem;">
               <span style="color: var(--color-text-muted);">Bodega:</span>
@@ -73149,9 +74604,9 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
             </div>
           </td>
           <td style="padding: 0.5rem;">
-            <input type="number" value="${item.quantity}" min="1" onchange="window.updateTempEditItemQuantity(${index}, this.value)" style="width: 60px; padding: 0.25rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);" />
+            <input type="number" value="${item.quantity}" min="1" oninput="window.updateTempEditItemQuantity(${index}, this.value)" onchange="window.updateTempEditItemQuantity(${index}, this.value)" style="width: 60px; padding: 0.25rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);" />
           </td>
-          <td style="padding: 0.5rem; text-align: right;">
+          <td style="padding: 0.5rem; text-align: right;" id="swal-edit-item-subtotal-${index}">
             ${window.formatCLP(item.price * item.quantity)}
           </td>
           <td style="padding: 0.5rem; text-align: center;">
@@ -73164,10 +74619,41 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
 
   const commerceProducts = window.tempCommerceProducts || [];
   const escapeFn = window.escapeHtml || (s => String(s || '').replace(/"/g, '&quot;'));
+  const isDispatched = !!(window.tempEditOrderData && window.tempEditOrderData.isDispatched);
+  const isChecked = !!window.tempEditAdjustDispatchedStock;
+  const orderNumberDisplay = window.tempEditOrderData?.external_order_number || orderId;
+
+  const dispatchedTopBannerHtml = isDispatched ? `
+    <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; border-radius: var(--radius-sm); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); color: #065f46; font-size: 0.8rem; font-weight: 600;">
+      <i class="ri-truck-line" style="font-size: 1.05rem; color: #059669;"></i>
+      <span>Pedido <strong>#${escapeFn(orderNumberDisplay)}</strong> en estado WMS <strong>Despachado</strong> (stock físico ya rebajado).</span>
+    </div>
+  ` : '';
+
+  const dispatchedStockControlHtml = isDispatched ? `
+    <div id="swal-dispatched-stock-card" style="padding: 0.8rem 0.9rem; border-radius: var(--radius-md); border: 2px solid ${isChecked ? '#dc2626' : '#f59e0b'}; background: ${isChecked ? 'rgba(254, 242, 242, 0.55)' : 'rgba(255, 251, 235, 0.6)'}; margin-bottom: 1.1rem; transition: all 0.2s;">
+      <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0; user-select: none;">
+        <input type="checkbox" id="swal-edit-items-adjust-stock" ${isChecked ? 'checked' : ''} onchange="window.toggleDispatchedEditStockAdjust(this.checked)" style="margin-top: 0.15rem; width: 18px; height: 18px; accent-color: #dc2626; cursor: pointer; flex-shrink: 0;">
+        <div style="flex: 1;">
+          <span style="font-weight: 800; font-size: 0.86rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-exchange-box-line" style="color: #d97706; font-size: 1rem;"></i>
+            Impactar Inventario Físico y Kardex con esta edición
+          </span>
+          <span style="font-size: 0.76rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem; line-height: 1.35;">
+            Activa esta opción si deseas que al añadir o quitar productos en este pedido <strong>Despachado</strong> se descuente o reponga el stock físico real en bodega y se actualice su salida en el Kardex.
+          </span>
+        </div>
+      </label>
+      <div id="swal-dispatched-stock-impact-preview">
+        ${window.renderDispatchedEditImpactPreviewHtml()}
+      </div>
+    </div>
+  ` : '';
 
   const htmlContent = `
-    <div style="text-align: left; max-height: 70vh; overflow-y: auto;">
-      <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+    <div style="text-align: left; max-height: 72vh; overflow-y: auto; padding-right: 2px;">
+      ${dispatchedTopBannerHtml}
+      <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.85rem;">
         Modifica las cantidades o elimina ítems. Utiliza el buscador de abajo para agregar nuevos productos de la tienda <strong>${commerce}</strong>.
       </p>
       
@@ -73185,7 +74671,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
         </tbody>
       </table>
 
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem;">
+      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.1rem;">
         <h5 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--color-primary); font-weight: 700;">Agregar Producto</h5>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
           <div style="flex-grow: 1; min-width: 180px;">
@@ -73201,6 +74687,8 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
         </div>
       </div>
 
+      ${dispatchedStockControlHtml}
+
       <div class="form-group" style="margin-bottom: 0.5rem;">
         <label class="form-label" style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block; margin-bottom: 0.25rem;">Motivo / Comentario de la Modificación <span style="color: var(--color-danger);">*</span></label>
         <textarea id="swal-edit-items-comment" placeholder="Ej: Reemplazo de SKU agotado por alternativa solicitada por el cliente..." style="width: 100%; height: 60px; font-size: 0.8rem; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);" required>${escapeFn(existingComment)}</textarea>
@@ -73211,7 +74699,7 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
   Swal.fire({
     title: 'Editar Ítems del Pedido',
     html: htmlContent,
-    width: '600px',
+    width: '650px',
     showCancelButton: true,
     confirmButtonText: '<i class="ri-save-line"></i> Guardar Cambios',
     cancelButtonText: 'Cancelar',
@@ -73235,11 +74723,16 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
         Swal.showValidationMessage('El motivo de la modificación es obligatorio.');
         return false;
       }
-      return { comment };
+
+      const adjustStockCb = document.getElementById('swal-edit-items-adjust-stock');
+      const adjustDispatchedStock = adjustStockCb ? !!adjustStockCb.checked : !!window.tempEditAdjustDispatchedStock;
+      window.tempEditAdjustDispatchedStock = adjustDispatchedStock;
+
+      return { comment, adjustDispatchedStock };
     }
   }).then(result => {
     if (result.isConfirmed) {
-      window.saveEditOrderItems(orderId, result.value.comment);
+      window.saveEditOrderItems(orderId, result.value.comment, result.value.adjustDispatchedStock);
     }
   });
 };
@@ -73247,16 +74740,25 @@ window.renderEditOrderItemsModal = function(orderId, commerce, existingComment =
 window.updateTempEditItemQuantity = function(index, val) {
   const qty = parseInt(val, 10);
   if (isNaN(qty) || qty < 1) return;
+  if (!window.tempEditOrderItems[index]) return;
   window.tempEditOrderItems[index].quantity = qty;
+  const subtotalCell = document.getElementById(`swal-edit-item-subtotal-${index}`);
+  if (subtotalCell && typeof window.formatCLP === 'function') {
+    subtotalCell.textContent = window.formatCLP((window.tempEditOrderItems[index].price || 0) * qty);
+  }
+  window.refreshDispatchedEditImpactPreview();
 };
 
 window.updateTempEditItemWarehouse = function(index, val) {
   if (!window.tempEditOrderItems[index]) return;
   window.tempEditOrderItems[index].warehouse_id = val || null;
+  window.refreshDispatchedEditImpactPreview();
 };
 
 window.removeTempEditItem = function(index, orderId, commerce) {
   const commentVal = document.getElementById('swal-edit-items-comment')?.value || '';
+  const adjustStockCb = document.getElementById('swal-edit-items-adjust-stock');
+  if (adjustStockCb) window.tempEditAdjustDispatchedStock = !!adjustStockCb.checked;
   window.tempEditOrderItems.splice(index, 1);
   window.renderEditOrderItemsModal(orderId, commerce, commentVal);
 };
@@ -73274,6 +74776,9 @@ window.addTempEditItem = function(orderId, commerce) {
     return;
   }
 
+  const adjustStockCb = document.getElementById('swal-edit-items-adjust-stock');
+  if (adjustStockCb) window.tempEditAdjustDispatchedStock = !!adjustStockCb.checked;
+
   const success = window.tryAddTempEditItem(orderId, commerce, rawSku, rawQty);
   if (!success) {
     alert(`Producto "${rawSku}" no encontrado en ${commerce}. Por favor selecciona un SKU válido de la lista desplegable.`);
@@ -73284,7 +74789,7 @@ window.addTempEditItem = function(orderId, commerce) {
   window.renderEditOrderItemsModal(orderId, commerce, commentVal);
 };
 
-window.saveEditOrderItems = async function(orderId, comment) {
+window.saveEditOrderItems = async function(orderId, comment, adjustDispatchedStock = false) {
   try {
     const originalMap = new Map(window.originalEditOrderItems.map(i => [i.id, i]));
     const currentMap = new Map(window.tempEditOrderItems.filter(i => i.id).map(i => [i.id, i]));
@@ -73316,6 +74821,49 @@ window.saveEditOrderItems = async function(orderId, comment) {
     if (changesList.length === 0) {
       Swal.fire('Sin Cambios', 'No se realizaron modificaciones al pedido.', 'info');
       return;
+    }
+
+    const orderData = window.tempEditOrderData || {};
+    const isDispatched = !!orderData.isDispatched;
+    const commerceName = orderData.comercio || '';
+    const orderNumDisplay = orderData.external_order_number || orderId;
+    const dispatchedDiffs = isDispatched ? window.computeDispatchedOrderStockDiffs() : { operations: [], virtualNotes: [] };
+
+    // Confirmación explícita de seguridad cuando el admin decide impactar Inventario Físico y Kardex en un pedido Despachado
+    if (isDispatched && adjustDispatchedStock && dispatchedDiffs.operations.length > 0) {
+      const confirmResult = await Swal.fire({
+        icon: 'warning',
+        title: '⚠️ Confirmar Impacto en Inventario y Kardex',
+        width: '620px',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+            <p style="margin-bottom: 0.65rem; color: var(--color-text-main);">
+              Estás editando el pedido <strong>#${ (window.escapeHtml || (s => s))(orderNumDisplay) }</strong> que ya se encuentra <strong>Despachado</strong>, con la opción de <strong>ajuste de inventario y Kardex activada</strong>.
+            </p>
+            <div style="padding: 0.75rem 0.85rem; background: rgba(220, 38, 38, 0.08); border: 1.5px solid rgba(220, 38, 38, 0.4); border-radius: 6px; margin-bottom: 0.75rem;">
+              <strong style="color: #b91c1c; display: block; margin-bottom: 0.35rem; font-size: 0.84rem;">
+                Efectos inmediatos que se aplicarán al confirmar:
+              </strong>
+              <ul style="margin: 0 0 0 1.15rem; padding: 0; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                ${dispatchedDiffs.operations.map(op => `<li>${op.stock_summary_html}</li>`).join('')}
+              </ul>
+            </div>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              <strong>Motivo registrado:</strong> "${ (window.escapeHtml || (s => s))(comment) }"
+            </p>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        confirmButtonText: '<i class="ri-check-double-line"></i> Sí, aplicar en Inventario y Kardex',
+        cancelButtonText: 'Volver a edición',
+        allowOutsideClick: false
+      });
+
+      if (!confirmResult.isConfirmed) {
+        window.renderEditOrderItemsModal(orderId, commerceName, comment);
+        return;
+      }
     }
 
     Swal.fire({
@@ -73375,6 +74923,158 @@ window.saveEditOrderItems = async function(orderId, comment) {
           });
         if (error) throw error;
       }
+    }
+
+    // 3. Si el pedido está Despachado y el admin activó el ajuste de Inventario Físico y Kardex, ejecutar cuadratura
+    let appliedStockOpsCount = 0;
+    if (isDispatched && adjustDispatchedStock && dispatchedDiffs.operations.length > 0) {
+      const extNum = String(orderData.external_order_number || '').trim();
+      const refDocOfficial = `Pedido ${extNum || orderId}`;
+
+      const adjustPhysicalStockDelta = async (productId, warehouseId, deltaQty) => {
+        if (!productId || !warehouseId || !deltaQty) return;
+        const { data: invRec } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', productId)
+          .eq('warehouse_id', warehouseId)
+          .maybeSingle();
+
+        if (invRec) {
+          const updatedQty = Math.max(0, (Number(invRec.quantity) || 0) + deltaQty);
+          const { error: updInvErr } = await supabase
+            .from('inventory')
+            .update({ quantity: updatedQty })
+            .eq('id', invRec.id);
+          if (updInvErr) throw updInvErr;
+        } else {
+          const initialQty = Math.max(0, deltaQty);
+          const { error: insInvErr } = await supabase
+            .from('inventory')
+            .insert([{
+              product_id: productId,
+              warehouse_id: warehouseId,
+              quantity: initialQty,
+              committed_quantity: 0,
+              reserved_quantity: 0
+            }]);
+          if (insInvErr) throw insInvErr;
+        }
+      };
+
+      const findOrderOutMovement = async (productId) => {
+        const { data: byOrderId } = await supabase
+          .from('movements')
+          .select('id, quantity, warehouse_id, reference_doc, order_id')
+          .eq('order_id', orderId)
+          .eq('product_id', productId)
+          .eq('type', 'out')
+          .limit(1)
+          .maybeSingle();
+
+        if (byOrderId) return byOrderId;
+
+        if (extNum) {
+          const { data: byRef } = await supabase
+            .from('movements')
+            .select('id, quantity, warehouse_id, reference_doc, order_id')
+            .is('order_id', null)
+            .eq('product_id', productId)
+            .eq('type', 'out')
+            .or(`reference_doc.eq.Pedido ${extNum},reference_doc.eq.Pedido #${extNum},reference_doc.eq.Pedido ${orderId}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (byRef) return byRef;
+        }
+        return null;
+      };
+
+      const upsertOrderOutMovement = async (productId, warehouseId, newQuantity) => {
+        const existingMov = await findOrderOutMovement(productId);
+        if (existingMov) {
+          const { error: updMovErr } = await supabase
+            .from('movements')
+            .update({
+              quantity: newQuantity,
+              warehouse_id: warehouseId,
+              order_id: orderId
+            })
+            .eq('id', existingMov.id);
+          if (updMovErr) throw updMovErr;
+        } else {
+          const { error: insMovErr } = await supabase
+            .from('movements')
+            .insert([{
+              product_id: productId,
+              warehouse_id: warehouseId,
+              type: 'out',
+              quantity: newQuantity,
+              date: new Date().toISOString(),
+              reference_doc: refDocOfficial,
+              order_id: orderId
+            }]);
+          if (insMovErr) throw insMovErr;
+        }
+      };
+
+      const deleteOrderOutMovement = async (productId) => {
+        const existingMov = await findOrderOutMovement(productId);
+        if (existingMov) {
+          const { error: delMovErr } = await supabase
+            .from('movements')
+            .delete()
+            .eq('id', existingMov.id);
+          if (delMovErr) throw delMovErr;
+        }
+      };
+
+      for (const op of dispatchedDiffs.operations) {
+        if (op.type === 'removed') {
+          // 1. Reponer stock físico en la bodega original
+          await adjustPhysicalStockDelta(op.product_id, op.old_warehouse_id || defaultWarehouseId, +op.old_qty);
+          // 2. Eliminar movimiento de salida en Kardex para cuadrar saldo
+          await deleteOrderOutMovement(op.product_id);
+          changesList.push(op.audit_text);
+          appliedStockOpsCount++;
+        } else if (op.type === 'added') {
+          // 1. Descontar stock físico en la bodega asignada
+          const effWh = op.new_warehouse_id || defaultWarehouseId;
+          await adjustPhysicalStockDelta(op.product_id, effWh, -op.new_qty);
+          // 2. Insertar/actualizar movimiento de salida en Kardex
+          await upsertOrderOutMovement(op.product_id, effWh, op.new_qty);
+          changesList.push(op.audit_text);
+          appliedStockOpsCount++;
+        } else if (op.type === 'warehouse_changed') {
+          const oldWh = op.old_warehouse_id || defaultWarehouseId;
+          const newWh = op.new_warehouse_id || defaultWarehouseId;
+          // 1. Reponer en bodega anterior y descontar en bodega nueva
+          await adjustPhysicalStockDelta(op.product_id, oldWh, +op.old_qty);
+          await adjustPhysicalStockDelta(op.product_id, newWh, -op.new_qty);
+          // 2. Actualizar bodega y cantidad en Kardex
+          await upsertOrderOutMovement(op.product_id, newWh, op.new_qty);
+          changesList.push(op.audit_text);
+          appliedStockOpsCount++;
+        } else if (op.type === 'qty_increased') {
+          const effWh = op.new_warehouse_id || defaultWarehouseId;
+          // 1. Descontar diferencia adicional en bodega
+          await adjustPhysicalStockDelta(op.product_id, effWh, -op.diff_qty);
+          // 2. Actualizar cantidad de salida en Kardex
+          await upsertOrderOutMovement(op.product_id, effWh, op.new_qty);
+          changesList.push(op.audit_text);
+          appliedStockOpsCount++;
+        } else if (op.type === 'qty_decreased') {
+          const effWh = op.new_warehouse_id || defaultWarehouseId;
+          // 1. Reponer diferencia devuelta en bodega
+          await adjustPhysicalStockDelta(op.product_id, effWh, +op.returned_qty);
+          // 2. Actualizar cantidad de salida en Kardex
+          await upsertOrderOutMovement(op.product_id, effWh, op.new_qty);
+          changesList.push(op.audit_text);
+          appliedStockOpsCount++;
+        }
+      }
+    } else if (isDispatched && !adjustDispatchedStock) {
+      changesList.push('[Inventario/Kardex] Edición realizada en modo solo pedido (sin afectar stock físico ni Kardex)');
     }
 
     const totalCantidad = window.tempEditOrderItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -73485,9 +75185,10 @@ window.saveEditOrderItems = async function(orderId, comment) {
         order_id: orderId,
         user_id: userId,
         user_email: userEmail,
-        action: 'Modificación de Ítems',
+        action: isDispatched && appliedStockOpsCount > 0 ? 'Modificación de Ítems (Con Ajuste de Stock y Kardex)' : 'Modificación de Ítems',
         details: {
           comment: comment,
+          adjust_dispatched_stock: !!(isDispatched && adjustDispatchedStock),
           changes: changesList
         }
       });
@@ -73509,11 +75210,23 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
+        .select('*, warehouses (name), products(id, sku, name, price, is_virtual, image_url, options, barcode, barcode_wms, send_barcode_to_picker, send_barcode_wms_to_picker, picking_match_strict, alias, send_alias_to_picker, color, talla, variable_1, variable_2)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {
         order.order_items = reloadedItems;
+      }
+
+      // Si se ajustó stock físico en un pedido despachado, refrescar caché de inventario en memoria
+      if (appliedStockOpsCount > 0) {
+        if (typeof window.resetWmsInventoryMap === 'function') {
+          window.resetWmsInventoryMap();
+        } else {
+          window.loadedOrdersInventoryMap = {};
+        }
+        if (typeof window.fetchInventoryForOrders === 'function' && window.loadedOrders) {
+          await window.fetchInventoryForOrders(window.loadedOrders, true);
+        }
       }
 
       // Si el pedido ya está en el sistema Picker (En preparación), propagar cambios
@@ -73522,9 +75235,35 @@ window.saveEditOrderItems = async function(orderId, comment) {
       }
     }
 
-    Swal.fire('¡Guardado!', 'El pedido y el stock han sido actualizados con éxito.', 'success');
+    if (isDispatched && appliedStockOpsCount > 0) {
+      Swal.fire({
+        icon: 'success',
+        title: '¡Pedido, Inventario y Kardex Actualizados!',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; line-height: 1.45;">
+            <p style="margin-bottom: 0.5rem;">Se actualizaron los ítems del pedido <strong>#${(window.escapeHtml || (s => s))(orderNumDisplay)}</strong> y se aplicaron <strong>${appliedStockOpsCount} ajuste(s)</strong> en el Inventario Físico y en el Kardex:</p>
+            <ul style="margin: 0 0 0 1.15rem; padding: 0; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.25rem;">
+              ${dispatchedDiffs.operations.map(op => `<li>${op.stock_summary_html}</li>`).join('')}
+            </ul>
+          </div>
+        `,
+        confirmButtonColor: '#059669'
+      });
+    } else if (isDispatched && !adjustDispatchedStock) {
+      Swal.fire({
+        icon: 'success',
+        title: '¡Pedido Actualizado (Sin afectar Stock)!',
+        text: 'Se modificaron los ítems del pedido en modo documental. El inventario físico y el Kardex no fueron alterados.',
+        confirmButtonColor: '#4f46e5'
+      });
+    } else {
+      Swal.fire('¡Guardado!', 'El pedido y el stock han sido actualizados con éxito.', 'success');
+    }
     
     applyWmsFiltersAndRender();
+    if (typeof window.loadOrderAuditLogs === 'function') {
+      window.loadOrderAuditLogs(orderId);
+    }
 
   } catch (err) {
     console.error("Error saving edited order items:", err);
@@ -73970,7 +75709,7 @@ window.exportDeclarationOperationsPDF = async function(id) {
         if (skusToFetch.length > 0) {
           const { data: dbProds } = await supabase
             .from('products')
-            .select('sku, largo, ancho, alto, volumen, color, talla, variable_1, variable_2, options')
+            .select('sku, barcode, barcode_wms, largo, ancho, alto, volumen, color, talla, variable_1, variable_2, options')
             .eq('comercio', dec.comercio)
             .in('sku', skusToFetch);
 
@@ -73983,6 +75722,8 @@ window.exportDeclarationOperationsPDF = async function(id) {
               if (p.sku) {
                 const dbP = dbMap.get(p.sku.trim().toUpperCase());
                 if (dbP) {
+                  if (!p.barcode && dbP.barcode) p.barcode = dbP.barcode;
+                  if (!p.barcode_wms && dbP.barcode_wms) p.barcode_wms = dbP.barcode_wms;
                   if (!p.largo && dbP.largo) p.largo = dbP.largo;
                   if (!p.ancho && dbP.ancho) p.ancho = dbP.ancho;
                   if (!p.alto && dbP.alto) p.alto = dbP.alto;
@@ -74036,40 +75777,72 @@ window.exportDeclarationOperationsPDF = async function(id) {
 
         const badgesHtml = window.renderProductVariantBadges ? window.renderProductVariantBadges(p, variantConfig, { compact: true }) : '';
 
+        const skuCheckDefault = p.sku_check !== false;
+        const barcodeCheckDefault = p.barcode_check !== false;
+
+        const wmsBarcodes = [];
+        if (p.barcode_wms && String(p.barcode_wms).trim()) wmsBarcodes.push(String(p.barcode_wms).trim());
+        if (p.barcode && String(p.barcode).trim() && !wmsBarcodes.includes(String(p.barcode).trim())) wmsBarcodes.push(String(p.barcode).trim());
+        const altCodes = window.getProductAlternateBarcodes ? window.getProductAlternateBarcodes(p) : [];
+        altCodes.forEach(ac => {
+          if (ac && !wmsBarcodes.includes(ac)) wmsBarcodes.push(ac);
+        });
+
+        const barcodeTextHtml = wmsBarcodes.length > 0
+          ? `<div style="font-weight: 700; color: #0f172a; font-family: monospace; font-size: 8.5px; word-break: break-all;">${wmsBarcodes.join(' | ')}</div>`
+          : `<div style="color: #dc2626; font-style: italic; font-size: 8px; font-weight: 600;">Sin cód. en WMS</div>`;
+
         productsHtml += `
           <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
-            <td style="padding: 5px 6px; color: #64748b; font-size: 9.5px; text-align: center;">${idx + 1}</td>
-            <td style="padding: 5px 6px; color: #0f172a; font-weight: 700; font-size: 9.5px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
-            <td style="padding: 5px 6px; color: #1e293b; font-size: 9.5px; line-height: 1.25;">
+            <td style="padding: 5px 5px; color: #64748b; font-size: 9px; text-align: center;">${idx + 1}</td>
+            <td style="padding: 5px 5px; color: #0f172a; font-weight: 700; font-size: 9px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
+            <!-- Columna Check SKU (por defecto marcada con check) -->
+            <td style="padding: 4px 5px; text-align: center; background: #eff6ff;">
+              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-weight: 800; font-size: 9px; color: #1d4ed8;">
+                <span style="display: inline-block; width: 13px; height: 13px; line-height: 12px; text-align: center; border: 1.5px solid #1d4ed8; border-radius: 2px; background: #ffffff; color: #1d4ed8; font-size: 9px;">${skuCheckDefault ? '✓' : '&nbsp;'}</span>
+                <span>SKU</span>
+              </div>
+              <div style="font-size: 7px; color: #475569; line-height: 1.1; margin-top: 2px;">Desmarcar &rarr; Etiq. 5x2.5</div>
+            </td>
+            <td style="padding: 5px 5px; color: #1e293b; font-size: 9px; line-height: 1.25;">
               <div style="font-weight: 500;">${p.name}</div>
-              ${badgesHtml ? `<div style="margin-top: 3px;">${badgesHtml}</div>` : ''}
+              ${badgesHtml ? `<div style="margin-top: 2px;">${badgesHtml}</div>` : ''}
             </td>
-            <td style="padding: 5px 6px; color: #475569; font-size: 9px; font-family: monospace; white-space: nowrap;">
-              ${p.barcode || '<span style="color:#94a3b8; font-style:italic;">Sin registrar</span>'}
-            </td>
-            <td style="padding: 5px 6px; text-align: center; font-size: 9px; color: #334155; background: #f8fafc;">
-              ${dimsDeclaredText}
-            </td>
-            <td style="padding: 5px 6px; text-align: center; background: #fffdf5;">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 2px; font-size: 8.5px; color: #64748b;">
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
-                <span>×</span>
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
-                <span>×</span>
-                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 26px; height: 18px; border-radius: 2px;"></div>
-                <span style="font-size: 7.5px;">cm</span>
+            <!-- Columna Cód. Barras WMS + Check (por defecto marcada con check) -->
+            <td style="padding: 4px 5px; background: #f0fdf4;">
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <span style="display: inline-block; width: 13px; height: 13px; line-height: 12px; text-align: center; border: 1.5px solid #15803d; border-radius: 2px; background: #ffffff; color: #15803d; font-weight: 800; font-size: 9px; flex-shrink: 0;">${barcodeCheckDefault ? '✓' : '&nbsp;'}</span>
+                <div style="min-width: 0; flex: 1;">
+                  ${barcodeTextHtml}
+                </div>
+              </div>
+              <div style="border-bottom: 1px dotted #94a3b8; font-size: 7.5px; color: #64748b; margin-top: 3px; padding-bottom: 1px;">
+                ${p.scanned_barcode ? `Nuevo: <strong>${p.scanned_barcode}</strong>` : 'Nuevo cód: _______________'}
               </div>
             </td>
-            <td style="padding: 5px 6px; color: #0f172a; text-align: right; font-weight: 700; font-size: 10.5px;">
+            <td style="padding: 5px 5px; text-align: center; font-size: 8.5px; color: #334155; background: #f8fafc;">
+              ${dimsDeclaredText}
+            </td>
+            <td style="padding: 5px 5px; text-align: center; background: #fffdf5;">
+              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 2px; font-size: 8px; color: #64748b;">
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
+                <span>×</span>
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
+                <span>×</span>
+                <div style="border: 1px solid #cbd5e1; background: #ffffff; width: 24px; height: 17px; border-radius: 2px;"></div>
+                <span style="font-size: 7px;">cm</span>
+              </div>
+            </td>
+            <td style="padding: 5px 5px; color: #0f172a; text-align: right; font-weight: 700; font-size: 10px;">
               ${p.qty}
             </td>
-            <td style="padding: 5px 6px; text-align: center;">
-              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 55px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
+            <td style="padding: 5px 5px; text-align: center;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 50px; height: 19px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 5px 6px; text-align: center;">
+            <td style="padding: 5px 5px; text-align: center;">
               <div style="border: 1.5px solid #64748b; background: #ffffff; width: 15px; height: 15px; border-radius: 3px; margin: 0 auto;"></div>
             </td>
-            <td style="padding: 5px 6px; border-left: 1px dashed #e2e8f0;">
+            <td style="padding: 5px 5px; border-left: 1px dashed #e2e8f0;">
               <div style="border-bottom: 1px dotted #cbd5e1; height: 16px; width: 100%;"></div>
             </td>
           </tr>
@@ -74078,7 +75851,7 @@ window.exportDeclarationOperationsPDF = async function(id) {
     } else {
       productsHtml = `
         <tr>
-          <td colspan="10" style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
+          <td colspan="11" style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
             No se encontraron productos detallados o la planilla no contiene filas legibles.
           </td>
         </tr>
@@ -74206,17 +75979,18 @@ window.exportDeclarationOperationsPDF = async function(id) {
 
         <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; text-align: left;">
           <thead>
-            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 9px; text-transform: uppercase;">
-              <th style="padding: 5px 6px; width: 24px; text-align: center;">#</th>
-              <th style="padding: 5px 6px; width: 110px;">SKU</th>
-              <th style="padding: 5px 6px;">Descripción / Producto</th>
-              <th style="padding: 5px 6px; width: 95px;">Cód. Barras</th>
-              <th style="padding: 5px 6px; width: 105px; text-align: center; background: #f8fafc; color: #475569;">Medidas Decl.</th>
-              <th style="padding: 5px 6px; width: 125px; text-align: center; background: #fef3c7; color: #b45309;">Medidas Físicas Reales</th>
-              <th style="padding: 5px 6px; width: 60px; text-align: right;">Cant. Decl.</th>
-              <th style="padding: 5px 6px; width: 80px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
-              <th style="padding: 5px 6px; width: 40px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
-              <th style="padding: 5px 6px; width: 110px;">Incidencias / Ubicación</th>
+            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 8.5px; text-transform: uppercase;">
+              <th style="padding: 5px 5px; width: 22px; text-align: center;">#</th>
+              <th style="padding: 5px 5px; width: 95px;">SKU</th>
+              <th style="padding: 5px 5px; width: 72px; text-align: center; background: #dbeafe; color: #1e40af;">Check SKU</th>
+              <th style="padding: 5px 5px;">Descripción / Producto</th>
+              <th style="padding: 5px 5px; width: 125px; background: #dcfce7; color: #166534;">Cód. Barras WMS / Check</th>
+              <th style="padding: 5px 5px; width: 95px; text-align: center; background: #f8fafc; color: #475569;">Medidas Decl.</th>
+              <th style="padding: 5px 5px; width: 115px; text-align: center; background: #fef3c7; color: #b45309;">Medidas Físicas Reales</th>
+              <th style="padding: 5px 5px; width: 55px; text-align: right;">Cant. Decl.</th>
+              <th style="padding: 5px 5px; width: 70px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
+              <th style="padding: 5px 5px; width: 35px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
+              <th style="padding: 5px 5px; width: 100px;">Incidencias / Ubicación</th>
             </tr>
           </thead>
           <tbody>
@@ -74224,10 +75998,10 @@ window.exportDeclarationOperationsPDF = async function(id) {
           </tbody>
           <tfoot>
             <tr style="background: #f8fafc; border-top: 2px solid #94a3b8; font-weight: 700;">
-              <td colspan="6" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
+              <td colspan="7" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
               <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #0f172a;">${totalQtyCount || dec.quantity_declared}</td>
               <td style="padding: 6px 8px; text-align: center;">
-                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 55px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
+                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 50px; height: 20px; border-radius: 3px; margin: 0 auto;"></div>
               </td>
               <td colspan="2" style="padding: 6px 8px; font-size: 9px; color: #64748b;">&larr; Total Físico Recibido en Bodega</td>
             </tr>
@@ -92792,10 +94566,20 @@ async function loadPeriodStatusListForCommerce(commerceName) {
   const commerceList = String(commerceName || '').split(',').map(c => c.trim()).filter(Boolean);
   const uniqueBillingNames = new Set();
   commerceList.forEach(c => {
+    uniqueBillingNames.add(c);
     const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
-    const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
-    uniqueBillingNames.add(nameToUse);
+    if (matchedMapping && matchedMapping.billing_name) {
+      uniqueBillingNames.add(matchedMapping.billing_name);
+    }
   });
+  if (uniqueBillingNames.has('BIG BANG') || uniqueBillingNames.has('BIG BANG SPA')) {
+    uniqueBillingNames.add('BIG BANG');
+    uniqueBillingNames.add('BIG BANG SPA');
+  }
+  if (uniqueBillingNames.has('SILVER FOX') || uniqueBillingNames.has('SILVER FOX SPA')) {
+    uniqueBillingNames.add('SILVER FOX');
+    uniqueBillingNames.add('SILVER FOX SPA');
+  }
   const resolvedCompanyList = Array.from(uniqueBillingNames);
 
   const { data: periods } = await supabase
@@ -92808,35 +94592,184 @@ async function loadPeriodStatusListForCommerce(commerceName) {
     .select('*')
     .in('comercio', resolvedCompanyList);
 
-  const periodStatusList = (periods || []).map(per => {
+  const getSortInfo = (p) => {
+    let year = p?.period_year ? parseInt(p.period_year, 10) : null;
+    let month = p?.period_month ? parseInt(p.period_month, 10) : null;
+    if (!year || !month) {
+      const nameUpper = String(p?.name || '').trim().toUpperCase();
+      const yearMatch = nameUpper.match(/\b(20\d\d)\b/);
+      if (!year && yearMatch) year = parseInt(yearMatch[1], 10);
+      const monthMap = {
+        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+        'SEPTIEMBRE': 9, 'SETIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+      };
+      if (!month) {
+        for (const [k, v] of Object.entries(monthMap)) {
+          if (nameUpper.includes(k)) { month = v; break; }
+        }
+      }
+    }
+    year = year || new Date().getFullYear();
+    month = month || 1;
+    return { year, month, sortKey: year * 100 + month };
+  };
+
+  const sortedPeriods = (periods || []).map(p => ({
+    ...p,
+    ...getSortInfo(p)
+  })).sort((a, b) => b.sortKey - a.sortKey);
+
+  const activePeriod =
+    sortedPeriods.find(p => String(p.status || '').toLowerCase() === 'activo') ||
+    sortedPeriods.find(p => String(p.status || '').toLowerCase() === 'en_proceso') ||
+    sortedPeriods.find(p => String(p.status || '').toLowerCase() !== 'proximo') ||
+    sortedPeriods[0] ||
+    null;
+
+  let earliestActiveSortKey = null;
+  sortedPeriods.forEach(p => {
+    const recs = (billingRecords || []).filter(r => r.period_id === p.id);
+    const hasActivity = recs.some(r => {
+      const tf = Number(r.total_fulfillment) || 0;
+      const te = Number(r.enviame) || 0;
+      const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+      const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+      const pe = String(r.pago_enviame || '').trim().toLowerCase();
+      const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+      return tf > 0 || te > 0 || hasSnap ||
+        ['enviado', 'publicado', 'aprobado', 'sin movimientos', 'creado'].includes(desg) ||
+        ['recibido', 'aprobado', 'sin movimientos', 'atrasado', 'en espera', 'abono', 'incobrable'].includes(pf) ||
+        ['recibido', 'aprobado', 'sin movimientos', 'atrasado', 'en espera', 'abono', 'incobrable'].includes(pe);
+    });
+    if (hasActivity) {
+      if (earliestActiveSortKey === null || p.sortKey < earliestActiveSortKey) {
+        earliestActiveSortKey = p.sortKey;
+      }
+    }
+  });
+
+  const periodStatusList = sortedPeriods.map(per => {
     const recordsForPeriod = (billingRecords || []).filter(rec => rec.period_id === per.id);
-    
-    const totalFulf = recordsForPeriod.reduce((sum, r) => sum + (r.total_fulfillment || 0), 0);
-    const abonoFulf = recordsForPeriod.reduce((sum, r) => sum + (r.abono_fulfillment || 0), 0);
-    const totalEnv = recordsForPeriod.reduce((sum, r) => sum + (r.enviame || 0), 0);
-    const abonoEnv = recordsForPeriod.reduce((sum, r) => sum + (r.abono_enviame || 0), 0);
+    const isCurrentActivePeriod = Boolean(activePeriod && per.id === activePeriod.id);
+    const isPreviousPeriod = Boolean(activePeriod && per.sortKey < activePeriod.sortKey);
+    const isUpToActivePeriod = isCurrentActivePeriod || isPreviousPeriod || !activePeriod;
+    const pStatusLower = String(per.status || '').toLowerCase();
+    const isWithinCommerceTimeline =
+      isCurrentActivePeriod ||
+      pStatusLower === 'activo' ||
+      pStatusLower === 'en_proceso' ||
+      (earliestActiveSortKey !== null && per.sortKey >= earliestActiveSortKey);
 
+    const totalFulf = recordsForPeriod.reduce((sum, r) => sum + (Number(r.total_fulfillment) || 0), 0);
+    const abonoFulf = recordsForPeriod.reduce((sum, r) => sum + (Number(r.abono_fulfillment) || 0), 0);
+    const totalEnv = recordsForPeriod.reduce((sum, r) => sum + (Number(r.enviame) || 0), 0);
+    const abonoEnv = recordsForPeriod.reduce((sum, r) => sum + (Number(r.abono_enviame) || 0), 0);
+
+    const pendingFulf = Math.max(0, totalFulf - abonoFulf);
+    const pendingEnv = Math.max(0, totalEnv - abonoEnv);
     const totalFacturado = totalFulf + totalEnv;
-    const pending = (totalFulf - abonoFulf) + (totalEnv - abonoEnv);
+    const pending = pendingFulf + pendingEnv;
 
-    let isPaid = true;
+    let isDesglosePending = false;
+    let desgloseStatusLabel = 'Sin movimientos';
+
+    if (recordsForPeriod.length === 0) {
+      if (isUpToActivePeriod && isWithinCommerceTimeline) {
+        isDesglosePending = true;
+        desgloseStatusLabel = 'Pendiente de Emisión';
+      }
+    } else {
+      const anyDraft = recordsForPeriod.some(r => String(r.desglose_fulfillment || '').trim().toLowerCase() === 'creado' && !(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json'))));
+      const allEmittedOrNoMov = recordsForPeriod.every(r => {
+        const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+        const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+        const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+        const rTot = (Number(r.total_fulfillment) || 0) + (Number(r.enviame) || 0);
+        const isExplicitNoMov = desg === 'sin movimientos' || (rTot === 0 && ['sin movimientos', 'recibido', 'aprobado'].includes(pf));
+        const isEmitted = ['enviado', 'publicado', 'aprobado'].includes(desg) || hasSnap;
+
+        if (isExplicitNoMov) return true;
+        if (!isEmitted) {
+          if (isCurrentActivePeriod || rTot > 0 || (isUpToActivePeriod && isWithinCommerceTimeline)) return false;
+          return true;
+        }
+        if (isCurrentActivePeriod && rTot === 0 && !['recibido', 'aprobado', 'sin movimientos'].includes(pf)) return false;
+        return true;
+      });
+
+      const hasPublished = recordsForPeriod.some(r => {
+        const desg = String(r.desglose_fulfillment || '').trim().toLowerCase();
+        const hasSnap = Boolean(r.fulfillment_link && (r.fulfillment_link.includes('billing_snapshots') || r.fulfillment_link.includes('_snapshot.json')));
+        return ['enviado', 'publicado', 'aprobado'].includes(desg) || hasSnap;
+      });
+
+      if (!allEmittedOrNoMov) {
+        isDesglosePending = true;
+        desgloseStatusLabel = anyDraft ? 'En Preparación (Pendiente Emisión)' : 'Pendiente de Emisión';
+      } else if (hasPublished || totalFacturado > 0) {
+        desgloseStatusLabel = 'Emitido / Publicado';
+      } else {
+        desgloseStatusLabel = 'Sin Movimientos';
+      }
+    }
+
+    let hasUnpaidFulf = false;
+    let hasUnpaidEnv = false;
+    let hasOverdue = false;
     if (recordsForPeriod.length > 0) {
-      const hasUnpaidFulf = recordsForPeriod.some(r => r.total_fulfillment > 0 && r.pago_fulfillment !== 'Recibido');
-      const hasUnpaidEnv = recordsForPeriod.some(r => r.enviame > 0 && r.pago_enviame !== 'Recibido');
-      isPaid = !hasUnpaidFulf && !hasUnpaidEnv && pending <= 0;
+      hasUnpaidFulf = recordsForPeriod.some(r => {
+        const tf = Number(r.total_fulfillment) || 0;
+        const af = Number(r.abono_fulfillment) || 0;
+        const pf = String(r.pago_fulfillment || '').trim().toLowerCase();
+        if (pf === 'atrasado') hasOverdue = true;
+        if (tf > 0) return (tf - af) > 0 || !['recibido', 'aprobado'].includes(pf);
+        return ['atrasado', 'en espera', 'abono', 'incobrable'].includes(pf);
+      });
+      hasUnpaidEnv = recordsForPeriod.some(r => {
+        const te = Number(r.enviame) || 0;
+        const ae = Number(r.abono_enviame) || 0;
+        const pe = String(r.pago_enviame || '').trim().toLowerCase();
+        if (pe === 'atrasado') hasOverdue = true;
+        if (te > 0) return (te - ae) > 0 || !['recibido', 'aprobado'].includes(pe);
+        return ['atrasado', 'en espera', 'abono', 'incobrable'].includes(pe);
+      });
+    }
+
+    const hasUnpaidBalance = hasUnpaidFulf || hasUnpaidEnv || pending > 0;
+    const isPaid = !isDesglosePending && !hasUnpaidBalance;
+
+    let statusText = 'Saldado';
+    if (isDesglosePending && hasUnpaidBalance) {
+      statusText = 'Desglose y Pago Pendiente';
+    } else if (isDesglosePending) {
+      statusText = 'Emisión Desglose Pendiente';
+    } else if (hasUnpaidBalance) {
+      statusText = hasOverdue ? 'Pago Atrasado' : 'Pendiente de Pago';
+    } else if (totalFacturado === 0) {
+      statusText = 'Sin Movimientos';
     }
 
     return {
+      id: per.id,
       name: per.name,
+      sortKey: per.sortKey,
+      isCurrentActivePeriod,
+      isPreviousPeriod,
+      isUpToActivePeriod,
       total: totalFacturado,
-      pending: pending,
-      isPaid: isPaid,
-      totalFulf: totalFulf,
-      pendingFulf: totalFulf - abonoFulf,
-      totalEnv: totalEnv,
-      pendingEnv: totalEnv - abonoEnv
+      pending,
+      isPaid,
+      isDesglosePending,
+      hasUnpaidBalance,
+      desgloseStatusLabel,
+      statusText,
+      totalFulf,
+      pendingFulf,
+      totalEnv,
+      pendingEnv
     };
-  }).filter(p => p.total > 0 || p.pending > 0);
+  }).filter(p => p.total > 0 || p.pending > 0 || p.isDesglosePending || p.hasUnpaidBalance || p.isCurrentActivePeriod);
 
   return periodStatusList;
 }
@@ -94057,6 +95990,7 @@ async function openCreateRedZoneAdminModal() {
             ${sortedCommerces.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`).join('')}
           </select>
         </div>
+        <div id="rz-create-billing-status" style="display: none;"></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div>
             <label style="font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 4px;">Empresa / Razón Social</label>
@@ -94092,7 +96026,8 @@ async function openCreateRedZoneAdminModal() {
   document.body.appendChild(modal);
 
   const selCommerce = modal.querySelector('#rz-create-commerce');
-  selCommerce.addEventListener('change', () => {
+  const billingStatusBox = modal.querySelector('#rz-create-billing-status');
+  selCommerce.addEventListener('change', async () => {
     const val = selCommerce.value;
     const cfg = (configs || []).find(c => c.comercio === val);
     if (cfg) {
@@ -94100,6 +96035,36 @@ async function openCreateRedZoneAdminModal() {
       modal.querySelector('#rz-create-rut').value = cfg.rut || '';
       modal.querySelector('#rz-create-rep').value = cfg.rep_legal_nombre || '';
       modal.querySelector('#rz-create-rep-rut').value = cfg.rep_legal_rut || '';
+    }
+    if (!val) {
+      billingStatusBox.style.display = 'none';
+      billingStatusBox.innerHTML = '';
+      return;
+    }
+    billingStatusBox.style.display = 'block';
+    billingStatusBox.innerHTML = `<div style="font-size:0.78rem;color:var(--color-text-muted);padding:0.5rem 0.75rem;background:var(--color-bg);border-radius:6px;"><i class="ri-loader-4-line spin"></i> Verificando estado de cobranza y desgloses de <strong>${val}</strong>...</div>`;
+    try {
+      const pList = await loadPeriodStatusListForCommerce(val);
+      const activeP = pList.find(p => p.isCurrentActivePeriod) || pList[0];
+      const activeName = activeP ? activeP.name : 'Período Vigente';
+      const unpaidOrPending = pList.filter(p => p.isUpToActivePeriod && !p.isPaid);
+      if (unpaidOrPending.length > 0 || !activeP) {
+        const details = unpaidOrPending.map(p => `<li><strong>${p.name}${p.isCurrentActivePeriod ? ' (Vigente)' : ''}:</strong> ${p.statusText}${p.pending > 0 ? ` ($${p.pending.toLocaleString('es-CL')})` : ''}</li>`).join('');
+        billingStatusBox.innerHTML = `
+          <div style="background:#fff1f2;border:1px solid #fecdd3;border-left:4px solid #e11d48;padding:0.65rem 0.85rem;border-radius:6px;font-size:0.78rem;color:#881337;line-height:1.4;">
+            <strong><i class="ri-error-warning-fill"></i> Comercio con bloqueo en portal cliente (Req. al día hasta ${activeName}):</strong>
+            <ul style="margin:0.3rem 0 0 1.1rem;padding:0;">${details || `<li>Emisión pendiente del período vigente (${activeName}).</li>`}</ul>
+          </div>
+        `;
+      } else {
+        billingStatusBox.innerHTML = `
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #16a34a;padding:0.6rem 0.85rem;border-radius:6px;font-size:0.78rem;color:#166534;">
+            <strong><i class="ri-checkbox-circle-fill"></i> Cuenta al Día:</strong> Desgloses emitidos y pagados hasta el período vigente (<strong>${activeName}</strong>).
+          </div>
+        `;
+      }
+    } catch (e) {
+      billingStatusBox.style.display = 'none';
     }
   });
 
@@ -94587,15 +96552,17 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           <thead>
             <tr>
               <th>Período</th>
+              <th>Estado Desglose</th>
               <th>Monto Facturado</th>
               <th>Saldo Pendiente</th>
-              <th>Estado de Pago</th>
+              <th>Estado de Cuenta</th>
             </tr>
           </thead>
           <tbody>
             ${periodStatusList.map(p => `
               <tr>
-                <td><strong>${p.name}</strong></td>
+                <td><strong>${p.name}</strong>${p.isCurrentActivePeriod ? ' <span style="font-size:0.7rem;color:#4f46e5;">(Vigente)</span>' : ''}</td>
+                <td>${p.desgloseStatusLabel || (p.isDesglosePending ? 'Pendiente de Emisión' : 'Emitido')}</td>
                 <td>
                   <strong>$${p.total.toLocaleString('es-CL')}</strong>
                   <div style="font-size: 0.7rem; color: #666; margin-top: 2px;">
@@ -94610,7 +96577,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
                 </td>
                 <td>
                   <span style="font-weight: bold; color: ${p.isPaid ? '#047857' : '#b91c1c'};">
-                    ${p.isPaid ? 'Saldado' : 'Pendiente'}
+                    ${p.statusText || (p.isPaid ? 'Saldado' : 'Pendiente')}
                   </span>
                 </td>
               </tr>
@@ -94774,6 +96741,332 @@ window.tempAdminProductsList = [];
 window.currentAdminWizardStep = 1;
 window.currentAdminOrderFlowType = 'despacho';
 window.tempAdminOrderOriginalData = null;
+window.adminCustomShippingState = {
+  name: '',
+  cost: '',
+  costMode: 'neto',
+  plazo: '',
+  selectedInCourierList: false
+};
+
+window.ADMIN_ORDER_WAREHOUSE_MAP = {
+  '973da888-8a63-4790-a08f-919e1af41a93': { name: 'Matriz Ñuñoa', sucursal: 'Sucursal Ñuñoa' },
+  '414605cb-f926-43d2-8bd2-d9509f7b458a': { name: 'CDD La Reina', sucursal: 'Sucursal La Reina' },
+  '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a': { name: 'CDD Recoleta', sucursal: 'Sucursal Recoleta' },
+  'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09': { name: 'Bodega Central (Hub Virtual)', sucursal: 'Sucursal Virtual (Hub)' }
+};
+
+window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID = {
+  'Sucursal Ñuñoa': '973da888-8a63-4790-a08f-919e1af41a93',
+  'Matriz Ñuñoa': '973da888-8a63-4790-a08f-919e1af41a93',
+  'Sucursal La Reina': '414605cb-f926-43d2-8bd2-d9509f7b458a',
+  'CDD La Reina': '414605cb-f926-43d2-8bd2-d9509f7b458a',
+  'Sucursal Recoleta': '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a',
+  'CDD Recoleta': '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a',
+  'Sucursal Virtual (Hub)': 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09',
+  'Bodega Central': 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'
+};
+
+window.getLocalDatetimeInputValue = function(dateObj = new Date()) {
+  const d = dateObj instanceof Date && !isNaN(dateObj.getTime()) ? dateObj : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+window.parseLocalDatetimeInputToISO = function(localStr) {
+  if (!localStr || typeof localStr !== 'string') return new Date().toISOString();
+  const parsed = new Date(localStr);
+  if (isNaN(parsed.getTime())) return new Date().toISOString();
+  return parsed.toISOString();
+};
+
+window.doesAdminOrderStatusApplyPicking = function(estadoWms) {
+  const st = (estadoWms || 'En procesamiento').trim();
+  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado' || st === 'Incidencia';
+};
+
+window.isAdminOrderPickingRequired = function(estadoWms) {
+  const st = (estadoWms || 'En procesamiento').trim();
+  return st === 'En preparación' || st === 'Pickeado' || st === 'Despachado';
+};
+
+window.adminOrderOperationalState = {
+  orderDateLocal: '',
+  isCustomDate: false,
+  estadoWms: 'En procesamiento',
+  pickingWarehouse: '',
+  stockWarehouseId: 'auto'
+};
+
+window.resetAdminOrderDateToNow = function() {
+  const nowStr = window.getLocalDatetimeInputValue(new Date());
+  window.adminOrderOperationalState.orderDateLocal = nowStr;
+  window.adminOrderOperationalState.isCustomDate = false;
+  window.syncAdminOrderOperationalUI();
+};
+
+window.resolveEffectiveAdminStockWarehouseId = function() {
+  const st = window.adminOrderOperationalState || {};
+  if (st.stockWarehouseId && st.stockWarehouseId !== 'auto') {
+    return st.stockWarehouseId;
+  }
+  const pickingApplicable = window.doesAdminOrderStatusApplyPicking(st.estadoWms);
+  const catVal = document.getElementById('order-categoria-entrega')?.value || '';
+  const isRetiroOrPos = catVal === 'RETIRO' || catVal === 'SHOP POINT (POS)' || window.currentAdminOrderFlowType === 'retiro' || window.currentAdminOrderFlowType === 'shop_point';
+  if (pickingApplicable && st.pickingWarehouse && window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID[st.pickingWarehouse]) {
+    return window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID[st.pickingWarehouse];
+  }
+  if (isRetiroOrPos) {
+    return '973da888-8a63-4790-a08f-919e1af41a93'; // Matriz Ñuñoa
+  }
+  return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central por defecto
+};
+
+window.getAdminStockWarehouseDisplayLabel = function() {
+  const st = window.adminOrderOperationalState || {};
+  const effectiveId = window.resolveEffectiveAdminStockWarehouseId();
+  const whInfo = window.ADMIN_ORDER_WAREHOUSE_MAP[effectiveId];
+  const whName = whInfo ? whInfo.name : 'Bodega Central';
+  if (!st.stockWarehouseId || st.stockWarehouseId === 'auto') {
+    return `${whName} (Automático)`;
+  }
+  return whName;
+};
+
+window.renderAdminOrderOperationalBreakdown = function() {
+  const container = document.getElementById('admin-order-stock-warehouse-breakdown');
+  if (!container) return;
+
+  const st = window.adminOrderOperationalState || {};
+  const effectiveWhId = window.resolveEffectiveAdminStockWarehouseId();
+  const whInfo = window.ADMIN_ORDER_WAREHOUSE_MAP[effectiveWhId] || { name: 'Bodega Central' };
+  const items = window.tempAdminNewOrderItems || [];
+
+  let actionBadgeHtml = '';
+  if (st.estadoWms === 'Despachado') {
+    actionBadgeHtml = `<span style="background: rgba(16, 185, 129, 0.14); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.15rem 0.55rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;"><i class="ri-checkbox-circle-line"></i> Descuenta stock físico inmediato + Kardex en ${whInfo.name}</span>`;
+  } else if (st.estadoWms === 'En preparación' || st.estadoWms === 'Pickeado') {
+    actionBadgeHtml = `<span style="background: rgba(245, 158, 11, 0.14); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.15rem 0.55rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;"><i class="ri-inbox-archive-line"></i> Reserva en mesa/pickeo en ${whInfo.name}</span>`;
+  } else if (st.estadoWms === 'Cancelado' || st.estadoWms === 'Archivado') {
+    actionBadgeHtml = `<span style="background: rgba(148, 163, 184, 0.18); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.35); padding: 0.15rem 0.55rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;"><i class="ri-prohibited-line"></i> Sin descuento ni reserva de stock (${st.estadoWms})</span>`;
+  } else {
+    actionBadgeHtml = `<span style="background: rgba(59, 130, 246, 0.12); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.28); padding: 0.15rem 0.55rem; border-radius: 999px; font-weight: 700; font-size: 0.72rem;"><i class="ri-time-line"></i> Compromete stock en ${whInfo.name}</span>`;
+  }
+
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 0.45rem; color: var(--color-text-muted);">
+        <i class="ri-archive-drawer-line" style="color: #7c3aed; font-size: 1rem;"></i>
+        <span>Bodega objetivo de inventario: <strong style="color: var(--color-text-main);">${whInfo.name}</strong></span>
+      </div>
+      ${actionBadgeHtml}
+    `;
+    return;
+  }
+
+  const chipsHtml = items.map(item => {
+    const prod = (window.tempAdminProductsList || []).find(p => p.id === item.product_id);
+    const byWh = (prod && prod.stockByWarehouse && prod.stockByWarehouse[effectiveWhId])
+      ? prod.stockByWarehouse[effectiveWhId]
+      : { physical: 0, committed: 0, reserved: 0, available: 0 };
+    const isVirtualCentral = effectiveWhId === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+    const phys = isVirtualCentral ? (prod?.physicalStock || 0) : byWh.physical;
+    const avail = isVirtualCentral ? (prod?.availableStock || 0) : byWh.available;
+    const hasEnough = st.estadoWms === 'Despachado' ? (phys >= item.quantity) : (avail >= item.quantity);
+    const chipColor = hasEnough ? '#059669' : '#d97706';
+    const chipBg = hasEnough ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.1)';
+    return `<span style="display: inline-flex; align-items: center; gap: 0.3rem; background: ${chipBg}; color: ${chipColor}; border: 1px solid ${hasEnough ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.3)'}; border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.73rem; font-weight: 600;">
+      <strong>${item.sku}</strong>: Solicitado ${item.quantity} | Físico ${phys} (Disp. ${avail})
+    </span>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 0.35rem; width: 100%;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+        <span style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-store-3-line" style="color: #7c3aed;"></i> Inventario en <strong>${whInfo.name}</strong>:
+        </span>
+        ${actionBadgeHtml}
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.15rem;">
+        ${chipsHtml}
+      </div>
+    </div>
+  `;
+};
+
+window.syncAdminOrderOperationalUI = function() {
+  const st = window.adminOrderOperationalState;
+  if (!st.orderDateLocal) {
+    st.orderDateLocal = window.getLocalDatetimeInputValue(new Date());
+  }
+
+  const dateStep1 = document.getElementById('admin-order-date-step1');
+  const dateStep3 = document.getElementById('admin-order-date-input');
+  const dateStep4 = document.getElementById('admin-order-date-step4');
+  [dateStep1, dateStep3, dateStep4].forEach(inp => {
+    if (inp && inp.value !== st.orderDateLocal) {
+      inp.value = st.orderDateLocal;
+    }
+  });
+
+  const dateHelper = document.getElementById('admin-order-date-helper');
+  if (dateHelper) {
+    if (st.isCustomDate) {
+      dateHelper.innerHTML = '<span style="color: #7c3aed; font-weight: 600;"><i class="ri-check-double-line"></i> Fecha personalizada activa para Torre de Control.</span>';
+    } else {
+      dateHelper.textContent = 'Por defecto: fecha de creación actual.';
+    }
+  }
+
+  const statusStep3 = document.getElementById('admin-order-wms-status');
+  const statusStep4 = document.getElementById('admin-order-wms-status-step4');
+  [statusStep3, statusStep4].forEach(sel => {
+    if (sel && sel.value !== st.estadoWms) {
+      sel.value = st.estadoWms;
+    }
+  });
+
+  const statusHelper = document.getElementById('admin-order-wms-status-helper');
+  if (statusHelper) {
+    const descMap = {
+      'En procesamiento': 'Ingresa a Torre de Control para procesar y compromete el stock en la bodega elegida.',
+      'En preparación': 'Ingresa en pickeo activo, reserva stock en la bodega elegida y sincroniza con Picker App.',
+      'Pickeado': 'Ingresa como pedido ya preparado/empaquetado y reserva stock en la bodega elegida.',
+      'Despachado': 'Ingresa como despachado, descuenta el stock físico inmediatamente y registra salida en Kardex.',
+      'Incidencia': 'Ingresa con alerta de incidencia en Torre de Control y compromete stock.',
+      'Cancelado': 'Ingresa como pedido cancelado (sin descontar ni comprometer stock).',
+      'Archivado': 'Ingresa directamente archivado (sin descontar ni comprometer stock).'
+    };
+    statusHelper.textContent = descMap[st.estadoWms] || '';
+  }
+
+  const pickingApplies = window.doesAdminOrderStatusApplyPicking(st.estadoWms);
+  const pickingRequired = window.isAdminOrderPickingRequired(st.estadoWms);
+  const catVal = document.getElementById('order-categoria-entrega')?.value || '';
+  const isRetiroOrPos = catVal === 'RETIRO' || catVal === 'SHOP POINT (POS)' || window.currentAdminOrderFlowType === 'retiro' || window.currentAdminOrderFlowType === 'shop_point';
+
+  if (pickingApplies && !st.pickingWarehouse) {
+    if (st.stockWarehouseId && st.stockWarehouseId !== 'auto' && window.ADMIN_ORDER_WAREHOUSE_MAP[st.stockWarehouseId]) {
+      st.pickingWarehouse = window.ADMIN_ORDER_WAREHOUSE_MAP[st.stockWarehouseId].sucursal;
+    } else {
+      st.pickingWarehouse = 'Sucursal Ñuñoa';
+    }
+  } else if (!pickingApplies && !isRetiroOrPos) {
+    st.pickingWarehouse = '';
+  } else if (isRetiroOrPos && !st.pickingWarehouse) {
+    st.pickingWarehouse = 'Sucursal Ñuñoa';
+  }
+
+  const pickStep3 = document.getElementById('admin-order-picking-warehouse');
+  const pickStep4 = document.getElementById('admin-order-picking-warehouse-step4');
+  const canSelectPicking = pickingApplies || isRetiroOrPos;
+
+  [pickStep3, pickStep4].forEach(sel => {
+    if (!sel) return;
+    const emptyOpt = sel.querySelector('option[value=""]');
+    if (emptyOpt) {
+      emptyOpt.textContent = canSelectPicking
+        ? (pickingRequired ? '-- Selecciona Bodega de Pickeo --' : '-- Sin asignar (opcional) --')
+        : `-- No aplica en "${st.estadoWms}" --`;
+    }
+    sel.disabled = !canSelectPicking;
+    sel.style.opacity = canSelectPicking ? '1' : '0.65';
+    sel.value = canSelectPicking ? (st.pickingWarehouse || '') : '';
+  });
+
+  const pickBadge = document.getElementById('admin-order-picking-badge');
+  if (pickBadge) {
+    if (pickingRequired) {
+      pickBadge.textContent = 'Requerido por estado';
+      pickBadge.style.background = 'rgba(124, 58, 237, 0.14)';
+      pickBadge.style.color = '#7c3aed';
+    } else if (canSelectPicking) {
+      pickBadge.textContent = 'Opcional';
+      pickBadge.style.background = 'rgba(59, 130, 246, 0.12)';
+      pickBadge.style.color = '#2563eb';
+    } else {
+      pickBadge.textContent = 'No aplica';
+      pickBadge.style.background = 'rgba(148, 163, 184, 0.15)';
+      pickBadge.style.color = 'var(--color-text-muted)';
+    }
+  }
+
+  const stockStep3 = document.getElementById('admin-order-stock-warehouse');
+  const stockStep4 = document.getElementById('admin-order-stock-warehouse-step4');
+  const isNoStockDeductionState = st.estadoWms === 'Cancelado' || st.estadoWms === 'Archivado';
+  [stockStep3, stockStep4].forEach(sel => {
+    if (!sel) return;
+    sel.disabled = isNoStockDeductionState;
+    sel.style.opacity = isNoStockDeductionState ? '0.65' : '1';
+    if (sel.value !== st.stockWarehouseId) {
+      sel.value = st.stockWarehouseId || 'auto';
+    }
+  });
+
+  window.renderAdminOrderOperationalBreakdown();
+
+  // Actualizar campos del resumen en Paso 4 si están visibles
+  const sumDateEl = document.getElementById('summary-order-date');
+  if (sumDateEl) {
+    const parsedDate = new Date(st.orderDateLocal || Date.now());
+    const dateFormatted = !isNaN(parsedDate.getTime())
+      ? parsedDate.toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      : 'Fecha actual';
+    sumDateEl.textContent = st.isCustomDate ? `${dateFormatted} (Personalizada)` : `${dateFormatted} (Fecha creación)`;
+  }
+
+  const sumStatusEl = document.getElementById('summary-wms-status');
+  if (sumStatusEl) {
+    sumStatusEl.textContent = st.estadoWms || 'En procesamiento';
+  }
+
+  const sumPickEl = document.getElementById('summary-picking-warehouse');
+  if (sumPickEl) {
+    if (canSelectPicking && st.pickingWarehouse) {
+      const whId = window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID[st.pickingWarehouse];
+      const whLabel = whId && window.ADMIN_ORDER_WAREHOUSE_MAP[whId] ? `${window.ADMIN_ORDER_WAREHOUSE_MAP[whId].name} (${st.pickingWarehouse})` : st.pickingWarehouse;
+      sumPickEl.textContent = whLabel;
+    } else {
+      sumPickEl.textContent = `No aplica (${st.estadoWms})`;
+    }
+  }
+
+  const sumStockEl = document.getElementById('summary-stock-warehouse');
+  if (sumStockEl) {
+    sumStockEl.textContent = isNoStockDeductionState
+      ? `Sin descuento (${st.estadoWms})`
+      : window.getAdminStockWarehouseDisplayLabel();
+  }
+};
+
+window.isAdminOrderUser = function() {
+  return typeof userRole === 'undefined' || userRole === 'admin' || window.currentAdminProfile?.role === 'admin';
+};
+
+window.computeAdminCustomShippingAmounts = function() {
+  const st = window.adminCustomShippingState || { cost: '', costMode: 'neto' };
+  const rawStr = String(st.cost ?? '').trim();
+  const rawVal = parseFloat(rawStr);
+  if (rawStr === '' || isNaN(rawVal) || rawVal < 0) {
+    return { net: 0, tax: 0, total: 0 };
+  }
+  const mode = st.costMode || 'neto';
+  if (mode === 'total') {
+    const total = Math.round(rawVal);
+    const net = Math.round(total / 1.19);
+    const tax = total - net;
+    return { net, tax, total };
+  } else if (mode === 'exento') {
+    const net = Math.round(rawVal);
+    return { net, tax: 0, total: net };
+  } else {
+    const net = Math.round(rawVal);
+    const tax = Math.round(net * 0.19);
+    const total = net + tax;
+    return { net, tax, total };
+  }
+};
 
 // Alias para compatibilidad con handlers compartidos
 window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
@@ -94790,8 +97083,27 @@ window.openCreateOrderModal = async function() {
   // 1. Reset variables y formulario
   window.tempAdminNewOrderItems = [];
   window.tempClientNewOrderItems = window.tempAdminNewOrderItems;
+  window.adminCustomShippingState = {
+    name: '',
+    cost: '',
+    costMode: 'neto',
+    plazo: '',
+    selectedInCourierList: false
+  };
+  window.adminOrderOperationalState = {
+    orderDateLocal: window.getLocalDatetimeInputValue(new Date()),
+    isCustomDate: false,
+    estadoWms: 'En procesamiento',
+    pickingWarehouse: '',
+    stockWarehouseId: 'auto'
+  };
   const form = document.getElementById('form-new-order');
   if (form) form.reset();
+
+  const specialShippingCard = document.getElementById('admin-special-shipping-type-card');
+  if (specialShippingCard) {
+    specialShippingCard.style.display = window.isAdminOrderUser() ? 'flex' : 'none';
+  }
 
   const catSelectEl = document.getElementById('order-categoria-entrega');
   if (catSelectEl) catSelectEl.value = 'DISTRIBUCIÓN';
@@ -94828,6 +97140,7 @@ window.openCreateOrderModal = async function() {
   }
 
   window.renderAdminNewOrderItemsTable();
+  window.syncAdminOrderOperationalUI();
 
   // 2. Cargar lista de comercios
   const commerceSelect = document.getElementById('order-select-commerce');
@@ -94910,7 +97223,7 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         promises.push(
           supabase
             .from('inventory')
-            .select('product_id, quantity, committed_quantity, reserved_quantity')
+            .select('product_id, warehouse_id, quantity, committed_quantity, reserved_quantity')
             .in('product_id', batchIds)
         );
       }
@@ -94920,27 +97233,40 @@ window.loadAdminNewOrderProducts = async function(selectedCommerce) {
         if (res.data) {
           res.data.forEach(inv => {
             const pid = inv.product_id;
+            const wid = inv.warehouse_id || 'unknown';
             if (!stockMap[pid]) {
-              stockMap[pid] = { physical: 0, committed: 0, reserved: 0 };
+              stockMap[pid] = { physical: 0, committed: 0, reserved: 0, byWarehouse: {} };
             }
-            stockMap[pid].physical += (inv.quantity || 0);
-            stockMap[pid].committed += (inv.committed_quantity || 0);
-            stockMap[pid].reserved += (inv.reserved_quantity || 0);
+            const q = inv.quantity || 0;
+            const c = inv.committed_quantity || 0;
+            const r = inv.reserved_quantity || 0;
+            stockMap[pid].physical += q;
+            stockMap[pid].committed += c;
+            stockMap[pid].reserved += r;
+            if (!stockMap[pid].byWarehouse[wid]) {
+              stockMap[pid].byWarehouse[wid] = { physical: 0, committed: 0, reserved: 0, available: 0 };
+            }
+            stockMap[pid].byWarehouse[wid].physical += q;
+            stockMap[pid].byWarehouse[wid].committed += c;
+            stockMap[pid].byWarehouse[wid].reserved += r;
+            stockMap[pid].byWarehouse[wid].available = stockMap[pid].byWarehouse[wid].physical - stockMap[pid].byWarehouse[wid].committed - stockMap[pid].byWarehouse[wid].reserved;
           });
         }
       });
       productsList.forEach(p => {
-        const s = stockMap[p.id] || { physical: 0, committed: 0, reserved: 0 };
+        const s = stockMap[p.id] || { physical: 0, committed: 0, reserved: 0, byWarehouse: {} };
         p.physicalStock = s.physical;
         p.committedStock = s.committed;
         p.reservedStock = s.reserved;
         p.availableStock = s.physical - s.committed - s.reserved;
+        p.stockByWarehouse = s.byWarehouse || {};
       });
     }
 
     window.tempAdminProductsList = productsList;
     window.tempClientProductsList = productsList;
     window.filterAdminNewOrderProducts();
+    window.renderAdminOrderOperationalBreakdown();
   } catch (err) {
     console.error("Error al cargar productos para pedido manual (Admin):", err.message);
   }
@@ -95263,6 +97589,9 @@ window.renderAdminNewOrderItemsTable = function() {
     if (volInput) volInput.value = "0.00000";
     const volDisplay = document.getElementById('order-total-volume-display');
     if (volDisplay) volDisplay.textContent = "0.00000";
+    if (typeof window.renderAdminOrderOperationalBreakdown === 'function') {
+      window.renderAdminOrderOperationalBreakdown();
+    }
     return;
   }
 
@@ -95323,6 +97652,9 @@ window.renderAdminNewOrderItemsTable = function() {
   if (volInput) volInput.value = totalVol.toFixed(5);
   const volDisplay = document.getElementById('order-total-volume-display');
   if (volDisplay) volDisplay.textContent = totalVol.toFixed(5);
+  if (typeof window.renderAdminOrderOperationalBreakdown === 'function') {
+    window.renderAdminOrderOperationalBreakdown();
+  }
 };
 
 window.initAdminWizardOrder = function() {
@@ -95346,6 +97678,7 @@ window.initAdminWizardOrder = function() {
         window.updateAdminWizardUI();
         if (window.currentAdminWizardStep === 3) {
           window.calculateAdminShippingQuote();
+          window.syncAdminOrderOperationalUI();
         } else if (window.currentAdminWizardStep === 4) {
           window.populateAdminWizardSummary();
         }
@@ -95358,6 +97691,7 @@ window.initAdminWizardOrder = function() {
       if (window.currentAdminWizardStep > 1) {
         window.currentAdminWizardStep--;
         window.updateAdminWizardUI();
+        window.syncAdminOrderOperationalUI();
       }
     };
   }
@@ -95448,6 +97782,9 @@ window.initAdminWizardOrder = function() {
         const branchCourierSelect = document.getElementById('order-sucursal-courier');
         if (branchCourierSelect) branchCourierSelect.value = '';
       }
+      if (window.adminCustomShippingState) {
+        window.adminCustomShippingState.selectedInCourierList = (this.value === 'envio_especial');
+      }
       window.calculateAdminShippingQuote();
     };
   });
@@ -95537,6 +97874,7 @@ window.initAdminWizardOrder = function() {
         const origenSelect = document.getElementById('order-cust-origen');
         if (origenSelect) origenSelect.value = 'Logística Inversa';
       }
+      window.syncAdminOrderOperationalUI();
     };
   }
 
@@ -95552,8 +97890,64 @@ window.initAdminWizardOrder = function() {
     };
   }
 
+  // Listeners para Configuración Operativa WMS (Fecha, Estado, Bodega Pickeo, Bodega Descuento Stock)
+  ['admin-order-date-step1', 'admin-order-date-input', 'admin-order-date-step4'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (inp) {
+      const handleDateChange = function() {
+        if (this.value) {
+          window.adminOrderOperationalState.orderDateLocal = this.value;
+          window.adminOrderOperationalState.isCustomDate = true;
+          window.syncAdminOrderOperationalUI();
+        }
+      };
+      inp.onchange = handleDateChange;
+      inp.oninput = handleDateChange;
+    }
+  });
+
+  ['btn-reset-admin-order-date-step1', 'btn-reset-admin-order-date'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.onclick = function() {
+        window.resetAdminOrderDateToNow();
+      };
+    }
+  });
+
+  ['admin-order-wms-status', 'admin-order-wms-status-step4'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) {
+      sel.onchange = function() {
+        window.adminOrderOperationalState.estadoWms = this.value;
+        window.syncAdminOrderOperationalUI();
+      };
+    }
+  });
+
+  ['admin-order-picking-warehouse', 'admin-order-picking-warehouse-step4'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) {
+      sel.onchange = function() {
+        window.adminOrderOperationalState.pickingWarehouse = this.value;
+        window.syncAdminOrderOperationalUI();
+      };
+    }
+  });
+
+  ['admin-order-stock-warehouse', 'admin-order-stock-warehouse-step4'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) {
+      sel.onchange = function() {
+        window.adminOrderOperationalState.stockWarehouseId = this.value;
+        window.syncAdminOrderOperationalUI();
+      };
+    }
+  });
+
   window.updateOrderFlowType('despacho');
   window.tempAdminOrderOriginalData = null;
+  window.syncAdminOrderOperationalUI();
 };
 
 window.updateOrderFlowType = function(flowType) {
@@ -95747,6 +98141,9 @@ window.updateOrderFlowType = function(flowType) {
   }
 
   window.currentAdminOrderFlowType = flowType;
+  if (typeof window.syncAdminOrderOperationalUI === 'function') {
+    window.syncAdminOrderOperationalUI();
+  }
 };
 
 window.updateAdminWizardUI = function() {
@@ -95818,9 +98215,13 @@ window.populateAdminWizardSummary = function() {
 
   const shippingTypeVal = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
   const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+  const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+  const isCustomShipping = shippingTypeVal === 'envio_especial' || selectedCourierRadio?.getAttribute('data-is-custom') === 'true';
 
   let shippingTypeLabel = 'Envío a Domicilio';
-  if (shippingTypeVal === 'sucursal') {
+  if (isCustomShipping) {
+    shippingTypeLabel = 'Envío Especial (Admin)';
+  } else if (shippingTypeVal === 'sucursal') {
     const branchCourier = document.getElementById('order-sucursal-courier').value;
     const branchDetails = document.getElementById('order-sucursal-details').value.trim();
     shippingTypeLabel = `Retiro en Sucursal (${branchCourier} - ${branchDetails})`;
@@ -95830,7 +98231,6 @@ window.populateAdminWizardSummary = function() {
     shippingTypeLabel = 'Transporte Propio';
   }
 
-  const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
   const courierVal = selectedCourierRadio ? selectedCourierRadio.value : 'Ninguno';
   const isPorPagar = paymentCondition === 'por_pagar';
   
@@ -95847,7 +98247,14 @@ window.populateAdminWizardSummary = function() {
   const displayTotal = displayNet + displayTax;
 
   let courierLabel = courierVal;
-  if (isPorPagar) {
+  if (isCustomShipping) {
+    const cName = (selectedCourierRadio?.getAttribute('data-custom-name') || window.adminCustomShippingState?.name || 'Envío Especial').trim();
+    const cPlazo = (selectedCourierRadio?.getAttribute('data-custom-plazo') || window.adminCustomShippingState?.plazo || '').trim();
+    courierLabel = cPlazo ? `${cName} (Plazo: ${cPlazo})` : cName;
+    if (isPorPagar) {
+      courierLabel += ' [Envío por Pagar]';
+    }
+  } else if (isPorPagar) {
     courierLabel += ' (Envío por Pagar)';
   } else if (shippingTypeVal === 'transporte_propio') {
     courierLabel = 'Transporte Propio';
@@ -95868,7 +98275,11 @@ window.populateAdminWizardSummary = function() {
       (window.currentAdminOrderFlowType === 'shop_point' ? 'SHOP POINT (POS)' : (window.currentAdminOrderFlowType === 'retiro' ? 'RETIRO' : 'DISTRIBUCIÓN'));
     sumCatEl.innerHTML = window.getOrderCategoriaBadgeHtml ? window.getOrderCategoriaBadgeHtml({ categoria_entrega: catVal }) : catVal;
   }
-  document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
+  document.getElementById('summary-shipping-type').textContent = isCustomShipping
+    ? `${shippingTypeLabel} — ${courierLabel}`
+    : `${shippingTypeLabel} / Operador: ${courierLabel}`;
+
+  window.syncAdminOrderOperationalUI();
 
   const notesInputVal = document.getElementById('order-cust-notes')?.value || '';
   const notesSummaryEl = document.getElementById('order-cust-notes-summary');
@@ -95928,7 +98339,7 @@ window.populateAdminWizardSummary = function() {
           <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; color: var(--color-text-main);">
             <span style="font-weight: 700; color: #d97706;">Atención: Pedido con Quiebre de Stock (Sobrevendido)</span>
             <span>Este pedido incluye ítems sin stock disponible suficiente: ${itemsListStr}.</span>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Al confirmar, el pedido se creará en estado <em>En procesamiento</em> y aumentará el stock comprometido. El inventario disponible figurará en negativo hasta la recepción de nueva mercadería.</span>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Al confirmar, el pedido se registrará según el estado seleccionado (${window.adminOrderOperationalState?.estadoWms || 'En procesamiento'}) y en la bodega de descuento indicada (${window.getAdminStockWarehouseDisplayLabel()}).</span>
           </div>
         </div>
       `;
@@ -96023,6 +98434,38 @@ window.validateAdminWizardStep = function(step) {
       alert('Por favor selecciona un courier / servicio de despacho antes de continuar.');
       return false;
     }
+
+    const isCustomOption = shippingType === 'envio_especial' || selectedCourierRadio.getAttribute('data-is-custom') === 'true';
+    if (isCustomOption) {
+      const customName = (document.getElementById('admin-custom-shipping-name')?.value ?? window.adminCustomShippingState?.name ?? '').trim();
+      const customCostStr = String(document.getElementById('admin-custom-shipping-cost')?.value ?? window.adminCustomShippingState?.cost ?? '').trim();
+      const customCostVal = parseFloat(customCostStr);
+      const customPlazo = (document.getElementById('admin-custom-shipping-plazo')?.value ?? window.adminCustomShippingState?.plazo ?? '').trim();
+
+      if (!customName) {
+        alert('Por favor indica el nombre de la opción de envío especial.');
+        setTimeout(() => document.getElementById('admin-custom-shipping-name')?.focus(), 150);
+        return false;
+      }
+      if (customCostStr === '' || isNaN(customCostVal) || customCostVal < 0) {
+        alert('Por favor indica un costo válido (mayor o igual a 0) para la opción de envío especial.');
+        setTimeout(() => document.getElementById('admin-custom-shipping-cost')?.focus(), 150);
+        return false;
+      }
+      if (!customPlazo) {
+        alert('Por favor indica los plazos personalizados para la opción de envío especial.');
+        setTimeout(() => document.getElementById('admin-custom-shipping-plazo')?.focus(), 150);
+        return false;
+      }
+    }
+
+    const st = window.adminOrderOperationalState || {};
+    if (window.isAdminOrderPickingRequired(st.estadoWms) && !st.pickingWarehouse) {
+      alert(`Para el estado "${st.estadoWms}", por favor selecciona una Bodega de Pickeo.`);
+      setTimeout(() => document.getElementById('admin-order-picking-warehouse')?.focus(), 150);
+      return false;
+    }
+
     return true;
   }
   return true;
@@ -96258,6 +98701,187 @@ window.setupAdminComunaAutocomplete = function() {
   });
 };
 
+window.buildAdminCustomShippingOptionHtml = function(isChecked = false) {
+  if (!window.isAdminOrderUser()) return '';
+  const st = window.adminCustomShippingState || { name: '', cost: '', costMode: 'neto', plazo: '' };
+  const customName = (st.name || '').trim();
+  const customPlazo = (st.plazo || '').trim();
+  const costMode = st.costMode || 'neto';
+  const { net, tax, total } = window.computeAdminCustomShippingAmounts();
+
+  const safeAttr = (val) => String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const safeText = (val) => String(val ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return `
+    <div id="admin-custom-shipping-wrapper" style="display: flex; flex-direction: column; border: ${isChecked ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; border-radius: var(--radius-sm); background: var(--color-surface); overflow: hidden; transition: all 0.2s;">
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.75rem; font-size: 0.85rem; cursor: pointer; margin: 0;">
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main); flex-wrap: wrap;">
+            <input type="radio" name="order-courier-option" id="admin-custom-courier-radio" value="${safeAttr(customName || 'Envío Especial')}" ${isChecked ? 'checked' : ''} data-is-custom="true" data-net="${net}" data-tax="${tax}" data-custom-name="${safeAttr(customName)}" data-custom-plazo="${safeAttr(customPlazo)}" data-custom-cost-mode="${safeAttr(costMode)}" style="cursor: pointer;">
+            <span id="admin-custom-card-title-text">${safeText(customName || 'Envío Especial Personalizado')}</span>
+            <span style="font-size: 0.68rem; background: rgba(124, 58, 237, 0.12); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.3); padding: 1px 6px; border-radius: 999px; font-weight: 700; margin-left: 0.15rem;">Solo Admin</span>
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-time-line"></i> <span id="admin-custom-card-plazo-text">${safeText(customPlazo || 'Indica nombre, costo y plazos personalizados')}</span>
+          </span>
+        </div>
+        <span id="admin-custom-card-price-text" style="font-weight: bold; color: var(--color-primary); white-space: nowrap;">
+          ${window.formatCLP(total)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">${costMode === 'exento' ? 'Exento' : 'c/IVA'}</span>
+        </span>
+      </label>
+
+      <div id="admin-custom-shipping-fields" style="display: ${isChecked ? 'flex' : 'none'}; flex-direction: column; gap: 0.7rem; padding: 0.85rem; background: var(--color-bg); border-top: 1px dashed var(--color-border);">
+        <div class="form-group" style="margin: 0;">
+          <label class="form-label" style="font-size: 0.76rem; margin-bottom: 0.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-truck-line" style="color: var(--color-primary);"></i> Nombre del Envío / Servicio <span style="color: var(--color-danger);">*</span>
+          </label>
+          <input type="text" id="admin-custom-shipping-name" class="form-input" placeholder="Ej: Envío Especial, Despacho Express, Flete Dedicado..." value="${safeAttr(customName)}" style="font-size: 0.82rem; padding: 0.45rem 0.65rem;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.76rem; margin-bottom: 0.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> Costo ($) <span style="color: var(--color-danger);">*</span>
+            </label>
+            <input type="number" id="admin-custom-shipping-cost" class="form-input" min="0" step="1" placeholder="Ej: 5000" value="${safeAttr(st.cost)}" style="font-size: 0.82rem; padding: 0.45rem 0.65rem; font-family: monospace; font-weight: 600;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-size: 0.76rem; margin-bottom: 0.25rem; font-weight: 600; color: var(--color-text-main);">
+              Modalidad de Costo
+            </label>
+            <select id="admin-custom-shipping-cost-mode" class="form-input" style="font-size: 0.8rem; padding: 0.45rem 0.5rem; height: auto;">
+              <option value="neto" ${costMode === 'neto' ? 'selected' : ''}>Valor Neto (+ IVA 19%)</option>
+              <option value="total" ${costMode === 'total' ? 'selected' : ''}>Valor Total (IVA incl.)</option>
+              <option value="exento" ${costMode === 'exento' ? 'selected' : ''}>Exento de IVA (0%)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin: 0;">
+          <label class="form-label" style="font-size: 0.76rem; margin-bottom: 0.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-timer-flash-line" style="color: var(--color-primary);"></i> Plazos Personalizados <span style="color: var(--color-danger);">*</span>
+          </label>
+          <input type="text" id="admin-custom-shipping-plazo" class="form-input" placeholder="Ej: Entrega en 24-48 horas hábiles / Mismo día..." value="${safeAttr(customPlazo)}" style="font-size: 0.82rem; padding: 0.45rem 0.65rem;">
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+window.bindAdminCustomShippingOptionEvents = function(optionsList, paymentCondition, netEl, taxEl, totalEl) {
+  if (!optionsList || !netEl || !taxEl || !totalEl) return;
+
+  const customWrapper = optionsList.querySelector('#admin-custom-shipping-wrapper');
+  const customRadio = optionsList.querySelector('#admin-custom-courier-radio');
+  const customFields = optionsList.querySelector('#admin-custom-shipping-fields');
+  const nameInput = optionsList.querySelector('#admin-custom-shipping-name');
+  const costInput = optionsList.querySelector('#admin-custom-shipping-cost');
+  const costModeSelect = optionsList.querySelector('#admin-custom-shipping-cost-mode');
+  const plazoInput = optionsList.querySelector('#admin-custom-shipping-plazo');
+  const titleTextEl = optionsList.querySelector('#admin-custom-card-title-text');
+  const plazoTextEl = optionsList.querySelector('#admin-custom-card-plazo-text');
+  const priceTextEl = optionsList.querySelector('#admin-custom-card-price-text');
+
+  const refreshQuoteSummary = () => {
+    const selectedRadio = optionsList.querySelector('input[name="order-courier-option"]:checked');
+    if (!selectedRadio) return;
+
+    const isPorPagar = paymentCondition === 'por_pagar';
+    const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
+    const taxPrice = parseFloat(selectedRadio.getAttribute('data-tax') || '0');
+
+    const finalNet = isPorPagar ? 0 : netPrice;
+    const finalTax = isPorPagar ? 0 : taxPrice;
+    const finalTotal = finalNet + finalTax;
+
+    netEl.textContent = window.formatCLP(finalNet);
+    taxEl.textContent = window.formatCLP(finalTax);
+    totalEl.textContent = window.formatCLP(finalTotal);
+
+    const allRadios = optionsList.querySelectorAll('input[name="order-courier-option"]');
+    allRadios.forEach(r => {
+      if (r.id === 'admin-custom-courier-radio') return;
+      const lbl = r.closest('label');
+      if (lbl) {
+        lbl.style.border = r.checked ? '2px solid var(--color-primary)' : '1px solid var(--color-border)';
+      }
+    });
+
+    if (customWrapper && customRadio) {
+      const isCustomChecked = customRadio.checked;
+      customWrapper.style.border = isCustomChecked ? '2px solid var(--color-primary)' : '1px solid var(--color-border)';
+      if (customFields) {
+        customFields.style.display = isCustomChecked ? 'flex' : 'none';
+      }
+      if (window.adminCustomShippingState) {
+        window.adminCustomShippingState.selectedInCourierList = isCustomChecked;
+      }
+    }
+  };
+
+  const syncCustomInputs = () => {
+    if (!window.adminCustomShippingState) {
+      window.adminCustomShippingState = { name: '', cost: '', costMode: 'neto', plazo: '', selectedInCourierList: true };
+    }
+    if (nameInput) window.adminCustomShippingState.name = nameInput.value;
+    if (costInput) window.adminCustomShippingState.cost = costInput.value;
+    if (costModeSelect) window.adminCustomShippingState.costMode = costModeSelect.value;
+    if (plazoInput) window.adminCustomShippingState.plazo = plazoInput.value;
+
+    const cName = (window.adminCustomShippingState.name || '').trim();
+    const cPlazo = (window.adminCustomShippingState.plazo || '').trim();
+    const cMode = window.adminCustomShippingState.costMode || 'neto';
+    const { net, tax, total } = window.computeAdminCustomShippingAmounts();
+
+    if (customRadio) {
+      customRadio.value = cName || 'Envío Especial';
+      customRadio.setAttribute('data-net', net);
+      customRadio.setAttribute('data-tax', tax);
+      customRadio.setAttribute('data-custom-name', cName);
+      customRadio.setAttribute('data-custom-plazo', cPlazo);
+      customRadio.setAttribute('data-custom-cost-mode', cMode);
+      if (!customRadio.checked) {
+        customRadio.checked = true;
+      }
+    }
+
+    if (titleTextEl) {
+      titleTextEl.textContent = cName || 'Envío Especial Personalizado';
+    }
+    if (plazoTextEl) {
+      plazoTextEl.textContent = cPlazo || 'Indica nombre, costo y plazos personalizados';
+    }
+    if (priceTextEl) {
+      priceTextEl.innerHTML = `${window.formatCLP(total)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">${cMode === 'exento' ? 'Exento' : 'c/IVA'}</span>`;
+    }
+
+    refreshQuoteSummary();
+  };
+
+  if (nameInput) nameInput.oninput = syncCustomInputs;
+  if (costInput) {
+    costInput.oninput = syncCustomInputs;
+    costInput.onchange = syncCustomInputs;
+  }
+  if (costModeSelect) costModeSelect.onchange = syncCustomInputs;
+  if (plazoInput) plazoInput.oninput = syncCustomInputs;
+
+  const allRadios = optionsList.querySelectorAll('input[name="order-courier-option"]');
+  allRadios.forEach(r => {
+    r.onchange = refreshQuoteSummary;
+  });
+
+  refreshQuoteSummary();
+};
+
 window.calculateAdminShippingQuote = function() {
   const city = document.getElementById('order-cust-city').value.trim();
   const weight = parseFloat(document.getElementById('order-total-weight-input').value) || 1.0;
@@ -96272,6 +98896,21 @@ window.calculateAdminShippingQuote = function() {
   const totalEl = document.getElementById('order-quote-total');
 
   if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
+
+  if (shippingType === 'envio_especial') {
+    badge.style.background = 'rgba(124, 58, 237, 0.1)';
+    badge.style.color = '#7c3aed';
+    badge.innerHTML = '<i class="ri-sparkling-2-line"></i> Envío Especial Personalizado (Solo Admin)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'block';
+
+    const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+    if (window.adminCustomShippingState) {
+      window.adminCustomShippingState.selectedInCourierList = true;
+    }
+    optionsList.innerHTML = window.buildAdminCustomShippingOptionHtml(true);
+    window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
+    return;
+  }
 
   if (shippingType === 'punto_stocka') {
     badge.style.background = 'rgba(34, 197, 94, 0.1)';
@@ -96325,7 +98964,8 @@ window.calculateAdminShippingQuote = function() {
     badge.style.background = 'rgba(239, 68, 68, 0.1)';
     badge.style.color = '#ef4444';
     badge.innerHTML = '<i class="ri-error-warning-line"></i> Ingrese comuna en el paso 1 para cotizar';
-    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Defina comuna de destino...</div>';
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Defina comuna de destino...</div>' + window.buildAdminCustomShippingOptionHtml(false);
+    window.bindAdminCustomShippingOptionEvents(optionsList, 'pagado', netEl, taxEl, totalEl);
     return;
   }
 
@@ -96345,6 +98985,7 @@ window.calculateAdminShippingQuote = function() {
   }
 
   const isRm = window.isRmCoverage(city);
+  const preferCustomInList = !!window.adminCustomShippingState?.selectedInCourierList;
 
   if (shippingType === 'sucursal') {
     badge.style.background = 'rgba(124, 58, 237, 0.1)';
@@ -96369,45 +99010,9 @@ window.calculateAdminShippingQuote = function() {
         <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
           <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
         </div>
-        <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa una tarifa neta de envío manual:</div>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
-        </div>
+        ${window.buildAdminCustomShippingOptionHtml(true)}
       `;
-
-      const manualNetInput = document.getElementById('manual-shipping-net');
-      const updateManual = () => {
-        let net = parseFloat(manualNetInput?.value) || 0;
-        const isPorPagar = paymentCondition === 'por_pagar';
-        const displayNet = isPorPagar ? 0 : net;
-        const tax = displayNet * 0.19;
-        const total = displayNet + tax;
-
-        netEl.textContent = window.formatCLP(displayNet);
-        taxEl.textContent = window.formatCLP(tax);
-        totalEl.textContent = window.formatCLP(total);
-
-        const tempRadio = document.createElement('input');
-        tempRadio.type = 'radio';
-        tempRadio.name = 'order-courier-option';
-        tempRadio.value = selectedBranchCourier;
-        tempRadio.checked = true;
-        tempRadio.setAttribute('data-net', net);
-        tempRadio.setAttribute('data-tax', net * 0.19);
-        tempRadio.style.display = 'none';
-        
-        const existingTemp = optionsList.querySelector('#temp-manual-radio');
-        if (existingTemp) existingTemp.remove();
-        
-        tempRadio.id = 'temp-manual-radio';
-        optionsList.appendChild(tempRadio);
-      };
-
-      if (manualNetInput) {
-        manualNetInput.onchange = updateManual;
-        manualNetInput.onkeyup = updateManual;
-      }
-      updateManual();
+      window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
       return;
     }
 
@@ -96429,7 +99034,8 @@ window.calculateAdminShippingQuote = function() {
     }
 
     if (!netCost) {
-      optionsList.innerHTML = `<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay tarifa disponible para ${selectedBranchCourier} en ${city}. Cotiza de forma manual.</div>`;
+      optionsList.innerHTML = `<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay tarifa disponible para ${selectedBranchCourier} en ${city}. Puedes configurar un Envío Especial:</div>` + window.buildAdminCustomShippingOptionHtml(true);
+      window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
       return;
     }
 
@@ -96439,10 +99045,10 @@ window.calculateAdminShippingQuote = function() {
     const total = displayNet + tax;
 
     optionsList.innerHTML = `
-      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 2px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: ${!preferCustomInList ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
         <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
           <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
-            <input type="radio" name="order-courier-option" value="${selectedBranchCourier}" checked data-net="${netCost}" data-tax="${netCost * 0.19}" style="cursor: pointer;">
+            <input type="radio" name="order-courier-option" value="${selectedBranchCourier}" ${!preferCustomInList ? 'checked' : ''} data-net="${netCost}" data-tax="${netCost * 0.19}" style="cursor: pointer;">
             Retiro en Sucursal ${selectedBranchCourier}
           </span>
           <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem;">
@@ -96451,11 +99057,10 @@ window.calculateAdminShippingQuote = function() {
         </div>
         <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(total)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
       </label>
+      ${window.buildAdminCustomShippingOptionHtml(preferCustomInList)}
     `;
 
-    netEl.textContent = window.formatCLP(displayNet);
-    taxEl.textContent = window.formatCLP(tax);
-    totalEl.textContent = window.formatCLP(total);
+    window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
     return;
   }
 
@@ -96474,10 +99079,10 @@ window.calculateAdminShippingQuote = function() {
     const totalPrice = netPrice + taxPrice;
 
     optionsList.innerHTML = `
-      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 2px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: ${!preferCustomInList ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
         <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
           <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
-            <input type="radio" name="order-courier-option" value="Same Day" checked data-net="${netPrice}" data-tax="${taxPrice}" style="cursor: pointer;">
+            <input type="radio" name="order-courier-option" value="Same Day" ${!preferCustomInList ? 'checked' : ''} data-net="${netPrice}" data-tax="${taxPrice}" style="cursor: pointer;">
             Envío Same Day RM <span style="font-size: 0.7rem; background: #22c55e; color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Recomendado</span>
           </span>
           <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem;">
@@ -96486,11 +99091,10 @@ window.calculateAdminShippingQuote = function() {
         </div>
         <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(totalPrice)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
       </label>
+      ${window.buildAdminCustomShippingOptionHtml(preferCustomInList)}
     `;
 
-    netEl.textContent = window.formatCLP(netPrice);
-    taxEl.textContent = window.formatCLP(taxPrice);
-    totalEl.textContent = window.formatCLP(totalPrice);
+    window.bindAdminCustomShippingOptionEvents(optionsList, 'pagado', netEl, taxEl, totalEl);
     return;
   }
 
@@ -96515,57 +99119,9 @@ window.calculateAdminShippingQuote = function() {
       <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
         <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
       </div>
-      <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa una tarifa neta de envío manual:</div>
-      <div style="display: flex; gap: 0.5rem; align-items: center;">
-        <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
-        <select id="manual-shipping-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem; width: 120px;">
-          <option value="STARKEN">Starken</option>
-          <option value="BLUEXPRESS">Bluexpress</option>
-          <option value="CHILEXPRESS">Chilexpress</option>
-        </select>
-      </div>
+      ${window.buildAdminCustomShippingOptionHtml(true)}
     `;
-
-    const manualNetInput = document.getElementById('manual-shipping-net');
-    const manualCourierSelect = document.getElementById('manual-shipping-courier');
-    
-    const updateManual = () => {
-      let net = parseFloat(manualNetInput?.value) || 0;
-      let courier = manualCourierSelect?.value || 'STARKEN';
-      
-      const isPorPagar = paymentCondition === 'por_pagar';
-      const displayNet = isPorPagar ? 0 : net;
-      const tax = displayNet * 0.19;
-      const total = displayNet + tax;
-
-      netEl.textContent = window.formatCLP(displayNet);
-      taxEl.textContent = window.formatCLP(tax);
-      totalEl.textContent = window.formatCLP(total);
-
-      const tempRadio = document.createElement('input');
-      tempRadio.type = 'radio';
-      tempRadio.name = 'order-courier-option';
-      tempRadio.value = courier;
-      tempRadio.checked = true;
-      tempRadio.setAttribute('data-net', net);
-      tempRadio.setAttribute('data-tax', net * 0.19);
-      tempRadio.style.display = 'none';
-      
-      const existingTemp = optionsList.querySelector('#temp-manual-radio');
-      if (existingTemp) existingTemp.remove();
-      
-      tempRadio.id = 'temp-manual-radio';
-      optionsList.appendChild(tempRadio);
-    };
-
-    if (manualNetInput) {
-      manualNetInput.onchange = updateManual;
-      manualNetInput.onkeyup = updateManual;
-    }
-    if (manualCourierSelect) {
-      manualCourierSelect.onchange = updateManual;
-    }
-    updateManual();
+    window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
     return;
   }
 
@@ -96605,7 +99161,8 @@ window.calculateAdminShippingQuote = function() {
   }
 
   if (validOptions.length === 0) {
-    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay couriers configurados para esta comuna. Cotiza de forma manual.</div>';
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay couriers configurados para esta comuna. Configura un Envío Especial:</div>' + window.buildAdminCustomShippingOptionHtml(true);
+    window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
     return;
   }
 
@@ -96613,11 +99170,12 @@ window.calculateAdminShippingQuote = function() {
 
   validOptions.forEach((opt, idx) => {
     const recommendedText = idx === 0 ? ' <span style="font-size: 0.7rem; background: #22c55e; color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Recomendado</span>' : '';
-    const checked = idx === 0 ? 'checked' : '';
+    const isThisChecked = !preferCustomInList && idx === 0;
+    const checked = isThisChecked ? 'checked' : '';
     const optTotal = opt.net * 1.19;
 
     html += `
-      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}'">
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: ${isThisChecked ? '2px solid var(--color-primary)' : '1px solid var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
         <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
           <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
             <input type="radio" name="order-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}" style="cursor: pointer;">
@@ -96632,27 +99190,10 @@ window.calculateAdminShippingQuote = function() {
     `;
   });
 
+  html += window.buildAdminCustomShippingOptionHtml(preferCustomInList);
   optionsList.innerHTML = html;
 
-  const radios = optionsList.querySelectorAll('input[name="order-courier-option"]');
-  const updatePrices = () => {
-    const selectedRadio = optionsList.querySelector('input[name="order-courier-option"]:checked');
-    if (!selectedRadio) return;
-
-    const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
-    const isPorPagar = paymentCondition === 'por_pagar';
-
-    const finalNet = isPorPagar ? 0 : netPrice;
-    const tax = finalNet * 0.19;
-    const total = finalNet + tax;
-
-    netEl.textContent = window.formatCLP(finalNet);
-    taxEl.textContent = window.formatCLP(tax);
-    totalEl.textContent = window.formatCLP(total);
-  };
-
-  radios.forEach(r => r.onchange = updatePrices);
-  updatePrices();
+  window.bindAdminCustomShippingOptionEvents(optionsList, paymentCondition, netEl, taxEl, totalEl);
 };
 
 // Listener para creación de nuevo pedido (#form-new-order en Admin)
@@ -96719,6 +99260,7 @@ setTimeout(() => {
     const shippingType = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
     const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
     const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+    const isCustomShipping = shippingType === 'envio_especial' || selectedCourierRadio?.getAttribute('data-is-custom') === 'true';
 
     let courierName = selectedCourierRadio ? selectedCourierRadio.value : 'Manual';
     let netShippingCost = 0;
@@ -96735,7 +99277,24 @@ setTimeout(() => {
     }
 
     let finalShippingMethod = 'Envío a Domicilio';
-    if (shippingType === 'sucursal') {
+    let customShippingMeta = null;
+
+    if (isCustomShipping) {
+      const customName = (selectedCourierRadio?.getAttribute('data-custom-name') || window.adminCustomShippingState?.name || 'Envío Especial').trim();
+      const customPlazo = (selectedCourierRadio?.getAttribute('data-custom-plazo') || window.adminCustomShippingState?.plazo || '').trim();
+      const customCostMode = selectedCourierRadio?.getAttribute('data-custom-cost-mode') || window.adminCustomShippingState?.costMode || 'neto';
+      finalShippingMethod = customPlazo ? `${customName} (${customPlazo})` : customName;
+      courierName = customName;
+      customShippingMeta = {
+        is_custom: true,
+        name: customName,
+        plazo: customPlazo,
+        cost_mode: customCostMode,
+        net_cost: netShippingCost,
+        tax_cost: taxShippingCost,
+        total_cost: netShippingCost + taxShippingCost
+      };
+    } else if (shippingType === 'sucursal') {
       const branchCourier = document.getElementById('order-sucursal-courier').value;
       const branchDetails = document.getElementById('order-sucursal-details').value.trim();
       finalShippingMethod = `Retiro en Sucursal (${branchCourier} - ${branchDetails})`;
@@ -96764,18 +99323,93 @@ setTimeout(() => {
     if (selectedCategoria === 'SHOP POINT (POS)') {
       finalAgenda = 'COMPRA EN BODEGA';
       finalOperador = 'SUCURSAL ÑUÑOA';
-      finalSucursalPickeo = 'Matriz Ñuñoa';
+      finalSucursalPickeo = 'Sucursal Ñuñoa';
       if (!finalShippingMethod || finalShippingMethod === 'Envío a Domicilio' || finalShippingMethod === 'Retiro en Punto STOCKA') {
         finalShippingMethod = 'Venta Presencial Sucursal Ñuñoa';
       }
     } else if (selectedCategoria === 'RETIRO') {
       finalAgenda = 'RETIRO';
       finalOperador = 'SUCURSAL ÑUÑOA';
-      finalSucursalPickeo = 'Matriz Ñuñoa';
+      finalSucursalPickeo = 'Sucursal Ñuñoa';
       if (!finalShippingMethod || finalShippingMethod === 'Envío a Domicilio') {
         finalShippingMethod = 'Retiro en Sucursal';
       }
     }
+
+    const opState = window.adminOrderOperationalState || {
+      orderDateLocal: '',
+      isCustomDate: false,
+      estadoWms: 'En procesamiento',
+      pickingWarehouse: '',
+      stockWarehouseId: 'auto'
+    };
+
+    const selectedEstadoWms = (
+      document.getElementById('admin-order-wms-status-step4')?.value ||
+      document.getElementById('admin-order-wms-status')?.value ||
+      opState.estadoWms ||
+      'En procesamiento'
+    ).trim();
+
+    const pickingApplies = window.doesAdminOrderStatusApplyPicking(selectedEstadoWms);
+    const pickingRequired = window.isAdminOrderPickingRequired(selectedEstadoWms);
+    const isRetiroOrPos = selectedCategoria === 'SHOP POINT (POS)' || selectedCategoria === 'RETIRO';
+
+    const selectedPickingWh = (
+      document.getElementById('admin-order-picking-warehouse-step4')?.value ||
+      document.getElementById('admin-order-picking-warehouse')?.value ||
+      opState.pickingWarehouse ||
+      ''
+    ).trim();
+
+    if (pickingRequired && !selectedPickingWh && !finalSucursalPickeo) {
+      alert(`Para enviar el pedido en estado "${selectedEstadoWms}", debes seleccionar una Bodega de Pickeo.`);
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
+      }
+      return;
+    }
+
+    if (pickingApplies || isRetiroOrPos) {
+      finalSucursalPickeo = selectedPickingWh || finalSucursalPickeo || 'Sucursal Ñuñoa';
+    } else {
+      finalSucursalPickeo = null;
+    }
+
+    if ((selectedEstadoWms === 'En preparación' || selectedEstadoWms === 'Pickeado' || selectedEstadoWms === 'Despachado') && !finalAgenda) {
+      finalAgenda = 'PROCESADO MANUAL';
+    }
+
+    const statusToInternalMap = {
+      'En procesamiento': 'para procesar',
+      'En preparación': 'en preparación',
+      'Pickeado': 'preparado',
+      'Despachado': 'despachado',
+      'Incidencia': 'para procesar',
+      'Cancelado': 'cancelado',
+      'Archivado': 'para procesar'
+    };
+    const mappedInternalStatus = statusToInternalMap[selectedEstadoWms] || 'para procesar';
+
+    const rawDateInputVal = (
+      document.getElementById('admin-order-date-step4')?.value ||
+      document.getElementById('admin-order-date-input')?.value ||
+      document.getElementById('admin-order-date-step1')?.value ||
+      opState.orderDateLocal ||
+      ''
+    ).trim();
+
+    const finalCreatedAt = (opState.isCustomDate && rawDateInputVal)
+      ? window.parseLocalDatetimeInputToISO(rawDateInputVal)
+      : new Date().toISOString();
+
+    const selectedStockWhOption = (
+      document.getElementById('admin-order-stock-warehouse-step4')?.value ||
+      document.getElementById('admin-order-stock-warehouse')?.value ||
+      opState.stockWarehouseId ||
+      'auto'
+    ).trim();
 
     try {
       // 1. Resolver merchant_id
@@ -96794,13 +99428,37 @@ setTimeout(() => {
         console.warn('Aviso obteniendo merchant_id:', err);
       }
 
-      // 2. Insertar Order
+      // 2. Insertar Order (inicialmente en 'En procesamiento' para que los triggers de inventario y Kardex procesen order_items limpiamente)
       const rawShopifyData = orderNotes ? {
         note: orderNotes,
         notes: orderNotes,
         customer_note: orderNotes,
         manual_order: true
       } : { manual_order: true };
+
+      if (customShippingMeta) {
+        rawShopifyData.custom_shipping = customShippingMeta;
+        rawShopifyData.shipping_lines = [{
+          title: finalShippingMethod,
+          price: String(netShippingCost),
+          code: 'ENVIO_ESPECIAL_ADMIN',
+          custom_transit_time: customShippingMeta.plazo
+        }];
+      }
+
+      rawShopifyData.admin_operational_config = {
+        custom_order_date: Boolean(opState.isCustomDate),
+        order_created_at: finalCreatedAt,
+        initial_estado_wms: selectedEstadoWms,
+        sucursal_pickeo: finalSucursalPickeo,
+        stock_warehouse_selection: selectedStockWhOption
+      };
+
+      const isProcessedInitially = selectedEstadoWms === 'En preparación' || selectedEstadoWms === 'Pickeado' || selectedEstadoWms === 'Despachado';
+
+      const totalManualCantidad = items.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 1), 0);
+      const manualOrderSkus = items.map(item => item.sku).filter(Boolean).join(', ');
+      const manualOrderNames = items.map(item => item.name).filter(Boolean).join(', ');
 
       const orderDataPayload = {
         merchant_id: merchantId,
@@ -96810,6 +99468,9 @@ setTimeout(() => {
         external_platform: canalOrigen,
         payment_status: 'pagado',
         total_value: totalValue,
+        cantidad: totalManualCantidad,
+        sku: manualOrderSkus,
+        item: manualOrderNames,
         customer_name: name,
         customer_email: email,
         customer_phone: phone,
@@ -96826,7 +99487,8 @@ setTimeout(() => {
         status: 'para procesar',
         estado_wms: 'En procesamiento',
         raw_shopify_data: rawShopifyData,
-        created_at: new Date().toISOString()
+        created_at: finalCreatedAt,
+        ...(isProcessedInitially ? { fecha_procesamiento: finalCreatedAt } : {})
       };
 
       let insertedOrder = null;
@@ -96839,12 +99501,14 @@ setTimeout(() => {
       if (insertResult.error) {
         const isColumnError = insertResult.error.message && (
           insertResult.error.message.includes('shipping_cost') || 
-          insertResult.error.message.includes('shipping_cost_tax')
+          insertResult.error.message.includes('shipping_cost_tax') ||
+          insertResult.error.message.includes('fecha_procesamiento')
         );
         if (isColumnError) {
           const fallbackPayload = { ...orderDataPayload };
           delete fallbackPayload.shipping_cost;
           delete fallbackPayload.shipping_cost_tax;
+          delete fallbackPayload.fecha_procesamiento;
           fallbackPayload.shipping_method = `${finalShippingMethod} [Costo Neto: $${netShippingCost}]`;
 
           const fallbackResult = await supabase
@@ -96866,48 +99530,68 @@ setTimeout(() => {
         insertedOrder.categoria_entrega = insertedOrder.categoria_entrega || selectedCategoria;
         insertedOrder.agenda = insertedOrder.agenda !== undefined ? insertedOrder.agenda : finalAgenda;
         insertedOrder.operador = insertedOrder.operador || finalOperador;
-        insertedOrder.sucursal_pickeo = insertedOrder.sucursal_pickeo || finalSucursalPickeo;
+        insertedOrder.sucursal_pickeo = insertedOrder.sucursal_pickeo !== undefined ? insertedOrder.sucursal_pickeo : finalSucursalPickeo;
         insertedOrder.shipping_method = insertedOrder.shipping_method || finalShippingMethod;
+        insertedOrder.created_at = insertedOrder.created_at || finalCreatedAt;
       }
 
-      // 3. Determinar mejor bodega para cada ítem e insertar order_items
+      // 3. Determinar bodega de descuento de stock para cada ítem e insertar order_items
+      const explicitStockWhId = (selectedStockWhOption && selectedStockWhOption !== 'auto')
+        ? selectedStockWhOption
+        : (finalSucursalPickeo && window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID[finalSucursalPickeo]
+            ? window.ADMIN_SUCURSAL_TO_WAREHOUSE_ID[finalSucursalPickeo]
+            : null);
+
       const itemsPayload = [];
       for (const item of items) {
+        let targetWarehouse = explicitStockWhId;
+
         const { data: invData } = await supabase
           .from('inventory')
-          .select('warehouse_id, quantity, committed_quantity')
+          .select('id, warehouse_id, quantity, committed_quantity')
           .eq('product_id', item.product_id);
-          
-        let bestWarehouse = null;
-        let maxAvailable = -Infinity;
 
-        if (invData && invData.length > 0) {
-          invData.forEach(inv => {
-            const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
-            if (available > maxAvailable) {
-              maxAvailable = available;
-              bestWarehouse = inv.warehouse_id;
+        if (!targetWarehouse) {
+          let maxAvailable = -Infinity;
+          if (invData && invData.length > 0) {
+            invData.forEach(inv => {
+              const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+              if (available > maxAvailable) {
+                maxAvailable = available;
+                targetWarehouse = inv.warehouse_id;
+              }
+            });
+            if (!targetWarehouse) {
+              targetWarehouse = invData[0].warehouse_id;
             }
-          });
-          if (!bestWarehouse) {
-            bestWarehouse = invData[0].warehouse_id;
           }
-        }
 
-        if (!bestWarehouse) {
-          const { data: bodegaCentral } = await supabase
-            .from('warehouses')
-            .select('id')
-            .ilike('name', '%Central%')
-            .limit(1)
-            .maybeSingle();
-          if (bodegaCentral) bestWarehouse = bodegaCentral.id;
+          if (!targetWarehouse) {
+            targetWarehouse = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+          }
+        } else if (targetWarehouse !== 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09') {
+          // Garantizar que exista fila en public.inventory para la bodega física elegida antes de los triggers
+          const hasRowInTarget = (invData || []).some(inv => inv.warehouse_id === targetWarehouse);
+          if (!hasRowInTarget) {
+            try {
+              await supabase.from('inventory').insert([{
+                product_id: item.product_id,
+                warehouse_id: targetWarehouse,
+                quantity: 0,
+                committed_quantity: 0,
+                reserved_quantity: 0,
+                damaged_quantity: 0
+              }]);
+            } catch (ensureInvErr) {
+              console.warn('Aviso asegurando fila de inventario en bodega objetivo:', ensureInvErr);
+            }
+          }
         }
 
         itemsPayload.push({
           order_id: insertedOrder.id,
           product_id: item.product_id,
-          warehouse_id: bestWarehouse,
+          warehouse_id: targetWarehouse,
           quantity: item.quantity
         });
       }
@@ -96917,6 +99601,74 @@ setTimeout(() => {
         .insert(itemsPayload);
 
       if (errItems) throw errItems;
+
+      // 3.5. Si el admin seleccionó un estado distinto a 'En procesamiento', aplicar transición de estado
+      // para que el trigger handle_order_status_change ejecute la reserva, liberación o descuento físico + Kardex
+      if (selectedEstadoWms !== 'En procesamiento') {
+        const statusUpdatePayload = {
+          estado_wms: selectedEstadoWms,
+          status: mappedInternalStatus
+        };
+        if (selectedEstadoWms === 'Despachado') {
+          statusUpdatePayload.stock_descontado = true;
+        }
+        const { data: updatedOrderRow, error: statusUpdateErr } = await supabase
+          .from('orders')
+          .update(statusUpdatePayload)
+          .eq('id', insertedOrder.id)
+          .select()
+          .single();
+
+        if (statusUpdateErr) {
+          console.error('Error actualizando estado inicial del pedido:', statusUpdateErr);
+          throw statusUpdateErr;
+        }
+        if (updatedOrderRow) {
+          insertedOrder = {
+            ...insertedOrder,
+            ...updatedOrderRow,
+            created_at: updatedOrderRow.created_at || finalCreatedAt
+          };
+        } else {
+          insertedOrder.estado_wms = selectedEstadoWms;
+          insertedOrder.status = mappedInternalStatus;
+          if (selectedEstadoWms === 'Despachado') insertedOrder.stock_descontado = true;
+        }
+
+        // Si el estado inicial es 'En preparación', sincronizar con Picker App de la sucursal
+        if (selectedEstadoWms === 'En preparación' && typeof window.sendSingleOrderToPicker === 'function') {
+          try {
+            await window.sendSingleOrderToPicker(insertedOrder, { ignoreMissingTracking: true, forceTemporaryLabel: true });
+          } catch (pickerErr) {
+            console.warn('Aviso sincronizando pedido manual con Picker App:', pickerErr);
+          }
+        }
+      }
+
+      // Adjuntar order_items enriquecidos en memoria para Torre de Control
+      insertedOrder.order_items = itemsPayload.map(ip => {
+        const memItem = items.find(i => i.product_id === ip.product_id) || {};
+        return {
+          ...ip,
+          products: {
+            sku: memItem.sku || '',
+            name: memItem.name || '',
+            price: memItem.price || 0
+          }
+        };
+      });
+
+      const resolvedWhIdForDisplay = itemsPayload[0]?.warehouse_id || 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09';
+      const resolvedWhNameForDisplay = window.ADMIN_ORDER_WAREHOUSE_MAP[resolvedWhIdForDisplay]?.name || 'Bodega Central';
+      const formattedOrderDateForDisplay = new Date(finalCreatedAt).toLocaleString('es-CL', {
+        timeZone: 'America/Santiago',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
 
       // 4. Notificación por correo vía Brevo
       try {
@@ -96935,7 +99687,11 @@ setTimeout(() => {
             <p>Se ha registrado un nuevo pedido con los siguientes detalles:</p>
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096; width: 150px;">N° de Pedido:</td><td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${insertedOrder.external_order_number || 'No especificado'}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Fecha Pedido:</td><td style="padding: 6px 0; color: #1a202c;">${formattedOrderDateForDisplay}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Comercio:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.comercio}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Estado WMS:</td><td style="padding: 6px 0; font-weight: bold; color: #7c3aed;">${insertedOrder.estado_wms || selectedEstadoWms}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Bodega Pickeo:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.sucursal_pickeo || 'No aplica'}</td></tr>
+              <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Bodega Stock:</td><td style="padding: 6px 0; color: #059669; font-weight: bold;">${resolvedWhNameForDisplay}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Destinatario:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.customer_name}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_address}, ${insertedOrder.shipping_city}</td></tr>
               <tr><td style="padding: 6px 0; font-weight: bold; color: #718096;">Método Envío:</td><td style="padding: 6px 0; color: #1a202c;">${insertedOrder.shipping_method}</td></tr>
@@ -96984,10 +99740,20 @@ setTimeout(() => {
       window.tempAdminNewOrderItems = [];
       window.tempClientNewOrderItems = [];
 
-      // 6. Actualizar órdenes en memoria y refrescar tabla in-place
+      // 6. Actualizar órdenes en memoria, ajustar filtro de fecha en Torre de Control si aplica y refrescar tabla in-place
       if (insertedOrder) {
         window.loadedOrders = window.loadedOrders || [];
         window.loadedOrders.unshift(insertedOrder);
+
+        const orderDayStr = finalCreatedAt.slice(0, 10);
+        const filterFromEl = document.getElementById('filter-date-from');
+        const filterToEl = document.getElementById('filter-date-to');
+        if (filterFromEl && filterFromEl.value && orderDayStr < filterFromEl.value) {
+          filterFromEl.value = orderDayStr;
+        }
+        if (filterToEl && filterToEl.value && orderDayStr > filterToEl.value) {
+          filterToEl.value = orderDayStr;
+        }
       }
       if (typeof window.applyWmsFiltersAndRender === 'function') {
         window.applyWmsFiltersAndRender();
@@ -96996,7 +99762,17 @@ setTimeout(() => {
       Swal.fire({
         icon: 'success',
         title: '¡Pedido Registrado con Éxito!',
-        html: `El pedido <strong>${insertedOrder.external_order_number}</strong> para el comercio <strong>${insertedOrder.comercio}</strong> ha sido creado y ya está disponible en el Gestor de Pedidos.`,
+        html: `
+          <div style="text-align: left; font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.45rem;">
+            <p style="margin: 0 0 0.35rem 0;">El pedido <strong>${insertedOrder.external_order_number}</strong> para <strong>${insertedOrder.comercio}</strong> ya está disponible en Torre de Control:</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.3rem;">
+              <div><strong>Fecha en Torre de Control:</strong> ${formattedOrderDateForDisplay}</div>
+              <div><strong>Estado Inicial:</strong> <span style="color: #7c3aed; font-weight: 700;">${insertedOrder.estado_wms || selectedEstadoWms}</span></div>
+              <div><strong>Bodega de Pickeo:</strong> ${insertedOrder.sucursal_pickeo || 'No aplica para este estado'}</div>
+              <div><strong>Bodega de Stock:</strong> <span style="color: #059669; font-weight: 700;">${resolvedWhNameForDisplay}</span></div>
+            </div>
+          </div>
+        `,
         confirmButtonColor: '#7117eb'
       });
 

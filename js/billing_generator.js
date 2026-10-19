@@ -62,6 +62,7 @@ export const billingState = {
   inboundDeclarations: [],
   activeRange: null,
   orders: [],
+  customColumns: [],
   supplies: [],
   adjustments: [],
   totals: {
@@ -1643,6 +1644,74 @@ export async function getMonthlyStorageVolume(commerceGroup, year, month) {
   return { averageM3: 0, daysCount: 0, dailyLogs: [] };
 }
 
+// --- FUNCIONES AUXILIARES PARA COLUMNAS PERSONALIZADAS DE COBRO (RECARGOS PREPARACIÓN) ---
+export function calculateCustomColumnRuleAmount(col, order) {
+  if (!col || !order) return 0;
+  const rate = Math.max(0, Number(col.rate) || 0);
+  if (col.mode === 'per_unit') {
+    const units = Math.max(1, parseInt(order.unitsCount, 10) || 1);
+    return Math.round(rate * units);
+  }
+  return Math.round(rate);
+}
+
+export function computeOrderCustomSurchargesTotal(order, customColumns = null) {
+  if (!order) return 0;
+  const cols = Array.isArray(customColumns) ? customColumns : (billingState.customColumns || []);
+  if (!order.customSurcharges || typeof order.customSurcharges !== 'object') return 0;
+  if (cols.length > 0) {
+    return cols.reduce((acc, col) => {
+      if (!col || !col.id) return acc;
+      return acc + Math.max(0, Math.round(Number(order.customSurcharges[col.id]) || 0));
+    }, 0);
+  }
+  return Object.values(order.customSurcharges).reduce((acc, v) => acc + Math.max(0, Math.round(Number(v) || 0)), 0);
+}
+
+export function recomputeOrderPickPackWithCustomColumns(order, customColumns = null) {
+  if (!order) return;
+  const cols = Array.isArray(customColumns) ? customColumns : (billingState.customColumns || []);
+  if (!order.customSurcharges || typeof order.customSurcharges !== 'object') {
+    order.customSurcharges = {};
+  }
+  if (!order.customSurchargesMeta || typeof order.customSurchargesMeta !== 'object') {
+    order.customSurchargesMeta = {};
+  }
+
+  let customTotal = 0;
+  cols.forEach(col => {
+    if (!col || !col.id) return;
+    const meta = order.customSurchargesMeta[col.id];
+    const isManual = meta === 'manual' || (typeof meta === 'object' && Boolean(meta.isManual));
+    const isRule = meta === 'rule' || (typeof meta === 'object' && Boolean(meta.enabled) && !meta.isManual);
+    let val = order.customSurcharges[col.id];
+
+    if (isManual) {
+      val = Math.max(0, Math.round(Number(val) || 0));
+      order.customSurcharges[col.id] = val;
+      order.customSurchargesMeta[col.id] = 'manual';
+    } else if (isRule) {
+      val = calculateCustomColumnRuleAmount(col, order);
+      order.customSurcharges[col.id] = val;
+      order.customSurchargesMeta[col.id] = 'rule';
+    } else if (val !== undefined && val !== null) {
+      val = Math.max(0, Math.round(Number(val) || 0));
+      order.customSurcharges[col.id] = val;
+      order.customSurchargesMeta[col.id] = 'rule';
+    } else {
+      val = calculateCustomColumnRuleAmount(col, order);
+      order.customSurcharges[col.id] = val;
+      order.customSurchargesMeta[col.id] = 'rule';
+    }
+
+    customTotal += val;
+  });
+
+  order.customSurchargesTotal = customTotal;
+  order.pickPackTotal = (order.baseRate || 0) + (order.surchargeSku || 0) + (order.surchargeUnits || 0) + (order.surchargeMarketplace || 0) + customTotal;
+  order.orderTotal = order.pickPackTotal + (order.shippingFreight || 0);
+}
+
 // --- MOTOR PRINCIPAL DE CÁLCULO DE FACTURACIÓN ---
 export async function calculateCommerceBilling(commerceName, periodName, customOverrides = {}) {
   billingState.isLoading = true;
@@ -1654,9 +1723,11 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     billingState.suppliesSessionKey = null;
     billingState.adjustmentsSessionKey = null;
     billingState.abonosSessionKey = null;
+    billingState.customColumnsSessionKey = null;
     billingState.supplies = [];
     billingState.adjustments = [];
     billingState.abonos = [];
+    billingState.customColumns = [];
     billingState.orders = [];
   }
 
@@ -1961,7 +2032,7 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
   // 6. Consultar pedidos asignados al periodo en el Gestor de Pedidos con paginación keyset determinista
   let ordersList = [];
   try {
-    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,raw_shopify_data,raw_woocommerce_data,raw_meli_data';
+    const orderSelectFields = 'id,created_at,external_order_number,external_platform,status,estado_wms,comercio,categoria_entrega,agenda,operador,shipping_city,shipping_address,shipping_method,total_value,sku,cantidad,item,periodo_facturacion,raw_shopify_data,raw_woocommerce_data,raw_meli_data,order_items(quantity,product_id,products(sku,is_virtual))';
 
     const step = 1000;
     let lastCreatedAt = null;
@@ -2061,26 +2132,43 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     return found ? found.price : fallback;
   };
 
+  // 7.1 Restaurar columnas personalizadas de cobro (recargos de preparación)
+  const currentCustomColsKey = `${billingState.currentPeriodId}_${commerceName}`;
+  if (customOverrides.customColumns !== undefined) {
+    billingState.customColumns = customOverrides.customColumns;
+    billingState.customColumnsSessionKey = currentCustomColsKey;
+  } else if (!customOverrides.forceFresh && billingState.customColumnsSessionKey === currentCustomColsKey && Array.isArray(billingState.customColumns)) {
+    // Preservar columnas personalizadas creadas/editadas durante la sesión activa
+  } else if (!customOverrides.forceFresh && savedSnapshot && Array.isArray(savedSnapshot.customColumns)) {
+    billingState.customColumns = savedSnapshot.customColumns;
+    billingState.customColumnsSessionKey = currentCustomColsKey;
+  } else {
+    billingState.customColumns = [];
+    billingState.customColumnsSessionKey = currentCustomColsKey;
+  }
+
   const savedOrderMap = {};
   if (!customOverrides.forceFresh) {
     if (savedSnapshot && savedSnapshot.orders && Array.isArray(savedSnapshot.orders)) {
       savedSnapshot.orders.forEach(so => {
         if (so && so.id) {
-          // Sanear si en el snapshot previo venía con isMarketplace=true pero surchargeMarketplace=0
-          if (so.isMarketplace && (!so.surchargeMarketplace || so.surchargeMarketplace === 0)) {
+          const customTotal = computeOrderCustomSurchargesTotal(so, billingState.customColumns);
+          // Sanear si en el snapshot previo venía con isMarketplace=true pero surchargeMarketplace=0 (salvo edición manual)
+          if (!so.surchargeMarketplaceManual && so.isMarketplace && (!so.surchargeMarketplace || so.surchargeMarketplace === 0)) {
             const mktRate = (cfg.pick_pack_rules && cfg.pick_pack_rules.surcharge_marketplace_collect) || 100;
             so.surchargeMarketplace = mktRate;
-            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + so.surchargeMarketplace;
+            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + so.surchargeMarketplace + customTotal;
             so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
-          } else if (!so.isMarketplace && so.surchargeMarketplace > 0) {
+          } else if (!so.surchargeMarketplaceManual && !so.isMarketplace && so.surchargeMarketplace > 0) {
             so.surchargeMarketplace = 0;
-            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0);
+            so.pickPackTotal = (so.baseRate || 0) + (so.surchargeSku || 0) + (so.surchargeUnits || 0) + customTotal;
             so.orderTotal = so.pickPackTotal + (so.shippingFreight || 0);
           }
           savedOrderMap[so.id] = so;
         }
       });
-    } else if (billingState.currentPeriodId && commerceName && billingState.currentCommerce === commerceName && Array.isArray(billingState.orders)) {
+    }
+    if (billingState.currentPeriodId && commerceName && billingState.currentCommerce === commerceName && Array.isArray(billingState.orders) && billingState.orders.length > 0 && billingState.customColumnsSessionKey === currentCustomColsKey) {
       billingState.orders.forEach(bo => {
         if (bo && bo.id) {
           savedOrderMap[bo.id] = bo;
@@ -2095,29 +2183,54 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     const isExcluded = (customOverrides.excludedOrderIds && customOverrides.excludedOrderIds.includes(ord.id)) ||
                        (customOverrides.orders && customOverrides.orders[ord.id]?.isExcluded !== undefined ? customOverrides.orders[ord.id].isExcluded : (savedOrder ? !!savedOrder.isExcluded : false));
     
-    // Conteo de SKUs y Unidades
+    // Conteo de SKUs y Unidades (incluyendo order_items para pedidos manuales y sincronizados)
     let skuCount = 1;
     let unitsCount = Math.max(1, parseInt(ord.cantidad, 10) || 1);
     
     if (ord.order_items && Array.isArray(ord.order_items) && ord.order_items.length > 0) {
-      skuCount = ord.order_items.length;
-      unitsCount = ord.order_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+      const nonVirtualItems = ord.order_items.filter(item => !item.products?.is_virtual && (parseInt(item.quantity, 10) || 0) > 0);
+      const itemsToCount = nonVirtualItems.length > 0 ? nonVirtualItems : ord.order_items;
+      const uniqueSkus = new Set(
+        itemsToCount.map((item, iIdx) => {
+          const k = String(item.products?.sku || item.sku || item.product_id || '').trim().toUpperCase();
+          return k || `ITEM_${iIdx}`;
+        })
+      );
+      skuCount = Math.max(1, uniqueSkus.size);
+      unitsCount = Math.max(1, itemsToCount.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0));
     } else if (ord.raw_shopify_data?.line_items && Array.isArray(ord.raw_shopify_data.line_items) && ord.raw_shopify_data.line_items.length > 0) {
       skuCount = ord.raw_shopify_data.line_items.length;
       unitsCount = ord.raw_shopify_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
     } else if (ord.raw_woocommerce_data?.line_items && Array.isArray(ord.raw_woocommerce_data.line_items) && ord.raw_woocommerce_data.line_items.length > 0) {
       skuCount = ord.raw_woocommerce_data.line_items.length;
       unitsCount = ord.raw_woocommerce_data.line_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
-    } else if (ord.sku && ord.sku.includes(',')) {
-      skuCount = ord.sku.split(',').length;
+    } else if (ord.raw_meli_data?.order_items && Array.isArray(ord.raw_meli_data.order_items) && ord.raw_meli_data.order_items.length > 0) {
+      skuCount = ord.raw_meli_data.order_items.length;
+      unitsCount = ord.raw_meli_data.order_items.reduce((acc, item) => acc + (parseInt(item.quantity, 10) || 1), 0);
+    } else if (ord.sku && String(ord.sku).includes(',')) {
+      skuCount = String(ord.sku).split(',').map(s => s.trim()).filter(Boolean).length || 1;
     }
+
+    // Sobreescritura manual por pedido si el admin ya lo editó (o si estaba guardado en snapshot).
+    // Si el snapshot tenía el fallback antiguo (1 SKU / 1 Unidad) pero order_items indica > 1, actualizar al valor real.
+    const manualOrderOverride = (customOverrides.orders && customOverrides.orders[ord.id]) || savedOrder;
+    const isExplicitOverride = Boolean(customOverrides.orders && customOverrides.orders[ord.id]);
+    const savedSkuCount = manualOrderOverride?.skuCount !== undefined ? Math.max(1, parseInt(manualOrderOverride.skuCount, 10) || 1) : null;
+    const savedUnitsCount = manualOrderOverride?.unitsCount !== undefined ? Math.max(1, parseInt(manualOrderOverride.unitsCount, 10) || 1) : null;
+
+    const finalSkuCount = (savedSkuCount !== null && (isExplicitOverride || !(savedSkuCount === 1 && skuCount > 1)))
+      ? savedSkuCount
+      : skuCount;
+    const finalUnitsCount = (savedUnitsCount !== null && (isExplicitOverride || !(savedUnitsCount === 1 && unitsCount > 1)))
+      ? savedUnitsCount
+      : unitsCount;
 
     // Reglas de Recargos de Pick & Pack
     const basePickPackRate = activeRange.pick_pack_base; // ej: $1.250
-    const extraSkuCount = Math.max(0, skuCount - (cfg.pick_pack_rules.base_included_sku || 3));
+    const extraSkuCount = Math.max(0, finalSkuCount - (cfg.pick_pack_rules.base_included_sku || 3));
     const surchargeSku = extraSkuCount * (cfg.pick_pack_rules.surcharge_extra_sku || 100);
 
-    const extraUnitsCount = Math.max(0, unitsCount - (cfg.pick_pack_rules.base_included_units || 10));
+    const extraUnitsCount = Math.max(0, finalUnitsCount - (cfg.pick_pack_rules.base_included_units || 10));
     const surchargeUnits = extraUnitsCount * (cfg.pick_pack_rules.surcharge_extra_unit || 50);
 
     // Detección automática de pedido Marketplace (+ $100)
@@ -2192,19 +2305,16 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       shippingFreight = getDeliveryPrice('ENVIAME_REGION', 0);
     }
 
-    // Sobreescritura manual por pedido si el admin ya lo editó (o si estaba guardado en snapshot)
-    const manualOrderOverride = (customOverrides.orders && customOverrides.orders[ord.id]) || savedOrder;
-    
     // Respetar override manual de isMarketplace si existe; de lo contrario usar auto-detección
     const isMarketplace = manualOrderOverride?.isMarketplace !== undefined
       ? !!manualOrderOverride.isMarketplace
       : isMarketplaceAuto;
 
-    // Regla estricta de recargo Marketplace:
-    // Checkbox marcado (true) = $100 (o tarifa configurada si > 0). NUNCA $0 si isMarketplace es true.
-    // Checkbox desmarcado (false) = $0.
+    const isSurchargeMarketplaceManual = Boolean(manualOrderOverride?.surchargeMarketplaceManual);
     let finalSurchargeMarketplace = 0;
-    if (isMarketplace) {
+    if (isSurchargeMarketplaceManual && manualOrderOverride?.surchargeMarketplace !== undefined) {
+      finalSurchargeMarketplace = Math.max(0, Math.round(Number(manualOrderOverride.surchargeMarketplace) || 0));
+    } else if (isMarketplace) {
       finalSurchargeMarketplace = (manualOrderOverride?.surchargeMarketplace !== undefined && manualOrderOverride.surchargeMarketplace > 0)
         ? manualOrderOverride.surchargeMarketplace
         : mktSurchargeRate;
@@ -2213,8 +2323,16 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
     }
 
     const finalBaseRate = manualOrderOverride?.baseRate !== undefined ? manualOrderOverride.baseRate : basePickPackRate;
-    const finalSurchargeSku = manualOrderOverride?.surchargeSku !== undefined ? manualOrderOverride.surchargeSku : surchargeSku;
-    const finalSurchargeUnits = manualOrderOverride?.surchargeUnits !== undefined ? manualOrderOverride.surchargeUnits : surchargeUnits;
+    const isSurchargeSkuManual = Boolean(manualOrderOverride?.surchargeSkuManual);
+    const finalSurchargeSku = (isSurchargeSkuManual && manualOrderOverride?.surchargeSku !== undefined)
+      ? Math.max(0, Math.round(Number(manualOrderOverride.surchargeSku) || 0))
+      : surchargeSku;
+
+    const isSurchargeUnitsManual = Boolean(manualOrderOverride?.surchargeUnitsManual);
+    const finalSurchargeUnits = (isSurchargeUnitsManual && manualOrderOverride?.surchargeUnits !== undefined)
+      ? Math.max(0, Math.round(Number(manualOrderOverride.surchargeUnits) || 0))
+      : surchargeUnits;
+
     const finalDeliveryType = manualOrderOverride?.deliveryType || deliveryType;
     let finalShippingFreight = shippingFreight;
     if (manualOrderOverride?.shippingFreight !== undefined) {
@@ -2236,7 +2354,39 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
 
     const finalTicketVenta = manualOrderOverride?.ticketVenta !== undefined ? manualOrderOverride.ticketVenta : ticketVenta;
 
-    const finalPickPackTotal = finalBaseRate + finalSurchargeSku + finalSurchargeUnits + finalSurchargeMarketplace;
+    // Calcular recargos de columnas personalizadas de cobro (por unidad o global)
+    const customSurcharges = {};
+    const customSurchargesMeta = {};
+    const activeCustomCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+    activeCustomCols.forEach(col => {
+      if (!col || !col.id) return;
+      const savedMeta = manualOrderOverride?.customSurchargesMeta?.[col.id];
+      const savedVal = manualOrderOverride?.customSurcharges?.[col.id];
+      const isManual = savedMeta === 'manual' || (typeof savedMeta === 'object' && Boolean(savedMeta.isManual));
+      const isRule = savedMeta === 'rule' || (typeof savedMeta === 'object' && Boolean(savedMeta.enabled) && !savedMeta.isManual);
+
+      if (isManual) {
+        customSurchargesMeta[col.id] = 'manual';
+        customSurcharges[col.id] = Math.max(0, Math.round(Number(savedVal) || 0));
+      } else if (isRule) {
+        customSurchargesMeta[col.id] = 'rule';
+        customSurcharges[col.id] = col.mode === 'per_unit'
+          ? Math.round((Number(col.rate) || 0) * finalUnitsCount)
+          : Math.round(Number(col.rate) || 0);
+      } else if (savedVal !== undefined && savedVal !== null) {
+        const numVal = Math.max(0, Math.round(Number(savedVal) || 0));
+        customSurcharges[col.id] = numVal;
+        customSurchargesMeta[col.id] = 'manual';
+      } else {
+        customSurchargesMeta[col.id] = 'rule';
+        customSurcharges[col.id] = col.mode === 'per_unit'
+          ? Math.round((Number(col.rate) || 0) * finalUnitsCount)
+          : Math.round(Number(col.rate) || 0);
+      }
+    });
+
+    const customSurchargesTotal = activeCustomCols.reduce((acc, col) => acc + (customSurcharges[col.id] || 0), 0);
+    const finalPickPackTotal = finalBaseRate + finalSurchargeSku + finalSurchargeUnits + finalSurchargeMarketplace + customSurchargesTotal;
     const finalOrderTotal = finalPickPackTotal + finalShippingFreight;
 
     return {
@@ -2250,8 +2400,8 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       destination: ord.shipping_city || 'Santiago',
       isColina,
       isFlex,
-      skuCount,
-      unitsCount,
+      skuCount: finalSkuCount,
+      unitsCount: finalUnitsCount,
       isMarketplace,
       categoriaEntrega: ord.categoria_entrega || 'DISTRIBUCIÓN',
       operador: (ord.operador && String(ord.operador).trim() !== '' && String(ord.operador).trim() !== '—') ? String(ord.operador).trim() : '',
@@ -2261,8 +2411,14 @@ export async function calculateCommerceBilling(commerceName, periodName, customO
       deliveryType: finalDeliveryType,
       baseRate: finalBaseRate,
       surchargeSku: finalSurchargeSku,
+      surchargeSkuManual: isSurchargeSkuManual,
       surchargeUnits: finalSurchargeUnits,
+      surchargeUnitsManual: isSurchargeUnitsManual,
       surchargeMarketplace: finalSurchargeMarketplace,
+      surchargeMarketplaceManual: isSurchargeMarketplaceManual,
+      customSurcharges,
+      customSurchargesMeta,
+      customSurchargesTotal,
       pickPackTotal: finalPickPackTotal,
       shippingFreight: finalShippingFreight,
       orderTotal: finalOrderTotal,
@@ -2969,7 +3125,21 @@ export function renderStockaDesgloseHTML(snapshotState = null) {
               <td>
                 <div style="font-weight: 700; color: #0f172a; font-size: 0.85rem;">Servicio de preparación de pedidos</div>
                 <div style="font-size: 0.725rem; color: #64748b; margin-top: 2px;">
-                  Pick & Pack base ${formatCLP(b.activeRange?.pick_pack_base || 1250)} + recargos por SKUs adicionales y unidades
+                  ${(() => {
+                    const baseDesc = `Pick & Pack base ${formatCLP(b.activeRange?.pick_pack_base || 1250)} + recargos por SKUs adicionales y unidades`;
+                    const activeCols = Array.isArray(b.customColumns) ? b.customColumns : [];
+                    if (activeCols.length === 0) return baseDesc;
+                    const billable = (b.orders || []).filter(o => !o.isExcluded);
+                    const colSummaries = activeCols.map(col => {
+                      const colSum = billable.reduce((acc, o) => acc + Math.max(0, Number(o.customSurcharges?.[col.id]) || 0), 0);
+                      if (colSum <= 0) return null;
+                      const modeTxt = col.mode === 'per_unit' ? `${formatCLP(col.rate)}/unid.` : `${formatCLP(col.rate)} global`;
+                      return `${escapeHtml(col.name)} (${modeTxt}: ${formatCLP(colSum)})`;
+                    }).filter(Boolean);
+                    return colSummaries.length > 0
+                      ? `${baseDesc} + recargos personalizados [${colSummaries.join(' · ')}]`
+                      : baseDesc;
+                  })()}
                 </div>
               </td>
               <td style="text-align: center; font-weight: 600; color: #64748b;">ud.</td>
@@ -3588,10 +3758,14 @@ export function exportBillingToExcel(customState = null) {
     return acc;
   }, {});
 
+  const customColsList = Array.isArray(b.customColumns) ? b.customColumns : [];
+  const customColHeaders = customColsList.map(col => `${(col.name || 'RECARGO').toUpperCase()} (${col.mode === 'per_unit' ? '$/UNID' : 'GLOBAL'} $)`);
+
   const ordersHeaders = [
     "N°", "REF. ORIGEN", "PLATAFORMA", "TIENDA / COMERCIO", "ID PEDIDO", "FECHA", "AGENDA", "DESTINO / COMUNA", "OPERADOR", "MÉTODO ENVÍO",
     "TICKET VENTA ($)", "TIPO ENTREGA", "SKUS", "UNIDADES", "MKT?",
     "TARIFA BASE ($)", "REC. SKU ($)", "REC. UNID ($)", "REC. MKT ($)",
+    ...customColHeaders,
     "PREPARACIÓN TOTAL ($)", "FLETE ENVÍO ($)", "TOTAL COBRADO ($)", "ESTADO WMS", "INCLUIDO?"
   ];
 
@@ -3615,6 +3789,7 @@ export function exportBillingToExcel(customState = null) {
     o.surchargeSku,
     o.surchargeUnits,
     o.surchargeMarketplace,
+    ...customColsList.map(col => Math.max(0, Number(o.customSurcharges?.[col.id]) || 0)),
     o.pickPackTotal,
     o.shippingFreight,
     o.orderTotal,
@@ -3723,6 +3898,130 @@ export function downloadBillingPdf(customElement = null, customFilename = null) 
   });
 }
 
+// --- VERIFICAR Y RESTAURAR SESIÓN DE ADMINISTRADOR ANTES DE ESCRIBIR EN BILLING_RECORDS ---
+async function ensureAdminBillingSession() {
+  try {
+    let { data: { session } } = await supabase.auth.getSession();
+    let currentRole = null;
+    let currentEmail = session?.user?.email || '';
+
+    if (session?.user?.id) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      currentRole = prof?.role || null;
+    }
+
+    if (currentRole === 'admin') {
+      try {
+        const serialized = JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+          user: session.user
+        });
+        sessionStorage.setItem('sb-wms-admin-session-backup', serialized);
+        localStorage.setItem('sb-wms-admin-session-backup', serialized);
+      } catch (e) {}
+      return true;
+    }
+
+    // 1. Intentar restaurar silenciosamente el respaldo de sesión de Administrador
+    try {
+      const backupRaw = sessionStorage.getItem('sb-wms-admin-session-backup') || localStorage.getItem('sb-wms-admin-session-backup');
+      if (backupRaw) {
+        const backupSess = JSON.parse(backupRaw);
+        if (backupSess?.access_token && backupSess?.refresh_token) {
+          const { data: restored, error: restErr } = await supabase.auth.setSession({
+            access_token: backupSess.access_token,
+            refresh_token: backupSess.refresh_token
+          });
+          if (!restErr && restored?.session?.user?.id) {
+            const { data: adminProf } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', restored.session.user.id)
+              .maybeSingle();
+            if (adminProf?.role === 'admin') {
+              return true;
+            }
+          }
+        }
+      }
+    } catch (eRestore) {
+      console.warn('No se pudo restaurar respaldo de sesión Admin automáticamente:', eRestore);
+    }
+
+    // 2. Si no hay respaldo o expiró, solicitar re-autenticación en el mismo modal sin perder los datos en pantalla
+    const defaultAdminEmail = window.currentAdminUser?.email || 'stockachile@gmail.com';
+    const switchedAccountNotice = currentEmail
+      ? `La sesión activa del navegador cambió en otra pestaña a <strong>${escapeHtml(currentEmail)}</strong> (rol <code>${escapeHtml(currentRole || 'cliente')}</code>).`
+      : `La sesión de Administrador en el navegador expiró o fue cerrada en otra pestaña.`;
+
+    const authResult = await Swal.fire({
+      icon: 'warning',
+      title: 'Restaurar Sesión de Administrador',
+      html: `
+        <div style="text-align: left; font-size: 0.85rem; line-height: 1.45; color: #334155;">
+          <p style="margin-bottom: 0.65rem;">${switchedAccountNotice}</p>
+          <p style="margin-bottom: 0.85rem; color: #64748b;">Ingresa tus credenciales de Administrador para restaurar los permisos y publicar/guardar sin perder los cambios ni columnas personalizadas en pantalla:</p>
+          <div style="margin-bottom: 0.6rem;">
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">Correo Administrador</label>
+            <input id="swal-admin-reauth-email" type="email" class="swal2-input" value="${escapeHtml(defaultAdminEmail)}" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 0.25rem;">Contraseña</label>
+            <input id="swal-admin-reauth-pass" type="password" class="swal2-input" placeholder="Contraseña de administrador" style="margin: 0; width: 100%; height: 38px; font-size: 0.85rem;">
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-shield-keyhole-line"></i> Restaurar y Continuar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#5f06fa',
+      focusConfirm: false,
+      preConfirm: async () => {
+        const email = (document.getElementById('swal-admin-reauth-email')?.value || '').trim();
+        const password = document.getElementById('swal-admin-reauth-pass')?.value || '';
+        if (!email || !password) {
+          Swal.showValidationMessage('Ingresa tu correo y contraseña de Administrador');
+          return false;
+        }
+        const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (loginErr || !loginData?.session) {
+          Swal.showValidationMessage('Credenciales inválidas: ' + (loginErr?.message || 'Error de autenticación'));
+          return false;
+        }
+        const { data: checkProf } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', loginData.session.user.id)
+          .maybeSingle();
+        if (checkProf?.role !== 'admin') {
+          Swal.showValidationMessage('La cuenta ingresada no tiene permisos de Administrador.');
+          return false;
+        }
+        try {
+          const serialized = JSON.stringify({
+            access_token: loginData.session.access_token,
+            refresh_token: loginData.session.refresh_token,
+            user: loginData.session.user
+          });
+          sessionStorage.setItem('sb-wms-admin-session-backup', serialized);
+          localStorage.setItem('sb-wms-admin-session-backup', serialized);
+        } catch (e) {}
+        return true;
+      }
+    });
+
+    return Boolean(authResult.isConfirmed && authResult.value);
+  } catch (err) {
+    console.warn('Error verificando sesión de administrador:', err);
+    return true;
+  }
+}
+
 // --- GUARDAR Y SINCRONIZAR EN BILLING_RECORDS ---
 export async function saveBillingRecordToSupabase() {
   const b = billingState;
@@ -3733,6 +4032,9 @@ export async function saveBillingRecordToSupabase() {
     return false;
   }
 
+  const hasAdminAuth = await ensureAdminBillingSession();
+  if (!hasAdminAuth) return false;
+
   try {
     Swal.fire({
       title: 'Guardando Facturación...',
@@ -3742,8 +4044,8 @@ export async function saveBillingRecordToSupabase() {
     });
 
     const payload = {
-      total_fulfillment: t.totalGross || 0,
-      abono_fulfillment: t.totalAbonos || 0,
+      total_fulfillment: Math.round(Number(t.totalGross) || 0),
+      abono_fulfillment: Math.round(Number(t.totalAbonos) || 0),
       desglose_fulfillment: 'Creado',
       updated_at: new Date().toISOString()
     };
@@ -3780,6 +4082,7 @@ export async function saveBillingRecordToSupabase() {
       activeRange: b.activeRange,
       totals: b.totals,
       orders: b.orders,
+      customColumns: b.customColumns || [],
       supplies: b.supplies,
       adjustments: b.adjustments,
       abonos: b.abonos || [],
@@ -3863,6 +4166,9 @@ export async function saveBillingRecordToSupabase() {
     if (typeof window.loadBillingPeriods === 'function') {
       window.loadBillingPeriods();
     }
+    if (typeof loadAndRenderPeriodOverview === 'function') {
+      loadAndRenderPeriodOverview({ silentBadgeOnly: true }).catch(() => {});
+    }
 
     return true;
   } catch (err) {
@@ -3935,6 +4241,9 @@ export async function confirmAndPublishBillingToCommerce() {
     Swal.fire('Atención', 'No hay un periodo o comercio activo seleccionado para publicar.', 'warning');
     return false;
   }
+
+  const hasAdminAuth = await ensureAdminBillingSession();
+  if (!hasAdminAuth) return false;
 
   // Cuadro de confirmación explícita
   const result = await Swal.fire({
@@ -4023,6 +4332,7 @@ export async function confirmAndPublishBillingToCommerce() {
       activeRange: b.activeRange,
       totals: b.totals,
       orders: b.orders,
+      customColumns: b.customColumns || [],
       supplies: b.supplies,
       adjustments: b.adjustments,
       abonos: b.abonos || [],
@@ -4048,9 +4358,13 @@ export async function confirmAndPublishBillingToCommerce() {
     } catch (e) {}
 
     // 3. Actualizar o insertar registro en base de datos
+    const roundedGross = Math.round(Number(t.totalGross) || 0);
+    const roundedAbonos = Math.round(Number(t.totalAbonos) || 0);
+    const roundedToPay = Math.round(Number(t.totalToPay) || 0);
+
     const updatePayload = {
-      total_fulfillment: t.totalGross || 0,
-      abono_fulfillment: t.totalAbonos || 0,
+      total_fulfillment: roundedGross,
+      abono_fulfillment: roundedAbonos,
       desglose_fulfillment: 'Enviado',
       updated_at: new Date().toISOString()
     };
@@ -4063,22 +4377,34 @@ export async function confirmAndPublishBillingToCommerce() {
       updatePayload.fulfillment_link = publicSnapshotUrl;
     }
 
-    const { data: existingRec } = await supabase
+    const lookupCommerces = [b.currentCommerce];
+    const upperComm = (b.currentCommerce || '').trim().toUpperCase();
+    if (upperComm === 'BIG BANG' || upperComm === 'BIG BANG SPA' || upperComm.includes('BIG BANG')) {
+      lookupCommerces.push('BIG BANG', 'BIG BANG SPA');
+    } else if (upperComm === 'SILVER FOX' || upperComm === 'SILVER FOX SPA' || upperComm.includes('SILVER FOX')) {
+      lookupCommerces.push('SILVER FOX', 'SILVER FOX SPA');
+    }
+
+    const { data: existingRecs } = await supabase
       .from('billing_records')
       .select('id, pago_fulfillment, factura_fulfillment, fecha_limite')
       .eq('period_id', b.currentPeriodId)
-      .eq('comercio', b.currentCommerce)
-      .maybeSingle();
+      .in('comercio', lookupCommerces)
+      .limit(1);
+
+    const existingRec = existingRecs && existingRecs[0] ? existingRecs[0] : null;
 
     // Auto-transición de estados operativos: al publicar cobro, pasa a 'En espera' de pago y 'Facturar'
-    if ((t.totalGross || 0) > 0) {
+    if (roundedGross > 0) {
       if (!existingRec || !existingRec.pago_fulfillment || existingRec.pago_fulfillment === 'Por solicitar') {
-        updatePayload.pago_fulfillment = (t.totalToPay || 0) > 0 ? 'En espera' : 'Recibido';
+        updatePayload.pago_fulfillment = roundedToPay > 0 ? 'En espera' : 'Recibido';
       }
       if (!existingRec || !existingRec.factura_fulfillment || existingRec.factura_fulfillment === 'Esperando') {
         updatePayload.factura_fulfillment = 'Facturar';
       }
     }
+
+    let finalRecordId = existingRec?.id || null;
 
     if (existingRec && existingRec.id) {
       const { error: updateErr } = await supabase
@@ -4088,28 +4414,34 @@ export async function confirmAndPublishBillingToCommerce() {
 
       if (updateErr) throw updateErr;
     } else {
-      const { error: insertErr } = await supabase
+      const { data: updatedRows, error: baseErr } = await supabase
         .from('billing_records')
-        .insert({
-          period_id: b.currentPeriodId,
-          comercio: b.currentCommerce,
-          pago_fulfillment: (t.totalToPay || 0) > 0 ? 'En espera' : ((t.totalGross || 0) > 0 ? 'Recibido' : 'Sin movimientos'),
-          factura_fulfillment: (t.totalGross || 0) > 0 ? 'Facturar' : 'Sin movimientos',
-          ...updatePayload
-        });
-
-      if (insertErr) throw insertErr;
-    }
-
-    let finalRecordId = existingRec?.id;
-    if (!finalRecordId) {
-      const { data: newlyCreated } = await supabase
-        .from('billing_records')
-        .select('id')
+        .update(updatePayload)
         .eq('period_id', b.currentPeriodId)
         .eq('comercio', b.currentCommerce)
-        .maybeSingle();
-      finalRecordId = newlyCreated?.id;
+        .select('id');
+
+      if (baseErr) throw baseErr;
+
+      if (updatedRows && updatedRows.length > 0) {
+        finalRecordId = updatedRows[0].id;
+      } else {
+        const { data: insertedRows, error: insertErr } = await supabase
+          .from('billing_records')
+          .insert({
+            period_id: b.currentPeriodId,
+            comercio: b.currentCommerce,
+            pago_fulfillment: roundedToPay > 0 ? 'En espera' : (roundedGross > 0 ? 'Recibido' : 'Sin movimientos'),
+            factura_fulfillment: roundedGross > 0 ? 'Facturar' : 'Sin movimientos',
+            ...updatePayload
+          })
+          .select('id');
+
+        if (insertErr) throw insertErr;
+        if (insertedRows && insertedRows[0]) {
+          finalRecordId = insertedRows[0].id;
+        }
+      }
     }
 
     billingState.isSaved = true;
@@ -4119,6 +4451,9 @@ export async function confirmAndPublishBillingToCommerce() {
 
     if (typeof window.loadBillingPeriods === 'function') {
       window.loadBillingPeriods();
+    }
+    if (typeof loadAndRenderPeriodOverview === 'function') {
+      loadAndRenderPeriodOverview({ silentBadgeOnly: true }).catch(() => {});
     }
 
     const postAction = await Swal.fire({
@@ -5158,13 +5493,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     ? (periods.find(p => p.id === initialPeriodId) || periods.find(p => p.status === 'activo') || periods[0] || { id: initialPeriodId, name: 'SEPTIEMBRE 2026' })
     : (periods.find(p => p.status === 'activo') || periods[0] || { id: '', name: 'SEPTIEMBRE 2026' });
 
-  let defaultCommerce = initialCommerce;
-  if (!defaultCommerce) {
-    if (canonicalDisplayList.length > 0) defaultCommerce = canonicalDisplayList[0].name;
-    else if (conglomeratesMap['BIG BANG']) defaultCommerce = 'BIG BANG';
-    else defaultCommerce = comercios[0]?.nombre || 'STREET GYM';
-  }
-
+  const defaultCommerce = initialCommerce ? String(initialCommerce).trim() : '';
   const selUpper = String(defaultCommerce || '').trim().toUpperCase();
   let hasSelectedCommerce = false;
 
@@ -5177,25 +5506,103 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   });
 
   const periodGroups = groupAndSortBillingPeriods(periods);
+  const periodOptionsHTML = periodGroups.length > 0
+    ? periodGroups.map(group => `
+        <optgroup label="📅 Año ${group.year}">
+          ${group.periods.map(p => `
+            <option value="${p.id}" data-name="${escapeHtml(p.name)}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>
+              ${escapeHtml(p.name)}${p.status === 'activo' ? ' (Activo)' : ''}
+            </option>
+          `).join('')}
+        </optgroup>
+      `).join('')
+    : `<option value="${escapeHtml(defaultPeriod?.id || '')}" data-name="${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}" selected>${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}</option>`;
+
+  const startInGenerator = Boolean(initialCommerce);
 
   container.innerHTML = `
     <div style="padding: 0.5rem 0;">
+      <!-- ========================================================================= -->
+      <!-- VISTA 1: RESUMEN DEL PERIODO ACTUAL (DEFAULT AL ENTRAR AL GESTOR)        -->
+      <!-- ========================================================================= -->
+      <div id="bg-period-overview-wrapper" style="display: ${startInGenerator ? 'none' : 'block'};">
+        <!-- Barra Superior del Resumen del Periodo -->
+        <div class="bg-card-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; border-left: 4px solid #5f06fa; margin-bottom: 1.25rem;">
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="width: 46px; height: 46px; border-radius: 12px; background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.45rem; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.28); flex-shrink: 0;">
+              <i class="ri-dashboard-3-line"></i>
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--color-text-main);">
+                  Resumen del Periodo — Gestor de Facturación
+                </h3>
+                <span id="bg-overview-period-badge" style="background: rgba(95, 6, 250, 0.1); color: #5f06fa; font-size: 0.72rem; font-weight: 800; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(95, 6, 250, 0.25);">
+                  ${escapeHtml(defaultPeriod?.name || 'PERIODO ACTUAL')}
+                </span>
+              </div>
+              <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+                Estado general de desgloses emitidos, totales de fulfillment y comercios pendientes de generar en el periodo.
+              </p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-end; gap: 0.65rem; flex-wrap: wrap;">
+            <div>
+              <label style="font-size: 0.7rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem; text-transform: uppercase;">
+                <i class="ri-calendar-event-line" style="color: #5f06fa;"></i> Periodo Oficial:
+              </label>
+              <select id="bg-overview-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 220px; font-weight: 700; border-radius: 8px;">
+                ${periodOptionsHTML}
+              </select>
+            </div>
+
+            <button type="button" id="bg-btn-refresh-overview" class="btn btn-outline" style="height: 40px; border-color: #cbd5e1; font-weight: 700; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.35rem;" title="Actualizar métricas y estados del periodo">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+
+            <button type="button" onclick="window.switchBgMainMode('generator')" class="btn btn-primary" style="height: 40px; background: linear-gradient(135deg, #5f06fa 0%, #7c3aed 100%); border-color: #5f06fa; font-weight: 700; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.45rem; box-shadow: 0 4px 12px rgba(95, 6, 250, 0.28);">
+              <i class="ri-calculator-line"></i> Ir al Generador de Desgloses <i class="ri-arrow-right-line"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Contenedor Dinámico del Resumen del Periodo -->
+        <div id="bg-period-overview-body">
+          <div style="text-align: center; padding: 3.5rem 2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text-muted);">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.5rem;"></i>
+            <div style="font-weight: 700; color: var(--color-text-main);">Cargando resumen del periodo...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================================= -->
+      <!-- VISTA 2: GENERADOR Y EDITOR DE DESGLOSES POR COMERCIO                     -->
+      <!-- ========================================================================= -->
+      <div id="bg-generator-workspace-wrapper" style="display: ${startInGenerator ? 'block' : 'none'};">
       <!-- Barra Superior de Control y Filtros -->
       <div class="bg-card-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; border-left: 4px solid #5f06fa;">
-        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
+          <div style="padding-top: 1.15rem;">
+            <button type="button" onclick="window.switchBgMainMode('overview')" class="btn btn-outline" style="height: 40px; border-color: rgba(95, 6, 250, 0.35); background: rgba(95, 6, 250, 0.05); color: #5f06fa; font-weight: 800; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.85rem;" title="Volver a la vista resumen del periodo actual">
+              <i class="ri-arrow-left-line"></i> Resumen del Periodo
+              <span id="bg-btn-overview-pending-badge" style="display: none; background: #f59e0b; color: #ffffff; font-size: 0.68rem; font-weight: 800; padding: 1px 6px; border-radius: 999px;">0</span>
+            </button>
+          </div>
           <div>
             <label style="font-size: 0.75rem; font-weight: 800; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
               <i class="ri-store-2-line" style="color: #5f06fa;"></i> COMERCIO A FACTURAR:
             </label>
             <div style="display: flex; align-items: center; gap: 0.5rem; position: relative;">
-              <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 250px; font-weight: 700; border-radius: 8px;">
+              <select id="bg-select-commerce" class="form-input" style="height: 40px; margin: 0; min-width: 265px; font-weight: 700; border-radius: 8px;">
+                <option value="" ${!defaultCommerce ? 'selected' : ''}>— Selecciona un comercio o holding —</option>
                 ${canonicalDisplayList.length > 0 ? `
                   <optgroup label="🏢 Conglomerados / Holdings (Cuentas Consolidadas)">
                     ${canonicalDisplayList.map(cg => {
                       const children = cg.children || [];
                       const cgUpper = String(cg.name).trim().toUpperCase();
                       let isSel = false;
-                      if (!hasSelectedCommerce) {
+                      if (selUpper && !hasSelectedCommerce) {
                         if (cgUpper === selUpper || (selUpper.includes('BIG BANG') && cgUpper === 'BIG BANG') || (selUpper.includes('SILVER FOX') && cgUpper === 'SILVER FOX')) {
                           isSel = true;
                           hasSelectedCommerce = true;
@@ -5209,7 +5616,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   ${individualComerciosList.map(c => {
                     const cUpper = String(c.nombre).trim().toUpperCase();
                     let isSel = false;
-                    if (!hasSelectedCommerce && cUpper === selUpper) {
+                    if (selUpper && !hasSelectedCommerce && cUpper === selUpper) {
                       isSel = true;
                       hasSelectedCommerce = true;
                     }
@@ -5228,17 +5635,7 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
               <i class="ri-calendar-event-line" style="color: #5f06fa;"></i> PERIODO OFICIAL:
             </label>
             <select id="bg-select-period" class="form-input" style="height: 40px; margin: 0; min-width: 220px; font-weight: 700; border-radius: 8px;">
-              ${periodGroups.length > 0
-                ? periodGroups.map(group => `
-                    <optgroup label="📅 Año ${group.year}">
-                      ${group.periods.map(p => `
-                        <option value="${p.id}" data-name="${escapeHtml(p.name)}" ${p.id === defaultPeriod?.id ? 'selected' : ''}>
-                          ${escapeHtml(p.name)}${p.status === 'activo' ? ' (Activo)' : ''}
-                        </option>
-                      `).join('')}
-                    </optgroup>
-                  `).join('')
-                : `<option value="${escapeHtml(defaultPeriod?.id || '')}" data-name="${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}" selected>${escapeHtml(defaultPeriod?.name || 'SEPTIEMBRE 2026')}</option>`}
+              ${periodOptionsHTML}
             </select>
           </div>
 
@@ -5273,10 +5670,12 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
 
       <!-- Resumen KPI en Vivo -->
       <div id="bg-kpis-container" class="bg-kpi-grid">
-        <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
-          <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
-          <div>Iniciando cálculo para <strong>${escapeHtml(defaultCommerce)}</strong>...</div>
-        </div>
+        ${startInGenerator ? `
+          <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
+            <div>Iniciando cálculo para <strong>${escapeHtml(defaultCommerce)}</strong>...</div>
+          </div>
+        ` : ''}
       </div>
 
       <!-- Sub-pestañas de Navegación del Gestor -->
@@ -5313,6 +5712,9 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                 <input type="text" id="bg-filter-order-input" class="form-input" placeholder="Búsqueda global..." style="height: 36px; font-size: 0.8rem; margin: 0; width: 210px; padding-left: 2rem; border-radius: 8px;" oninput="window.applyBgColumnFilters()">
                 <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
               </div>
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openAddCustomColumnModal()" style="border-radius: 6px; font-weight: 700; border-color: rgba(234, 88, 12, 0.45); color: #c2410c; background: rgba(234, 88, 12, 0.06); display: inline-flex; align-items: center; gap: 4px;" title="Añadir columna de cobro personalizada (Recargo por unidad o global por pedido) que se suma a Preparación">
+                <i class="ri-layout-column-line" style="color: #ea580c;"></i> + Columna Cobro (Recargo)
+              </button>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualSupplyRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Insumo o Caja">+ Insumo</button>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualAdjustmentRow()" style="border-radius: 6px; font-weight: 600;" title="Agregar Descuento / Ajuste">+ Ajuste Comercial</button>
               <button class="btn btn-outline btn-sm" onclick="window.addNewManualAbonoRow()" style="border-radius: 6px; font-weight: 600; border-color: rgba(16, 185, 129, 0.5); color: #047857; background: rgba(16, 185, 129, 0.05);" title="Registrar abono comercial que descuenta el saldo a pagar por el cliente">
@@ -5395,7 +5797,14 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                   <th style="width: 80px; text-align: right;">Rec. SKU</th>
                   <th style="width: 80px; text-align: right;">Rec. Unid</th>
                   <th style="width: 80px; text-align: right;">Rec. Mkt</th>
-                  <th style="width: 95px; text-align: right;">Prep. Total</th>
+                  <th id="bg-th-prep-total" style="width: 105px; text-align: right;">
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+                      <span>Prep. Total</span>
+                      <button type="button" onclick="window.openAddCustomColumnModal()" title="Añadir columna de recargo de preparación (por unidad o global)" style="background: rgba(234, 88, 12, 0.1); border: 1px solid rgba(234, 88, 12, 0.35); border-radius: 4px; cursor: pointer; color: #c2410c; font-size: 0.65rem; padding: 1px 5px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;">
+                        <i class="ri-add-line"></i> Recargo
+                      </button>
+                    </div>
+                  </th>
                   <th style="width: 95px; text-align: right;">Flete Envío</th>
                   <th style="width: 105px; text-align: right; background: #e0e7ff; color: #3730a3;">Total Pedido</th>
                 </tr>
@@ -5455,8 +5864,13 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
                       <option value="no">No Mkt</option>
                     </select>
                   </th>
-                  <th colspan="7" style="padding: 3px 6px; text-align: right; color: #94a3b8; font-size: 0.7rem; font-weight: 500;">
-                    <span style="font-size: 0.68rem; color: #64748b;"><i class="ri-edit-line"></i> Columnas de valores y recargos editables</span>
+                  <th id="bg-filter-row-values-colspan" colspan="7" style="padding: 3px 6px; text-align: right; color: #94a3b8; font-size: 0.7rem; font-weight: 500;">
+                    <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                      <span style="font-size: 0.68rem; color: #64748b;"><i class="ri-edit-line"></i> Columnas de valores y recargos editables</span>
+                      <button type="button" onclick="window.openAddCustomColumnModal()" style="background: #fff7ed; border: 1px solid #fdba74; color: #c2410c; border-radius: 4px; font-size: 0.68rem; font-weight: 700; padding: 1px 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" title="Añadir nueva columna de cobro / recargo de preparación">
+                        <i class="ri-add-circle-line"></i> + Columna Cobro
+                      </button>
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -5510,10 +5924,35 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
           <!-- Renderizado dinámico del Checklist Global -->
         </div>
       </div>
+      </div>
     </div>
   `;
 
-  // Asignar listeners de eventos
+  // Guardar metadatos para el Resumen del Periodo
+  window.__bgOverviewMeta = {
+    periods,
+    comercios,
+    conglomeratesMap,
+    childToConglomerateMap,
+    canonicalDisplayList,
+    individualComerciosList
+  };
+
+  // Listeners del Resumen del Periodo
+  document.getElementById('bg-overview-select-period')?.addEventListener('change', (e) => {
+    const newPeriodId = e.target.value;
+    const genSelect = document.getElementById('bg-select-period');
+    if (genSelect && genSelect.value !== newPeriodId) {
+      genSelect.value = newPeriodId;
+    }
+    loadAndRenderPeriodOverview();
+  });
+
+  document.getElementById('bg-btn-refresh-overview')?.addEventListener('click', () => {
+    loadAndRenderPeriodOverview();
+  });
+
+  // Asignar listeners de eventos del Generador
   document.getElementById('bg-btn-config-delivery')?.addEventListener('click', () => {
     window.openDeliveryTypesManagerModal();
   });
@@ -5523,8 +5962,25 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
   });
 
   document.getElementById('bg-btn-recalculate')?.addEventListener('click', async () => {
+    const commerceSelect = document.getElementById('bg-select-commerce');
+    if (!commerceSelect || !commerceSelect.value) {
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'info',
+          title: 'Selecciona un comercio',
+          text: 'Elige primero un comercio o holding de la lista para calcular su facturación.',
+          showConfirmButton: false,
+          timer: 3000
+        });
+      }
+      commerceSelect?.focus();
+      return;
+    }
+
     const b = billingState;
-    const hasData = (b.orders && b.orders.length > 0) || b.isSaved;
+    const hasData = b.currentCommerce === commerceSelect.value && ((b.orders && b.orders.length > 0) || b.isSaved);
 
     if (hasData && typeof Swal !== 'undefined') {
       const result = await Swal.fire({
@@ -5571,12 +6027,25 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     }
   });
 
-  document.getElementById('bg-select-commerce')?.addEventListener('change', () => {
+  document.getElementById('bg-select-commerce')?.addEventListener('change', (e) => {
+    if (!e.target.value) {
+      renderGeneratorEmptyCommerceState();
+      return;
+    }
     executeCalculationFromUI();
   });
 
-  document.getElementById('bg-select-period')?.addEventListener('change', () => {
-    executeCalculationFromUI();
+  document.getElementById('bg-select-period')?.addEventListener('change', (e) => {
+    const ovSelect = document.getElementById('bg-overview-select-period');
+    if (ovSelect && ovSelect.value !== e.target.value) {
+      ovSelect.value = e.target.value;
+    }
+    const commerceSelect = document.getElementById('bg-select-commerce');
+    if (commerceSelect && commerceSelect.value) {
+      executeCalculationFromUI();
+    } else {
+      billingState.currentPeriodId = e.target.value;
+    }
   });
 
   document.getElementById('bg-btn-export-excel')?.addEventListener('click', () => {
@@ -5595,8 +6064,825 @@ window.renderBillingGeneratorAdmin = async function(targetContainerId = 'tab-gen
     confirmAndPublishBillingToCommerce();
   });
 
-  // Ejecutar cálculo inicial
-  await executeCalculationFromUI();
+  // Si se ingresó con un comercio específico, ir directo al generador; de lo contrario dejar estado vacío en generador y mostrar Resumen del Periodo
+  if (startInGenerator) {
+    await executeCalculationFromUI();
+    loadAndRenderPeriodOverview({ silentBadgeOnly: true });
+  } else {
+    renderGeneratorEmptyCommerceState();
+    await loadAndRenderPeriodOverview();
+  }
+};
+
+// Renderizar estado vacío limpio en el Generador cuando aún no se ha seleccionado ningún comercio
+export function renderGeneratorEmptyCommerceState() {
+  billingState.currentCommerce = '';
+  billingState.orders = [];
+  billingState.isConglomerate = false;
+  billingState.conglomerateName = null;
+  billingState.conglomerateChildren = [];
+  billingState.storeBreakdown = [];
+  billingState.activeConglomerateStoreFilter = null;
+  billingState.isSaved = false;
+  billingState.isPublished = false;
+
+  const congBanner = document.getElementById('bg-conglomerate-banner-container');
+  if (congBanner) congBanner.innerHTML = '';
+
+  const storeBanner = document.getElementById('bg-store-active-filter-banner');
+  if (storeBanner) {
+    storeBanner.style.display = 'none';
+    storeBanner.innerHTML = '';
+  }
+
+  const kpisCont = document.getElementById('bg-kpis-container');
+  if (kpisCont) {
+    kpisCont.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 1.75rem 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed rgba(95, 6, 250, 0.35); border-radius: 12px;">
+        <i class="ri-store-2-line" style="font-size: 2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
+        <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.98rem;">Selecciona un comercio desde la lista superior</div>
+        <div style="font-size: 0.82rem; margin-top: 0.2rem;">Elige un comercio o holding en <strong>"COMERCIO A FACTURAR"</strong> para cargar sus pedidos, tarifas y desglose sin esperas innecesarias.</div>
+      </div>
+    `;
+  }
+
+  const ordersTbody = document.getElementById('bg-orders-table-body');
+  if (ordersTbody) {
+    ordersTbody.innerHTML = `
+      <tr>
+        <td colspan="30" style="text-align: center; padding: 3.5rem 1.5rem; color: var(--color-text-muted);">
+          <i class="ri-cursor-line" style="font-size: 2.2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.5rem;"></i>
+          <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.95rem;">Ningún comercio seleccionado</div>
+          <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem;">Selecciona un comercio en el selector superior para consultar sus pedidos y calcular la facturación.</div>
+        </td>
+      </tr>
+    `;
+  }
+
+  if (typeof updateQuickPillCounts === 'function') {
+    updateQuickPillCounts([]);
+  }
+  const countBadge = document.getElementById('bg-filter-count-badge');
+  if (countBadge) {
+    countBadge.textContent = 'Mostrando 0 de 0 pedidos';
+  }
+
+  const emptySectionHTML = `
+    <div style="text-align: center; padding: 3.5rem 1.5rem; background: var(--color-surface); border: 1px dashed rgba(95, 6, 250, 0.35); border-radius: 12px; color: var(--color-text-muted);">
+      <i class="ri-store-2-line" style="font-size: 2.2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.5rem;"></i>
+      <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.98rem;">Selecciona un comercio en la barra superior</div>
+      <div style="font-size: 0.82rem; margin-top: 0.25rem;">Una vez seleccionado el comercio, aquí se generará su información detallada.</div>
+    </div>
+  `;
+
+  const desgloseCont = document.getElementById('bg-desglose-view-container');
+  if (desgloseCont) desgloseCont.innerHTML = emptySectionHTML;
+
+  const analyticsCont = document.getElementById('bg-analytics-container');
+  if (analyticsCont) analyticsCont.innerHTML = emptySectionHTML;
+}
+
+// Alternar entre la Vista Resumen del Periodo y el Generador de Desgloses
+window.switchBgMainMode = async function(mode = 'overview', commerceName = null, periodId = null) {
+  const overviewWrapper = document.getElementById('bg-period-overview-wrapper');
+  const generatorWrapper = document.getElementById('bg-generator-workspace-wrapper');
+  if (!overviewWrapper || !generatorWrapper) return;
+
+  if (mode === 'overview') {
+    generatorWrapper.style.display = 'none';
+    overviewWrapper.style.display = 'block';
+    const genPeriod = document.getElementById('bg-select-period')?.value;
+    const ovSelect = document.getElementById('bg-overview-select-period');
+    if (ovSelect && genPeriod && ovSelect.value !== genPeriod) {
+      ovSelect.value = genPeriod;
+    }
+    await loadAndRenderPeriodOverview();
+    return;
+  }
+
+  // Modo 'generator'
+  overviewWrapper.style.display = 'none';
+  generatorWrapper.style.display = 'block';
+
+  const genPeriodSelect = document.getElementById('bg-select-period');
+  const ovPeriodSelect = document.getElementById('bg-overview-select-period');
+  const targetPeriodId = periodId || ovPeriodSelect?.value || genPeriodSelect?.value;
+  if (genPeriodSelect && targetPeriodId && genPeriodSelect.value !== targetPeriodId) {
+    genPeriodSelect.value = targetPeriodId;
+  }
+
+  const commerceSelect = document.getElementById('bg-select-commerce');
+  let targetCommerce = commerceName;
+  if (commerceSelect && targetCommerce) {
+    const cleanTarget = String(targetCommerce).trim().toUpperCase();
+    let matchedValue = null;
+    for (let i = 0; i < commerceSelect.options.length; i++) {
+      const optVal = String(commerceSelect.options[i].value || '').trim().toUpperCase();
+      if (!optVal) continue;
+      if (optVal === cleanTarget || (cleanTarget.includes('BIG BANG') && optVal === 'BIG BANG') || (cleanTarget.includes('SILVER FOX') && optVal === 'SILVER FOX')) {
+        matchedValue = commerceSelect.options[i].value;
+        break;
+      }
+    }
+    if (!matchedValue) {
+      const newOpt = document.createElement('option');
+      newOpt.value = targetCommerce;
+      newOpt.textContent = targetCommerce;
+      commerceSelect.insertBefore(newOpt, commerceSelect.firstChild);
+      matchedValue = targetCommerce;
+    }
+    commerceSelect.value = matchedValue;
+  }
+
+  const currentSelectComm = commerceSelect?.value || '';
+  const currentSelectPeriod = genPeriodSelect?.value || '';
+
+  if (!currentSelectComm) {
+    renderGeneratorEmptyCommerceState();
+    commerceSelect?.focus();
+    return;
+  }
+
+  const needsRecalc = Boolean(commerceName) ||
+    !billingState.currentCommerce ||
+    billingState.currentCommerce !== currentSelectComm ||
+    billingState.currentPeriodId !== currentSelectPeriod;
+
+  if (needsRecalc) {
+    await executeCalculationFromUI();
+  }
+};
+
+window.openBillingGeneratorFromOverview = function(commerceName, periodId = null) {
+  window.switchBgMainMode('generator', commerceName, periodId);
+};
+
+// Cargar y renderizar la Vista Resumen del Periodo Actual en el Gestor de Facturación
+export async function loadAndRenderPeriodOverview(options = {}) {
+  const { silentBadgeOnly = false } = options;
+  const ovSelect = document.getElementById('bg-overview-select-period') || document.getElementById('bg-select-period');
+  if (!ovSelect) return;
+
+  const periodId = ovSelect.value;
+  const selectedOpt = ovSelect.selectedIndex >= 0 ? ovSelect.options[ovSelect.selectedIndex] : null;
+  const periodName = (selectedOpt && selectedOpt.getAttribute('data-name')) || selectedOpt?.text?.replace(/\s*\(Activo\)\s*$/i, '') || 'PERIODO ACTUAL';
+
+  const badgeEl = document.getElementById('bg-overview-period-badge');
+  if (badgeEl) badgeEl.textContent = periodName;
+
+  const bodyEl = document.getElementById('bg-period-overview-body');
+  const refreshBtn = document.getElementById('bg-btn-refresh-overview');
+  if (!silentBadgeOnly && refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Actualizando...';
+  }
+  if (!silentBadgeOnly && bodyEl && !bodyEl.querySelector('.bg-overview-loaded-root')) {
+    bodyEl.innerHTML = `
+      <div style="text-align: center; padding: 3.5rem 2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 2.1rem; color: #5f06fa; display: inline-block; margin-bottom: 0.5rem;"></i>
+        <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">Consultando resumen de <strong>${escapeHtml(periodName)}</strong>...</div>
+        <div style="font-size: 0.78rem; margin-top: 0.2rem;">Obteniendo desgloses emitidos, borradores y pedidos asignados al periodo.</div>
+      </div>
+    `;
+  }
+
+  try {
+    const meta = window.__bgOverviewMeta || {};
+    const conglomeratesMap = meta.conglomeratesMap || {};
+    const childToConglomerateMap = meta.childToConglomerateMap || {};
+    const canonicalDisplayList = meta.canonicalDisplayList || [];
+
+    // 1. Consultar billing_records del periodo y conteo de pedidos asignados al periodo en paralelo
+    const fetchOrdersByPeriod = async () => {
+      let allOrders = [];
+      let page = 0;
+      const step = 1000;
+      let lastCreatedAt = null;
+      const seenIds = new Set();
+
+      while (page < 20) {
+        page++;
+        let q = supabase
+          .from('orders')
+          .select('id, created_at, comercio')
+          .eq('periodo_facturacion', periodName)
+          .order('created_at', { ascending: false })
+          .limit(step);
+
+        if (lastCreatedAt) q = q.lte('created_at', lastCreatedAt);
+        const { data, error } = await q;
+        if (error || !data || data.length === 0) break;
+        const fresh = data.filter(o => !seenIds.has(o.id));
+        if (fresh.length === 0) break;
+        fresh.forEach(o => seenIds.add(o.id));
+        allOrders = allOrders.concat(fresh);
+        if (data.length < step) break;
+        lastCreatedAt = data[data.length - 1].created_at;
+      }
+      return allOrders;
+    };
+
+    const [recordsRes, periodOrders] = await Promise.all([
+      supabase.from('billing_records').select('*').eq('period_id', periodId).order('comercio', { ascending: true }),
+      fetchOrdersByPeriod()
+    ]);
+
+    const records = recordsRes.data || [];
+
+    // Normalizador de nombre de comercio hacia cuenta de facturación (holding si aplica)
+    const normalizeToBillingEntity = (rawName) => {
+      const clean = String(rawName || '').trim();
+      const upper = clean.toUpperCase();
+      if (!upper) return '';
+      if (upper === 'BIG BANG' || upper === 'BIG BANG SPA' || upper.includes('BIG BANG')) return 'BIG BANG';
+      if (upper === 'SILVER FOX' || upper === 'SILVER FOX SPA' || upper.includes('SILVER FOX')) return 'SILVER FOX';
+      if (childToConglomerateMap[upper]) {
+        const mapped = String(childToConglomerateMap[upper]).trim().toUpperCase();
+        if (mapped.includes('BIG BANG')) return 'BIG BANG';
+        if (mapped.includes('SILVER FOX')) return 'SILVER FOX';
+        return mapped;
+      }
+      return clean;
+    };
+
+    // Contar pedidos por comercio y por tienda hija
+    const ordersCountByEntity = {};
+    const childOrdersBreakdownByEntity = {};
+    let totalPeriodOrdersCount = 0;
+
+    (periodOrders || []).forEach(ord => {
+      const rawStore = String(ord.comercio || '').trim();
+      if (!rawStore) return;
+      totalPeriodOrdersCount++;
+      const entity = normalizeToBillingEntity(rawStore);
+      const entityKey = entity.toUpperCase();
+      ordersCountByEntity[entityKey] = (ordersCountByEntity[entityKey] || 0) + 1;
+
+      if (entityKey !== rawStore.toUpperCase()) {
+        if (!childOrdersBreakdownByEntity[entityKey]) childOrdersBreakdownByEntity[entityKey] = {};
+        const childKey = rawStore.toUpperCase();
+        childOrdersBreakdownByEntity[entityKey][childKey] = (childOrdersBreakdownByEntity[entityKey][childKey] || 0) + 1;
+      }
+    });
+
+    // Unificar registros de billing_records y comercios con pedidos en el periodo
+    const entityMap = new Map();
+
+    records.forEach(r => {
+      const entityName = normalizeToBillingEntity(r.comercio);
+      const key = entityName.toUpperCase();
+      if (!key) return;
+
+      const existing = entityMap.get(key);
+      // Si hubiera duplicado (ej. BIG BANG y BIG BANG SPA), priorizar el que tenga total_fulfillment > 0 o desglose emitido
+      if (!existing || ((r.total_fulfillment || 0) > (existing.record?.total_fulfillment || 0)) || r.desglose_fulfillment === 'Enviado') {
+        entityMap.set(key, {
+          key,
+          comercio: entityName,
+          rawComercioRecord: r.comercio,
+          record: r
+        });
+      }
+    });
+
+    // Agregar también cualquier comercio/holding que tenga pedidos en el periodo aunque aún no tenga fila en billing_records
+    Object.keys(ordersCountByEntity).forEach(entityKey => {
+      if (!entityMap.has(entityKey)) {
+        entityMap.set(entityKey, {
+          key: entityKey,
+          comercio: entityKey,
+          rawComercioRecord: entityKey,
+          record: null
+        });
+      }
+    });
+
+    // Construir lista enriquecida de ítems del periodo
+    const items = Array.from(entityMap.values()).map(entry => {
+      const r = entry.record;
+      const entityKey = entry.key;
+      const ordersCount = ordersCountByEntity[entityKey] || 0;
+      const childBreakdownObj = childOrdersBreakdownByEntity[entityKey] || null;
+
+      // Verificar si es un holding/conglomerado
+      const congMatch = canonicalDisplayList.find(cg => String(cg.name).trim().toUpperCase() === entityKey);
+      const isConglomerate = Boolean(congMatch || entityKey === 'BIG BANG' || entityKey === 'SILVER FOX' || conglomeratesMap[entityKey]);
+      const conglomerateChildren = congMatch?.children || conglomeratesMap[entityKey] || [];
+
+      // Verificar si tiene snapshot local en borrador
+      let localDraft = null;
+      try {
+        const localStr = localStorage.getItem(`stocka_fulfillment_details_${periodId}_${entry.comercio}`) ||
+                         (entry.rawComercioRecord ? localStorage.getItem(`stocka_fulfillment_details_${periodId}_${entry.rawComercioRecord}`) : null);
+        if (localStr) localDraft = JSON.parse(localStr);
+      } catch (e) {}
+
+      const rawDesglose = String(r?.desglose_fulfillment || 'Por Generar').trim();
+      const rawPago = String(r?.pago_fulfillment || 'Por solicitar').trim();
+      const rawFactura = String(r?.factura_fulfillment || 'Esperando').trim();
+      const totalFulfillment = Math.round(Number(r?.total_fulfillment) || Number(localDraft?.totals?.totalGross) || 0);
+      const abonoFulfillment = Math.round(Number(r?.abono_fulfillment) || Number(localDraft?.totals?.totalAbonos) || 0);
+      const saldoFulfillment = Math.max(0, totalFulfillment - abonoFulfillment);
+      const hasSnapshotLink = Boolean(r?.fulfillment_link || localDraft);
+
+      // Clasificar estado del desglose: 'issued' (Emitido/Enviado), 'draft' (Creado/Borrador), 'exempt' (No se factura / Sin movimientos), 'pending' (Por Generar)
+      let statusCategory = 'pending';
+      let statusLabel = 'Por Generar';
+      if (rawDesglose === 'Enviado' || rawDesglose === 'Publicado') {
+        statusCategory = 'issued';
+        statusLabel = 'Emitido / Publicado';
+      } else if (rawDesglose === 'Creado') {
+        statusCategory = 'draft';
+        statusLabel = 'Borrador Guardado';
+      } else if (rawDesglose === 'No se factura' || (rawPago === 'Sin movimientos' && ordersCount === 0 && totalFulfillment === 0)) {
+        statusCategory = 'exempt';
+        statusLabel = rawDesglose === 'No se factura' ? 'No se factura' : 'Sin movimientos';
+      } else {
+        statusCategory = 'pending';
+        statusLabel = 'Por Generar';
+      }
+
+      return {
+        key: entityKey,
+        comercio: entry.comercio,
+        recordId: r?.id || null,
+        isConglomerate,
+        conglomerateChildren,
+        childBreakdownObj,
+        ordersCount,
+        statusCategory,
+        statusLabel,
+        rawDesglose,
+        rawPago,
+        rawFactura,
+        totalFulfillment,
+        abonoFulfillment,
+        saldoFulfillment,
+        hasSnapshotLink,
+        updatedAt: r?.updated_at || localDraft?.generatedAt || null,
+        lastNotifiedAt: r?.last_notified_at || null
+      };
+    });
+
+    // Ordenar: primero borradores y pendientes con pedidos, luego emitidos por monto descendente, luego el resto alfabéticamente
+    items.sort((a, b) => {
+      const rank = (it) => {
+        if (it.statusCategory === 'draft') return 1;
+        if (it.statusCategory === 'pending' && it.ordersCount > 0) return 2;
+        if (it.statusCategory === 'issued') return 3;
+        if (it.statusCategory === 'pending') return 4;
+        return 5;
+      };
+      const rA = rank(a);
+      const rB = rank(b);
+      if (rA !== rB) return rA - rB;
+      if (b.ordersCount !== a.ordersCount) return b.ordersCount - a.ordersCount;
+      if (b.totalFulfillment !== a.totalFulfillment) return b.totalFulfillment - a.totalFulfillment;
+      return a.comercio.localeCompare(b.comercio, 'es');
+    });
+
+    // Calcular métricas globales del periodo
+    const issuedItems = items.filter(i => i.statusCategory === 'issued');
+    const draftItems = items.filter(i => i.statusCategory === 'draft');
+    const pendingItems = items.filter(i => i.statusCategory === 'pending');
+    const pendingWithOrdersItems = pendingItems.filter(i => i.ordersCount > 0);
+    const exemptItems = items.filter(i => i.statusCategory === 'exempt');
+
+    const totalGrossAll = items.reduce((acc, i) => acc + i.totalFulfillment, 0);
+    const totalNetAll = Math.round(totalGrossAll / 1.19);
+    const totalGrossIssued = issuedItems.reduce((acc, i) => acc + i.totalFulfillment, 0);
+    const totalGrossDraft = draftItems.reduce((acc, i) => acc + i.totalFulfillment, 0);
+    const totalAbonosAll = items.reduce((acc, i) => acc + i.abonoFulfillment, 0);
+    const totalSaldoAll = items.reduce((acc, i) => acc + i.saldoFulfillment, 0);
+
+    const actionableTotal = issuedItems.length + draftItems.length + pendingItems.length;
+    const completedCount = issuedItems.length;
+    const generatedOrIssuedCount = issuedItems.length + draftItems.length;
+    const progressPct = actionableTotal > 0 ? Math.round((completedCount / actionableTotal) * 100) : 0;
+
+    // Actualizar badge en el botón "<- Resumen del Periodo" dentro del Generador
+    const pendingBadgeEl = document.getElementById('bg-btn-overview-pending-badge');
+    const urgentPendingCount = pendingItems.length + draftItems.length;
+    if (pendingBadgeEl) {
+      if (urgentPendingCount > 0) {
+        pendingBadgeEl.textContent = `${urgentPendingCount} pend.`;
+        pendingBadgeEl.style.display = 'inline-block';
+      } else {
+        pendingBadgeEl.style.display = 'none';
+      }
+    }
+
+    window.__bgOverviewLastState = {
+      periodId,
+      periodName,
+      items,
+      issuedItems,
+      draftItems,
+      pendingItems,
+      pendingWithOrdersItems,
+      exemptItems,
+      totalGrossAll,
+      totalNetAll,
+      totalGrossIssued,
+      totalGrossDraft,
+      totalAbonosAll,
+      totalSaldoAll,
+      totalPeriodOrdersCount,
+      actionableTotal,
+      completedCount,
+      generatedOrIssuedCount,
+      progressPct
+    };
+
+    if (!silentBadgeOnly) {
+      renderPeriodOverviewDOM();
+    }
+  } catch (err) {
+    console.error('Error cargando resumen del periodo en Gestor de Facturación:', err);
+    if (!silentBadgeOnly && bodyEl) {
+      bodyEl.innerHTML = `
+        <div style="text-align: center; padding: 2.5rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; color: #b91c1c;">
+          <i class="ri-error-warning-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+          <strong>No se pudo cargar el resumen del periodo</strong>
+          <div style="font-size: 0.82rem; margin-top: 0.25rem;">${escapeHtml(err.message || 'Error inesperado')}</div>
+          <button type="button" class="btn btn-sm btn-primary" onclick="window.loadAndRenderPeriodOverview()" style="margin-top: 0.85rem; background: #5f06fa; border-color: #5f06fa;">
+            <i class="ri-refresh-line"></i> Reintentar
+          </button>
+        </div>
+      `;
+    }
+  } finally {
+    if (!silentBadgeOnly && refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<i class="ri-refresh-line"></i> Actualizar';
+    }
+  }
+}
+window.loadAndRenderPeriodOverview = loadAndRenderPeriodOverview;
+
+window.bgOverviewActiveFilter = 'all'; // 'all' | 'pending' | 'draft' | 'issued' | 'exempt'
+window.bgOverviewSearchQuery = '';
+
+export function renderPeriodOverviewDOM() {
+  const bodyEl = document.getElementById('bg-period-overview-body');
+  const st = window.__bgOverviewLastState;
+  if (!bodyEl || !st) return;
+
+  const activeFilter = window.bgOverviewActiveFilter || 'all';
+  const searchQuery = String(window.bgOverviewSearchQuery || '').trim().toLowerCase();
+
+  // Cola prioritaria de comercios pendientes de generar o en borrador por publicar
+  const workQueueItems = st.items.filter(i => i.statusCategory === 'draft' || i.statusCategory === 'pending');
+
+  // Filtrar tabla general
+  const filteredTableItems = st.items.filter(item => {
+    if (activeFilter === 'pending' && item.statusCategory !== 'pending') return false;
+    if (activeFilter === 'draft' && item.statusCategory !== 'draft') return false;
+    if (activeFilter === 'issued' && item.statusCategory !== 'issued') return false;
+    if (activeFilter === 'exempt' && item.statusCategory !== 'exempt') return false;
+    if (searchQuery) {
+      const matchName = item.comercio.toLowerCase().includes(searchQuery);
+      const matchChild = (item.conglomerateChildren || []).some(c => String(c).toLowerCase().includes(searchQuery));
+      if (!matchName && !matchChild) return false;
+    }
+    return true;
+  });
+
+  const filteredOrdersSum = filteredTableItems.reduce((acc, i) => acc + i.ordersCount, 0);
+  const filteredGrossSum = filteredTableItems.reduce((acc, i) => acc + i.totalFulfillment, 0);
+  const filteredAbonoSum = filteredTableItems.reduce((acc, i) => acc + i.abonoFulfillment, 0);
+  const filteredSaldoSum = filteredTableItems.reduce((acc, i) => acc + i.saldoFulfillment, 0);
+
+  const getStatusBadgeHTML = (item) => {
+    if (item.statusCategory === 'issued') {
+      return `<span style="display: inline-flex; align-items: center; gap: 4px; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;"><i class="ri-checkbox-circle-fill"></i> Emitido / Publicado</span>`;
+    }
+    if (item.statusCategory === 'draft') {
+      return `<span style="display: inline-flex; align-items: center; gap: 4px; background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;"><i class="ri-draft-line"></i> Borrador (Creado)</span>`;
+    }
+    if (item.statusCategory === 'exempt') {
+      return `<span style="display: inline-flex; align-items: center; gap: 4px; background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 999px;"><i class="ri-forbid-line"></i> ${escapeHtml(item.statusLabel)}</span>`;
+    }
+    return `<span style="display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;"><i class="ri-time-line"></i> Por Generar</span>`;
+  };
+
+  bodyEl.innerHTML = `
+    <div class="bg-overview-loaded-root">
+      <!-- 1. Tarjeta de Progreso General del Periodo -->
+      <div class="bg-card-container" style="padding: 1rem 1.35rem; margin-bottom: 1.15rem; background: linear-gradient(135deg, rgba(95, 6, 250, 0.04) 0%, rgba(16, 185, 129, 0.04) 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.55rem;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <span style="font-weight: 800; font-size: 0.92rem; color: var(--color-text-main);">
+              <i class="ri-flag-2-fill" style="color: #5f06fa;"></i> Avance de Emisión de Desgloses (${escapeHtml(st.periodName)}):
+            </span>
+            <span style="font-weight: 800; font-size: 0.9rem; color: ${st.progressPct === 100 ? '#10b981' : '#5f06fa'};">
+              ${st.completedCount} de ${st.actionableTotal} emitidos (${st.progressPct}%)
+            </span>
+            ${st.draftItems.length > 0 ? `
+              <span style="background: #ede9fe; color: #5b21b6; font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;">
+                + ${st.draftItems.length} en borrador listo(s) para publicar
+              </span>
+            ` : ''}
+          </div>
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600;">
+            ${st.pendingItems.length > 0
+              ? `<span style="color: #d97706;"><i class="ri-alert-line"></i> Faltan <strong>${st.pendingItems.length}</strong> desglose(s) por generar (${st.pendingWithOrdersItems.length} con pedidos asignados)</span>`
+              : `<span style="color: #10b981;"><i class="ri-checkbox-circle-fill"></i> ¡Todos los desgloses activos del periodo han sido generados!</span>`}
+          </div>
+        </div>
+        <div style="width: 100%; height: 10px; background: rgba(148, 163, 184, 0.2); border-radius: 999px; overflow: hidden;">
+          <div style="width: ${st.progressPct}%; height: 100%; background: linear-gradient(90deg, #5f06fa 0%, #10b981 100%); border-radius: 999px; transition: width 0.35s ease;"></div>
+        </div>
+      </div>
+
+      <!-- 2. Grid de KPIs del Periodo -->
+      <div class="bg-kpi-grid" style="margin-bottom: 1.35rem;">
+        <div class="bg-kpi-card" style="border-left: 4px solid #5f06fa;">
+          <div class="bg-kpi-title"><i class="ri-money-dollar-circle-line" style="color: #5f06fa;"></i> TOTAL FULFILLMENT PERIODO</div>
+          <div class="bg-kpi-value" style="color: #5f06fa;">${formatCLP(st.totalGrossAll)}</div>
+          <div class="bg-kpi-subtitle">Neto: <strong>${formatCLP(st.totalNetAll)}</strong> · Emitido: ${formatCLP(st.totalGrossIssued)}</div>
+        </div>
+
+        <div class="bg-kpi-card" style="border-left: 4px solid #10b981;">
+          <div class="bg-kpi-title"><i class="ri-checkbox-circle-line" style="color: #10b981;"></i> DESGLOSES EMITIDOS</div>
+          <div class="bg-kpi-value" style="color: #10b981;">${st.issuedItems.length} <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted);">comercios</span></div>
+          <div class="bg-kpi-subtitle">
+            ${st.draftItems.length > 0
+              ? `<span style="color: #6d28d9; font-weight: 700;">${st.draftItems.length} en borrador (${formatCLP(st.totalGrossDraft)})</span>`
+              : 'Publicados en portal de clientes'}
+          </div>
+        </div>
+
+        <div class="bg-kpi-card" style="border-left: 4px solid #f59e0b;">
+          <div class="bg-kpi-title"><i class="ri-time-line" style="color: #f59e0b;"></i> PENDIENTES DE GENERAR</div>
+          <div class="bg-kpi-value" style="color: #d97706;">${st.pendingItems.length} <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted);">comercios</span></div>
+          <div class="bg-kpi-subtitle">
+            <strong>${st.pendingWithOrdersItems.length}</strong> con pedidos activos en el periodo
+          </div>
+        </div>
+
+        <div class="bg-kpi-card" style="border-left: 4px solid #0284c7;">
+          <div class="bg-kpi-title"><i class="ri-wallet-3-line" style="color: #0284c7;"></i> SALDO POR COBRAR</div>
+          <div class="bg-kpi-value" style="color: #0284c7;">${formatCLP(st.totalSaldoAll)}</div>
+          <div class="bg-kpi-subtitle">Abonos recibidos: <strong style="color: #10b981;">${formatCLP(st.totalAbonosAll)}</strong></div>
+        </div>
+
+        <div class="bg-kpi-card" style="border-left: 4px solid #6366f1;">
+          <div class="bg-kpi-title"><i class="ri-shopping-bag-3-line" style="color: #6366f1;"></i> PEDIDOS DEL PERIODO</div>
+          <div class="bg-kpi-value" style="color: #6366f1;">${st.totalPeriodOrdersCount.toLocaleString('es-CL')}</div>
+          <div class="bg-kpi-subtitle">Asignados a <strong>${escapeHtml(st.periodName)}</strong></div>
+        </div>
+      </div>
+
+      <!-- 3. Sección Prioritaria: Desgloses de Fulfillment Pendientes de Generar / En Borrador -->
+      <div class="bg-card-container" style="margin-bottom: 1.35rem; border: 1px solid ${workQueueItems.length > 0 ? 'rgba(245, 158, 11, 0.35)' : 'var(--color-border)'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.9rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-list-check-2" style="color: #f59e0b; font-size: 1.2rem;"></i>
+              Desgloses de Fulfillment Pendientes de Generar y Borradores (${workQueueItems.length})
+            </h4>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Haz clic en <strong>Generar Desglose</strong> o <strong>Continuar Edición</strong> en cualquier comercio para abrir directamente su calculadora editable.
+            </p>
+          </div>
+          ${workQueueItems.length > 0 ? `
+            <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 0.74rem; font-weight: 800; padding: 4px 10px; border-radius: 8px;">
+              ${st.pendingWithOrdersItems.length} con pedidos listos · ${st.draftItems.length} en borrador
+            </span>
+          ` : ''}
+        </div>
+
+        ${workQueueItems.length === 0 ? `
+          <div style="text-align: center; padding: 1.75rem 1rem; background: rgba(16, 185, 129, 0.05); border: 1px dashed rgba(16, 185, 129, 0.35); border-radius: 10px; color: #047857;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1.8rem; display: block; margin-bottom: 0.35rem; color: #10b981;"></i>
+            <strong style="font-size: 0.92rem;">¡No hay desgloses pendientes de generar en ${escapeHtml(st.periodName)}!</strong>
+            <div style="font-size: 0.78rem; opacity: 0.85; margin-top: 0.15rem;">Todos los comercios del periodo ya fueron emitidos o marcados sin movimiento.</div>
+          </div>
+        ` : `
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 0.75rem; max-height: 360px; overflow-y: auto; padding-right: 4px;">
+            ${workQueueItems.map(item => {
+              const isDraft = item.statusCategory === 'draft';
+              const hasOrders = item.ordersCount > 0;
+              const childBadges = item.childBreakdownObj
+                ? Object.entries(item.childBreakdownObj).map(([cName, cQty]) => `${cName}: ${cQty}`).join(' · ')
+                : (item.isConglomerate && item.conglomerateChildren.length > 0 ? `Holding: ${item.conglomerateChildren.join(', ')}` : '');
+
+              return `
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 0.95rem; border-radius: 10px; background: var(--color-bg); border: 1px solid ${isDraft ? '#c4b5fd' : (hasOrders ? '#fde68a' : 'var(--color-border)')}; border-left: 4px solid ${isDraft ? '#7c3aed' : (hasOrders ? '#f59e0b' : '#94a3b8')};">
+                  <div style="min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      <strong style="font-size: 0.86rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${item.isConglomerate ? '🏢 ' : ''}${escapeHtml(item.comercio)}
+                      </strong>
+                      <span style="font-size: 0.68rem; font-weight: 800; padding: 1px 6px; border-radius: 999px; background: ${hasOrders ? 'rgba(95, 6, 250, 0.1)' : '#f1f5f9'}; color: ${hasOrders ? '#5f06fa' : '#64748b'};">
+                        ${item.ordersCount.toLocaleString('es-CL')} ped.
+                      </span>
+                    </div>
+                    ${childBadges ? `
+                      <div style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(childBadges)}">
+                        ${escapeHtml(childBadges)}
+                      </div>
+                    ` : ''}
+                    <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      ${isDraft ? `
+                        <span style="font-size: 0.7rem; font-weight: 700; color: #6d28d9;">
+                          <i class="ri-draft-line"></i> Borrador: <strong>${formatCLP(item.totalFulfillment)}</strong>
+                        </span>
+                      ` : `
+                        <span style="font-size: 0.7rem; font-weight: 600; color: ${hasOrders ? '#b45309' : '#64748b'};">
+                          ${hasOrders ? '<i class="ri-flashlight-fill"></i> Listo para calcular' : 'Sin pedidos asignados aún'}
+                        </span>
+                      `}
+                    </div>
+                  </div>
+
+                  <button type="button"
+                          onclick="window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}')"
+                          class="btn btn-sm"
+                          style="background: ${isDraft ? '#7c3aed' : (hasOrders ? '#5f06fa' : 'var(--color-surface)')}; color: ${isDraft || hasOrders ? '#ffffff' : 'var(--color-text-main)'}; border: 1px solid ${isDraft ? '#7c3aed' : (hasOrders ? '#5f06fa' : 'var(--color-border)')}; font-weight: 700; font-size: 0.74rem; padding: 0.4rem 0.75rem; border-radius: 7px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; flex-shrink: 0;">
+                    <i class="${isDraft ? 'ri-edit-box-line' : 'ri-calculator-line'}"></i>
+                    <span>${isDraft ? 'Continuar' : 'Generar'}</span>
+                    <i class="ri-arrow-right-s-line"></i>
+                  </button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+
+      <!-- 4. Tabla Completa de Desgloses Emitidos y Estado del Periodo -->
+      <div class="bg-card-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-file-list-3-fill" style="color: #5f06fa; font-size: 1.2rem;"></i>
+              Listado de Desgloses del Periodo (${filteredTableItems.length})
+            </h4>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">
+              Consulta todos los desgloses emitidos, montos facturados, saldos y salta directamente al generador de cualquier comercio.
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative;">
+              <input type="text" id="bg-overview-search-input" class="form-input" placeholder="Buscar comercio o marca..." value="${escapeHtml(window.bgOverviewSearchQuery || '')}" oninput="window.setBgOverviewSearch(this.value)" style="height: 36px; font-size: 0.8rem; margin: 0; width: 220px; padding-left: 2rem; border-radius: 8px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Píldoras de Filtro Rápido -->
+        <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.9rem; background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: 8px; border: 1px solid var(--color-border);">
+          <span style="font-size: 0.72rem; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; margin-right: 4px;">
+            <i class="ri-filter-3-line" style="color: #5f06fa;"></i> Filtrar Estado:
+          </span>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'all' ? 'active' : ''}" onclick="window.setBgOverviewFilter('all')">
+            Todos (${st.items.length})
+          </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'issued' ? 'active' : ''}" onclick="window.setBgOverviewFilter('issued')">
+            ✅ Emitidos / Publicados (${st.issuedItems.length})
+          </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'draft' ? 'active' : ''}" onclick="window.setBgOverviewFilter('draft')">
+            📝 En Borrador (${st.draftItems.length})
+          </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'pending' ? 'active' : ''}" onclick="window.setBgOverviewFilter('pending')">
+            ⏳ Pendientes de Generar (${st.pendingItems.length})
+          </button>
+          <button type="button" class="bg-quick-filter-btn ${activeFilter === 'exempt' ? 'active' : ''}" onclick="window.setBgOverviewFilter('exempt')">
+            🚫 Sin Movimiento / Exentos (${st.exemptItems.length})
+          </button>
+        </div>
+
+        <div class="bg-excel-table-container" style="max-height: 540px;">
+          <table class="bg-excel-table">
+            <thead>
+              <tr>
+                <th style="width: 45px; text-align: center;">#</th>
+                <th style="min-width: 210px;">Comercio / Holding</th>
+                <th style="width: 110px; text-align: center;">Pedidos Periodo</th>
+                <th style="width: 165px; text-align: center;">Estado Desglose</th>
+                <th style="width: 135px; text-align: right;">Total Fulfillment (IVA Incl.)</th>
+                <th style="width: 120px; text-align: right;">Abonos</th>
+                <th style="width: 135px; text-align: right;">Saldo a Pagar</th>
+                <th style="width: 150px; text-align: center;">Pago / Factura</th>
+                <th style="width: 145px; text-align: center;">Última Gestión</th>
+                <th style="width: 205px; text-align: right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredTableItems.length === 0 ? `
+                <tr>
+                  <td colspan="10" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+                    No se encontraron comercios que coincidan con el filtro seleccionado.
+                  </td>
+                </tr>
+              ` : filteredTableItems.map((item, idx) => {
+                const updatedStr = item.updatedAt
+                  ? new Date(item.updatedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                  : '—';
+                const notifiedStr = item.lastNotifiedAt
+                  ? new Date(item.lastNotifiedAt).toLocaleString('es-CL', { day: '2-digit', month: '2-digit' })
+                  : null;
+
+                return `
+                  <tr>
+                    <td style="text-align: center; color: #64748b; font-weight: 700;">${idx + 1}</td>
+                    <td>
+                      <div style="font-weight: 800; color: var(--color-text-main); font-size: 0.85rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
+                        <span>${item.isConglomerate ? '🏢 ' : ''}${escapeHtml(item.comercio)}</span>
+                        ${item.isConglomerate && item.conglomerateChildren.length > 0 ? `
+                          <span style="font-size: 0.65rem; font-weight: 700; background: rgba(95, 6, 250, 0.08); color: #5f06fa; padding: 1px 6px; border-radius: 4px;">
+                            ${escapeHtml(item.conglomerateChildren.join(', '))}
+                          </span>
+                        ` : ''}
+                      </div>
+                    </td>
+                    <td style="text-align: center;">
+                      <span style="font-weight: 800; font-size: 0.85rem; color: ${item.ordersCount > 0 ? '#5f06fa' : '#94a3b8'};">
+                        ${item.ordersCount.toLocaleString('es-CL')}
+                      </span>
+                    </td>
+                    <td style="text-align: center;">
+                      ${getStatusBadgeHTML(item)}
+                    </td>
+                    <td style="text-align: right; font-weight: 800; font-size: 0.86rem; color: ${item.totalFulfillment > 0 ? 'var(--color-text-main)' : '#94a3b8'};">
+                      ${formatCLP(item.totalFulfillment)}
+                    </td>
+                    <td style="text-align: right; font-weight: 700; color: ${item.abonoFulfillment > 0 ? '#10b981' : '#94a3b8'};">
+                      ${item.abonoFulfillment > 0 ? `-${formatCLP(item.abonoFulfillment)}` : '$0'}
+                    </td>
+                    <td style="text-align: right; font-weight: 800; font-size: 0.86rem; color: ${item.saldoFulfillment > 0 ? '#0284c7' : '#64748b'};">
+                      ${formatCLP(item.saldoFulfillment)}
+                    </td>
+                    <td style="text-align: center; font-size: 0.72rem;">
+                      <div style="font-weight: 700; color: var(--color-text-main);">${escapeHtml(item.rawPago)}</div>
+                      <div style="color: var(--color-text-muted); font-size: 0.68rem;">Fact: ${escapeHtml(item.rawFactura)}</div>
+                    </td>
+                    <td style="text-align: center; font-size: 0.72rem; color: var(--color-text-muted);">
+                      <div>${updatedStr}</div>
+                      ${notifiedStr ? `<div style="color: #10b981; font-weight: 700; font-size: 0.66rem;"><i class="ri-mail-check-line"></i> Notif. ${notifiedStr}</div>` : ''}
+                    </td>
+                    <td style="text-align: right;">
+                      <div style="display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px;">
+                        ${item.recordId && (item.statusCategory === 'issued' || item.statusCategory === 'draft') ? `
+                          <button type="button"
+                                  onclick="window.openClientInteractiveBillingModal('${escapeHtml(item.recordId)}', 'desglose')"
+                                  class="btn btn-outline btn-sm"
+                                  style="height: 29px; padding: 0 8px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border-color: #cbd5e1; display: inline-flex; align-items: center; gap: 3px;"
+                                  title="Ver vista previa del desglose oficial">
+                            <i class="ri-eye-line"></i> Ver
+                          </button>
+                        ` : ''}
+                        <button type="button"
+                                onclick="window.openBillingGeneratorFromOverview('${escapeHtml(item.comercio)}', '${escapeHtml(st.periodId)}')"
+                                class="btn btn-primary btn-sm"
+                                style="height: 29px; padding: 0 10px; font-size: 0.73rem; font-weight: 700; border-radius: 6px; background: ${item.statusCategory === 'pending' ? '#5f06fa' : (item.statusCategory === 'draft' ? '#7c3aed' : '#0f172a')}; border-color: transparent; display: inline-flex; align-items: center; gap: 4px;"
+                                title="Abrir este comercio en el Generador de Desgloses">
+                          <i class="${item.statusCategory === 'pending' ? 'ri-calculator-line' : 'ri-edit-2-line'}"></i>
+                          <span>${item.statusCategory === 'pending' ? 'Generar' : 'Abrir en Gestor'}</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+            ${filteredTableItems.length > 0 ? `
+              <tfoot>
+                <tr style="background: rgba(95, 6, 250, 0.06); font-weight: 800; border-top: 2px solid #cbd5e1;">
+                  <td colspan="2" style="padding: 0.65rem 0.75rem; text-align: right; color: var(--color-text-main);">TOTALES (${filteredTableItems.length} comercios):</td>
+                  <td style="text-align: center; color: #5f06fa; font-size: 0.88rem;">${filteredOrdersSum.toLocaleString('es-CL')}</td>
+                  <td></td>
+                  <td style="text-align: right; color: #5f06fa; font-size: 0.9rem;">${formatCLP(filteredGrossSum)}</td>
+                  <td style="text-align: right; color: #10b981; font-size: 0.86rem;">${filteredAbonoSum > 0 ? `-${formatCLP(filteredAbonoSum)}` : '$0'}</td>
+                  <td style="text-align: right; color: #0284c7; font-size: 0.9rem;">${formatCLP(filteredSaldoSum)}</td>
+                  <td colspan="3"></td>
+                </tr>
+              </tfoot>
+            ` : ''}
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.setBgOverviewFilter = function(filter) {
+  window.bgOverviewActiveFilter = filter || 'all';
+  renderPeriodOverviewDOM();
+};
+
+window.setBgOverviewSearch = function(query) {
+  window.bgOverviewSearchQuery = query || '';
+  renderPeriodOverviewDOM();
+  const input = document.getElementById('bg-overview-search-input');
+  if (input) {
+    input.focus();
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch (e) {}
+  }
 };
 
 // Función para alternar sub-pestañas
@@ -5615,6 +6901,11 @@ window.switchBgSubTab = function(tabKey) {
       }
     }
   });
+
+  if (!billingState.currentCommerce && (tabKey === 'desglose' || tabKey === 'analytics')) {
+    renderGeneratorEmptyCommerceState();
+    return;
+  }
 
   if (tabKey === 'desglose') {
     const container = document.getElementById('bg-desglose-view-container');
@@ -5642,7 +6933,7 @@ export async function executeCalculationFromUI(overrides = {}) {
   const periodName = (selectedOption && selectedOption.getAttribute('data-name')) || selectedOption?.text || 'AGOSTO 2026';
 
   if (!commerceName) {
-    console.warn('executeCalculationFromUI: No hay comercio seleccionado.');
+    renderGeneratorEmptyCommerceState();
     return;
   }
 
@@ -5656,12 +6947,23 @@ export async function executeCalculationFromUI(overrides = {}) {
     calcBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Calculando...`;
   }
 
-  // Si la tabla o KPIs están vacíos, mostrar spinner de carga
+  const isSwitchingCommerce = billingState.currentCommerce !== commerceName || billingState.currentPeriodId !== periodId;
+  const kpisCont = document.getElementById('bg-kpis-container');
+  if (kpisCont && (isSwitchingCommerce || !billingState.orders || billingState.orders.length === 0)) {
+    kpisCont.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 1.5rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #5f06fa; display: inline-block; margin-bottom: 0.35rem;"></i>
+        <div>Iniciando cálculo para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
+      </div>
+    `;
+  }
+
+  // Si la tabla o el comercio cambió, mostrar spinner de carga
   const ordersTbody = document.getElementById('bg-orders-table-body');
-  if (ordersTbody && (!billingState.orders || billingState.orders.length === 0)) {
+  if (ordersTbody && (isSwitchingCommerce || !billingState.orders || billingState.orders.length === 0)) {
     ordersTbody.innerHTML = `
       <tr>
-        <td colspan="16" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="30" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line ri-spin" style="font-size: 2.2rem; color: #5f06fa; display: inline-block; margin-bottom: 0.6rem;"></i>
           <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">Calculando facturación para <strong>${escapeHtml(commerceName)}</strong> (${escapeHtml(periodName)})...</div>
           <div style="font-size: 0.775rem; color: var(--color-text-muted); margin-top: 0.25rem;">Consultando pedidos, almacenamiento, tarifas oficiales y despachos.</div>
@@ -6087,16 +7389,60 @@ export function getWmsStatusBadgeHTML(status) {
   return `<span class="bg-order-wms-badge ${cls}" title="Estado WMS: ${escapeHtml(raw)}"><i class="${icon}"></i> ${escapeHtml(raw)}</span>`;
 }
 
+// Sincronizar cabeceras dinámicas de columnas de cobro personalizadas en la tabla Excel
+function syncCustomColumnsHeaderDOM() {
+  const prepTotalTh = document.getElementById('bg-th-prep-total');
+  if (!prepTotalTh || !prepTotalTh.parentElement) return;
+
+  const headerRow = prepTotalTh.parentElement;
+  headerRow.querySelectorAll('.bg-custom-surcharge-th').forEach(el => el.remove());
+
+  const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+  customCols.forEach(col => {
+    const th = document.createElement('th');
+    th.className = 'bg-custom-surcharge-th';
+    th.style.cssText = 'width: 110px; min-width: 98px; text-align: right; background: #fff7ed; color: #9a3412; border-left: 1px dashed #fdba74; border-right: 1px dashed #fdba74; vertical-align: middle;';
+    const modeBadge = col.mode === 'per_unit'
+      ? `${formatCLP(col.rate || 0)}/unid`
+      : `${formatCLP(col.rate || 0)} global`;
+    th.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">
+        <div style="display: flex; align-items: center; justify-content: flex-end; gap: 3px; width: 100%;">
+          <span style="font-size: 0.72rem; font-weight: 800; color: #9a3412; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 72px;" title="${escapeHtml(col.name)} (${escapeHtml(modeBadge)})">${escapeHtml(col.name)}</span>
+          <button type="button" onclick="window.openEditCustomColumnModal('${escapeHtml(col.id)}')" title="Editar columna de recargo (${escapeHtml(col.name)})" style="background: transparent; border: none; cursor: pointer; color: #ea580c; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
+            <i class="ri-settings-4-line"></i>
+          </button>
+          <button type="button" onclick="window.deleteCustomColumn('${escapeHtml(col.id)}')" title="Eliminar columna de recargo" style="background: transparent; border: none; cursor: pointer; color: #dc2626; padding: 0 1px; font-size: 0.78rem; line-height: 1;">
+            <i class="ri-close-circle-line"></i>
+          </button>
+        </div>
+        <span style="font-size: 0.62rem; font-weight: 700; color: #c2410c; background: #ffedd5; padding: 0px 4px; border-radius: 3px; line-height: 1.2;">
+          ${escapeHtml(modeBadge)}
+        </span>
+      </div>
+    `;
+    headerRow.insertBefore(th, prepTotalTh);
+  });
+
+  const filterColspanTh = document.getElementById('bg-filter-row-values-colspan');
+  if (filterColspanTh) {
+    filterColspanTh.setAttribute('colspan', String(7 + customCols.length));
+  }
+}
+
 // Renderizar Filas de la Tabla Editable
 export function renderOrdersTableUI() {
   const tbody = document.getElementById('bg-orders-table-body');
   if (!tbody) return;
 
+  syncCustomColumnsHeaderDOM();
+  const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+
   const orders = billingState.orders || [];
   if (orders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="16" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+        <td colspan="${16 + customCols.length}" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
           <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; color: #5f06fa;"></i>
           No se encontraron pedidos asignados al periodo <strong>${escapeHtml(billingState.currentPeriodName || '')}</strong> para este comercio.<br>
           <span style="font-size: 0.8rem; margin-top: 0.25rem; display: inline-block;">Asigna el periodo en el <strong>Gestor de Pedidos</strong> para que aparezcan aquí automáticamente.</span>
@@ -6142,6 +7488,24 @@ export function renderOrdersTableUI() {
     const shippingMethodText = (rawShippingMethodStr !== '' && rawShippingMethodStr !== '—' && rawShippingMethodStr !== '-')
       ? rawShippingMethodStr
       : 'Sin método';
+
+    const customColsCellsHTML = customCols.map(col => {
+      const val = (o.customSurcharges && o.customSurcharges[col.id] !== undefined)
+        ? (Number(o.customSurcharges[col.id]) || 0)
+        : calculateCustomColumnRuleAmount(col, o);
+      const isManual = Boolean(o.customSurchargesMeta && (o.customSurchargesMeta[col.id] === 'manual' || o.customSurchargesMeta[col.id]?.isManual));
+      const modeHint = col.mode === 'per_unit'
+        ? `${formatCLP(col.rate || 0)} × ${o.unitsCount || 1} unid.${isManual ? ' (Editado manual)' : ''}`
+        : `Valor global (${formatCLP(col.rate || 0)})${isManual ? ' (Editado manual)' : ''}`;
+      return `
+        <td class="bg-custom-surcharge-td" style="text-align: right; background: rgba(255, 247, 237, 0.45); border-left: 1px dashed #fed7aa; border-right: 1px dashed #fed7aa;">
+          <input type="number" class="bg-excel-input" value="${val}" min="0"
+            style="text-align: right; width: 78px; font-weight: 700; color: ${val > 0 ? '#ea580c' : '#64748b'}; ${isManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
+            onchange="window.updateBgOrderCustomColumn('${o.id}', '${col.id}', this.value)"
+            title="${escapeHtml(col.name)}: ${escapeHtml(modeHint)}">
+        </td>
+      `;
+    }).join('');
 
     return `
       <tr ${rowClass} id="bg-row-${o.id}" data-id="${o.id}"
@@ -6212,18 +7576,28 @@ export function renderOrdersTableUI() {
           <input type="checkbox" ${o.isMarketplace ? 'checked' : ''} onchange="window.updateBgOrderCell('${o.id}', 'isMarketplace', this.checked)" style="accent-color: #5f06fa; cursor: pointer;">
         </td>
         <td style="text-align: right;">
-          <input type="number" class="bg-excel-input" value="${o.baseRate}" style="text-align: right; width: 75px; font-weight: 600;" onchange="window.updateBgOrderCell('${o.id}', 'baseRate', this.value)">
+          <input type="number" class="bg-excel-input" value="${o.baseRate}" min="0" style="text-align: right; width: 75px; font-weight: 600;" onchange="window.updateBgOrderCell('${o.id}', 'baseRate', this.value)" title="Tarifa Base Pick & Pack: ${formatCLP(o.baseRate)}">
         </td>
-        <td style="text-align: right; color: ${o.surchargeSku > 0 ? '#ea580c' : '#64748b'}; font-weight: 600;">
-          ${formatCLP(o.surchargeSku)}
+        <td style="text-align: right;">
+          <input type="number" class="bg-excel-input" value="${o.surchargeSku || 0}" min="0"
+            style="text-align: right; width: 72px; font-weight: 700; color: ${(o.surchargeSku || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeSkuManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
+            onchange="window.updateBgOrderCell('${o.id}', 'surchargeSku', this.value)"
+            title="Recargo SKU Extra: ${formatCLP(o.surchargeSku || 0)}${o.surchargeSkuManual ? ' (Editado manualmente)' : ''}">
         </td>
-        <td style="text-align: right; color: ${o.surchargeUnits > 0 ? '#ea580c' : '#64748b'}; font-weight: 600;">
-          ${formatCLP(o.surchargeUnits)}
+        <td style="text-align: right;">
+          <input type="number" class="bg-excel-input" value="${o.surchargeUnits || 0}" min="0"
+            style="text-align: right; width: 76px; font-weight: 700; color: ${(o.surchargeUnits || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeUnitsManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
+            onchange="window.updateBgOrderCell('${o.id}', 'surchargeUnits', this.value)"
+            title="Recargo Unidades Extra: ${formatCLP(o.surchargeUnits || 0)}${o.surchargeUnitsManual ? ' (Editado manualmente)' : ''}">
         </td>
-        <td style="text-align: right; color: ${o.surchargeMarketplace > 0 ? '#ea580c' : '#64748b'}; font-weight: 600;">
-          ${formatCLP(o.surchargeMarketplace)}
+        <td style="text-align: right;">
+          <input type="number" class="bg-excel-input" value="${o.surchargeMarketplace || 0}" min="0"
+            style="text-align: right; width: 72px; font-weight: 700; color: ${(o.surchargeMarketplace || 0) > 0 ? '#ea580c' : '#64748b'}; ${o.surchargeMarketplaceManual ? 'border-color: #f97316; background: #fff7ed;' : ''}"
+            onchange="window.updateBgOrderCell('${o.id}', 'surchargeMarketplace', this.value)"
+            title="Recargo Marketplace: ${formatCLP(o.surchargeMarketplace || 0)}${o.surchargeMarketplaceManual ? ' (Editado manualmente)' : ''}">
         </td>
-        <td style="text-align: right; font-weight: 700; color: var(--color-text-main);">
+        ${customColsCellsHTML}
+        <td style="text-align: right; font-weight: 700; color: var(--color-text-main);" title="Base: ${formatCLP(o.baseRate)} | SKU: ${formatCLP(o.surchargeSku)} | Unid: ${formatCLP(o.surchargeUnits)} | Mkt: ${formatCLP(o.surchargeMarketplace)}${o.customSurchargesTotal > 0 ? ` | Recargos Extra: ${formatCLP(o.customSurchargesTotal)}` : ''}">
           ${formatCLP(o.pickPackTotal)}
         </td>
         <td style="text-align: right;">
@@ -6271,15 +7645,16 @@ export function renderOrdersTableUI() {
 
 // Funciones de Edición Inline en el Grid
 window.toggleBgOrderInclusion = function(orderId, isChecked) {
-  const order = billingState.orders.find(o => o.id === orderId);
+  const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (order) {
     order.isExcluded = !isChecked;
+    billingState.isSaved = false;
     recalculateFromCurrentState();
   }
 };
 
 window.updateBgOrderDeliveryType = function(orderId, newType) {
-  const order = billingState.orders.find(o => o.id === orderId);
+  const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (!order) return;
 
   const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
@@ -6289,25 +7664,40 @@ window.updateBgOrderDeliveryType = function(orderId, newType) {
   order.shippingFreight = dt ? dt.price : 0;
 
   order.orderTotal = order.pickPackTotal + order.shippingFreight;
+  billingState.isSaved = false;
   recalculateFromCurrentState();
 };
 
 window.updateBgOrderCell = function(orderId, field, value) {
-  const order = billingState.orders.find(o => o.id === orderId);
+  const order = billingState.orders.find(o => String(o.id) === String(orderId));
   if (!order) return;
+
+  const rules = billingState.pricingConfig?.pick_pack_rules || {};
 
   if (field === 'skuCount') {
     order.skuCount = Math.max(1, parseInt(value, 10) || 1);
-    const extraSku = Math.max(0, order.skuCount - 3);
-    order.surchargeSku = extraSku * 100;
+    const extraSku = Math.max(0, order.skuCount - (rules.base_included_sku || 3));
+    order.surchargeSku = extraSku * (rules.surcharge_extra_sku || 100);
+    order.surchargeSkuManual = false;
   } else if (field === 'unitsCount') {
     order.unitsCount = Math.max(1, parseInt(value, 10) || 1);
-    const extraUnits = Math.max(0, order.unitsCount - 10);
-    order.surchargeUnits = extraUnits * 50;
+    const extraUnits = Math.max(0, order.unitsCount - (rules.base_included_units || 10));
+    order.surchargeUnits = extraUnits * (rules.surcharge_extra_unit || 50);
+    order.surchargeUnitsManual = false;
+  } else if (field === 'surchargeSku') {
+    order.surchargeSku = Math.max(0, Math.round(Number(value) || 0));
+    order.surchargeSkuManual = true;
+  } else if (field === 'surchargeUnits') {
+    order.surchargeUnits = Math.max(0, Math.round(Number(value) || 0));
+    order.surchargeUnitsManual = true;
+  } else if (field === 'surchargeMarketplace') {
+    order.surchargeMarketplace = Math.max(0, Math.round(Number(value) || 0));
+    order.surchargeMarketplaceManual = true;
   } else if (field === 'isMarketplace') {
     order.isMarketplace = !!value;
-    const mktSurcharge = (billingState.pricingConfig?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+    const mktSurcharge = rules.surcharge_marketplace_collect || 100;
     order.surchargeMarketplace = order.isMarketplace ? mktSurcharge : 0;
+    order.surchargeMarketplaceManual = false;
   } else if (field === 'baseRate') {
     order.baseRate = Math.max(0, parseInt(value, 10) || 0);
   } else if (field === 'shippingFreight') {
@@ -6316,8 +7706,272 @@ window.updateBgOrderCell = function(orderId, field, value) {
     order.ticketVenta = Math.max(0, parseInt(value, 10) || 0);
   }
 
-  order.pickPackTotal = order.baseRate + order.surchargeSku + order.surchargeUnits + order.surchargeMarketplace;
+  billingState.isSaved = false;
+  recomputeOrderPickPackWithCustomColumns(order, billingState.customColumns);
   order.orderTotal = order.pickPackTotal + order.shippingFreight;
+
+  recalculateFromCurrentState();
+};
+
+// Actualizar valor de una columna de cobro personalizada en un pedido específico
+window.updateBgOrderCustomColumn = function(orderId, colId, rawValue) {
+  const order = billingState.orders.find(o => String(o.id) === String(orderId));
+  if (!order) return;
+
+  if (!order.customSurcharges || typeof order.customSurcharges !== 'object') {
+    order.customSurcharges = {};
+  }
+  if (!order.customSurchargesMeta || typeof order.customSurchargesMeta !== 'object') {
+    order.customSurchargesMeta = {};
+  }
+
+  const val = Math.max(0, Math.round(Number(rawValue) || 0));
+  order.customSurcharges[colId] = val;
+  order.customSurchargesMeta[colId] = 'manual';
+
+  recomputeOrderPickPackWithCustomColumns(order, billingState.customColumns);
+  order.orderTotal = order.pickPackTotal + (order.shippingFreight || 0);
+
+  recalculateFromCurrentState();
+};
+
+// Modal para añadir una nueva columna de cobro (recargo de preparación por unidad o global)
+window.openAddCustomColumnModal = async function() {
+  const allOrders = billingState.orders || [];
+  const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
+  const visibleIds = new Set(visibleRows.map(r => String(r.getAttribute('data-id'))));
+  const filteredCount = allOrders.filter(o => visibleIds.has(String(o.id))).length;
+  const includedCount = allOrders.filter(o => !o.isExcluded).length;
+  const defaultScope = (filteredCount > 0 && filteredCount < allOrders.length) ? 'filtered' : 'included';
+
+  const { value: formVal } = await Swal.fire({
+    title: '<span style="color: #1e293b; font-size: 1.1rem; font-weight: 800; display: inline-flex; align-items: center; gap: 6px;"><i class="ri-layout-column-line" style="color: #ea580c;"></i> Nueva Columna de Cobro (Recargo Prep.)</span>',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; color: #1e293b;">
+        <p style="font-size: 0.76rem; color: #64748b; margin: 0 0 12px 0; line-height: 1.35;">
+          Añade una columna personalizada de recargo de preparación. Su monto se sumará directamente al <strong>Costo de Preparación (Prep. Total)</strong> de cada pedido.
+        </p>
+
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">1. Nombre del Recargo / Columna</label>
+          <input id="swal-cc-name" type="text" class="form-input" placeholder="Ej: Recargo Prep., Etiquetado, Armado Kit, Embalaje Especial..." value="Recargo Prep." style="width: 100%; height: 36px; font-size: 0.85rem; border-radius: 6px;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <div>
+            <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">2. Modalidad de Cálculo</label>
+            <select id="swal-cc-mode" class="form-input" style="width: 100%; height: 36px; font-size: 0.82rem; border-radius: 6px; font-weight: 600;">
+              <option value="per_unit">Por Unidad (Valor × Unid. del pedido)</option>
+              <option value="global">Global por Pedido (Monto fijo por pedido)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">3. Valor ($ CLP Neto)</label>
+            <input id="swal-cc-rate" type="number" class="form-input" min="0" value="100" placeholder="100" style="width: 100%; height: 36px; font-size: 0.85rem; text-align: right; font-weight: 700; border-radius: 6px;">
+          </div>
+        </div>
+
+        <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px;">
+          <label style="font-size: 0.74rem; font-weight: 800; color: #9a3412; display: block; margin-bottom: 6px; text-transform: uppercase;">
+            <i class="ri-focus-3-line"></i> 4. Aplicación Inicial en Pedidos
+          </label>
+          <div style="display: flex; flex-direction: column; gap: 5px; font-size: 0.78rem;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="radio" name="swal-cc-scope" value="included" ${defaultScope === 'included' ? 'checked' : ''} style="accent-color: #ea580c;">
+              <span>Aplicar a todos los pedidos incluidos (${includedCount} pedidos)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="radio" name="swal-cc-scope" value="filtered" ${defaultScope === 'filtered' ? 'checked' : ''} style="accent-color: #ea580c;">
+              <span>Aplicar solo a los pedidos filtrados/visibles hoy (${filteredCount} pedidos) y dejar el resto en $0</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="radio" name="swal-cc-scope" value="zero" style="accent-color: #ea580c;">
+              <span>Iniciar todos los pedidos en $0 (para digitar manualmente en la tabla)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    `,
+    width: '540px',
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-add-line"></i> Crear Columna y Sumar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#ea580c',
+    focusConfirm: false,
+    preConfirm: () => {
+      const name = (document.getElementById('swal-cc-name')?.value || '').trim();
+      const mode = document.getElementById('swal-cc-mode')?.value || 'per_unit';
+      const rate = Math.max(0, Math.round(Number(document.getElementById('swal-cc-rate')?.value) || 0));
+      const scope = document.querySelector('input[name="swal-cc-scope"]:checked')?.value || 'included';
+
+      if (!name) {
+        Swal.showValidationMessage('Ingresa un nombre para la columna de recargo.');
+        return false;
+      }
+      return { name, mode, rate, scope };
+    }
+  });
+
+  if (!formVal) return;
+
+  if (!Array.isArray(billingState.customColumns)) {
+    billingState.customColumns = [];
+  }
+
+  const newCol = {
+    id: 'cc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    name: formVal.name,
+    mode: formVal.mode === 'per_unit' ? 'per_unit' : 'global',
+    rate: formVal.rate
+  };
+
+  billingState.customColumns.push(newCol);
+  billingState.customColumnsSessionKey = `${billingState.currentPeriodId || ''}_${billingState.currentComercio || ''}`;
+
+  (billingState.orders || []).forEach(ord => {
+    if (!ord.customSurcharges || typeof ord.customSurcharges !== 'object') ord.customSurcharges = {};
+    if (!ord.customSurchargesMeta || typeof ord.customSurchargesMeta !== 'object') ord.customSurchargesMeta = {};
+
+    if (formVal.scope === 'zero') {
+      ord.customSurcharges[newCol.id] = 0;
+      ord.customSurchargesMeta[newCol.id] = 'manual';
+    } else if (formVal.scope === 'filtered') {
+      if (visibleIds.has(String(ord.id))) {
+        ord.customSurcharges[newCol.id] = calculateCustomColumnRuleAmount(newCol, ord);
+        ord.customSurchargesMeta[newCol.id] = 'rule';
+      } else {
+        ord.customSurcharges[newCol.id] = 0;
+        ord.customSurchargesMeta[newCol.id] = 'manual';
+      }
+    } else {
+      ord.customSurcharges[newCol.id] = calculateCustomColumnRuleAmount(newCol, ord);
+      ord.customSurchargesMeta[newCol.id] = 'rule';
+    }
+
+    recomputeOrderPickPackWithCustomColumns(ord, billingState.customColumns);
+    ord.orderTotal = ord.pickPackTotal + (ord.shippingFreight || 0);
+  });
+
+  recalculateFromCurrentState();
+
+  Swal.fire({
+    toast: true,
+    position: 'top-end',
+    icon: 'success',
+    title: `Columna "${newCol.name}" añadida`,
+    text: 'Se actualizó el costo de preparación de los pedidos.',
+    showConfirmButton: false,
+    timer: 3000
+  });
+};
+
+// Modal para editar una columna de cobro personalizada existente
+window.openEditCustomColumnModal = async function(colId) {
+  const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+  const col = customCols.find(c => c.id === colId);
+  if (!col) return;
+
+  const { value: formVal } = await Swal.fire({
+    title: `<span style="color: #1e293b; font-size: 1.05rem; font-weight: 800; display: inline-flex; align-items: center; gap: 6px;"><i class="ri-settings-4-line" style="color: #ea580c;"></i> Editar Columna: ${escapeHtml(col.name)}</span>`,
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; color: #1e293b;">
+        <div style="margin-bottom: 12px;">
+          <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">Nombre del Recargo / Columna</label>
+          <input id="swal-edit-cc-name" type="text" class="form-input" value="${escapeHtml(col.name)}" style="width: 100%; height: 36px; font-size: 0.85rem; border-radius: 6px;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; margin-bottom: 12px;">
+          <div>
+            <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">Modalidad de Cálculo</label>
+            <select id="swal-edit-cc-mode" class="form-input" style="width: 100%; height: 36px; font-size: 0.82rem; border-radius: 6px; font-weight: 600;">
+              <option value="per_unit" ${col.mode === 'per_unit' ? 'selected' : ''}>Por Unidad (Valor × Unid. del pedido)</option>
+              <option value="global" ${col.mode !== 'per_unit' ? 'selected' : ''}>Global por Pedido (Monto fijo por pedido)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.74rem; font-weight: 800; color: #334155; display: block; margin-bottom: 4px; text-transform: uppercase;">Valor ($ CLP Neto)</label>
+            <input id="swal-edit-cc-rate" type="number" class="form-input" min="0" step="10" value="${Number(col.rate) || 0}" style="width: 100%; height: 36px; font-size: 0.85rem; text-align: right; font-weight: 700; border-radius: 6px;">
+          </div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #334155; cursor: pointer;">
+            <input type="checkbox" id="swal-edit-cc-recalc-all" checked style="accent-color: #ea580c; width: 15px; height: 15px;">
+            <span>Recalcular esta columna en todos los pedidos con la nueva tarifa/modalidad</span>
+          </label>
+        </div>
+      </div>
+    `,
+    width: '520px',
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-check-line"></i> Guardar Cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#ea580c',
+    focusConfirm: false,
+    preConfirm: () => {
+      const name = (document.getElementById('swal-edit-cc-name')?.value || '').trim();
+      const mode = document.getElementById('swal-edit-cc-mode')?.value || 'per_unit';
+      const rate = Math.max(0, Math.round(Number(document.getElementById('swal-edit-cc-rate')?.value) || 0));
+      const recalcAll = !!document.getElementById('swal-edit-cc-recalc-all')?.checked;
+      if (!name) {
+        Swal.showValidationMessage('El nombre de la columna no puede estar vacío.');
+        return false;
+      }
+      return { name, mode, rate, recalcAll };
+    }
+  });
+
+  if (!formVal) return;
+
+  col.name = formVal.name;
+  col.mode = formVal.mode === 'per_unit' ? 'per_unit' : 'global';
+  col.rate = formVal.rate;
+
+  (billingState.orders || []).forEach(ord => {
+    if (!ord.customSurcharges || typeof ord.customSurcharges !== 'object') ord.customSurcharges = {};
+    if (!ord.customSurchargesMeta || typeof ord.customSurchargesMeta !== 'object') ord.customSurchargesMeta = {};
+
+    if (formVal.recalcAll || ord.customSurchargesMeta[col.id] !== 'manual') {
+      ord.customSurcharges[col.id] = calculateCustomColumnRuleAmount(col, ord);
+      ord.customSurchargesMeta[col.id] = 'rule';
+    }
+    recomputeOrderPickPackWithCustomColumns(ord, billingState.customColumns);
+    ord.orderTotal = ord.pickPackTotal + (ord.shippingFreight || 0);
+  });
+
+  recalculateFromCurrentState();
+};
+
+// Eliminar una columna de cobro personalizada
+window.deleteCustomColumn = async function(colId) {
+  const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+  const col = customCols.find(c => c.id === colId);
+  if (!col) return;
+
+  const { isConfirmed } = await Swal.fire({
+    title: '¿Eliminar columna de cobro?',
+    html: `Se quitará la columna <strong>${escapeHtml(col.name)}</strong> y se descontará su recargo del costo de preparación de los pedidos.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, eliminar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#dc2626'
+  });
+
+  if (!isConfirmed) return;
+
+  billingState.customColumns = customCols.filter(c => c.id !== colId);
+
+  (billingState.orders || []).forEach(ord => {
+    if (ord.customSurcharges && typeof ord.customSurcharges === 'object') {
+      delete ord.customSurcharges[colId];
+    }
+    if (ord.customSurchargesMeta && typeof ord.customSurchargesMeta === 'object') {
+      delete ord.customSurchargesMeta[colId];
+    }
+    recomputeOrderPickPackWithCustomColumns(ord, billingState.customColumns);
+    ord.orderTotal = ord.pickPackTotal + (ord.shippingFreight || 0);
+  });
 
   recalculateFromCurrentState();
 };
@@ -6326,11 +7980,11 @@ window.updateBgOrderCell = function(orderId, field, value) {
 window.toggleAllVisibleOrdersInclusion = function(isChecked) {
   const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
   if (visibleRows.length === 0) return;
-  const visibleIds = new Set(visibleRows.map(r => r.getAttribute('data-id')));
+  const visibleIds = new Set(visibleRows.map(r => String(r.getAttribute('data-id'))));
 
   let changedCount = 0;
   (billingState.orders || []).forEach(o => {
-    if (visibleIds.has(o.id)) {
+    if (visibleIds.has(String(o.id))) {
       if (o.isExcluded !== !isChecked) {
         o.isExcluded = !isChecked;
         changedCount++;
@@ -6353,8 +8007,8 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
 
   // 1. Obtener pedidos visibles según los filtros activos actuales en el DOM
   const visibleRows = Array.from(document.querySelectorAll('#bg-orders-table-body tr[id^="bg-row-"]')).filter(r => r.style.display !== 'none');
-  const visibleIds = new Set(visibleRows.map(r => r.getAttribute('data-id')));
-  const filteredOrders = allOrders.filter(o => visibleIds.has(o.id));
+  const visibleIds = new Set(visibleRows.map(r => String(r.getAttribute('data-id'))));
+  const filteredOrders = allOrders.filter(o => visibleIds.has(String(o.id)));
   const includedOrders = allOrders.filter(o => !o.isExcluded);
 
   const filteredCount = filteredOrders.length;
@@ -6373,6 +8027,29 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
 
   const deliveryTypes = getDeliveryTypes(billingState.pricingConfig);
   const defaultBaseRate = billingState.activeRange?.pick_pack_base || 1250;
+  const customCols = Array.isArray(billingState.customColumns) ? billingState.customColumns : [];
+
+  const customColsBulkHTML = customCols.map(col => {
+    const ruleDesc = col.mode === 'per_unit'
+      ? `Aplicar regla (${formatCLP(col.rate || 0)} × Unid.)`
+      : `Aplicar regla (${formatCLP(col.rate || 0)} global)`;
+    return `
+      <div class="bulk-edit-row" id="row-bulk-cc-${escapeHtml(col.id)}" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px dashed #fdba74; background: #fff7ed;">
+        <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #9a3412; flex: 1;">
+          <input type="checkbox" id="bulk-chk-cc-${escapeHtml(col.id)}" class="bulk-col-toggle bulk-cc-toggle" data-cc-id="${escapeHtml(col.id)}" data-target="bulk-val-cc-action-${escapeHtml(col.id)}" style="width: 15px; height: 15px; accent-color: #ea580c;">
+          <span>Recargo: ${escapeHtml(col.name)}</span>
+        </label>
+        <div style="display: flex; gap: 4px; width: 240px;">
+          <select id="bulk-val-cc-action-${escapeHtml(col.id)}" class="form-input bulk-cc-action-select" data-cc-id="${escapeHtml(col.id)}" style="height: 32px; font-size: 0.75rem; padding: 2px 6px; flex: 1; border-radius: 6px;" disabled>
+            <option value="rule">${escapeHtml(ruleDesc)}</option>
+            <option value="zero">Dejar en $0 (Sin recargo)</option>
+            <option value="fixed">Monto fijo manual ($)</option>
+          </select>
+          <input type="number" id="bulk-val-cc-amount-${escapeHtml(col.id)}" class="form-input" value="${Number(col.rate) || 0}" min="0" style="height: 32px; font-size: 0.75rem; width: 78px; text-align: right; border-radius: 6px; display: none;" disabled>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   // Construir HTML del modal
   const modalHTML = `
@@ -6497,6 +8174,30 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
             </div>
           </div>
 
+          <!-- Columna: Recargo SKU ($) -->
+          <div class="bulk-edit-row" id="row-bulk-surchargesku" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-surchargesku" class="bulk-col-toggle" data-target="bulk-val-surchargesku" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Recargo SKU ($)</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-surchargesku" class="form-input" placeholder="0" value="0" min="0" step="50" style="height: 32px; font-size: 0.78rem; text-align: right; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          <!-- Columna: Recargo Unidades ($) -->
+          <div class="bulk-edit-row" id="row-bulk-surchargeunits" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
+            <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
+              <input type="checkbox" id="bulk-chk-surchargeunits" class="bulk-col-toggle" data-target="bulk-val-surchargeunits" style="width: 15px; height: 15px; accent-color: #5f06fa;">
+              <span>Recargo Unidades ($)</span>
+            </label>
+            <div style="width: 200px;">
+              <input type="number" id="bulk-val-surchargeunits" class="form-input" placeholder="0" value="0" min="0" step="50" style="height: 32px; font-size: 0.78rem; text-align: right; width: 100%; border-radius: 6px;" disabled>
+            </div>
+          </div>
+
+          ${customColsBulkHTML}
+
           <!-- Columna: Inclusión en Facturación -->
           <div class="bulk-edit-row" id="row-bulk-inclusion" style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fcfcfd;">
             <label style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #1e293b; flex: 1;">
@@ -6519,7 +8220,7 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
   const { value: bulkResult } = await Swal.fire({
     title: '<span style="color: #1e293b; font-size: 1.15rem; font-weight: 800; display: inline-flex; align-items: center; gap: 6px;"><i class="ri-edit-2-line" style="color: #5f06fa;"></i> Edición Masiva de Pedidos</span>',
     html: modalHTML,
-    width: '640px',
+    width: '660px',
     showCancelButton: true,
     confirmButtonText: '<i class="ri-check-line"></i> Aplicar Cambios',
     cancelButtonText: 'Cancelar',
@@ -6536,13 +8237,28 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
             inputEl.disabled = !e.target.checked;
             if (e.target.checked) inputEl.focus();
           }
-          if (rowEl) {
+          const ccId = e.target.getAttribute('data-cc-id');
+          if (ccId) {
+            const amtEl = document.getElementById(`bulk-val-cc-amount-${ccId}`);
+            if (amtEl) amtEl.disabled = !e.target.checked;
+          }
+          if (rowEl && !ccId) {
             rowEl.style.background = e.target.checked ? '#f5f3ff' : '#fcfcfd';
             rowEl.style.borderColor = e.target.checked ? '#c4b5fd' : '#e2e8f0';
           }
           if (e.target.id === 'bulk-chk-delivery') {
             const syncBox = document.getElementById('bulk-box-sync-freight');
             if (syncBox) syncBox.style.display = e.target.checked ? 'block' : 'none';
+          }
+        });
+      });
+
+      document.querySelectorAll('.bulk-cc-action-select').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const ccId = e.target.getAttribute('data-cc-id');
+          const amtEl = document.getElementById(`bulk-val-cc-amount-${ccId}`);
+          if (amtEl) {
+            amtEl.style.display = e.target.value === 'fixed' ? 'block' : 'none';
           }
         });
       });
@@ -6554,7 +8270,7 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
 
       let targetOrders = [];
       if (scope === 'filtered') {
-        targetOrders = allOrders.filter(o => visibleIds.has(o.id));
+        targetOrders = allOrders.filter(o => visibleIds.has(String(o.id)));
       } else if (scope === 'included') {
         targetOrders = allOrders.filter(o => !o.isExcluded);
       } else {
@@ -6573,9 +8289,23 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
       const chkUnits = document.getElementById('bulk-chk-units')?.checked;
       const chkMkt = document.getElementById('bulk-chk-mkt')?.checked;
       const chkBaseRate = document.getElementById('bulk-chk-baserate')?.checked;
+      const chkSurchargeSku = document.getElementById('bulk-chk-surchargesku')?.checked;
+      const chkSurchargeUnits = document.getElementById('bulk-chk-surchargeunits')?.checked;
       const chkInclusion = document.getElementById('bulk-chk-inclusion')?.checked;
 
-      if (!chkDelivery && !chkFreight && !chkSkus && !chkUnits && !chkMkt && !chkBaseRate && !chkInclusion) {
+      const customUpdates = {};
+      let hasCustomColSelected = false;
+      customCols.forEach(col => {
+        const chkCC = document.getElementById(`bulk-chk-cc-${col.id}`)?.checked;
+        if (chkCC) {
+          hasCustomColSelected = true;
+          const action = document.getElementById(`bulk-val-cc-action-${col.id}`)?.value || 'rule';
+          const fixedAmount = Math.max(0, Math.round(Number(document.getElementById(`bulk-val-cc-amount-${col.id}`)?.value) || 0));
+          customUpdates[col.id] = { action, fixedAmount, col };
+        }
+      });
+
+      if (!chkDelivery && !chkFreight && !chkSkus && !chkUnits && !chkMkt && !chkBaseRate && !chkSurchargeSku && !chkSurchargeUnits && !chkInclusion && !hasCustomColSelected) {
         Swal.showValidationMessage('Selecciona al menos una columna para aplicar cambios masivos.');
         return false;
       }
@@ -6591,7 +8321,10 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
           units: chkUnits ? Math.max(1, parseInt(document.getElementById('bulk-val-units')?.value, 10) || 1) : null,
           mkt: chkMkt ? (document.getElementById('bulk-val-mkt')?.value === 'yes') : null,
           baseRate: chkBaseRate ? Math.max(0, parseInt(document.getElementById('bulk-val-baserate')?.value, 10) || 0) : null,
-          inclusion: chkInclusion ? (document.getElementById('bulk-val-inclusion')?.value === 'inc') : null
+          surchargeSku: chkSurchargeSku ? Math.max(0, parseInt(document.getElementById('bulk-val-surchargesku')?.value, 10) || 0) : null,
+          surchargeUnits: chkSurchargeUnits ? Math.max(0, parseInt(document.getElementById('bulk-val-surchargeunits')?.value, 10) || 0) : null,
+          inclusion: chkInclusion ? (document.getElementById('bulk-val-inclusion')?.value === 'inc') : null,
+          customUpdates
         }
       };
     }
@@ -6601,6 +8334,7 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
 
   const { targetOrders, updates } = bulkResult;
   const count = targetOrders.length;
+  const rules = billingState.pricingConfig?.pick_pack_rules || {};
 
   targetOrders.forEach(ord => {
     // A. Inclusión
@@ -6625,22 +8359,37 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
     // D. SKUs
     if (updates.skus !== null) {
       ord.skuCount = updates.skus;
-      const extraSku = Math.max(0, ord.skuCount - 3);
-      ord.surchargeSku = extraSku * 100;
+      const extraSku = Math.max(0, ord.skuCount - (rules.base_included_sku || 3));
+      ord.surchargeSku = extraSku * (rules.surcharge_extra_sku || 100);
+      ord.surchargeSkuManual = false;
     }
 
     // E. Unidades
     if (updates.units !== null) {
       ord.unitsCount = updates.units;
-      const extraUnits = Math.max(0, ord.unitsCount - 10);
-      ord.surchargeUnits = extraUnits * 50;
+      const extraUnits = Math.max(0, ord.unitsCount - (rules.base_included_units || 10));
+      ord.surchargeUnits = extraUnits * (rules.surcharge_extra_unit || 50);
+      ord.surchargeUnitsManual = false;
+    }
+
+    // D2. Recargo SKU explícito ($)
+    if (updates.surchargeSku !== null) {
+      ord.surchargeSku = updates.surchargeSku;
+      ord.surchargeSkuManual = true;
+    }
+
+    // E2. Recargo Unidades explícito ($)
+    if (updates.surchargeUnits !== null) {
+      ord.surchargeUnits = updates.surchargeUnits;
+      ord.surchargeUnitsManual = true;
     }
 
     // F. Marketplace
     if (updates.mkt !== null) {
       ord.isMarketplace = updates.mkt;
-      const mktSurcharge = (billingState.pricingConfig?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+      const mktSurcharge = rules.surcharge_marketplace_collect || 100;
       ord.surchargeMarketplace = ord.isMarketplace ? mktSurcharge : 0;
+      ord.surchargeMarketplaceManual = false;
     }
 
     // G. Tarifa Base Pick & Pack
@@ -6648,8 +8397,26 @@ window.openBulkEditOrdersModal = async function(preselectedScope = null) {
       ord.baseRate = updates.baseRate;
     }
 
-    // Recalcular totales por pedido
-    ord.pickPackTotal = ord.baseRate + ord.surchargeSku + ord.surchargeUnits + ord.surchargeMarketplace;
+    // H. Columnas de Cobro Personalizadas
+    if (updates.customUpdates) {
+      if (!ord.customSurcharges || typeof ord.customSurcharges !== 'object') ord.customSurcharges = {};
+      if (!ord.customSurchargesMeta || typeof ord.customSurchargesMeta !== 'object') ord.customSurchargesMeta = {};
+      Object.entries(updates.customUpdates).forEach(([ccId, cfg]) => {
+        if (cfg.action === 'rule') {
+          ord.customSurcharges[ccId] = calculateCustomColumnRuleAmount(cfg.col, ord);
+          ord.customSurchargesMeta[ccId] = 'rule';
+        } else if (cfg.action === 'zero') {
+          ord.customSurcharges[ccId] = 0;
+          ord.customSurchargesMeta[ccId] = 'manual';
+        } else if (cfg.action === 'fixed') {
+          ord.customSurcharges[ccId] = cfg.fixedAmount;
+          ord.customSurchargesMeta[ccId] = 'manual';
+        }
+      });
+    }
+
+    // Recalcular totales por pedido (incluyendo columnas personalizadas de recargo)
+    recomputeOrderPickPackWithCustomColumns(ord, billingState.customColumns);
     ord.orderTotal = ord.pickPackTotal + ord.shippingFreight;
   });
 
@@ -10261,17 +12028,23 @@ export function sanitizeSnapshotOrdersMarketplace(snapshot, config = null) {
   if (!snapshot || !Array.isArray(snapshot.orders)) return;
   const cfg = config || billingState.pricingConfig;
   const mktRate = (cfg?.pick_pack_rules?.surcharge_marketplace_collect) || 100;
+  const customCols = Array.isArray(snapshot.customColumns) ? snapshot.customColumns : [];
   let changed = false;
 
   snapshot.orders.forEach(o => {
-    if (o.isMarketplace && (!o.surchargeMarketplace || o.surchargeMarketplace === 0)) {
+    const customTotal = computeOrderCustomSurchargesTotal(o, customCols);
+    if (!o.surchargeMarketplaceManual && o.isMarketplace && (!o.surchargeMarketplace || o.surchargeMarketplace === 0)) {
       o.surchargeMarketplace = mktRate;
-      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + o.surchargeMarketplace;
+      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + o.surchargeMarketplace + customTotal;
       o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
       changed = true;
-    } else if (!o.isMarketplace && o.surchargeMarketplace > 0) {
+    } else if (!o.surchargeMarketplaceManual && !o.isMarketplace && o.surchargeMarketplace > 0) {
       o.surchargeMarketplace = 0;
-      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0);
+      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + customTotal;
+      o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
+      changed = true;
+    } else if (customCols.length > 0 && o.customSurchargesTotal !== customTotal) {
+      o.pickPackTotal = (o.baseRate || 0) + (o.surchargeSku || 0) + (o.surchargeUnits || 0) + (o.surchargeMarketplace || 0) + customTotal;
       o.orderTotal = o.pickPackTotal + (o.shippingFreight || 0);
       changed = true;
     }
@@ -10533,6 +12306,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
 
   const totals = snapshot.totals || {};
   const orders = snapshot.orders || [];
+  const customCols = Array.isArray(snapshot.customColumns) ? snapshot.customColumns : [];
   const childStores = (snapshot.conglomerateChildren && snapshot.conglomerateChildren.length > 0)
     ? snapshot.conglomerateChildren
     : Array.from(new Set(orders.map(o => (o.comercio || '').trim()).filter(Boolean)));
@@ -10656,6 +12430,7 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                     <th style="min-width: 130px;">Tipo Entrega</th>
                     <th style="width: 70px; min-width: 65px; text-align: center;">SKUs</th>
                     <th style="width: 70px; min-width: 65px; text-align: center;">Unid.</th>
+                    ${customCols.map(cc => `<th style="width: 95px; text-align: right;">${escapeHtml(cc.name)}</th>`).join('')}
                     <th style="width: 95px; text-align: right;">Prep. Total</th>
                     <th style="width: 95px; text-align: right;">Flete Envío</th>
                     <th class="th-total-order" style="width: 105px; text-align: right;">Total Pedido</th>
@@ -10695,12 +12470,18 @@ export async function openClientInteractiveBillingModal(recordId, initialTab = '
                       </td>
                       <td class="cm-cell-qty">${o.skuCount || 1}</td>
                       <td class="cm-cell-qty">${o.unitsCount || 1}</td>
+                      ${customCols.map(cc => {
+                        const val = (o.customSurcharges && o.customSurcharges[cc.id] !== undefined)
+                          ? (Number(o.customSurcharges[cc.id]) || 0)
+                          : calculateCustomColumnRuleAmount(cc, o);
+                        return `<td class="cm-cell-money">${formatCLP(val)}</td>`;
+                      }).join('')}
                       <td class="cm-cell-money">${formatCLP(o.pickPackTotal || 0)}</td>
                       <td class="cm-cell-money">${formatCLP(o.shippingFreight || 0)}</td>
                       <td class="cm-cell-total">${formatCLP(o.orderTotal || 0)}</td>
                     </tr>
                     `;
-                  }).join('') || `<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
+                  }).join('') || `<tr><td colspan="${13 + customCols.length}" style="text-align: center; padding: 2rem; color: #94a3b8;">No se registraron pedidos en el periodo.</td></tr>`}
                 </tbody>
               </table>
             </div>

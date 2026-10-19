@@ -335,6 +335,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.session) {
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single();
         const role = profile ? profile.role : 'client';
+        if (role === 'admin') {
+          try {
+            const serializedAdminSession = JSON.stringify({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+              user: data.session.user
+            });
+            sessionStorage.setItem('sb-wms-admin-session-backup', serializedAdminSession);
+            localStorage.setItem('sb-wms-admin-session-backup', serializedAdminSession);
+          } catch (eBackup) {}
+        }
         
         // Loader de transición premium a pantalla completa
         const loader = document.createElement('div');

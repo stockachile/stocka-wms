@@ -12,13 +12,13 @@
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
   <link rel="stylesheet" href="./css/style.css?v=1.0.4">
-  <link rel="stylesheet" href="./css/layout.css?v=1.0.6">
+  <link rel="stylesheet" href="./css/layout.css?v=1.1.4">
   <link rel="stylesheet" href="./css/inventory_count.css?v=1.0.6">
   <link rel="stylesheet" href="./css/agendas_grid.css?v=1.0.0">
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <!-- Quill Rich Text Editor CDN -->
   <link href="https://cdn.jsdelivr.net/npm/quill@1.3.7/dist/quill.snow.css" rel="stylesheet">
-  <script src="./js/theme.js"></script>
+  <script src="./js/theme.js?v=1.1.3"></script>
   <style>
     @keyframes pulse-warning {
       0% {
@@ -493,7 +493,7 @@
 
   <div class="dashboard-layout">
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar" data-sidebar-role="admin">
       <div class="sidebar-header">
         <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="sidebar-logo">
         <button id="toggle-sidebar" class="sidebar-toggle" title="Contraer menú">
@@ -501,57 +501,154 @@
         </button>
       </div>
       <nav class="sidebar-nav">
-        <ul>
-          <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line"></i> <span class="nav-text">Dashboard Admin</span></a></li>
+        <ul class="sidebar-primary-list">
+          <li class="sidebar-top-item">
+            <a href="#" class="nav-item active" data-view="dashboard">
+              <i class="ri-dashboard-line"></i>
+              <span class="nav-text">Dashboard Admin</span>
+            </a>
+          </li>
 
-          <li class="sidebar-category-header">📦 GESTIÓN DE OPERACIONES</li>
-          <li><a href="#" class="nav-item" data-view="orders_admin"><i class="ri-box-3-line"></i> <span class="nav-text">Gestor de Pedidos</span></a></li>
-          <li><a href="#" class="nav-item" data-view="cotizador_admin"><i class="ri-calculator-line"></i> <span class="nav-text">Cotizador de Envíos</span></a></li>
-          <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line"></i> <span class="nav-text">Envíos Consolidados</span></a></li>
-          <li><a href="#" class="nav-item" data-view="manifests_admin"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
-          <li><a href="#" class="nav-item" data-view="optiroute_support"><i class="ri-route-line"></i> <span class="nav-text">Optiroute</span></a></li>
-          <li><a href="#" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
-          <li><a href="#" class="nav-item" data-view="returns_admin"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
-          <li><a href="#" class="nav-item" data-view="pos_admin"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
+          <li class="sidebar-section-label"><span>Módulos</span></li>
 
-          <li class="sidebar-category-header">📥 INVENTARIO Y CATÁLOGO</li>
-          <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span> <span id="badge-inventory-admin" class="menu-badge" style="display: none; background-color: #6366f1; color: white;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="inventory_count"><i class="ri-qr-scan-2-line"></i> <span class="nav-text">Conteo Móvil (Teléfono)</span> <span id="badge-active-counts" class="menu-badge" style="display: none; background-color: #10b981; color: white;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="movements_admin"><i class="ri-loop-right-line"></i> <span class="nav-text">Movimientos de Stock</span></a></li>
-          <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-arrow-left-right-line"></i> <span class="nav-text">Hub Central / Reubicar</span> <span id="badge-central-stock" class="menu-badge" style="display: none; background-color: var(--color-warning); color: #000; font-weight: 700;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo de Productos</span></a></li>
-          <li><a href="#" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
-          <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span> <span id="badge-declarations" class="menu-badge" style="display: none;">0</span></a></li>
+          <!-- Grupo 1: Operaciones y Rutas -->
+          <li class="sidebar-flyout-group" data-group="admin_operations">
+            <button type="button" class="sidebar-group-trigger" aria-expanded="false">
+              <i class="ri-box-3-line group-icon"></i>
+              <span class="group-title">Operaciones y Rutas</span>
+              <span class="group-badge" style="display: none;">0</span>
+              <i class="ri-arrow-right-s-line group-chevron"></i>
+            </button>
+            <div class="sidebar-flyout-panel">
+              <div class="flyout-panel-header">
+                <i class="ri-box-3-line"></i>
+                <span>Operaciones y Rutas</span>
+              </div>
+              <ul class="flyout-panel-list">
+                <li><a href="#" class="nav-item" data-view="orders_admin"><i class="ri-box-3-line"></i> <span class="nav-text">Gestor de Pedidos</span></a></li>
+                <li><a href="#" class="nav-item" data-view="cotizador_admin"><i class="ri-calculator-line"></i> <span class="nav-text">Cotizador de Envíos</span></a></li>
+                <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line"></i> <span class="nav-text">Envíos Consolidados</span></a></li>
+                <li><a href="#" class="nav-item" data-view="manifests_admin"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
+                <li><a href="#" class="nav-item" data-view="optiroute_support"><i class="ri-route-line"></i> <span class="nav-text">Optiroute</span></a></li>
+                <li><a href="#" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
+                <li><a href="#" class="nav-item" data-view="returns_admin"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
+                <li><a href="#" class="nav-item" data-view="pos_admin"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
+              </ul>
+            </div>
+          </li>
 
-          <li class="sidebar-category-header">🏢 ADMINISTRACIÓN Y CLIENTES</li>
-          <li><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span> <span id="badge-billing" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="clickup_facturacion_admin"><i class="ri-table-line"></i> <span class="nav-text">Facturación ClickUp</span></a></li>
-          <li><a href="#" class="nav-item" data-view="enviame_analytics"><i class="ri-bar-chart-2-line"></i> <span class="nav-text">Analítica Envíame</span></a></li>
-          <li><a href="#" class="nav-item" data-view="merchants_admin"><i class="ri-store-3-line"></i> <span class="nav-text">Gestionar Comercios</span></a></li>
-          <li><a href="#" class="nav-item" data-view="onboarding_admin"><i class="ri-git-pull-request-line"></i> <span class="nav-text">Solicitudes de Alta</span> <span id="badge-onboarding" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="leads_admin"><i class="ri-user-search-line"></i> <span class="nav-text">Central de Leads</span> <span id="badge-leads-central" class="menu-badge" style="display: none; background-color: var(--color-primary); color: white;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="redzone_admin" style="color: #ef4444;"><i class="ri-close-circle-line"></i> <span class="nav-text">Solicitudes de Baja</span> <span id="badge-redzone-admin" class="menu-badge" style="display: none; background-color: #ef4444;">0</span></a></li>
-          <li><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"><i class="ri-ticket-line"></i> <span class="nav-text">Gestión de Tickets</span> <span id="badge-tickets-sidebar" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span> <span id="badge-integrations" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="surveys_admin"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Reviews</span> <span id="badge-surveys-admin" class="menu-badge" style="display: none;">0</span></a></li>
+          <!-- Grupo 2: Inventario y Catálogo -->
+          <li class="sidebar-flyout-group" data-group="admin_inventory">
+            <button type="button" class="sidebar-group-trigger" aria-expanded="false">
+              <i class="ri-database-2-line group-icon"></i>
+              <span class="group-title">Inventario y Catálogo</span>
+              <span class="group-badge" style="display: none;">0</span>
+              <i class="ri-arrow-right-s-line group-chevron"></i>
+            </button>
+            <div class="sidebar-flyout-panel">
+              <div class="flyout-panel-header">
+                <i class="ri-database-2-line"></i>
+                <span>Inventario y Catálogo</span>
+              </div>
+              <ul class="flyout-panel-list">
+                <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span> <span id="badge-inventory-admin" class="menu-badge" style="display: none; background-color: #6366f1; color: white;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="inventory_count"><i class="ri-qr-scan-2-line"></i> <span class="nav-text">Conteo Móvil (Teléfono)</span> <span id="badge-active-counts" class="menu-badge" style="display: none; background-color: #10b981; color: white;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="movements_admin"><i class="ri-loop-right-line"></i> <span class="nav-text">Movimientos de Stock</span></a></li>
+                <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-arrow-left-right-line"></i> <span class="nav-text">Hub Central / Reubicar</span> <span id="badge-central-stock" class="menu-badge" style="display: none; background-color: var(--color-warning); color: #000; font-weight: 700;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo de Productos</span></a></li>
+                <li><a href="#" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
+                <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span> <span id="badge-declarations" class="menu-badge" style="display: none;">0</span></a></li>
+              </ul>
+            </div>
+          </li>
 
+          <!-- Grupo 3: Comercios y CRM -->
+          <li class="sidebar-flyout-group" data-group="admin_crm">
+            <button type="button" class="sidebar-group-trigger" aria-expanded="false">
+              <i class="ri-store-3-line group-icon"></i>
+              <span class="group-title">Comercios y CRM</span>
+              <span class="group-badge" style="display: none;">0</span>
+              <i class="ri-arrow-right-s-line group-chevron"></i>
+            </button>
+            <div class="sidebar-flyout-panel">
+              <div class="flyout-panel-header">
+                <i class="ri-store-3-line"></i>
+                <span>Comercios y CRM</span>
+              </div>
+              <ul class="flyout-panel-list">
+                <li><a href="#" class="nav-item" data-view="merchants_admin"><i class="ri-store-3-line"></i> <span class="nav-text">Gestionar Comercios</span></a></li>
+                <li><a href="#" class="nav-item" data-view="onboarding_admin"><i class="ri-git-pull-request-line"></i> <span class="nav-text">Solicitudes de Alta</span> <span id="badge-onboarding" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="leads_admin"><i class="ri-user-search-line"></i> <span class="nav-text">Central de Leads</span> <span id="badge-leads-central" class="menu-badge" style="display: none; background-color: var(--color-primary); color: white;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="redzone_admin" style="color: #ef4444;"><i class="ri-close-circle-line"></i> <span class="nav-text">Solicitudes de Baja</span> <span id="badge-redzone-admin" class="menu-badge" style="display: none; background-color: #ef4444;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="surveys_admin"><i class="ri-survey-line"></i> <span class="nav-text">Encuestas & Reviews</span> <span id="badge-surveys-admin" class="menu-badge" style="display: none;">0</span></a></li>
+                <li class="hidden-ticket-li" style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"><i class="ri-ticket-line"></i> <span class="nav-text">Gestión de Tickets</span> <span id="badge-tickets-sidebar" class="menu-badge" style="display: none;">0</span></a></li>
+              </ul>
+            </div>
+          </li>
 
-          <li class="sidebar-category-header">⚙️ CONFIGURACIÓN DEL SISTEMA</li>
-          <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span> <span id="badge-users" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="identity_qr_admin"><i class="ri-qr-code-line"></i> <span class="nav-text">Identidad & QRs</span> <span id="badge-qr-scans" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line"></i> <span class="nav-text">Gestionar Bodegas</span></a></li>
-          <li><a href="#" class="nav-item" data-view="notifications_admin"><i class="ri-notification-badge-line"></i> <span class="nav-text">Notificaciones</span></a></li>
-          <li><a href="#" class="nav-item" data-view="pricing_config_admin"><i class="ri-price-tag-3-line"></i> <span class="nav-text">Tarifas y Cotizador</span></a></li>
-          <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
+          <!-- Grupo 4: Facturación y Tarifas -->
+          <li class="sidebar-flyout-group" data-group="admin_finance">
+            <button type="button" class="sidebar-group-trigger" aria-expanded="false">
+              <i class="ri-bill-line group-icon"></i>
+              <span class="group-title">Facturación y Tarifas</span>
+              <span class="group-badge" style="display: none;">0</span>
+              <i class="ri-arrow-right-s-line group-chevron"></i>
+            </button>
+            <div class="sidebar-flyout-panel">
+              <div class="flyout-panel-header">
+                <i class="ri-bill-line"></i>
+                <span>Facturación y Tarifas</span>
+              </div>
+              <ul class="flyout-panel-list">
+                <li><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span> <span id="badge-billing" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="clickup_facturacion_admin"><i class="ri-table-line"></i> <span class="nav-text">Facturación ClickUp</span></a></li>
+                <li><a href="#" class="nav-item" data-view="enviame_analytics"><i class="ri-bar-chart-2-line"></i> <span class="nav-text">Analítica Envíame</span></a></li>
+                <li><a href="#" class="nav-item" data-view="pricing_config_admin"><i class="ri-price-tag-3-line"></i> <span class="nav-text">Tarifas y Cotizador</span></a></li>
+              </ul>
+            </div>
+          </li>
+
+          <!-- Grupo 5: Sistema y Accesos -->
+          <li class="sidebar-flyout-group" data-group="admin_system">
+            <button type="button" class="sidebar-group-trigger" aria-expanded="false">
+              <i class="ri-settings-4-line group-icon"></i>
+              <span class="group-title">Sistema y Accesos</span>
+              <span class="group-badge" style="display: none;">0</span>
+              <i class="ri-arrow-right-s-line group-chevron"></i>
+            </button>
+            <div class="sidebar-flyout-panel">
+              <div class="flyout-panel-header">
+                <i class="ri-settings-4-line"></i>
+                <span>Sistema y Accesos</span>
+              </div>
+              <ul class="flyout-panel-list">
+                <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span> <span id="badge-users" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="identity_qr_admin"><i class="ri-qr-code-line"></i> <span class="nav-text">Identidad & QRs</span> <span id="badge-qr-scans" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line"></i> <span class="nav-text">Gestionar Bodegas</span></a></li>
+                <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span> <span id="badge-integrations" class="menu-badge" style="display: none;">0</span></a></li>
+                <li><a href="#" class="nav-item" data-view="notifications_admin"><i class="ri-notification-badge-line"></i> <span class="nav-text">Notificaciones</span></a></li>
+                <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
+              </ul>
+            </div>
+          </li>
         </ul>
+
+        <!-- Accesos Rápidos (Favoritos Fijados) -->
+        <div class="sidebar-favorites-box" id="sidebar-favorites-box">
+          <div class="sidebar-section-label fav-header">
+            <span><i class="ri-star-fill fav-star-icon"></i> Favoritos Fijados</span>
+            <span class="fav-hint" title="Pasa el mouse sobre un grupo y pulsa ★ junto a cualquier vista para fijarla aquí">Máx 5</span>
+          </div>
+          <ul class="sidebar-favorites-list" id="sidebar-favorites-list"></ul>
+        </div>
       </nav>
-      <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 0.5rem;">
-        <a href="#" id="sidebar-support-btn" class="btn btn-accent nav-item" data-view="tickets_admin" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" title="Gestión de Tickets">
+      <div class="sidebar-footer sidebar-footer-compact">
+        <a href="#" id="sidebar-support-btn" class="btn btn-accent nav-item" data-view="tickets_admin" title="Gestión de Tickets">
           <i class="ri-customer-service-2-line"></i>
           <span class="nav-text">Gestión de Tickets</span>
         </a>
-        <button id="logout-btn" class="btn btn-outline" style="width: 100%; border-color: var(--color-gray); color: var(--color-light); display: flex; align-items: center; justify-content: center; gap: 0.5rem;" title="Cerrar Sesión">
+        <button id="logout-btn" class="btn btn-outline sidebar-logout-compact" title="Cerrar Sesión" aria-label="Cerrar Sesión">
           <i class="ri-logout-box-r-line"></i>
           <span class="nav-text">Cerrar Sesión</span>
         </button>
@@ -582,6 +679,90 @@
           </div>
 
           <div class="header-divider"></div>
+
+          <!-- Calculadora Admin -->
+          <div class="admin-calc-container" id="admin-calc-container">
+            <button id="admin-calc-btn" class="header-icon-btn" type="button" title="Calculadora Admin" aria-label="Calculadora Admin">
+              <i class="ri-calculator-line"></i>
+            </button>
+            <div id="admin-calc-dropdown" class="admin-calc-dropdown" style="display: none;">
+              <div class="admin-calc-header">
+                <div class="admin-calc-title">
+                  <i class="ri-calculator-line"></i>
+                  <span>Calculadora Admin</span>
+                </div>
+                <div class="admin-calc-header-actions">
+                  <button type="button" id="admin-calc-history-btn" class="admin-calc-hdr-btn" title="Historial de cálculos">
+                    <i class="ri-history-line"></i>
+                  </button>
+                  <button type="button" id="admin-calc-pin-btn" class="admin-calc-hdr-btn" title="Fijar abierta al hacer clic fuera">
+                    <i class="ri-pushpin-2-line"></i>
+                  </button>
+                  <button type="button" id="admin-calc-close-btn" class="admin-calc-hdr-btn" title="Cerrar (Esc)">
+                    <i class="ri-close-line"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Historial Desplegable -->
+              <div id="admin-calc-history-panel" class="admin-calc-history-panel" style="display: none;">
+                <div class="admin-calc-history-header">
+                  <span>Historial reciente</span>
+                  <button type="button" id="admin-calc-history-clear" class="admin-calc-history-clear">Limpiar</button>
+                </div>
+                <div id="admin-calc-history-list">
+                  <div style="text-align: center; padding: 0.5rem; color: var(--color-text-muted); font-size: 0.75rem;">Sin cálculos recientes</div>
+                </div>
+              </div>
+
+              <!-- Pantalla -->
+              <div class="admin-calc-screen">
+                <div id="admin-calc-expression" class="admin-calc-expression"></div>
+                <div class="admin-calc-main-row">
+                  <button type="button" id="admin-calc-copy-btn" class="admin-calc-copy-btn" title="Copiar resultado">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                  <div id="admin-calc-display" class="admin-calc-display">0</div>
+                </div>
+              </div>
+
+              <!-- Accesos Rápidos IVA / UF -->
+              <div class="admin-calc-quick-bar">
+                <button type="button" class="admin-calc-quick-btn" data-calc-quick="add-iva" title="Sumar IVA 19% (Neto → Bruto)">+IVA 19%</button>
+                <button type="button" class="admin-calc-quick-btn" data-calc-quick="sub-iva" title="Quitar IVA 19% (Bruto → Neto)">-IVA 19%</button>
+                <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="uf-to-clp" title="Convertir UF a CLP usando UF del día">UF → $</button>
+                <button type="button" class="admin-calc-quick-btn uf-btn" data-calc-quick="clp-to-uf" title="Convertir CLP a UF usando UF del día">$ → UF</button>
+              </div>
+
+              <!-- Teclado -->
+              <div class="admin-calc-keypad">
+                <button type="button" class="admin-calc-key key-clear" data-calc-action="clear" title="Limpiar todo (C)">C</button>
+                <button type="button" class="admin-calc-key" data-calc-action="backspace" title="Borrar dígito (Backspace)"><i class="ri-delete-back-2-line"></i></button>
+                <button type="button" class="admin-calc-key key-op" data-calc-action="percent" title="Porcentaje (%)">%</button>
+                <button type="button" class="admin-calc-key key-op" data-calc-op="/" title="Dividir (/)">÷</button>
+
+                <button type="button" class="admin-calc-key key-num" data-calc-num="7">7</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="8">8</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="9">9</button>
+                <button type="button" class="admin-calc-key key-op" data-calc-op="*" title="Multiplicar (*)">×</button>
+
+                <button type="button" class="admin-calc-key key-num" data-calc-num="4">4</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="5">5</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="6">6</button>
+                <button type="button" class="admin-calc-key key-op" data-calc-op="-" title="Restar (-)">−</button>
+
+                <button type="button" class="admin-calc-key key-num" data-calc-num="1">1</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="2">2</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="3">3</button>
+                <button type="button" class="admin-calc-key key-op" data-calc-op="+" title="Sumar (+)">+</button>
+
+                <button type="button" class="admin-calc-key" data-calc-action="negate" title="Cambiar signo (±)">±</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-num="0">0</button>
+                <button type="button" class="admin-calc-key key-num" data-calc-action="decimal" title="Decimal (,)">,</button>
+                <button type="button" class="admin-calc-key key-eq" data-calc-action="equals" title="Igual (Enter)">=</button>
+              </div>
+            </div>
+          </div>
 
           <!-- Notificaciones -->
           <div class="notification-container" style="position: relative;">
@@ -998,6 +1179,22 @@
               </label>
             </div>
           </div>
+          <div class="form-group" style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 0.75rem;">
+            <label class="form-label" style="font-weight: 600; color: #059669; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-barcode-line"></i> Multi-Códigos de Barras Asociados (Lotes / Alternativos)
+            </label>
+            <div id="edit-prod-alt-barcodes-chips" style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.45rem; min-height: 22px;"></div>
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="text" id="edit-prod-new-alt-barcode" class="form-input" placeholder="Escanear o escribir otro código de barras válido..." style="flex: 1; height: 32px; font-size: 0.82rem; background: #fff; border: 1px solid rgba(16, 185, 129, 0.4);">
+              <button type="button" class="btn btn-outline" onclick="window.addEditProdAltBarcode()" style="height: 32px; padding: 0 0.75rem; font-size: 0.78rem; border-color: #059669; color: #059669; font-weight: 600;">
+                + Agregar
+              </button>
+            </div>
+            <input type="hidden" id="edit-prod-alternate-barcodes" value="[]">
+            <small class="text-muted" style="font-size: 0.71rem; display: block; margin-top: 0.25rem; color: #475569;">
+              Todos los códigos aquí listados se concatenan junto al SKU y CBAR al enviar pedidos al Picker, permitiendo escanear stock de distintos lotes.
+            </small>
+          </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem;">
             <input type="checkbox" id="edit-prod-picking-strict" style="width: auto; cursor: pointer; margin: 0;">
             <label for="edit-prod-picking-strict" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
@@ -1192,14 +1389,28 @@
               Completa los datos del destinatario. Puedes buscar en el historial de clientes o copiar los datos de envío de algún pedido previo para agilizar el proceso.
             </p>
             
-            <!-- Selector de Comercio (Admin) -->
-            <div id="order-commerce-select-container" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; box-shadow: var(--shadow-sm);">
-              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
-                <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Seleccionar Comercio Asignado <span style="color: var(--color-danger);">*</span>
-              </label>
-              <select id="order-select-commerce" class="form-input" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
-                <!-- Opciones dinámicas en JS -->
-              </select>
+            <!-- Selector de Comercio y Fecha del Pedido (Admin) -->
+            <div id="order-commerce-select-container" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; box-shadow: var(--shadow-sm); align-items: start;">
+              <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
+                  <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Seleccionar Comercio Asignado <span style="color: var(--color-danger);">*</span>
+                </label>
+                <select id="order-select-commerce" class="form-input" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
+                  <!-- Opciones dinámicas en JS -->
+                </select>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                  <label class="form-label" for="admin-order-date-step1" style="font-weight: 600; font-size: 0.85rem; margin: 0; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
+                    <i class="ri-calendar-event-line" style="color: #7c3aed; font-size: 1.1rem;"></i> Fecha del Pedido (Torre de Control)
+                  </label>
+                  <button type="button" id="btn-reset-admin-order-date-step1" style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Restablecer a fecha y hora actual">
+                    <i class="ri-time-line"></i> Ahora
+                  </button>
+                </div>
+                <input type="datetime-local" id="admin-order-date-step1" class="form-input" style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.25;">Por defecto usa la fecha/hora actual de creación. Puedes elegir otra fecha para su ingreso en Torre de Control.</span>
+              </div>
             </div>
 
             <!-- Autocompletado desde Base de Datos -->
@@ -1461,6 +1672,22 @@
                         <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo asociado</span>
                       </div>
                     </label>
+
+                    <!-- Card 5: Envío Especial (Solo Admin) -->
+                    <label class="shipping-card-option" id="admin-special-shipping-type-card" style="grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <input type="radio" name="order-shipping-type" value="envio_especial" style="display: none;">
+                        <i class="ri-sparkling-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                        <div style="display: flex; flex-direction: column; text-align: left;">
+                          <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+                            Envío Especial
+                            <span style="font-size: 0.65rem; background: rgba(124, 58, 237, 0.12); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.3); padding: 1px 6px; border-radius: 999px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;">Solo Admin</span>
+                          </span>
+                          <span style="font-size: 0.7rem; color: var(--color-text-muted);">Nombre, costo y plazos personalizados</span>
+                        </div>
+                      </div>
+                      <i class="ri-equalizer-line" style="font-size: 1.1rem; color: var(--color-text-muted); opacity: 0.7;"></i>
+                    </label>
                   </div>
                 </div>
 
@@ -1610,6 +1837,95 @@
               </div>
 
             </div>
+
+            <!-- Configuración Operativa WMS (Solo Admin) -->
+            <div id="admin-order-operational-config-card" style="margin-top: 1.25rem; background: linear-gradient(135deg, rgba(124, 58, 237, 0.05) 0%, rgba(16, 185, 129, 0.04) 100%); border: 1px solid rgba(124, 58, 237, 0.28); border-radius: var(--radius-md); padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm);">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; border-bottom: 1px solid rgba(124, 58, 237, 0.18); padding-bottom: 0.65rem;">
+                <h4 style="margin: 0; color: #7c3aed; font-size: 0.95rem; display: flex; align-items: center; gap: 0.45rem;">
+                  <i class="ri-Equalizer-line"></i> Configuración Operativa WMS (Fecha, Estado, Pickeo y Bodega de Stock)
+                </h4>
+                <span style="background: rgba(124, 58, 237, 0.12); color: #7c3aed; font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 999px; letter-spacing: 0.03em; text-transform: uppercase;">
+                  Exclusivo Admin
+                </span>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; align-items: start;">
+                <!-- 1. Fecha y Hora del Pedido -->
+                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;">
+                    <label class="form-label" for="admin-order-date-input" style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin: 0;">
+                      Fecha del Pedido (Torre de Control)
+                    </label>
+                    <button type="button" id="btn-reset-admin-order-date" style="background: rgba(124, 58, 237, 0.1); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 999px; padding: 0.08rem 0.45rem; font-size: 0.68rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" title="Usar fecha y hora actual de creación">
+                      <i class="ri-time-line"></i> Ahora
+                    </button>
+                  </div>
+                  <input type="datetime-local" id="admin-order-date-input" class="form-input" style="font-size: 0.85rem; padding: 0.45rem 0.65rem; background: var(--color-surface);">
+                  <span id="admin-order-date-helper" style="font-size: 0.71rem; color: var(--color-text-muted); line-height: 1.25;">
+                    Por defecto: fecha de creación actual.
+                  </span>
+                </div>
+
+                <!-- 2. Estado del Pedido (WMS) -->
+                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <label class="form-label" for="admin-order-wms-status" style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin: 0;">
+                    Estado Inicial del Pedido <span style="color: var(--color-danger);">*</span>
+                  </label>
+                  <select id="admin-order-wms-status" class="form-input" style="font-size: 0.85rem; padding: 0.48rem 0.65rem; background: var(--color-surface); font-weight: 600;">
+                    <option value="En procesamiento" selected>⏳ En procesamiento (Por defecto)</option>
+                    <option value="En preparación">📦 En preparación (En pickeo)</option>
+                    <option value="Pickeado">✅ Pickeado (Preparado)</option>
+                    <option value="Despachado">🚚 Despachado (Descuenta stock físico)</option>
+                    <option value="Incidencia">⚠️ Incidencia</option>
+                    <option value="Cancelado">🚫 Cancelado</option>
+                    <option value="Archivado">📁 Archivado</option>
+                  </select>
+                  <span id="admin-order-wms-status-helper" style="font-size: 0.71rem; color: var(--color-text-muted); line-height: 1.25;">
+                    Ingresa a Torre de Control para procesar y compromete el stock.
+                  </span>
+                </div>
+
+                <!-- 3. Bodega / Sucursal de Pickeo -->
+                <div id="admin-order-picking-warehouse-wrapper" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <label class="form-label" for="admin-order-picking-warehouse" style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin: 0; display: flex; align-items: center; justify-content: space-between;">
+                    <span>Bodega de Pickeo</span>
+                    <span id="admin-order-picking-badge" style="font-size: 0.66rem; font-weight: 600; color: var(--color-text-muted); background: rgba(148, 163, 184, 0.15); padding: 0.1rem 0.4rem; border-radius: 4px;">No aplica</span>
+                  </label>
+                  <select id="admin-order-picking-warehouse" class="form-input" style="font-size: 0.85rem; padding: 0.48rem 0.65rem; background: var(--color-surface);" disabled>
+                    <option value="">-- No aplica en "En procesamiento" --</option>
+                    <option value="Sucursal Ñuñoa">Matriz Ñuñoa (Sucursal Ñuñoa)</option>
+                    <option value="Sucursal La Reina">CDD La Reina (Sucursal La Reina)</option>
+                    <option value="Sucursal Recoleta">CDD Recoleta (Sucursal Recoleta)</option>
+                    <option value="Sucursal Virtual (Hub)">Bodega Central (Hub Virtual)</option>
+                  </select>
+                  <span id="admin-order-picking-helper" style="font-size: 0.71rem; color: var(--color-text-muted); line-height: 1.25;">
+                    Se habilita cuando el estado requiere asignación de pickeo (En preparación, Pickeado, Despachado o Incidencia).
+                  </span>
+                </div>
+
+                <!-- 4. Bodega de Descuento de Stock -->
+                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                  <label class="form-label" for="admin-order-stock-warehouse" style="font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin: 0;">
+                    Bodega de Descuento de Stock <span style="color: var(--color-danger);">*</span>
+                  </label>
+                  <select id="admin-order-stock-warehouse" class="form-input" style="font-size: 0.85rem; padding: 0.48rem 0.65rem; background: var(--color-surface); font-weight: 600;">
+                    <option value="auto" selected>🔄 Según Bodega de Pickeo / Bodega Central</option>
+                    <option value="973da888-8a63-4790-a08f-919e1af41a93">🏢 Matriz Ñuñoa</option>
+                    <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">🏭 CDD La Reina</option>
+                    <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">🏭 CDD Recoleta</option>
+                    <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">🌐 Bodega Central (Hub Virtual)</option>
+                  </select>
+                  <span id="admin-order-stock-warehouse-helper" style="font-size: 0.71rem; color: var(--color-text-muted); line-height: 1.25;">
+                    Define la bodega donde se compromete, reserva o descuenta el inventario de los productos.
+                  </span>
+                </div>
+              </div>
+
+              <!-- Resumen en vivo de stock en la bodega seleccionada -->
+              <div id="admin-order-stock-warehouse-breakdown" style="background: var(--color-surface); border: 1px dashed rgba(124, 58, 237, 0.3); border-radius: var(--radius-sm); padding: 0.6rem 0.85rem; font-size: 0.78rem; color: var(--color-text-main); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                <span><i class="ri-Archive-drawer-line" style="color: #7c3aed;"></i> Selecciona productos en el Paso 2 para ver la disponibilidad por bodega.</span>
+              </div>
+            </div>
           </div>
 
           <!-- STEP 4: SUMMARY & CONFIRMATION -->
@@ -1630,6 +1946,10 @@
                   <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Comercio Originador:</span>
                     <span id="summary-commerce" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Fecha del Pedido (Torre):</span>
+                    <span id="summary-order-date" style="font-weight: bold; color: #7c3aed;">--</span>
                   </div>
                   <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Destinatario:</span>
@@ -1667,9 +1987,21 @@
                     <span style="font-weight: 600; color: var(--color-text-muted);">Categoría:</span>
                     <span id="summary-categoria" style="font-weight: bold; color: var(--color-primary);">--</span>
                   </div>
-                  <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
                     <span style="font-weight: 600; color: var(--color-text-muted);">Entrega / Courier:</span>
                     <span id="summary-shipping-type" style="font-weight: bold; color: var(--color-primary);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Estado Inicial (WMS):</span>
+                    <span id="summary-wms-status" style="font-weight: bold; color: #7c3aed;">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Bodega de Pickeo:</span>
+                    <span id="summary-picking-warehouse" style="font-weight: bold; color: var(--color-text-main);">--</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; padding-bottom: 0.35rem;">
+                    <span style="font-weight: 600; color: var(--color-text-muted);">Bodega Descuento Stock:</span>
+                    <span id="summary-stock-warehouse" style="font-weight: bold; color: #059669;">--</span>
                   </div>
                   <div style="border-top: 1px solid var(--color-border); padding-top: 0.6rem; margin-top: 0.25rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
@@ -1728,6 +2060,56 @@
 
             </div>
             
+            <!-- Control Rápido Operativo antes de Confirmar (Sincronizado con Paso 1 y 3) -->
+            <div id="admin-order-step4-operational-bar" style="margin-top: 1.25rem; background: linear-gradient(135deg, rgba(124, 58, 237, 0.06) 0%, rgba(16, 185, 129, 0.04) 100%); border: 1px solid rgba(124, 58, 237, 0.25); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem;">
+                <span style="font-size: 0.84rem; font-weight: 700; color: #7c3aed; display: flex; align-items: center; gap: 0.4rem;">
+                  <i class="ri-settings-4-line"></i> Ajuste Rápido de Envío al Sistema (Admin)
+                </span>
+                <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+                  Puedes verificar o cambiar la fecha, estado y bodegas antes de enviar el pedido
+                </span>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.85rem; align-items: end;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                  <label class="form-label" for="admin-order-date-step4" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin: 0;">Fecha del Pedido (Torre de Control)</label>
+                  <input type="datetime-local" id="admin-order-date-step4" class="form-input" style="font-size: 0.82rem; padding: 0.4rem 0.6rem; background: var(--color-surface);">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                  <label class="form-label" for="admin-order-wms-status-step4" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin: 0;">Estado del Pedido (WMS)</label>
+                  <select id="admin-order-wms-status-step4" class="form-input" style="font-size: 0.82rem; padding: 0.42rem 0.6rem; background: var(--color-surface); font-weight: 600;">
+                    <option value="En procesamiento" selected>⏳ En procesamiento</option>
+                    <option value="En preparación">📦 En preparación</option>
+                    <option value="Pickeado">✅ Pickeado</option>
+                    <option value="Despachado">🚚 Despachado</option>
+                    <option value="Incidencia">⚠️ Incidencia</option>
+                    <option value="Cancelado">🚫 Cancelado</option>
+                    <option value="Archivado">📁 Archivado</option>
+                  </select>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                  <label class="form-label" for="admin-order-picking-warehouse-step4" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin: 0;">Bodega de Pickeo</label>
+                  <select id="admin-order-picking-warehouse-step4" class="form-input" style="font-size: 0.82rem; padding: 0.42rem 0.6rem; background: var(--color-surface);" disabled>
+                    <option value="">-- No aplica en "En procesamiento" --</option>
+                    <option value="Sucursal Ñuñoa">Matriz Ñuñoa (Sucursal Ñuñoa)</option>
+                    <option value="Sucursal La Reina">CDD La Reina (Sucursal La Reina)</option>
+                    <option value="Sucursal Recoleta">CDD Recoleta (Sucursal Recoleta)</option>
+                    <option value="Sucursal Virtual (Hub)">Bodega Central (Hub Virtual)</option>
+                  </select>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                  <label class="form-label" for="admin-order-stock-warehouse-step4" style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin: 0;">Bodega Descuento de Stock</label>
+                  <select id="admin-order-stock-warehouse-step4" class="form-input" style="font-size: 0.82rem; padding: 0.42rem 0.6rem; background: var(--color-surface); font-weight: 600;">
+                    <option value="auto" selected>🔄 Según Bodega Pickeo / Central</option>
+                    <option value="973da888-8a63-4790-a08f-919e1af41a93">🏢 Matriz Ñuñoa</option>
+                    <option value="414605cb-f926-43d2-8bd2-d9509f7b458a">🏭 CDD La Reina</option>
+                    <option value="1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a">🏭 CDD Recoleta</option>
+                    <option value="ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09">🌐 Bodega Central (Hub Virtual)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <!-- Banner de advertencia si hay ítems con quiebre de stock en el resumen -->
             <div id="summary-out-of-stock-banner" style="display: none; margin-top: 1.25rem;"></div>
           </div>
@@ -2394,19 +2776,25 @@
               </div>
               <div id="manage-dec-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"></div>
             </div>
-            <div style="overflow-x: auto; max-height: 290px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
+            <div style="overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
               <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                 <thead>
                   <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); position: sticky; top: 0; z-index: 10; font-size: 0.78rem;">
-                    <th style="padding: 10px 8px; text-align: center; width: 45px;">#</th>
-                    <th style="padding: 10px 12px; min-width: 220px;">Producto / SKU</th>
-                    <th style="padding: 10px 10px; text-align: center; width: 135px;">Medidas Decl.</th>
-                    <th style="padding: 10px 10px; text-align: center; width: 225px;">Medidas Físicas Reales (L×An×Al cm)</th>
-                    <th style="padding: 10px 10px; text-align: right; width: 105px;">Vol. Conf.</th>
-                    <th style="padding: 10px 10px; text-align: right; width: 75px;">Declarado</th>
-                    <th style="padding: 10px 10px; text-align: center; width: 110px;">Recibido (Físico)</th>
-                    <th style="padding: 10px 10px; text-align: center; width: 80px;">Pendiente</th>
-                    <th style="padding: 10px 10px; text-align: right; width: 80px;">Diferencia</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 40px;">#</th>
+                    <th style="padding: 10px 10px; min-width: 190px;">Producto / SKU</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 115px; background: rgba(99, 102, 241, 0.06); color: #4f46e5;" title="Desmarcar si no trae SKU visible para enviar directo a impresión de etiqueta 5x2.5 cm">
+                      <i class="ri-price-tag-3-line"></i> Check SKU
+                    </th>
+                    <th style="padding: 10px 8px; text-align: center; min-width: 185px; background: rgba(16, 185, 129, 0.06); color: #059669;" title="Código de barras en WMS. Desmarcar para escanear un código físico nuevo o generar etiqueta si no trae ninguno">
+                      <i class="ri-barcode-box-line"></i> Cód. Barras WMS
+                    </th>
+                    <th style="padding: 10px 8px; text-align: center; width: 120px;">Medidas Decl.</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 210px;">Medidas Físicas Reales (L×An×Al cm)</th>
+                    <th style="padding: 10px 8px; text-align: right; width: 95px;">Vol. Conf.</th>
+                    <th style="padding: 10px 8px; text-align: right; width: 70px;">Declarado</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 105px;">Recibido (Físico)</th>
+                    <th style="padding: 10px 8px; text-align: center; width: 75px;">Pendiente</th>
+                    <th style="padding: 10px 8px; text-align: right; width: 75px;">Diferencia</th>
                   </tr>
                 </thead>
                 <tbody id="manage-dec-products-tbody">
@@ -2435,6 +2823,61 @@
                   <span style="color: var(--color-text-muted);">Dif. vs Decl:</span>
                   <strong id="manage-dec-table-vol-diff" style="color: var(--color-text-main); font-family: monospace;">0.0000 m³</strong>
                 </div>
+              </div>
+            </div>
+
+            <!-- Panel Gestor de Etiquetas Asociadas al Ingreso (Por defecto 5x2.5 cm) -->
+            <div id="manage-dec-labels-panel" style="margin-top: 0.9rem; border: 1.5px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.04); border-radius: 8px; padding: 0.85rem 1rem; display: none;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.65rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                  <div style="width: 34px; height: 34px; border-radius: 6px; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; color: #d97706;">
+                    <i class="ri-printer-cloud-line" style="font-size: 1.25rem;"></i>
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                      <strong style="font-size: 0.9rem; color: var(--color-text-main);">Etiquetas de Código de Barras del Ingreso</strong>
+                      <span class="badge" style="background: #fef3c7; color: #b45309; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(245,158,11,0.3);">
+                        Formato por defecto: 5 x 2.5 cm
+                      </span>
+                      <span id="manage-dec-labels-billing-badge" class="badge" style="background: rgba(16, 185, 129, 0.12); color: #059669; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;">
+                        0 uds × $100 = $0 CLP
+                      </span>
+                    </div>
+                    <span style="font-size: 0.76rem; color: var(--color-text-muted); display: block; margin-top: 2px;">
+                      Generadas automáticamente al desmarcar SKU o ambos checks. Puedes editar el código, texto, tamaño y cantidad antes de imprimir.
+                    </span>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <select id="manage-dec-labels-global-size" class="form-input" onchange="window.updateInboundLabelsGlobalSize(this.value)" style="height: 32px; font-size: 0.78rem; padding: 0 0.5rem; width: auto; background: var(--color-surface); font-weight: 600;">
+                    <option value="5x2.5" selected>Tamaño: 5 x 2.5 cm (Por defecto)</option>
+                    <option value="5x5">Tamaño: 5 x 5 cm</option>
+                    <option value="10x15">Tamaño: 10 x 15 cm</option>
+                  </select>
+                  <button type="button" class="btn btn-outline" onclick="window.exportInboundDeclarationLabelsZPL()" style="height: 32px; font-size: 0.78rem; padding: 0 0.7rem; display: inline-flex; align-items: center; gap: 0.3rem;" title="Ver o descargar código ZPL para impresoras Zebra">
+                    <i class="ri-code-s-slash-line"></i> ZPL
+                  </button>
+                  <button type="button" class="btn btn-primary" onclick="window.printInboundDeclarationLabels()" style="height: 32px; font-size: 0.78rem; padding: 0 0.85rem; background: #d97706; border-color: #d97706; color: #fff; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-printer-line"></i> Imprimir Etiquetas (<span id="manage-dec-labels-total-btn-count">0</span>)
+                  </button>
+                </div>
+              </div>
+              <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface);">
+                <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-bottom: 0;">
+                  <thead>
+                    <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.73rem; text-transform: uppercase;">
+                      <th style="padding: 6px 8px;">SKU Asociado</th>
+                      <th style="padding: 6px 8px;">Nombre / Etiqueta Visible</th>
+                      <th style="padding: 6px 8px;">Código a Codificar (Barras)</th>
+                      <th style="padding: 6px 8px; text-align: center; width: 110px;">Formato</th>
+                      <th style="padding: 6px 8px; text-align: center; width: 100px;">Copias a Imprimir</th>
+                      <th style="padding: 6px 8px; text-align: right; width: 110px;">Costo ($100/ud)</th>
+                      <th style="padding: 6px 8px; text-align: center; width: 95px;">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody id="manage-dec-labels-tbody">
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -4125,14 +4568,14 @@
   <script type="module" src="./js/picking_requests.js?v=1.0.3"></script>
   <script src="./js/agendas_grid.js?v=1.0.2"></script>
   <script src="./js/db-cache.js?v=1.0.0"></script>
-  <script type="module" src="./js/admin.js?v=1.5.5"></script>
+  <script type="module" src="./js/admin.js?v=1.5.11"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.5"></script>
   <script type="module" src="./js/clickup_facturacion_admin.js?v=1.0.0"></script>
-  <script type="module" src="./js/billing_generator.js?v=1.3.0"></script>
+  <script type="module" src="./js/billing_generator.js?v=1.3.7"></script>
   <script src="./js/manifests.js?v=1.0.1"></script>
   <script type="module" src="./js/pos_admin.js?v=1.0.10"></script>
   <script type="module" src="./js/inventory_count.js?v=1.0.9"></script>
-  <script src="./js/inventory_locations.js?v=1.0.6"></script>
+  <script src="./js/inventory_locations.js?v=1.0.7"></script>
 
   <!-- Floating Mercado Libre Sync Button -->
   <button class="floating-meli-btn" id="meli-monitor-btn" title="Mercado Libre: Sincronización y Nuevos Pedidos" onclick="window.toggleMeliMonitorPanel()" style="display: flex;">

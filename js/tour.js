@@ -159,13 +159,30 @@ class GuidedTour {
       return;
     }
 
+    // Limpiar aperturas forzadas previas de grupos Flyout
+    document.querySelectorAll('.sidebar-flyout-group.tour-force-open').forEach(g => {
+      g.classList.remove('tour-force-open');
+    });
+
+    // Si el elemento objetivo está dentro de un grupo Flyout del sidebar, abrirlo automáticamente
+    const flyoutGroup = targetEl.closest('.sidebar-flyout-group');
+    if (flyoutGroup) {
+      if (typeof window.positionSidebarFlyout === 'function') {
+        window.positionSidebarFlyout(flyoutGroup);
+      }
+      flyoutGroup.classList.add('tour-force-open');
+    }
+
     // Asegurar que el elemento esté a la vista (scroll suave si está en menú largo)
     targetEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
 
-    // Pequeño timeout para permitir que termine el scroll si hubo
+    // Pequeño timeout para permitir que termine el scroll/transición si hubo
     setTimeout(() => {
+      if (flyoutGroup && typeof window.positionSidebarFlyout === 'function') {
+        window.positionSidebarFlyout(flyoutGroup);
+      }
       this.updatePositions(targetEl, step);
-    }, 50);
+    }, 60);
 
     // Contenido del Popover
     const isFirst = this.currentIndex === 0;
@@ -423,6 +440,10 @@ class GuidedTour {
 
   finish(skipped = false) {
     this.active = false;
+
+    document.querySelectorAll('.sidebar-flyout-group.tour-force-open').forEach(g => {
+      g.classList.remove('tour-force-open');
+    });
 
     if (this.spotlightEl) this.spotlightEl.classList.remove('active');
     if (this.beaconEl) this.beaconEl.classList.remove('active');
