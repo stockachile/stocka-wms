@@ -22598,13 +22598,12 @@ async function handleRloFormSubmit(e) {
     }
     
     let merchantId = null;
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('merchant_id')
-      .ilike('comercio', `%${commerce}%`)
-      .limit(1)
-      .maybeSingle();
-    if (profile) merchantId = profile.merchant_id;
+    const { data: userAuth } = await supabase.auth.getUser();
+    if (userAuth && userAuth.user) {
+      merchantId = userAuth.user.id;
+    } else if (typeof session !== 'undefined' && session && session.user) {
+      merchantId = session.user.id;
+    }
     
     const cleanRef = refPedido ? (refPedido.startsWith('LI-') ? refPedido.substring(3) : refPedido) : 'REC';
     const finalExternalOrderNumber = `LI-${cleanRef}-${insertedRl.id.substring(0, 4).toUpperCase()}`;
